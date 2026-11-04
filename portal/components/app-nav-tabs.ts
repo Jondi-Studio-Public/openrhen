@@ -5,6 +5,7 @@
  */
 import { calendarSinkConnection } from "@openrhen/contracts";
 import { withExtensionDestinations, withExtensionOwnership } from "./nav-extensions";
+import "./addon-nav";
 import "./private/index";
 
 /** Palette keywords naming the shared-calendar connection, when one is registered (the registry supplies the name). */

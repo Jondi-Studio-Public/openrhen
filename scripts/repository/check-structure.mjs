@@ -3,6 +3,7 @@ import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { EXTRA_EDGES, packageOf, readWorkspace } from "../ci/affected.mjs";
+import { findCollisions, listRoutes, loadAddonWriters } from "./addon-routes.mjs";
 import { PLAN_INPUT_TABLES, WRITERS } from "./write-path-registry.mjs";
 
 const ARCHIVE_DIR = ["docs", "archive"].join("/"); // the private repository's retired documents; absent in the export
@@ -212,6 +213,10 @@ for (const absolute of maintainedFiles) {
     if (/from\s+["']\.\.\/\.\.\//.test(text)) errors.push(`${source} uses a deep parent-relative import instead of @/`);
   }
 }
+
+// The add-on page and API route seam (portal/app/(addon)/): no add-on URL may also be a core URL, and an add-on's
+// write-paths.json is well formed. Its entries join WRITERS in write-path-registry.mjs.
+errors.push(...findCollisions(listRoutes(root)), ...loadAddonWriters(root).errors);
 
 // One write path for plan input.
 const writePathRoots = ["portal", "platform", "integrations", "tools"];
