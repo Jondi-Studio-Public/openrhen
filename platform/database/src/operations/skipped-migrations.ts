@@ -58,6 +58,9 @@ export function checkAppliedMigrations(migrations: JournalMigration[], rows: App
 
 type Query = (strings: TemplateStringsArray) => PromiseLike<{ hash: string; created_at: string }[]>;
 
+/** The two ledger tables in the `drizzle` schema: the core set's, and the add-on set's own. */
+export type LedgerTable = "__drizzle_migrations" | "__drizzle_migrations_addon";
+
 export const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 
 /** The hashes of a migration file's text: as drizzle stores it (as read), and with LF line endings. */
@@ -76,10 +79,13 @@ export function journalMigrations(migrationsFolder: string): JournalMigration[] 
   });
 }
 
-/** Every row of `drizzle.__drizzle_migrations` (none when the table does not exist yet). Read-only. */
-export async function readLedgerRows(sql: Query): Promise<AppliedRow[]> {
+/** Every row of a ledger table (none when it does not exist yet). Read-only. */
+export async function readLedgerRows(sql: Query, table: LedgerTable = "__drizzle_migrations"): Promise<AppliedRow[]> {
   try {
-    const result = await sql`SELECT hash, created_at::text AS created_at FROM drizzle.__drizzle_migrations`;
+    const result =
+      table === "__drizzle_migrations_addon"
+        ? await sql`SELECT hash, created_at::text AS created_at FROM drizzle.__drizzle_migrations_addon`
+        : await sql`SELECT hash, created_at::text AS created_at FROM drizzle.__drizzle_migrations`;
     return result.map((row) => ({ hash: row.hash, createdAt: Number(row.created_at) }));
   } catch (error) {
     // 42P01: the migrations table does not exist yet, so nothing has been applied.
@@ -93,11 +99,20 @@ export async function readLedgerRows(sql: Query): Promise<AppliedRow[]> {
  * pre-baseline history but not the baseline's own row counts the baseline as applied (`baseline-equivalence.ts`);
  * only `migrate-on-deploy` writes the adoption row.
  */
-export async function checkDatabaseMigrations(sql: Query, migrationsFolder: string): Promise<MigrationCheck> {
-  const rows = await readLedgerRows(sql);
+export async function checkDatabaseMigrations(
+  sql: Query,
+  migrationsFolder: string,
+  table: LedgerTable = "__drizzle_migrations",
+  /** The core ledger's rows, for an add-on baseline with `legacyLedger: "core"`. */
+  coreRows?: AppliedRow[]
+): Promise<MigrationCheck> {
+  const rows = await readLedgerRows(sql, table);
   const migrations = journalMigrations(migrationsFolder);
   const baseline = loadBaseline(migrationsFolder);
-  const decision = baseline ? decideAdoption(baseline, baselineMigration(baseline, migrations), rows) : null;
+  const legacyRows = baseline?.legacyLedger === "core" ? (coreRows ?? (await readLedgerRows(sql))) : rows;
+  const decision = baseline
+    ? decideAdoption(baseline, baselineMigration(baseline, migrations), rows, legacyRows)
+    : null;
   const check = checkAppliedMigrations(migrations, rows);
   if (decision?.action !== "adopt") return check;
   const tag = decision.baselineTag;
@@ -105,10 +120,10 @@ export async function checkDatabaseMigrations(sql: Query, migrationsFolder: stri
 }
 
 /** The error a deploy fails with when a migration was skipped. */
-export function skippedMigrationsMessage(skipped: string[]): string {
+export function skippedMigrationsMessage(skipped: string[], table: LedgerTable = "__drizzle_migrations"): string {
   return (
-    `${skipped.length} migration${skipped.length === 1 ? " was" : "s were"} skipped: ${skipped.join(", ")}. ` +
+    `${table === "__drizzle_migrations" ? "" : "Add-on migration set: "}${skipped.length} migration${skipped.length === 1 ? " was" : "s were"} skipped: ${skipped.join(", ")}. ` +
     "Drizzle never applies a journal entry stamped older than one the database already has. Apply each file's SQL by hand " +
-    "in one transaction and insert its row into drizzle.__drizzle_migrations, then redeploy."
+    `in one transaction and insert its row into drizzle.${table}, then redeploy.`
   );
 }

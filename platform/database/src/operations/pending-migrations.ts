@@ -1,5 +1,6 @@
 import journal from "../../drizzle/meta/_journal.json" with { type: "json" };
 
+type JournalEntry = { tag: string; when: number };
 type Query = (strings: TemplateStringsArray) => PromiseLike<{ last: string | null }[]>;
 
 /**
@@ -14,13 +15,13 @@ export async function pendingMigrationTags(sql: Query): Promise<string[]> {
 }
 
 /** The journal tags newer than `applied` (the newest recorded `created_at`, 0 when none). */
-export function pendingTagsAfter(applied: number): string[] {
-  return journal.entries.filter((entry) => entry.when > applied).map((entry) => entry.tag);
+export function pendingTagsAfter(applied: number, entries: JournalEntry[] = journal.entries): string[] {
+  return entries.filter((entry) => entry.when > applied).map((entry) => entry.tag);
 }
 
 /** The newest journal `when` this image carries (0 for an empty journal). */
-export function imageNewestMigration(): number {
-  return journal.entries.reduce((newest, entry) => Math.max(newest, entry.when), 0);
+export function imageNewestMigration(entries: JournalEntry[] = journal.entries): number {
+  return entries.reduce((newest, entry) => Math.max(newest, entry.when), 0);
 }
 
 /**

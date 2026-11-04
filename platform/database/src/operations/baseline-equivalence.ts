@@ -23,6 +23,11 @@ export interface BaselineFile {
   /** The idx of the baseline entry in the journal; the legacy history runs 0 to this. */
   baselineIdx: number;
   legacy: LegacyMigration[];
+  /**
+   * Which ledger the replaced history is classified against. Absent: the set's own. An add-on set whose
+   * baseline replaces tables the core history built says `"core"`, so its legacy rows are looked up there.
+   */
+  legacyLedger?: "core";
   /** Legacy migrations after the baseline (private-only ones included); their rows are known, never "ahead". */
   laterLegacy?: (LegacyMigration & { exported?: boolean })[];
 }
@@ -113,9 +118,12 @@ export function baselineMigration(
 export function decideAdoption(
   baseline: BaselineFile,
   baselineEntry: JournalMigration,
-  rows: AppliedRow[]
+  rows: AppliedRow[],
+  legacyRows: AppliedRow[] = rows
 ): AdoptionDecision {
-  const classification = classifyLegacy(baseline.legacy, rows);
+  // `rows` is the set's own ledger (is the baseline's own row there?); `legacyRows` is the ledger the replaced
+  // history lives in, which differs only for an add-on set with `legacyLedger: "core"`.
+  const classification = classifyLegacy(baseline.legacy, legacyRows);
   if (rows.some((row) => baselineEntry.hashes.includes(row.hash))) return { action: "already", classification };
   if (classification.state === "none") return { action: "fresh", classification };
   if (classification.state === "partial") {

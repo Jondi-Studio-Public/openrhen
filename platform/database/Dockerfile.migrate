@@ -27,4 +27,6 @@ WORKDIR /app
 RUN apk add --no-cache postgresql17-client
 COPY --from=build /app/migrate/main.js ./main.js
 COPY platform/database/drizzle ./drizzle
+# The add-on migration set (empty in the stock build; a composed build drops its migrations here).
+COPY platform/database/addon-drizzle ./addon-drizzle
 CMD ["node", "main.js"]
