@@ -124,6 +124,8 @@ services:
       GOOGLE_CALENDAR_CLIENT_ID: ${GOOGLE_CALENDAR_CLIENT_ID:-}
       GOOGLE_CALENDAR_CLIENT_SECRET: ${GOOGLE_CALENDAR_CLIENT_SECRET:-}
       GOOGLE_CALENDAR_REFRESH_TOKEN: ${GOOGLE_CALENDAR_REFRESH_TOKEN:-}
+      # The private iCal feed address: the one calendar-feed secret, read only by the proxy.
+      CALENDAR_FEED_URL: ${CALENDAR_FEED_URL:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       # Plan search by meaning (the portal's hybrid search embeds through /capabilities/model_provider/deepinfra/embed).
       DEEPINFRA_API_KEY: ${DEEPINFRA_API_KEY:-}
