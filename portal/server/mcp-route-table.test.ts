@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -15,6 +15,7 @@ const portalRoot = fileURLToPath(new URL("..", import.meta.url));
 const apiRoot = join(portalRoot, "app", "api");
 
 function routeFiles(dir: string): string[] {
+  if (!existsSync(dir)) return [];
   return readdirSync(dir).flatMap((entry) => {
     const path = join(dir, entry);
     if (statSync(path).isDirectory()) return routeFiles(path);
@@ -33,7 +34,25 @@ const coreTemplates = files
   .map(templateOf)
   .sort();
 
+/**
+ * An add-on's API routes live in the `(addon)` route group (not part of the URL) and join the table when the
+ * add-on's drop-in calls `registerMcpRoutes`, so the core table names none of them.
+ */
+const addonTemplates = routeFiles(join(portalRoot, "app", "(addon)"))
+  .map(
+    (file) =>
+      `/${relative(join(portalRoot, "app", "(addon)"), join(file, ".."))
+        .split(sep)
+        .join("/")}`
+  )
+  .filter((template) => template.startsWith("/api/"));
+
 describe("the route table", () => {
+  it("lists every add-on API route, registered by the add-on's drop-in", () => {
+    const missing = addonTemplates.filter((template) => !Object.hasOwn(MCP_ROUTE_TABLE, template));
+    expect(missing, "call registerMcpRoutes from the add-on's drop-ins/<id>/register.ts").toEqual([]);
+  });
+
   it("finds the route files", () => {
     expect(templates.length).toBeGreaterThan(80);
   });
@@ -44,7 +63,7 @@ describe("the route table", () => {
   });
 
   it("names no route that no longer exists", () => {
-    const existing = new Set(templates);
+    const existing = new Set([...templates, ...addonTemplates]);
     expect(Object.keys(MCP_ROUTE_TABLE).filter((template) => !existing.has(template))).toEqual([]);
   });
 

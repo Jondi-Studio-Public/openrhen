@@ -1,4 +1,5 @@
 import "./private/index.mjs";
+import { loadAddonWriters } from "./addon-routes.mjs";
 import { extensionWriters } from "./write-path-extensions.mjs";
 // Registry for the one-write-path guard.
 //
@@ -301,5 +302,9 @@ const CORE_WRITERS = {
   }
 };
 
-/** The core's writers plus those a feature the export leaves out registers (`write-path-extensions.mjs`). */
-export const WRITERS = { ...CORE_WRITERS, ...extensionWriters() };
+/**
+ * The core's writers plus those a feature the export leaves out registers (`write-path-extensions.mjs`) and those
+ * an add-on's route handlers declare as data (`portal/app/(addon)/<id>/write-paths.json`). An add-on's entries sit
+ * under the core's, so an add-on cannot change what core says about its own files.
+ */
+export const WRITERS = { ...loadAddonWriters().writers, ...CORE_WRITERS, ...extensionWriters() };

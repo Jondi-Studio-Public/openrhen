@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import "@/server/drop-ins";
@@ -13,8 +13,12 @@ import { describe, expect, it } from "vitest";
 const appRoot = fileURLToPath(new URL("../app", import.meta.url));
 // The API, plus the few public protocol routes outside it: the remote MCP endpoint and its OAuth documents.
 const routeRoots = ["api", "mcp", "oauth", ".well-known"].map((name) => join(appRoot, name));
+// An add-on's routes live in the `(addon)` route group, which is not part of the URL. Its handlers are classified
+// like core's, or an agent token is refused: the group is walked whole, minus its pages.
+const addonRoot = join(appRoot, "(addon)");
 
 function routeFiles(dir: string): string[] {
+  if (!existsSync(dir)) return [];
   return readdirSync(dir).flatMap((entry) => {
     const path = join(dir, entry);
     if (statSync(path).isDirectory()) return routeFiles(path);
@@ -24,9 +28,12 @@ function routeFiles(dir: string): string[] {
 
 const METHOD = /export\s+(?:const|async\s+function|function)\s+(GET|POST|PUT|PATCH|DELETE)\b/g;
 
-const found = routeRoots.flatMap(routeFiles).flatMap((file) => {
+const found = [...routeRoots.flatMap(routeFiles), ...routeFiles(addonRoot)].flatMap((file) => {
   const source = readFileSync(file, "utf8");
-  const template = `/${relative(appRoot, join(file, "..")).split(sep).join("/")}`;
+  const template = `/${relative(appRoot, join(file, ".."))
+    .split(sep)
+    .filter((segment) => !/^\(.*\)$/.test(segment))
+    .join("/")}`;
   const withRouteName = /withRoute(?:<[^(]*>)?\(\s*"([^"]+)"/.exec(source)?.[1];
   return [...source.matchAll(METHOD)].map((match) => ({ key: `${match[1]} ${template}`, template, withRouteName }));
 });
