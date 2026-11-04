@@ -9,6 +9,7 @@
 //   --mode docker   (default) DATABASE_URL hosts are `postgres`, the bundled service.
 //   --mode source   hosts are 127.0.0.1:${POSTGRES_HOST_PORT}, to run `corepack pnpm dev`.
 //   --docker        running as root in the setup container: chown var/photos and .env, keep UTC.
+//   Add-on env fragments (`addons/<id>/env.example`) are folded into .env too; format in addon-env.mjs.
 //   --lockdown      also make the worker token pair and the owner recovery token (for OPENRHEN_OWNER_AUTH=require);
 //                   the plain recovery token goes to var/owner-recovery-token.txt, never .env or stdout.
 //
@@ -35,6 +36,7 @@ import {
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { PLACEHOLDER } from "../deploy/required-secrets.mjs";
+import { applyAddonEnv } from "./addon-env.mjs";
 import { getValue, isBlank, parseEnvText, setValue } from "./env-file.mjs";
 
 export const GENERATED = [
@@ -184,6 +186,11 @@ export function initEnv({
     } else kept.push(key);
   }
 
+  const addon = applyAddonEnv({ cwd, text });
+  ({ text } = addon);
+  generated.push(...addon.generated);
+  kept.push(...addon.kept);
+
   const values = parseEnvText(text);
   if (VAPID_KEYS.some((key) => isBlank(values[key]))) {
     const { publicKey, privateKey } = generateVapidKeys();
@@ -222,6 +229,8 @@ export function initEnv({
       generated.push("APP_TIMEZONE");
     }
   }
+
+  hints.push(...addon.conflicts);
 
   let recoveryPath = null;
   if (options.lockdown) {
