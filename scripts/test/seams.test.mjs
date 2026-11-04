@@ -22,6 +22,14 @@ test("the list is sorted and has no duplicates", () => {
   assert.deepEqual(listed, [...new Set(listed)].sort());
 });
 
+// A composed tree (core plus an add-on) records the add-on's files in .sync-core.json as `overlayFiles`. The add-on
+// fills the stubs and may add more files under private/ folders; those are its own, not stubs. Stock core has no such
+// file, so there every file under a private folder must be a listed stub.
+const composedFile = resolve(root, ".sync-core.json");
+const addonOwned = new Set(
+  existsSync(composedFile) ? (JSON.parse(readFileSync(composedFile, "utf8")).overlayFiles ?? []) : []
+);
+
 test("every tracked file under a private folder is listed", () => {
   const tracked = execFileSync("git", ["ls-files"], { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
     .split("\n")
@@ -30,7 +38,13 @@ test("every tracked file under a private folder is listed", () => {
       (file) =>
         /(?:^|\/)private\//.test(file) &&
         !file.startsWith("integrations/addon-example/overlay/") &&
-        existsSync(resolve(root, file))
+        existsSync(resolve(root, file)) &&
+        (!addonOwned.has(file) || listed.includes(file))
     );
   assert.deepEqual(tracked.sort(), [...listed]);
+});
+
+test("a composed tree lists only files that exist, and every listed stub is still core's or the add-on's", () => {
+  for (const file of addonOwned)
+    assert.ok(existsSync(resolve(root, file)), `${file} is recorded as the add-on's but missing`);
 });
