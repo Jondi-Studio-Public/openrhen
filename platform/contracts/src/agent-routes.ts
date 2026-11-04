@@ -740,6 +740,8 @@ const OWNER_READS = new Set([
   "/api/agent-sessions",
   "/api/agent-changes",
   "/api/agent-changes/[id]",
+  "/api/closed",
+  "/api/closed/summary",
   "/api/owner/credentials",
   "/api/owner/session",
   "/api/connections/status",

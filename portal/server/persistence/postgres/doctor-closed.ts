@@ -1,23 +1,11 @@
 import { CLOSED_TABLES, type DoctorClosedSlice } from "@openrhen/contracts";
+import { OWNED_BY_USER } from "./closed-ownership";
 import type { Sql } from "./sql-pool";
 
 /**
  * The closed-stamp family of the data health check: per table in CLOSED_TABLES, the rows holding `closed_at` while
  * not closed and the closed rows with none. User-scoped through each table's owner path; counts only, writes nothing.
  */
-const OWNED_BY_USER: Record<keyof typeof CLOSED_TABLES, string> = {
-  areas: "t.user_id = $1",
-  outcomes: "EXISTS (SELECT 1 FROM areas a WHERE a.id = t.area_id AND a.user_id = $1)",
-  projects:
-    "EXISTS (SELECT 1 FROM outcomes o JOIN areas a ON a.id = o.area_id WHERE o.id = t.outcome_id AND a.user_id = $1)",
-  actions:
-    "EXISTS (SELECT 1 FROM projects p JOIN outcomes o ON o.id = p.outcome_id JOIN areas a ON a.id = o.area_id WHERE p.id = t.project_id AND a.user_id = $1)",
-  deliverables:
-    "EXISTS (SELECT 1 FROM projects p JOIN outcomes o ON o.id = p.outcome_id JOIN areas a ON a.id = o.area_id WHERE p.id = t.project_id AND a.user_id = $1)",
-  commitments: "t.user_id = $1",
-  routine_presets: "t.user_id = $1",
-  condition_definitions: "t.user_id = $1"
-};
 
 export async function readClosedSlice(sql: Sql, userId: string): Promise<DoctorClosedSlice> {
   const tables: DoctorClosedSlice["tables"] = [];
