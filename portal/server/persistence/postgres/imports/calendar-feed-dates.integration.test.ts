@@ -1356,6 +1356,33 @@ describe("a date the feed cancels, and a cancel the owner made on a planner-owne
     expect(await stamp(ruleId, week(1))).toMatchObject({ closed_by: "person" });
   });
 
+  it("does not close a date the owner edited when the insert's statement wrote nothing for it", async () => {
+    const ruleId = await createSeries();
+    await sql`UPDATE commitments SET schedule_source='custom' WHERE recurrence_rule_id=${ruleId} AND local_date=${week(1)}::date`;
+    const row = (await dateRow(ruleId, week(1)))!;
+    await sql.begin((tx) =>
+      insertFeedDate(
+        tx as never,
+        userId,
+        ruleId,
+        week(1),
+        {
+          title: "Cancelled by feed",
+          startsAt: row.starts_at.toISOString(),
+          endsAt: row.ends_at.toISOString(),
+          status: "cancelled",
+          location: null,
+          setupBeforeMinutes: 0,
+          transitionAfterMinutes: 0
+        },
+        null,
+        { batchId: crypto.randomUUID() }
+      )
+    );
+    expect((await dateRow(ruleId, week(1)))!.status).not.toBe("cancelled");
+    expect(await ledger(row.id)).toHaveLength(0);
+  });
+
   it("leaves an already cancelled date alone when the feed cancels it too: nothing rewritten, nothing counted", async () => {
     const ruleId = await createSeries();
     await ownerCancels(ruleId, week(1));

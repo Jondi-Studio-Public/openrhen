@@ -164,7 +164,7 @@ async function readRow(
 }
 
 /** The actor the trigger stamps: the person, the agent, or the agent's close the owner confirmed (plan D7). */
-function actorName(undo = false): string {
+export function actorName(undo = false): string {
   const agent = requestAgent();
   const suffix = undo ? UNDO_CLOSED_BY_SUFFIX : "";
   if (agent === null) return `person${suffix}`;

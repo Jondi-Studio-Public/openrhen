@@ -801,7 +801,7 @@ describe("calendar diff conflicts", () => {
 
   it.each([
     "title changed in both Google Calendar and OpenRhen. Choose which value to keep.",
-    "Cancelled in Google Calendar, but title changed in OpenRhen since. Delete it anyway or keep it."
+    "Cancelled in Google Calendar, but title changed in OpenRhen since. Cancel it anyway or keep it."
   ])("keeps a Google conflict a conflict, with its explanation: %s", (message) => {
     const [record] = validateImportRecords([conflict(message)], { isExisting });
     expect(record).toMatchObject({ operation: "conflict", errors: [message] });

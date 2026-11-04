@@ -218,7 +218,7 @@ describe("Google Calendar commit-and-link", () => {
     expect(await sql`SELECT 1 FROM commitments WHERE title='Dentist (my edit)'`).toHaveLength(1);
   });
 
-  it("cancels a held Google cancel of an edited commitment once the owner chooses Delete anyway", async () => {
+  it("cancels a held Google cancel of an edited commitment once the owner chooses Cancel anyway", async () => {
     const e = event({ externalEventId: "abc123" });
     const created = await previewGoogle({ ...window, events: [e], calendars });
     await importStore.commit(created!.id, created!.version);

@@ -11,6 +11,7 @@ import { createManualLink } from "../plan-map-store";
 import { planLinkInput } from "./key-resolution";
 import { localDayIn } from "../cadence-completion";
 import { stableUuid } from "../command-values";
+import { actorName } from "../close-commands";
 import type { Sql } from "../sql-pool";
 import { restoreBatch } from "../close-cascade";
 import { closeCommitmentAsSystem, type LockedSystemClose } from "../system-close";
@@ -61,6 +62,9 @@ export interface ImportCloseContext {
   /** The close plans the brake counted, by commitment id. */
   plans?: ReadonlyMap<string, LockedSystemClose> | undefined;
 }
+
+/** A record the calendar feed derived from its own read (a date's change, a moved date, a series): the source's say, not a reviewer's edit. */
+const isFeedRecord = (record: ImportRecord) => Object.keys(record.relationships).some((key) => key.startsWith("feed"));
 
 /** The reason a record gives for the source's removal (`Cancelled in Google Calendar`), else a generic one. */
 export function sourceRemovalWhy(record: ImportRecord): string {
@@ -332,6 +336,9 @@ export async function upsertCommitment(
       userId,
       id,
       why: sourceRemovalWhy({ ...r, fields: { status: r.fields.status! } }),
+      // A record edited to cancelled is the person's or agent's choice, not the source's removal (those are `delete`
+      // records, or the feed's own date records): stamped with who chose it, with no marker, so no later sync reopens it.
+      actor: isFeedRecord(r) ? undefined : actorName(),
       batchId: close.batchId,
       planned: close.plans?.get(id)
     });

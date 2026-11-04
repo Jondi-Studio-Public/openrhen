@@ -94,6 +94,12 @@ export interface SystemCloseArgs {
   batchId?: string | undefined;
   /** The plan the brake counted; the write is refused if it is not the plan the locked rows give now. */
   planned?: LockedSystemClose | undefined;
+  /**
+   * Set when the cancel is a person's or an agent's choice made in the import (a record edited to cancelled), not the
+   * source's removal: the close is stamped with this actor (`person`, `agent:<name>`) and carries `why` as its reason
+   * with no import-removed marker, so a later sync never reopens it ("Still cancelled by you").
+   */
+  actor?: string | undefined;
 }
 
 export interface SystemCloseResult {
@@ -127,10 +133,14 @@ export async function closeCommitmentAsSystem(tx: Sql, args: SystemCloseArgs): P
     >`SELECT status, version, closed_at, closed_from_status, closed_by, closed_batch, closed_reason FROM commitments WHERE id=${id}`
   )[0]!;
   const batch = args.batchId ?? crypto.randomUUID();
-  const reason = `${IMPORT_REMOVED_REASON_PREFIX}${args.why}`;
+  const reason = args.actor ? args.why : `${IMPORT_REMOVED_REASON_PREFIX}${args.why}`;
   const sessions = await openSessionIds(tx, userId, id);
+  // The trigger stamps `closed_by` from this setting (`system` when unset); it is cleared again right after the close
+  // so the rest of the import's transaction is stamped as before.
+  if (args.actor) await tx`SELECT set_config('priorities.actor', ${args.actor}, true)`;
   await tx`UPDATE commitments SET status='cancelled', closed_batch=${batch}, closed_reason=${reason}, version=version+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id}`;
   const cascaded: CascadedRow[] = await applyClose(tx, locked.plan, batch, reason, null);
+  if (args.actor) await tx`SELECT set_config('priorities.actor', '', true)`;
   const dependents: DependentRow[] = await dependentsOf(tx, "commitment", id);
   await recordStateChange(tx, userId, {
     entityType: "commitment",
@@ -147,6 +157,7 @@ export async function closeCommitmentAsSystem(tx: Sql, args: SystemCloseArgs): P
       closed: 1 + cascaded.length,
       counted: closeBudgetApplies(),
       via: "import",
+      by: args.actor ?? "system",
       importBatch: args.batchId ?? null,
       why: args.why,
       dependents: dependents.map((row) => ({ type: row.type, id: row.id, title: row.title, call: row.call })),

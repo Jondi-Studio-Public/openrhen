@@ -320,6 +320,20 @@ describe("feedReadComplete", () => {
     expect([...split.ownedLatestStart]).toEqual([["s", "2026-11-19T01:00:00.000Z"]]);
   });
 
+  it("names the original date of a moved-date replacement as moved, unless the replacement was cancelled", () => {
+    const replacement = (id: string, status: string) => ({
+      external_event_id: id,
+      status,
+      last_remote_snapshot: { startsAt: "2026-11-12T00:00:00.000Z", feedMoveOf: "2026-11-05" }
+    });
+    const open = splitSeriesOwnedLinks([replacement("s#moved", "confirmed")], new Set(["s"]));
+    expect([...(open.moveDates.get("s") ?? [])]).toEqual(["2026-11-05"]);
+    // a cancelled replacement stays with the per-instance diff (it can come back) but no longer holds its date moved
+    const closed = splitSeriesOwnedLinks([replacement("s#moved", "cancelled")], new Set(["s"]));
+    expect(closed.links).toHaveLength(1);
+    expect(closed.moveDates.get("s")).toBeUndefined();
+  });
+
   it("is not complete when the read is empty while links sit in the window", () => {
     expect(feedReadComplete({ ...base, rawEventCount: 0 }, [link("a")], window)).toBe(false);
     expect(feedReadComplete({ ...base, rawEventCount: 0 }, [link("a", "2025-01-01T00:00:00.000Z")], window)).toBe(true);

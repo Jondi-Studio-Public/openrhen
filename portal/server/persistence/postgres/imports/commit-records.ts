@@ -10,7 +10,7 @@ import "./private/index";
 import "./calendar-feed-import-extension";
 import { maskToApplyFields } from "./source-match-records";
 import { linkSourceToRule, recordSourceAlias, unlinkSource, type LinkSourceArgs } from "./source-links";
-import { clearSourceClosed, markSourceClosed } from "./source-closed";
+import { markSourceClosed } from "./source-closed";
 import {
   assertAndCloseCommitment,
   copyRoutineSteps,
@@ -157,13 +157,6 @@ export async function commitRecords(
       } else if (type === "fixed_commitment_recurrence")
         await upsertCommitmentRecurrenceRule(sql, userId, id!, record, value);
       await extension?.afterRecord?.(hookContext);
-      // The event is back (or its source is open again): the removal the link remembered no longer applies.
-      if (
-        type === "fixed_commitment" &&
-        record.relationships.sourceLinkId &&
-        (record.relationships.sourceReopen || record.relationships.sourceClear)
-      )
-        await clearSourceClosed(sql, userId, record.relationships.sourceLinkId);
       if (id && type !== "condition_definition")
         await sql`INSERT INTO import_entity_keys (user_id, entity_type, import_key, entity_id) VALUES (${userId}, ${type}, ${record.importKey}, ${id}) ON CONFLICT (user_id, entity_type, import_key) DO UPDATE SET entity_id=EXCLUDED.entity_id, updated_at=CURRENT_TIMESTAMP`;
       if (id && type === "fixed_commitment" && record.operation !== "link" && record.relationships.routineSteps)

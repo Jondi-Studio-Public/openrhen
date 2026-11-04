@@ -15,6 +15,7 @@ import { ensureUser } from "../ensure-user";
 import { PostgresImportStore } from "../import-store";
 import { NormalizedPostgresStateStore } from "../state-store";
 import { closeCommitmentAsSystem } from "../system-close";
+import { closingPlans, closingRecords } from "./agent-import-floor";
 import { toCalendarEvent } from "./calendar-profiles/google-event-fixtures";
 
 /**
@@ -538,5 +539,165 @@ describe("an event that returns after a cancellation", () => {
     expect(await commitmentFor("e1")).toMatchObject({ status: "cancelled" });
     await importStore.commit(back!.id, back!.version);
     expect(await commitmentFor("e1")).toMatchObject({ status: "confirmed" });
+  });
+});
+
+// ---- the marker is tested in SQL as well as in TypeScript ----
+
+/** A CSV import writing `status` for the linked Dentist, committed by the owner unless wrapped. */
+async function csvStatus(
+  status: string,
+  as: <T>(fn: () => Promise<T>) => Promise<T> = (fn) => fn(),
+  externalEventId = "e1"
+) {
+  const { parseImportCsv } = await import("@/features/imports/import-csv");
+  const csv = await importStore.preview({
+    sourceType: "csv",
+    inputKind: "capacity_commitments",
+    timezone: "Australia/Sydney",
+    templateVersion: "1",
+    records: parseImportCsv(
+      "fixed_commitments",
+      `import_key,title,starts_at,ends_at,status,setup_before_minutes,transition_after_minutes\r\ngoogle_calendar:event:${CAL}:${externalEventId},Dentist,2026-10-10T09:00:00.000Z,2026-10-10T10:00:00.000Z,${status},0,0`
+    ),
+    source: {}
+  });
+  await as(() => importStore.commit(csv.id, csv.version));
+  return csv;
+}
+
+describe("the import's status guard tests the whole marker (closed_by system and the reason prefix)", () => {
+  it("keeps a system close with no reason (a portal dropdown cancel) cancelled when an import writes confirmed", async () => {
+    const before = await linked();
+    await sql`UPDATE commitments SET status='cancelled', closed_reason=NULL, version=version+1 WHERE id=${before.id}`;
+    expect(await commitmentFor("e1")).toMatchObject({ closed_by: "system", closed_reason: null });
+    await csvStatus("confirmed");
+    expect(await commitmentFor("e1")).toMatchObject({ status: "cancelled", closed_by: "system", closed_reason: null });
+  });
+
+  it("keeps a close by a person that merely carries the marker's text cancelled when an import writes confirmed", async () => {
+    const before = await linked();
+    await sql`UPDATE commitments SET status='cancelled', closed_reason=${MARKER + "Cancelled in Google Calendar"}, version=version+1 WHERE id=${before.id}`;
+    await sql`UPDATE commitments SET closed_by='person' WHERE id=${before.id}`;
+    await csvStatus("confirmed");
+    expect(await commitmentFor("e1")).toMatchObject({ status: "cancelled", closed_by: "person" });
+  });
+
+  it("does reopen a close that carries the whole marker (control for the two above)", async () => {
+    const e = event({ externalEventId: "e1" });
+    await linked(e);
+    await sync([cancelled(e)]);
+    expect(await commitmentFor("e1")).toMatchObject({ status: "cancelled", closed_by: "system" });
+    await csvStatus("confirmed");
+    expect(await commitmentFor("e1")).toMatchObject({ status: "confirmed", closed_by: null });
+  });
+});
+
+// ---- a cancel somebody chose in the import is theirs, not the source's ----
+
+describe("a record edited to cancelled in an import", () => {
+  it("is stamped with the agent that committed it, carries no marker, and is never reopened by the source", async () => {
+    const e = event({ externalEventId: "e1" });
+    const before = await linked(e);
+    await csvStatus("cancelled", asAgent);
+    const stored = await commitmentFor("e1");
+    expect(stored).toMatchObject({ status: "cancelled", closed_by: "agent:claude" });
+    expect(stored.closed_reason).not.toContain(MARKER);
+    expect((await closeRows(before.id))[0]!.evidence).toMatchObject({ via: "import", by: "agent:claude" });
+    // the event is still live in the source: nothing reopens it, and a change says it is still cancelled
+    expect(await previewGoogle([e])).toBeNull();
+    const changed = await previewGoogle([{ ...e, title: "Dentist 2" }]);
+    expect(changed!.records[0]!.warnings).toContain("Still cancelled by you. Restore it from Review > Closed.");
+    await importStore.commit(changed!.id, changed!.version);
+    expect(await commitmentFor("e1")).toMatchObject({ status: "cancelled", closed_by: "agent:claude" });
+  });
+
+  it("is stamped as the person's when the owner commits it, and never reopened either", async () => {
+    const e = event({ externalEventId: "e1" });
+    await linked(e);
+    await csvStatus("cancelled");
+    expect(await commitmentFor("e1")).toMatchObject({ status: "cancelled", closed_by: "person" });
+    expect(await previewGoogle([e])).toBeNull();
+  });
+
+  it("leaves the source's own removal stamped as the system's even when an agent commits the batch", async () => {
+    const e = event({ externalEventId: "e1" });
+    await linked(e);
+    await sync([cancelled(e)], asAgent);
+    const stored = await commitmentFor("e1");
+    expect(stored).toMatchObject({ status: "cancelled", closed_by: "system" });
+    expect(stored.closed_reason).toContain(MARKER);
+  });
+
+  it("does not leak the actor into the rest of the commit: a source removal in the same transaction is still the system's", async () => {
+    const a = event({ externalEventId: "e1" });
+    await linked(a);
+    await csvStatus("cancelled", asAgent);
+    // a plain system close afterwards (no actor set) is stamped system again
+    const b = event({
+      externalEventId: "e2",
+      title: "Other",
+      startsAt: "2026-10-11T09:00:00.000Z",
+      endsAt: "2026-10-11T10:00:00.000Z"
+    });
+    await linked(b);
+    await sync([cancelled(b)]);
+    expect(await commitmentFor("e2")).toMatchObject({ closed_by: "system" });
+  });
+});
+
+// ---- the brake's pre-count and its lock ----
+
+describe("the brake counts what the commit will close", () => {
+  it("counts a link record that picks a cancelled status like an update, with the rows closed with it", async () => {
+    const before = await linked();
+    await seedStep(before.id, 1);
+    await seedStep(before.id, 2);
+    // the link's own key already names another commitment: the link record writes the one it matched
+    const e2 = event({ externalEventId: "e2", title: "Other" });
+    await sync([event({ externalEventId: "e1" }), e2]);
+    const other = await commitmentFor("e2");
+    const link = {
+      entityType: "fixed_commitment",
+      operation: "link",
+      importKey: `google_calendar:event:${CAL}:e2`,
+      matchedEntityId: before.id,
+      fields: { status: { value: "cancelled", evidence: [] } },
+      relationships: { sourceMatchDiffFields: "status" }
+    } as never;
+    const untouched = { ...(link as object), relationships: {} } as never;
+    expect(closingRecords([link, untouched])).toEqual([link]);
+    const plans = await sql.begin((tx) => closingPlans(tx as never, userId, [link]));
+    expect(plans.get(before.id)?.weight).toBe(3);
+    expect(plans.has(other.id)).toBe(false);
+  });
+
+  it("lets only one of two concurrent agent commits through when together they would pass the hourly limit", async () => {
+    const events = Array.from({ length: 8 }, (_, i) =>
+      event({
+        externalEventId: `e${i}`,
+        title: `Event ${i}`,
+        startsAt: `2026-10-1${i}T09:00:00.000Z`,
+        endsAt: `2026-10-1${i}T10:00:00.000Z`
+      })
+    );
+    await sync(events);
+    for (const e of events) {
+      const c = await commitmentFor(e.externalEventId);
+      await seedStep(c.id, 1);
+      await seedStep(c.id, 2);
+    }
+    // two batches of 4 commitments (12 rows each): each fits the 20 an agent may close in an hour, both do not
+    const first = await previewGoogle([...events.slice(0, 4).map(cancelled), ...events.slice(4)]);
+    const second = await previewGoogle([...events.slice(0, 4), ...events.slice(4).map(cancelled)]);
+    // the first preview's other four are not proposed again: only its own cancels are records
+    expect(first!.records).toHaveLength(4);
+    expect(second!.records).toHaveLength(4);
+    const settled = await Promise.allSettled([
+      asTokenAgent(() => importStore.commit(first!.id, first!.version)),
+      asTokenAgent(() => importStore.commit(second!.id, second!.version))
+    ]);
+    expect(settled.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(await sql`SELECT 1 FROM commitments WHERE status='cancelled'`).toHaveLength(4);
   });
 });

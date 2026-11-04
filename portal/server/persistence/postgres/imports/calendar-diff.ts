@@ -780,7 +780,7 @@ function deleteRecord(
         ...(row.id ? { sourceLinkId: row.id } : {})
       },
       errors: editedHere.length
-        ? [`${whyConflict}, but ${editedHere.join(", ")} changed in OpenRhen since. Delete it anyway or keep it.`]
+        ? [`${whyConflict}, but ${editedHere.join(", ")} changed in OpenRhen since. Cancel it anyway or keep it.`]
         : [],
       warnings: [REMOVAL_WARNING]
     }

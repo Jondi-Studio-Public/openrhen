@@ -386,7 +386,7 @@ export function acceptRecordOverlap(batch: ImportBatch, recordId: string): Impor
   });
 }
 
-/** The error lines a held cancel carries, from a sender or a calendar sync, that "Delete anyway" clears. */
+/** The error lines a held cancel carries, from a sender or a calendar sync, that "Cancel anyway" clears. */
 const heldCancelPrefixes = () => [
   ...holdCancelPrefixes(),
   "Cancelled in Google Calendar, but ",
@@ -402,7 +402,7 @@ export function isHeldCancel(record: Pick<ImportRecord, "relationships">): boole
 }
 
 /**
- * "Delete anyway" on a cancel of a commitment edited in OpenRhen since, whether a
+ * "Cancel anyway" on a cancel of a commitment edited in OpenRhen since, whether a
  * a sender cancelled it or its Google event was cancelled or left the calendar: the owner has seen
  * what the cancel throws away, so the held record goes back to the delete it was. "Keep it" is the
  * ordinary Remove, which leaves the commitment (and tells a sender no).

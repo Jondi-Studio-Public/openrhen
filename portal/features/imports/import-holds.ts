@@ -12,9 +12,9 @@ export interface ImportHold {
   overlapRelationshipKeys: readonly string[];
   /** Error line prefixes "Apply anyway" clears. */
   overlapErrorPrefixes: readonly string[];
-  /** Relationship keys that mark a cancel held because the commitment was edited since; "Delete anyway" drops them. */
+  /** Relationship keys that mark a cancel held because the commitment was edited since; "Cancel anyway" drops them. */
   heldCancelKeys: readonly string[];
-  /** Error line prefixes a held cancel carries that "Delete anyway" clears. */
+  /** Error line prefixes a held cancel carries that "Cancel anyway" clears. */
   heldCancelPrefixes: readonly string[];
   /** Relationship keys the review screen manages itself. */
   managedRelationshipKeys: readonly string[];
