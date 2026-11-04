@@ -55,6 +55,10 @@ A pace line (for example "40% done, 65% of time used") compares what is finished
 
 Saving uses record-version checks, so an older page cannot silently overwrite a newer edit. Use the remaining-effort override only when you have a better project-level estimate than the sum of actions.
 
+### Archive and cancel
+
+Every plan item has one **Archive** or **Cancel** button instead of a status choice: a finished or retired area, outcome, project, action or deliverable is archived, and abandoned work is cancelled. Closing something that has open items under it asks whether to close them all too. A ten-second **Undo** follows every close, and **Review > Closed** lists everything closed, who closed it and why, with a **Restore** on each.
+
 ### The map
 
 **Map** shows areas, outcomes, projects and subjects as a canvas you can re-centre, with derived links (tree, dependencies, shared source, place, contact) between them.
