@@ -292,7 +292,7 @@ export async function closeEntity(
     if (!(await claimCommandReceipt(tx, receipt))) return;
     // First statement after the claim: the trigger stamps `closed_by` from this setting, which lives only until the
     // transaction ends. The claim sits before it so a replay never stamps.
-    await tx`SELECT set_config('openrhen.actor', ${actorName()}, true)`;
+    await tx`SELECT set_config('priorities.actor', ${actorName()}, true)`;
     // An agent's close keeps the rows it touches so it can be undone (write-snapshot.ts). Opened before any row lock:
     // it takes the plan publication lock first.
     const snap = await WriteSnapshot.open(tx, userId, commandId, "save");
