@@ -78,6 +78,8 @@ export function staticBeatsDynamic(a, b) {
     const x = left[index];
     const y = right[index];
     if (catchAll(x) || catchAll(y)) return false;
+    // Two different param names at one position are what a router rejects outright, so no later segment can excuse them.
+    if (dynamic(x) && dynamic(y) && x !== y) return false;
     if (dynamic(x) !== dynamic(y)) return true;
     if (!dynamic(x) && x !== y) return false;
   }
