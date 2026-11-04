@@ -68,7 +68,7 @@ export async function saveProject(sql: PoolSql, command: SaveProjectCommand): Pr
       entityType: "project",
       entityId: id,
       operation: "save",
-      evidence: existing[0] === undefined ? { created: true } : {},
+      evidence: existing[0] === undefined ? { created: true, createdVersion: 1 } : {},
       commandId,
       before: changedFieldsBefore(existing[0]?.before, afterProject[0]?.after),
       at: new Date()
@@ -345,7 +345,7 @@ export async function saveAction(sql: PoolSql, command: SaveActionCommand): Prom
       evidence: {
         ...(command.blockingReason ? { blockingReason: command.blockingReason } : {}),
         ...(command.note ? { note: command.note } : {}),
-        ...(existing[0] === undefined ? { created: true } : {})
+        ...(existing[0] === undefined ? { created: true, createdVersion: 1 } : {})
       },
       commandId,
       // `notes` is dropped from the before-image (see the select): free text can be mail-derived and

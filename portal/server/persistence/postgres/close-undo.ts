@@ -10,7 +10,9 @@ import type { Sql } from "./sql-pool";
  * - it is less than `UNDO_WINDOW_HOURS` old;
  * - nobody else has written the row since: a later ledger row for the same row must be the same actor's and not a
  *   confirmation, so the owner's edit (every portal write) ends the exemption.
- * The caller also needs the row's current version to equal the version the agent sent.
+ * The caller also needs the row's current version to equal the version the agent sent, and that version must be the
+ * one the create left plus one for each of the agent's own later writes: an edit that wrote no ledger row of the row's
+ * type (so it is invisible above) still moved the version, and ends the exemption.
  */
 export async function verifyUndoOfCreate(
   tx: Sql,
@@ -18,8 +20,13 @@ export async function verifyUndoOfCreate(
   entityType: string,
   storedId: string,
   undoOfCommandId: string,
+  /** The row's version now. An edit through a path that leaves no ledger row of the row's type (an activity, a session, a planner write) moves it. */
+  currentVersion: number,
   actor: string | null = changeLogActor()
 ): Promise<boolean> {
+  // A deliverable's steps are actions of their own that a close of the deliverable alone would leave planned: its
+  // close is an ordinary, braked one (include-children), never an undo.
+  if (entityType === "deliverable") return false;
   const rows = await tx<{ ok: number }[]>`
     SELECT 1 AS ok
     FROM write_rows r
@@ -34,6 +41,15 @@ export async function verifyUndoOfCreate(
       AND r.evidence->>'created' = 'true'
       AND r.evidence->>'confirmedBy' IS NULL
       AND r.created_at > now() - make_interval(hours => ${UNDO_WINDOW_HOURS})
+      AND ${currentVersion}::int = COALESCE((r.evidence->>'createdVersion')::int, 1) + (
+        SELECT COUNT(DISTINCT own.write_id)
+        FROM write_rows own
+        WHERE own.user_id = ${userId}
+          AND own.entity_type = ${entityType}
+          AND own.entity_id = ${storedId}
+          AND own.write_id <> r.write_id
+          AND own.created_at >= r.created_at
+      )
       AND NOT EXISTS (
         SELECT 1
         FROM write_rows later

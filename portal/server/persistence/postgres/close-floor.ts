@@ -22,10 +22,31 @@ export async function assertNoClosedTransition(
   incomingStatus: unknown
 ): Promise<void> {
   if (requestAgent() === null || changeLogConfirmedBy() === "owner") return;
-  if (typeof incomingStatus !== "string" || !isCloseType(entityType)) return;
+  if (!isCloseType(entityType)) return;
+  const incoming = statusWritten(entityType, incomingStatus);
+  if (incoming === undefined) return;
   const stored = await lockedStatusOf(tx, userId, entityType, rawId);
-  if (stored !== undefined && stored.status === incomingStatus) return;
+  if (stored !== undefined && stored.status === incoming) return;
   // An open status only matters when it reopens a closed row; a create or an open-to-open save passes.
-  if (!isClosedStatus(incomingStatus) && (stored === undefined || !isClosedStatus(stored.status))) return;
-  throw refused(closedBySaveRefusal({ type: entityType, id: rawId, incoming: incomingStatus, stored }));
+  if (!isClosedStatus(incoming) && (stored === undefined || !isClosedStatus(stored.status))) return;
+  throw refused(closedBySaveRefusal({ type: entityType, id: rawId, incoming, stored }));
+}
+
+/** What a save that leaves the status out writes: the handler's own default, for the kinds that have one. */
+const OMITTED_STATUS: Readonly<Partial<Record<string, string>>> = {
+  routine_preset: "active",
+  condition_definition: "active",
+  deliverable: "needs_breakdown"
+};
+
+/**
+ * The status a save will write, read the way the handler reads it: trimmed (the handlers trim before they write) and
+ * lower-cased (so a cased or padded spelling cannot slip past a check that compares raw text), and the handler's
+ * default when the save leaves it out. Undefined when the save names no status and the kind has no default (the
+ * handler then refuses the save itself, or the stored value stays).
+ */
+export function statusWritten(entityType: string, raw: unknown): string | undefined {
+  const text = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (text) return text;
+  return OMITTED_STATUS[entityType];
 }

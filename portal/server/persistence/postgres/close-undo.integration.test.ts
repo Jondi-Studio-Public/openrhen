@@ -57,7 +57,7 @@ beforeAll(async () => {
   } finally {
     await migrationSql.end();
   }
-  sql = postgres(testUrl.toString(), { max: 8, connect_timeout: 10, fetch_types: false, prepare: true });
+  sql = postgres(testUrl.toString(), { max: 8, connect_timeout: 10, prepare: true });
   // The default stored-facts reader and proposal filer open the portal database from this.
   process.env.DATABASE_URL = testUrl.toString();
 }, 60_000);
@@ -850,5 +850,232 @@ describe("the save floor: an agent's save may not reopen a closed row", () => {
       "owner"
     );
     expect((await stored("action", second.id)).status).toBe("planned");
+  });
+});
+
+describe("the save floor reads the status the handler will write", () => {
+  const closeAs = (run: typeof asAgent, type: Type, id: string, verb: "archive" | "cancel") =>
+    run(() => closeEntity(sql, { type, id, verb, do: "close", reason: "x" } as CloseEntityCommand));
+  const refusal = async (promise: Promise<unknown>) =>
+    (await promise.then(() => undefined).catch((e) => e)) as Error & { nextCall?: unknown };
+
+  it("refuses a padded closed status, with the row left as it was", async () => {
+    const area = await makeArea(asAgent);
+    const err = await refusal(
+      asAgent(() =>
+        saveEntity(
+          sql,
+          entityCommand("area", { id: area.id, name: `Pad ${uuid()}`, status: " archived", sortOrder: 1 }, uuid(), 1)
+        )
+      )
+    );
+    expect(err.nextCall).toMatchObject({ tool: "rhen_archive", arguments: { do: "close" } });
+    expect((await stored("area", area.id)).status).toBe("active");
+    const areaId = (await makeArea(asAgent)).id;
+    const outcome = await makeOutcome(asAgent, areaId);
+    const err2 = await refusal(
+      asAgent(() =>
+        saveEntity(
+          sql,
+          entityCommand(
+            "outcome",
+            { id: outcome.id, areaId, title: "O", definitionOfDone: "D", value: 3, status: "cancelled " },
+            uuid(),
+            1
+          )
+        )
+      )
+    );
+    expect(err2.nextCall).toMatchObject({ tool: "rhen_cancel", arguments: { do: "close" } });
+    expect((await stored("outcome", outcome.id)).status).toBe("active");
+  });
+
+  it("refuses a save that leaves the status out when the row is closed and the default would reopen it", async () => {
+    const condition = await makeCondition(asAgent);
+    await closeAs(asOwner, "condition_definition", condition.id, "archive");
+    const stale = await stored("condition_definition", condition.id);
+    const err = await refusal(
+      asAgent(() =>
+        saveEntity(
+          sql,
+          entityCommand(
+            "condition_definition",
+            { id: condition.id, name: `Gym ${condition.id}`, kind: "capability" },
+            uuid(),
+            stale.version
+          )
+        )
+      )
+    );
+    expect(err.nextCall).toMatchObject({
+      tool: "rhen_archive",
+      arguments: { do: "restore", "expected-version": stale.version }
+    });
+    expect((await stored("condition_definition", condition.id)).status).toBe("archived");
+
+    const preset = await makePreset(asAgent);
+    await closeAs(asOwner, "routine_preset", preset.id, "archive");
+    const presetRow = await stored("routine_preset", preset.id);
+    const err2 = await refusal(
+      asAgent(() =>
+        saveEntity(
+          sql,
+          entityCommand(
+            "routine_preset",
+            { id: preset.id, name: "Morning x", activityName: "Morning", steps: [] },
+            uuid(),
+            presetRow.version
+          )
+        )
+      )
+    );
+    expect(err2.nextCall).toMatchObject({ tool: "rhen_archive", arguments: { do: "restore" } });
+    expect((await stored("routine_preset", preset.id)).status).toBe("archived");
+  });
+
+  const deliverableBody = (
+    projectId: string,
+    id: string,
+    stepStatus: string | undefined,
+    extra: Record<string, unknown> = {}
+  ) => ({
+    id,
+    projectId,
+    title: "Report",
+    status: "ready",
+    uncertainty: "some",
+    importance: 3,
+    consequence: 3,
+    steps: [
+      {
+        id: "a",
+        title: "Draft",
+        ...(stepStatus === undefined ? {} : { status: stepStatus }),
+        optimisticMinutes: 10,
+        expectedMinutes: 20,
+        pessimisticMinutes: 30,
+        remainingMinutes: 20,
+        energy: "low",
+        minimumSessionMinutes: 10,
+        maximumSessionMinutes: 30
+      }
+    ],
+    criteria: [],
+    blockers: [],
+    ...extra
+  });
+  const stepStatus = async (deliverableId: string) =>
+    (
+      await sql<{ status: string }[]>`SELECT status::text AS status FROM actions WHERE deliverable_id=${deliverableId}`
+    )[0]?.status;
+
+  it("refuses a deliverable save that cancels, or reopens, a step", async () => {
+    const { project } = await (async () => {
+      const outcome = await makeOutcome(asAgent, (await makeArea(asAgent)).id);
+      return { project: await makeProject(asAgent, outcome.id) };
+    })();
+    const id = uuid();
+    await asOwner(() => saveEntity(sql, entityCommand("deliverable", deliverableBody(project.id, id, "planned"))));
+    expect(await stepStatus(id)).toBe("planned");
+    let v = (await sql<{ version: number }[]>`SELECT version FROM deliverables WHERE id=${id}`)[0]!.version;
+    const err = await refusal(
+      asAgent(() =>
+        saveEntity(sql, entityCommand("deliverable", deliverableBody(project.id, id, "cancelled"), uuid(), v))
+      )
+    );
+    expect(err.nextCall).toMatchObject({ tool: "rhen_cancel", arguments: { type: "action", do: "close" } });
+    expect(await stepStatus(id)).toBe("planned");
+    // a padded one
+    const padded = await refusal(
+      asAgent(() =>
+        saveEntity(sql, entityCommand("deliverable", deliverableBody(project.id, id, "cancelled "), uuid(), v))
+      )
+    );
+    expect(padded.message).toMatch(/refused/);
+    expect(await stepStatus(id)).toBe("planned");
+    // the owner closes the step; the agent's save that leaves the step status out would reopen it
+    const stepRow = (
+      await sql<{ id: string; version: number }[]>`SELECT id, version FROM actions WHERE deliverable_id=${id}`
+    )[0]!;
+    await closeAs(asOwner, "action", stepRow.id, "cancel");
+    v = (await sql<{ version: number }[]>`SELECT version FROM deliverables WHERE id=${id}`)[0]!.version;
+    for (const status of [undefined, "planned"]) {
+      const reopen = await refusal(
+        asAgent(() => saveEntity(sql, entityCommand("deliverable", deliverableBody(project.id, id, status), uuid(), v)))
+      );
+      expect(reopen.nextCall, String(status)).toMatchObject({ tool: "rhen_cancel", arguments: { do: "restore" } });
+    }
+    expect(await stepStatus(id)).toBe("cancelled");
+    // a brand-new step born cancelled
+    const born = await refusal(
+      asAgent(() => saveEntity(sql, entityCommand("deliverable", deliverableBody(project.id, uuid(), "cancelled"))))
+    );
+    expect(born.message).toMatch(/cannot be created already cancelled/);
+  });
+
+  it("does not hold the owner when a deliverable save cancels a step", async () => {
+    const outcome = await makeOutcome(asAgent, (await makeArea(asAgent)).id);
+    const project = await makeProject(asAgent, outcome.id);
+    const id = uuid();
+    await asOwner(() => saveEntity(sql, entityCommand("deliverable", deliverableBody(project.id, id, "planned"))));
+    const v = (await sql<{ version: number }[]>`SELECT version FROM deliverables WHERE id=${id}`)[0]!.version;
+    await asOwner(() =>
+      saveEntity(sql, entityCommand("deliverable", deliverableBody(project.id, id, "cancelled"), uuid(), v))
+    );
+    expect(await stepStatus(id)).toBe("cancelled");
+  });
+});
+
+describe("the undo exemption", () => {
+  it("never covers a deliverable (its steps would stay planned)", async () => {
+    const outcome = await makeOutcome(asAgent, (await makeArea(asAgent)).id);
+    const project = await makeProject(asAgent, outcome.id);
+    const id = uuid();
+    const command = entityCommand("deliverable", {
+      id,
+      projectId: project.id,
+      title: "Report",
+      status: "ready",
+      uncertainty: "some",
+      importance: 3,
+      consequence: 3,
+      steps: [],
+      criteria: [],
+      blockers: []
+    });
+    await asAgent(() => saveEntity(sql, command));
+    const version = (await sql<{ version: number }[]>`SELECT version FROM deliverables WHERE id=${id}`)[0]!.version;
+    await expect(
+      asAgent(() =>
+        closeEntity(sql, {
+          commandId: uuid(),
+          type: "deliverable",
+          id,
+          verb: "cancel",
+          do: "close",
+          expectedVersion: version,
+          undoOfCommandId: command.commandId
+        } as CloseEntityCommand)
+      )
+    ).rejects.toThrow(/reason/i);
+  });
+
+  it("is lost when the row changed through a path that leaves no ledger row of its own type", async () => {
+    const area = await makeArea(asAgent);
+    // the owner's edit through an activity, a session or a planner path bumps the version and writes no `area` row
+    await sql`UPDATE areas SET version = version + 1 WHERE id = ${area.id}`;
+    await expect(asAgent(() => closeEntity(sql, undoCommand(area, { expectedVersion: 2 })))).rejects.toThrow(/reason/i);
+    // and a clean create still undoes
+    const clean = await makeArea(asAgent);
+    await asAgent(() => closeEntity(sql, undoCommand(clean)));
+    expect((await stored("area", clean.id)).closed_by).toBe("agent:claude:undo");
+  });
+
+  it("records the version a create left in its ledger row", async () => {
+    const area = await makeArea(asAgent);
+    const [row] = await sql<
+      { evidence: Record<string, unknown> }[]
+    >`SELECT evidence FROM write_rows WHERE write_id=${area.commandId}`;
+    expect(row!.evidence.createdVersion).toBe(1);
   });
 });

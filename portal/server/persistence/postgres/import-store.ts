@@ -33,7 +33,7 @@ import {
   OPEN_IMPORT_BATCH_STATUSES,
   writeRecords
 } from "./imports/batch-records";
-import { agentImportFloor, closingRecordCount } from "./imports/agent-import-floor";
+import { agentImportFloor, assertImportNoClosedTransition, closingRecordCount } from "./imports/agent-import-floor";
 import { assertCloseBudget, closeBudgetApplies, lockCloseBudget } from "./close-budget";
 import { commitRecords } from "./imports/commit-records";
 import { importExtensions, isExtensionSourceType, type ExtensionLinkSource } from "./imports/import-extensions";
@@ -536,6 +536,7 @@ export class PostgresImportStore {
       if (requestAgent() !== null) {
         const floor = await agentImportFloor(tx, userId, ready);
         if (floor !== null) throw new ForbiddenCommandError(`An agent token cannot make this write: ${floor}.`);
+        await assertImportNoClosedTransition(tx, userId, ready);
       }
       // The hourly close brake covers the commitments this commit cancels (a token agent only; no proposal path exists
       // for an import, so the refusal says to wait or ask the owner to commit it).

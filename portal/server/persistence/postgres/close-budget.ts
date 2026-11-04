@@ -4,7 +4,7 @@ import {
   closeBudgetRefusal,
   type AgentCall
 } from "@openrhen/contracts";
-import { changeLogConfirmedBy, requestScopes } from "@/server/agent-actor";
+import { changeLogConfirmedBy, requestAgent, requestScopes } from "@/server/agent-actor";
 import { CommandConflictError } from "./command-errors";
 import type { Sql } from "./sql-pool";
 
@@ -25,9 +25,12 @@ import type { Sql } from "./sql-pool";
 const lockKey = (userId: string) => `close_budget:${userId}`;
 const LOCK_WAIT = "5s";
 
-/** Whether the brake applies to this request: a token-held agent, not the owner's confirmation of its proposal. */
+/**
+ * Whether the brake applies to this request: any agent (a token-held one, or a header-only name), not the owner's
+ * confirmation of its proposal. A header-only agent has no proposal path, so its refusal says to wait instead.
+ */
 export function closeBudgetApplies(): boolean {
-  return requestScopes() !== undefined && changeLogConfirmedBy() !== "owner";
+  return requestAgent() !== null && changeLogConfirmedBy() !== "owner";
 }
 
 /** Serialises the budget check and the close that follows it for one user. Waits at most `LOCK_WAIT`. */
@@ -53,7 +56,7 @@ export async function lockCloseBudget(tx: Sql, userId: string): Promise<void> {
   await tx`SELECT set_config('lock_timeout', ${previous}, true)`;
 }
 
-/** Closures by token agents in the last hour, and when the oldest of them leaves the window. */
+/** Closures by agents in the last hour, and when the oldest of them leaves the window. */
 export async function closedInWindow(
   sql: Sql,
   userId: string,
@@ -97,5 +100,13 @@ export async function assertCloseBudget(
   const { used, oldestAgesOutAt } = await closedInWindow(tx, userId, options.now);
   if (used + rows <= CLOSE_BUDGET_LIMIT) return;
   const refusal = closeBudgetRefusal({ used, rows, oldestAgesOutAt, nextCall: options.nextCall });
-  throw new CommandConflictError(refusal.message, { nextCall: options.nextCall });
+  // Only a token agent's repeat is filed as a proposal; a header-only name has no proposal path.
+  const message =
+    requestScopes() === undefined
+      ? refusal.message.replace(
+          / Repeat the call and it is filed as a proposal for the owner to confirm\./,
+          " Wait until it ages out, or ask the owner to close them."
+        )
+      : refusal.message;
+  throw new CommandConflictError(message, { nextCall: options.nextCall });
 }

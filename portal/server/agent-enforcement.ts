@@ -418,6 +418,7 @@ async function readCloseFacts(
         target.type,
         await storedIdFor(target.type as never, userId, target.id),
         undoId,
+        preview.version,
         agent ?? null
       ));
     const { used } = await closedInWindow(sql, userId);

@@ -1184,6 +1184,27 @@ describe("reverseOfCreate finds the record a create made only by proof", () => {
   const reverse = (type: string, before: PortalState, after: PortalState, sent: Record<string, unknown>) =>
     reverseOfCreate(findEntityType(type)!, before, fixtureNow)!(after, sent);
 
+  it("never falls back to a save that sets a closed status: a record the portal answered without a version is closed by version-less undo, one without a command id is not journaled", () => {
+    const sent = { commandId: COMMAND, entityType: "area", entity: { id: "area-gym", name: "Gym", status: "active" } };
+    const noVersion = reverse("area", stateWith("areas", []), stateWith("areas", [{ id: "area-gym" }]), sent)!;
+    expect(noVersion.undo).toMatchObject({
+      path: "/api/commands/close",
+      payload: {
+        type: "area",
+        id: "area-gym",
+        verb: "archive",
+        do: "close",
+        expectedVersion: null,
+        undoOfCommandId: COMMAND
+      }
+    });
+    expect(noVersion.redo).toBeUndefined();
+    const { commandId: _drop, ...noCommand } = sent;
+    expect(
+      reverse("area", stateWith("areas", []), stateWith("areas", [{ id: "area-gym", version: 1 }]), noCommand)
+    ).toBeUndefined();
+  });
+
   it("takes the fresh record whose id is the command id when the create sent no id", () => {
     const sent = { commandId: COMMAND, entityType: "area", entity: { name: "Gym", status: "active" } };
     const found = reverse(

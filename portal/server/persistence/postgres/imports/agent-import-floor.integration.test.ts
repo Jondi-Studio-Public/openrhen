@@ -112,4 +112,41 @@ describe("an agent's import commit", () => {
       expect(rows.map((r) => r.evidence)).toMatchObject([{ closed: 2, via: "import", counted: true }]);
     });
   });
+
+  describe("the save floor on closed statuses", () => {
+    const areas = (csv: string) =>
+      importStore.preview({
+        sourceType: "csv",
+        inputKind: "capacity_commitments",
+        timezone: "Australia/Sydney",
+        templateVersion: "1",
+        records: parseImportCsv("areas", `import_key,name,description,status,sort_order\r\n${csv}`),
+        source: {}
+      });
+    const areaStatus = async (name: string) =>
+      (await sql<{ status: string }[]>`SELECT status::text AS status FROM areas WHERE name=${name}`)[0]?.status;
+
+    it("refuses an area created closed, closed by update, or reopened by update, and the person can import it", async () => {
+      await store.put(createSeedState(fixedNow));
+      const born = await areas("born,Born,,archived,5");
+      await expect(asAgent(() => importStore.commit(born.id, born.version))).rejects.toThrow(
+        /cannot be created already archived/
+      );
+      expect(await areaStatus("Born")).toBeUndefined();
+
+      const open = await areas("trip,Trip,,active,6");
+      await asAgent(() => importStore.commit(open.id, open.version));
+      expect(await areaStatus("Trip")).toBe("active");
+      const closing = await areas("trip,Trip,,archived,6");
+      expect(closing.records[0]?.operation).toBe("update");
+      await expect(asAgent(() => importStore.commit(closing.id, closing.version))).rejects.toThrow(/rhen_archive/);
+      expect(await areaStatus("Trip")).toBe("active");
+
+      await importStore.commit(closing.id, closing.version);
+      expect(await areaStatus("Trip")).toBe("archived");
+      const reopen = await areas("trip,Trip,,active,6");
+      await expect(asAgent(() => importStore.commit(reopen.id, reopen.version))).rejects.toThrow(/restore/);
+      expect(await areaStatus("Trip")).toBe("archived");
+    });
+  });
 });

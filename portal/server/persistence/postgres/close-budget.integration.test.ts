@@ -164,12 +164,22 @@ describe("the hourly close budget", () => {
     expect((await closedInWindow(sql, userId, new Date(Date.now() + 3 * 3_600_000))).used).toBe(0);
   });
 
-  it("does not count or refuse the owner, a confirmed replay or a header-only agent", async () => {
-    const actions = await seedActions(30);
+  it("does not count or refuse the owner or a confirmed replay", async () => {
+    const actions = await seedActions(20);
     for (const a of actions.slice(0, 10)) await asOwner(() => closeEntity(sql, cancel(a.id, { reason: undefined })));
     for (const a of actions.slice(10, 20)) await asConfirmed(() => closeEntity(sql, cancel(a.id)));
-    for (const a of actions.slice(20, 30)) await asHeaderAgent(() => closeEntity(sql, cancel(a.id)));
     expect(await used()).toBe(0);
+  });
+
+  it("counts and refuses a header-only agent the same as a token agent", async () => {
+    const actions = await seedActions(22);
+    for (const a of actions.slice(0, 20)) await asHeaderAgent(() => closeEntity(sql, cancel(a.id)));
+    expect(await used()).toBe(20);
+    const err = await asHeaderAgent(() => closeEntity(sql, cancel(actions[20]!.id))).catch((e) => e);
+    expect(err.message).toMatch(/over the 20 allowed/);
+    expect(err.message).not.toMatch(/filed as a proposal/);
+    // a token agent shares the same hour
+    await expect(asAgent(() => closeEntity(sql, cancel(actions[21]!.id)))).rejects.toThrow(/over the 20 allowed/);
   });
 
   it("answers a retry from its receipt: the sum does not move and no second batch is made", async () => {

@@ -2029,7 +2029,7 @@ export async function saveEntity(sql: PoolSql, command: EntityCommandWithHash): 
               ? // The wake is a state fact the pulse counts as contact; other settings edits are not.
                 { wake: true }
               : (proposalEvidence ?? {})),
-          ...(created ? { created: true } : {})
+          ...(created ? { created: true, createdVersion: 1 } : {})
         },
         // Captures and their reviews can carry mail-derived text, and `write_rows` is not purged, so an
         // agent's write of one never keeps a before-image. The other entity kinds are not yet supplied

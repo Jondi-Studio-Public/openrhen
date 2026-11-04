@@ -240,7 +240,9 @@ export const closeEntityCommandSchema = z
     id: z.string().min(1),
     verb: z.enum(["archive", "cancel"]),
     do: z.enum(["close", "restore"]),
-    // null is accepted only with `undoOfCommandId` (a forced undo or redo from the CLI journal): it means "no version".
+    // null means "no version" and is accepted only together with `undoOfCommandId` (an undo from the CLI journal that never
+    // learned the version): it skips the version check and, because the undo exemption needs the version, makes the close an
+    // ordinary one (an agent gives a reason and the brake counts it). Without `undoOfCommandId` a null is refused below.
     expectedVersion: z.number().int().positive().nullable().optional(),
     reason: z.string().max(500).optional(),
     includeChildren: z.boolean().optional(),

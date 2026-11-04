@@ -354,7 +354,7 @@ async function close(
     command.undoOfCommandId !== undefined &&
     typeof command.expectedVersion === "number" &&
     command.includeChildren !== true &&
-    (await verifyUndoOfCreate(tx, userId, type, id, command.undoOfCommandId));
+    (await verifyUndoOfCreate(tx, userId, type, id, command.undoOfCommandId, row.version));
   const verb: CloseVerb = undo && allowed !== "either" ? allowed : command.verb;
   if (!undo && allowed !== "either" && allowed !== verb)
     throw refused(wrongVerbRefusal({ type, id: command.id, status: row.status, version: row.version, asked: verb }));

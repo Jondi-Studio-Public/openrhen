@@ -1,5 +1,7 @@
 import { hardFloorReason, isClosedStatus, type ImportRecord } from "@openrhen/contracts";
 import { fieldValue } from "@/features/imports/import-validation";
+import { assertNoClosedTransition } from "../close-floor";
+import { ForbiddenCommandError } from "../command-errors";
 import type { Sql } from "../sql-pool";
 
 const STORED_TABLE: Partial<Record<ImportRecord["entityType"], string>> = {
@@ -45,4 +47,40 @@ export function closingRecordCount(ready: readonly ImportRecord[]): number {
     if (record.operation === "delete") return true;
     return record.operation === "update" && isClosedStatus(fieldValue(record, "status") as string | undefined);
   }).length;
+}
+
+/** The record kinds an import writes a status to that are also closeable rows (a commitment is counted by the brake instead). */
+const CLOSEABLE_IMPORT_TYPES: ReadonlySet<ImportRecord["entityType"]> = new Set([
+  "area",
+  "outcome",
+  "project",
+  "deliverable",
+  "action",
+  "condition_definition"
+]);
+
+/**
+ * The save floor for an agent's import commit: a record that would create a row closed, close an open one, move a
+ * closed one to the other closed status, or reopen a closed one is the owner's (or a rhen_archive / rhen_cancel call's),
+ * exactly as it is for a save. The import writes the record's status straight into the row, so without this an
+ * import is a way round the floor. Reads the stored row, so call it inside the commit transaction.
+ */
+export async function assertImportNoClosedTransition(
+  tx: Sql,
+  userId: string,
+  ready: readonly ImportRecord[]
+): Promise<void> {
+  for (const record of ready) {
+    if (!CLOSEABLE_IMPORT_TYPES.has(record.entityType)) continue;
+    if (record.operation !== "create" && record.operation !== "update") continue;
+    const status = fieldValue(record, "status");
+    if (typeof status !== "string" || !status.trim()) continue;
+    try {
+      await assertNoClosedTransition(tx, userId, record.entityType, record.matchedEntityId ?? record.id, status);
+    } catch (error) {
+      if (error instanceof ForbiddenCommandError) throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      throw new ForbiddenCommandError(`An agent token cannot make this write: ${message}`);
+    }
+  }
 }

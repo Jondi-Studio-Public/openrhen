@@ -470,7 +470,12 @@ export function reverseOfCreate(def: EntityTypeDef, before: PortalState, now: Da
     const verb = UNDO_VERB[def.canonical as CloseType];
     const createCommandId = typeof sent.commandId === "string" ? sent.commandId : undefined;
     const createdVersion = typeof created.version === "number" ? created.version : undefined;
-    if (verb !== undefined && createCommandId !== undefined && createdVersion !== undefined) {
+    // A record with a close verb is never taken back by a save that sets a closed status: the portal refuses that for an
+    // agent. With the version the answer carried the undo is the verified exemption; without it the version is null
+    // (the portal then treats the undo as an ordinary close, which an agent must give a reason for, and the owner need not),
+    // and with no command id to prove the create by there is nothing to journal.
+    if (verb !== undefined) {
+      if (createCommandId === undefined) return undefined;
       const close = (payload: Fields) => ({ path: "/api/commands/close", payload });
       const text = displayText(entity);
       return {
@@ -481,18 +486,22 @@ export function reverseOfCreate(def: EntityTypeDef, before: PortalState, now: Da
           id: created.id,
           verb,
           do: "close",
-          expectedVersion: createdVersion,
+          expectedVersion: createdVersion ?? null,
           undoOfCommandId: createCommandId
         }),
         target: { stateKey, id: created.id },
-        redo: close({
-          commandId: newCommandId(),
-          type: def.canonical,
-          id: created.id,
-          verb,
-          do: "restore",
-          expectedVersion: createdVersion + 1
-        })
+        ...(createdVersion === undefined
+          ? {}
+          : {
+              redo: close({
+                commandId: newCommandId(),
+                type: def.canonical,
+                id: created.id,
+                verb,
+                do: "restore",
+                expectedVersion: createdVersion + 1
+              })
+            })
       };
     }
     const whole = def.canonical === "capture" ? completeCapture({ ...entity, id }) : { ...entity, id };
