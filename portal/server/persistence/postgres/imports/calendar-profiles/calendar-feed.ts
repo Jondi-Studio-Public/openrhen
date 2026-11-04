@@ -249,21 +249,30 @@ export function feedReadComplete(
 
 /**
  * Splits the one-off links into those the per-instance diff reads and those whose UID is now a set-aside series
- * (descriptor or unrepresentable): the series pass owns the second kind. They are left as they are (no absence
+ * (descriptor or unrepresentable): the series pass owns the second kind. A link that replaces a moved date
+ * (`feedMoveOf`) stays with the per-instance diff, and `moveDates` names its original dates by stem. They are left as they are (no absence
  * delete, no update), and `ownedStems` is what the pass counts as changed.
  */
 export function splitSeriesOwnedLinks<T extends FeedLinkInfo>(
   links: readonly T[],
   seriesStems: ReadonlySet<string>
-): { links: T[]; ownedStems: Set<string> } {
+): { links: T[]; ownedStems: Set<string>; moveDates: Map<string, Set<string>> } {
   const kept: T[] = [];
   const ownedStems = new Set<string>();
+  const moveDates = new Map<string, Set<string>>();
   for (const link of links) {
     const stem = feedStemOf(link.external_event_id);
-    if (seriesStems.has(stem)) ownedStems.add(stem);
+    const movedFrom = link.last_remote_snapshot?.feedMoveOf;
+    if (typeof movedFrom === "string") {
+      // The replacement of a date the series moved: a one-off event the per-instance diff keeps reading, paired with its date.
+      kept.push(link);
+      const dates = moveDates.get(stem) ?? new Set<string>();
+      dates.add(movedFrom);
+      moveDates.set(stem, dates);
+    } else if (seriesStems.has(stem)) ownedStems.add(stem);
     else kept.push(link);
   }
-  return { links: kept, ownedStems };
+  return { links: kept, ownedStems, moveDates };
 }
 
 function linkInWindow(link: FeedLinkInfo, window: { timeMin: string; timeMax: string }): boolean {
@@ -293,8 +302,8 @@ export function feedStoredEvent(event: CalendarEvent): FeedStoredEvent {
  */
 export function feedSyncSourceText(args: {
   events: readonly CalendarEvent[];
-  records: readonly Pick<ImportRecord, "importKey" | "operation">[];
-  /** The descriptor of each series create, by stem; only those the records name are kept. */
+  records: readonly (Pick<ImportRecord, "importKey" | "operation"> & Partial<Pick<ImportRecord, "relationships">>)[];
+  /** The descriptor of each series a record names (its create, update, end or a date of it), by stem; only those are kept. */
   series?: ReadonlyMap<string, CalendarFeedSeries>;
 }): string {
   const ids = new Set<string>();
@@ -303,6 +312,9 @@ export function feedSyncSourceText(args: {
     if (record.importKey.startsWith(FEED_EVENT_PREFIX)) ids.add(record.importKey.slice(FEED_EVENT_PREFIX.length));
     else if (record.importKey.startsWith(FEED_SERIES_PREFIX))
       stems.push(record.importKey.slice(FEED_SERIES_PREFIX.length));
+    // A date of a rule (and a move's one-off) names its series so the commit reads the descriptor, not the record.
+    const named = record.relationships?.feedSeries;
+    if (named) stems.push(named);
   }
   const events = args.events
     .filter((event) => ids.has(event.externalEventId))
@@ -312,7 +324,7 @@ export function feedSyncSourceText(args: {
     frameId: FEED_FRAME,
     heldKeys: args.records.map((record) => `${record.importKey}:${record.operation}`).sort(),
     events: Object.fromEntries(events.map((event) => [event.externalEventId, feedStoredEvent(event)])),
-    // Added only when a series create is held, so a batch without one keeps the text it had before the series pass.
+    // Added only when a series record is held, so a batch without one keeps the text it had before the series pass.
     ...(stems.length
       ? {
           series: Object.fromEntries(
@@ -351,7 +363,18 @@ export function limitFeedRecords(
     else high = middle - 1;
   }
   const keep = new Set(ordered.slice(0, low).map((entry) => entry.index));
-  return { kept: records.filter((_, index) => keep.has(index)), dropped: records.length - low };
+  // A moved meeting is two records that must travel together: a pair cut in half is dropped whole.
+  const half = new Set<string>();
+  const pairOf = (record: ImportRecord) => record.relationships.feedMove;
+  const kept = new Set<string>();
+  for (const index of keep) if (pairOf(records[index]!)) kept.add(pairOf(records[index]!)!);
+  for (const [index, record] of records.entries()) {
+    const pair = pairOf(record);
+    if (pair && kept.has(pair) && !keep.has(index)) half.add(pair);
+  }
+  for (const [index, record] of records.entries())
+    if (keep.has(index) && half.has(pairOf(record) ?? "")) keep.delete(index);
+  return { kept: records.filter((_, index) => keep.has(index)), dropped: records.length - keep.size };
 }
 
 /**

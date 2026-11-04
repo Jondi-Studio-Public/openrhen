@@ -13,6 +13,7 @@ import {
   type ScoreActionInput
 } from "./score.js";
 import { formatDate, formatTime } from "./format.js";
+import { deriveEnergyCost } from "./energy-cost.js";
 import { deriveStretchOffer, type StretchContext } from "./stretch.js";
 import { currentCompatibleWindow, slotFitsAction } from "../scheduling/slots.js";
 import { zonedDateTime } from "@openrhen/contracts";
@@ -269,10 +270,19 @@ export function recommend(args: RecommendArguments): Recommendation {
     rescoreWaived: (action) => scoreOne(action, { energyWaivedActionIds: [action.id] }),
     ...(args.stretch ? { context: args.stretch } : {})
   });
-  const alongside: Pick<Recommendation, "openAnchor" | "earlyStep" | "stretchOffer"> = {
+  // Same rule: a description of what the energy cut holds back, derived after ranking, changing nothing.
+  const energyCost = deriveEnergyCost({
+    now: args.now,
+    currentEnergy: args.currentEnergy,
+    candidates,
+    projectOf: (action) => projectById.get(action.projectId),
+    rescoreWaived: (action) => scoreOne(action, { energyWaivedActionIds: [action.id] })
+  });
+  const alongside: Pick<Recommendation, "openAnchor" | "earlyStep" | "stretchOffer" | "energyCost"> = {
     ...(protectedCommitment ? { openAnchor: protectedCommitment } : {}),
     ...(earlyStep ? { earlyStep } : {}),
-    ...(stretchOffer ? { stretchOffer } : {})
+    ...(stretchOffer ? { stretchOffer } : {}),
+    ...(energyCost ? { energyCost } : {})
   };
 
   // Several execution options of one deliverable are several ways to spend the same time, not several

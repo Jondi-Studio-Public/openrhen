@@ -16,7 +16,13 @@ export {
   planCodePatternProblem
 } from "./planning/plan-code-pattern.js";
 
-export { commitmentOccurrenceId, wallClockFormat, zonedDateTime } from "./zoned-time.js";
+export {
+  commitmentOccurrenceId,
+  commitmentOccurrenceRowId,
+  deterministicUuid,
+  wallClockFormat,
+  zonedDateTime
+} from "./zoned-time.js";
 
 export { recoveryOccurrence } from "./planning/recovery-window.js";
 export type { RecoveryOccurrence } from "./planning/recovery-window.js";
@@ -1413,6 +1419,14 @@ export type {
 
 export { CLOSED_STATUSES, CLOSED_TABLES, HIDING_STATUS, isClosedStatus } from "./closed-status.js";
 export type { ClosedTable, ClosedTableRule } from "./closed-status.js";
+export {
+  ENERGY_COST_NEXT,
+  buildEnergyCostAnswer,
+  energyCostSchema,
+  energyCostText,
+  parseEnergyCost
+} from "./planning/energy-cost.js";
+export type { EnergyCostAnswer, EnergyCostAnswerInput, EnergyCostView } from "./planning/energy-cost.js";
 export {
   STRETCH_CHOICES,
   STRETCH_NEXT_CALL,

@@ -3,10 +3,9 @@ import { config } from "dotenv";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
-import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import type { CalendarEvent, ImportRecord, PreviewImport } from "@openrhen/contracts";
-import { commitmentOccurrenceId, commitmentRepeatFallsOn, zonedDateTime } from "@openrhen/contracts";
+import { commitmentOccurrenceRowId, commitmentRepeatFallsOn, zonedDateTime } from "@openrhen/contracts";
 import { integrationDatabaseName, persistDerivedState } from "@openrhen/database";
 import { PostgresImportStore } from "../import-store";
 import { FEED_EVENT_PREFIX, FEED_SERIES_MAX_STEM } from "./calendar-profiles/calendar-feed";
@@ -130,15 +129,8 @@ async function approve(series = feedSeries("weekly"), extra: CalendarEvent[] = [
   return found!.recurrence_rule_id!;
 }
 
-/**
- * The engine stores each generated date under a uuid it derives from `<ruleId>:<date>` (`deterministicUuid` in
- * engine-core, private to it; the contracts function only builds the raw string). This stands in for it: stable per
- * rule and date, which is all the persist needs.
- */
-const occurrenceRowId = (ruleId: string, date: string) => {
-  const hex = createHash("sha1").update(commitmentOccurrenceId(ruleId, date)).digest("hex");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
-};
+/** The id the planner stores a date under: the contracts function the engine and the feed both use (pinned to the engine by test). */
+const occurrenceRowId = commitmentOccurrenceRowId;
 
 /**
  * What the planner derives for a rule and persists (`persistDerivedState`): one repeat row per date the rule falls on,
@@ -247,7 +239,7 @@ describe("an approved series", () => {
     expect((await ruleLinks())[0]!.last_remote_snapshot).toEqual(links[0]!.last_remote_snapshot);
   });
 
-  it("keeps working at the longest stem a key carries, and past it is counted rather than imported", async () => {
+  it("keeps working at the longest stem a key carries; an over-long UID is counted, not imported, and the absent approved UID gets its held end", async () => {
     const stem = "u".repeat(FEED_SERIES_MAX_STEM);
     const ruleId = await approve(feedSeries(stem));
     expect(feedSeriesKey(stem).length).toBeLessThanOrEqual(120);
@@ -256,7 +248,9 @@ describe("an approved series", () => {
 
     const tooLong = "v".repeat(FEED_SERIES_MAX_STEM + 1);
     const diff = await diffOf(feedOf(feedSeriesEvents(tooLong)));
-    expect(diff.records).toEqual([]);
+    // Nothing is created for the over-long UID. (The approved rule's own UID is not in this read, which is a complete
+    // one with the rule due inside the window, so its held end is the only record.)
+    expect(diff.records.map((r) => [r.importKey, r.operation])).toEqual([[feedSeriesKey(stem), "delete"]]);
     expect(diff.notImported).toMatchObject({ unreadable: 1, seriesPending: 0 });
   });
 
@@ -331,54 +325,30 @@ describe("a declined series", () => {
   });
 });
 
-describe("a rule-backed series that changes in the feed (this change alone, before the date lifecycle)", () => {
-  const changes: [string, Partial<ReturnType<typeof feedSeries>>][] = [
-    ["an EXDATE", { exceptions: [{ kind: "cancelled", date: "2026-11-17" }] }],
-    [
-      "an override",
-      {
-        exceptions: [
-          {
-            kind: "changed",
-            date: "2026-11-17",
-            title: "Moved",
-            location: "",
-            startDate: "2026-11-17",
-            localStartTime: "11:00",
-            endDate: "2026-11-17",
-            localEndTime: "12:00"
-          }
-        ]
-      }
-    ],
-    ["an UNTIL", { endDate: "2026-12-29" }],
-    ["a cancelled master", { status: "cancelled" }],
-    ["a new start time", { localStartTime: "09:30" }],
-    ["a new zone", { timezone: "Australia/Perth" }]
-  ];
-
-  it.each(changes)(
-    "gains %s: nothing is written, the rule and its link stay as they were, and the run counts it",
-    async (_name, over) => {
-      const ruleId = await approve();
-      await replan(ruleId);
-      const before = {
-        rule: (await rules())[0],
-        link: (await ruleLinks())[0],
-        plan: await commitmentCount()
-      };
+describe("a rule-backed series that changes in the feed (the date lifecycle has its own suite)", () => {
+  it("proposes each kind of change as a held record instead of counting it, and writes nothing until it is approved", async () => {
+    const ruleId = await approve();
+    await replan(ruleId);
+    const before = { rule: (await rules())[0], link: (await ruleLinks())[0], plan: await commitmentCount() };
+    const changes: [string, Partial<ReturnType<typeof feedSeries>>, string][] = [
+      ["an UNTIL", { endDate: "2026-12-29" }, "calendar_feed:series:weekly"],
+      ["a cancelled master", { status: "cancelled" }, "calendar_feed:series:weekly"],
+      ["a new start time", { localStartTime: "09:30" }, "calendar_feed:series:weekly"],
+      ["a new zone", { timezone: "Australia/Perth" }, "calendar_feed:series:weekly"]
+    ];
+    for (const [, over, key] of changes) {
       const diff = await diffOf(feedOf(feedSeriesEvents("weekly", feedSeries("weekly", over))));
-      expect(diff.records).toEqual([]);
-      expect(diff.notImported).toMatchObject({ seriesChanged: 1, seriesPending: 0 });
+      expect(diff.records.map((r) => r.importKey)).toEqual([key]);
+      expect(diff.notImported.seriesChanged).toBe(0);
       expect((await rules())[0]).toEqual(before.rule);
       expect((await ruleLinks())[0]).toEqual(before.link);
       expect(await commitmentCount()).toBe(before.plan);
-      // Back to what was approved: steady again.
-      expect((await diffOf(feedOf(feedSeriesEvents("weekly")))).notImported.seriesChanged).toBe(0);
     }
-  );
+    // Back to what was approved: steady again.
+    expect((await diffOf(feedOf(feedSeriesEvents("weekly")))).records).toEqual([]);
+  });
 
-  it("gains an unrepresentable shape: the rule is left, the UID's instances are not imported one by one, and it is counted", async () => {
+  it("gains an unrepresentable shape: a held end with its reason, not a silent freeze and not an automatic end", async () => {
     await approve();
     const diff = await diffOf(
       feedOf(
@@ -386,27 +356,30 @@ describe("a rule-backed series that changes in the feed (this change alone, befo
         { unrepresentableSeries: [{ idPrefix: "weekly", reason: "shape unsupported" }] }
       )
     );
-    expect(diff.records).toEqual([]);
-    expect(diff.notImported).toMatchObject({ seriesChanged: 1, unrepresentableSeries: 1 });
+    expect(diff.records).toHaveLength(1);
+    expect(diff.records[0]).toMatchObject({
+      operation: "delete",
+      relationships: { feedSeries: "weekly", feedReasonKind: "shape" }
+    });
+    expect(diff.notImported).toMatchObject({ unrepresentableSeries: 1 });
     expect((await rules())[0]!.status).toBe("active");
   });
 
-  it("is not read as gone when its UID has no event in the window: no rule end is proposed from absence", async () => {
+  it("is not read as gone when its UID has no event in the window and the read cannot speak for absence", async () => {
     await approve();
-    const diff = await diffOf(feedOf([feedEvent("elsewhere")]));
+    const diff = await diffOf(feedOf([feedEvent("elsewhere")], { transportComplete: false }));
     expect(diff.records.map((r) => r.importKey)).toEqual([`${FEED_EVENT_PREFIX}elsewhere`]);
-    expect(diff.notImported.seriesChanged).toBe(0);
     expect((await rules())[0]!.status).toBe("active");
   });
 
-  it("is not created when it already has changed dates (they could not be applied): counted pending, nothing proposed", async () => {
+  it("is created even when it already has changed dates: they are inserted with it", async () => {
     const withDate = feedSeries("dated", { exceptions: [{ kind: "cancelled", date: "2026-11-17" }] });
     const diff = await diffOf(feedOf([...feedSeriesEvents("dated", withDate), ...feedSeriesEvents("clean")]));
-    expect(diff.records.map((r) => r.importKey)).toEqual(["calendar_feed:series:clean"]);
-    expect(diff.notImported).toMatchObject({ seriesPending: 1, seriesChanged: 0 });
+    expect(diff.records.map((r) => r.importKey)).toEqual(["calendar_feed:series:clean", "calendar_feed:series:dated"]);
+    expect(diff.notImported).toMatchObject({ seriesPending: 0, seriesChanged: 0 });
   });
 
-  it("is never recreated once the owner has ended its rule", async () => {
+  it("is never recreated or followed once the owner has ended its rule", async () => {
     const ruleId = await approve();
     await sql`UPDATE commitment_recurrence_rules SET status='ended', version=version+1 WHERE id=${ruleId}`;
     const diff = await diffOf(feedOf(feedSeriesEvents("weekly")));

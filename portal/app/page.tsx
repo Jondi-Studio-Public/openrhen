@@ -38,6 +38,7 @@ import { DeliverableSessionPanel } from "@/features/now/components/deliverable-s
 import { EngagementStrip } from "@/features/now/components/engagement-strip";
 import { FactNeeds } from "@/features/now/components/fact-needs";
 import { StretchSection } from "@/features/now/components/stretch-section";
+import { EnergyCostNote } from "@/features/now/components/energy-cost-note";
 import { LateCommitmentBanner } from "@/features/now/components/late-commitment-banner";
 import { NeedsAnswerList } from "@/features/now/components/needs-answer-list";
 import { NothingFitsPanel } from "@/features/now/components/nothing-fits-panel";
@@ -368,7 +369,8 @@ export default function NowPage() {
     canDoNow,
     needs,
     stretchOffer,
-    stretch
+    stretch,
+    energyCost
   } = model;
   // Keyed to the specific plan rather than just "on/off" so a reload can tell a still-current early
   // start from a stale one left over from a previous night's plan, which by then has a different id.
@@ -528,6 +530,7 @@ export default function NowPage() {
             />
             {primary}
             <StretchSection offer={stretchOffer} stretch={stretch} timezone={timezone} />
+            <EnergyCostNote energyCost={energyCost} />
           </div>
           {side(
             <FactNeeds

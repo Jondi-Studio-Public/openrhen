@@ -59,7 +59,10 @@ describe("the calendar feed adapter", () => {
       sourceType: "calendar_feed",
       ownSourceType: "calendar_feed_event"
     });
-    expect(calendarFeedAdapter.holds).toBeUndefined();
+    // The series pass holds its own records (build plan PR 8); a per-instance record names no series and is never held.
+    expect(calendarFeedAdapter.holds).toBeTypeOf("function");
+    const perInstance = { relationships: { remoteCancelled: "true" } } as never;
+    expect(calendarFeedAdapter.holds!(perInstance)).toBe(false);
   });
 
   it("names the window's days in the owner's zone, not as UTC slices of the instants", async () => {

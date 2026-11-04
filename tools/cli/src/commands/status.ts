@@ -11,6 +11,7 @@ import {
   type Need,
   type NowAnswerAnchors,
   type StretchBlock,
+  type EnergyCostAnswer,
   type StretchOfferAnswer,
   type RecommendationAnswer,
   type RiskSummary,
@@ -207,6 +208,8 @@ interface StatusSummary {
   stretchOffer: StretchOfferAnswer | null;
   /** The running stretch, today's count and the morning-after loan line; null when there is nothing to say. */
   stretch: StretchBlock | null;
+  /** What declared low energy is holding back: `text` is the sentence to tell the person once, `next` what to do. Null when nothing is. */
+  energyCost: EnergyCostAnswer | null;
   upcoming: UpcomingSummary[];
   session: SessionSummary | null;
   currentCommitment: CommitmentSummary | null;
@@ -539,6 +542,7 @@ function buildSummary(
     needs: answer.needs,
     stretchOffer: answer.stretchOffer,
     stretch: answer.stretch,
+    energyCost: answer.energyCost,
     upcoming,
     session,
     currentCommitment,
@@ -875,6 +879,7 @@ function renderStatusTable(summary: StatusSummary, timezone: string, now: Date):
     ]);
   if (summary.stretch?.today) rows.push(["", [summary.stretch.today.note]]);
   if (summary.stretch?.loan) rows.push(["", [summary.stretch.loan.line]]);
+  if (summary.energyCost) rows.push(["Energy", [summary.energyCost.text, summary.energyCost.next]]);
   if (summary.directive?.reason || summary.directive?.sleep)
     rows.push(["Why", [whyLine(summary.directive, timezone, now)]]);
   const rec = summary.recommendation;
@@ -1027,6 +1032,7 @@ function buildBrief(summary: StatusSummary, state: PortalState, now: Date) {
     headline: summary.recommendation.headline,
     needs: summary.needs,
     ...(summary.stretchOffer ? { stretchOffer: summary.stretchOffer } : {}),
+    ...(summary.energyCost ? { energyCost: summary.energyCost } : {}),
     reason: summary.directive?.reason ?? null,
     plannedEnd: summary.recommendation.plannedEnd,
     next,

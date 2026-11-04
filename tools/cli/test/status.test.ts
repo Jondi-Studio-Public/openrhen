@@ -760,6 +760,35 @@ describe("status pulse: the disruption in force", () => {
   });
 });
 
+describe("status energy cost", () => {
+  const energyCost = {
+    declaredEnergy: "low",
+    blockedCount: 2,
+    dueSoon: [{ actionId: "action-draft", title: "Draft chapter 3", deadlineAt: "2026-09-04T09:00:00+10:00" }]
+  };
+  const withCost = (raw: Record<string, unknown>) => {
+    const planning = raw.planning as { result: { recommendation: object } };
+    return { ...raw, planning: { ...planning, result: { ...planning.result, recommendation: { energyCost } } } };
+  };
+
+  it("carries the note with its sentence and the exact calls, in json, table and brief", async () => {
+    const json = JSON.parse((await runStatus(["status", "--json"], {}, withCost)).stdout);
+    expect(json.energyCost).toMatchObject({ blockedCount: 2 });
+    expect(json.energyCost.text).toMatch(/^Low energy is holding back 2 actions, 1 due /);
+    expect(json.energyCost.next).toContain("rhen_session with subcommand start");
+    expect(json.energyCost.next).toContain("never set or raise it yourself");
+    const table = await runStatus(["status"], {}, withCost);
+    expect(table.stdout).toMatch(/^Energy\s+Low energy is holding back 2 actions/m);
+    const brief = JSON.parse((await runStatus(["status", "--brief", "--json"], {}, withCost)).stdout);
+    expect(brief.energyCost.blockedCount).toBe(2);
+  });
+
+  it("is null and absent from the brief when nothing is held back", async () => {
+    expect(JSON.parse((await runStatus(["status", "--json"], {})).stdout).energyCost).toBeNull();
+    expect(JSON.parse((await runStatus(["status", "--brief", "--json"], {})).stdout)).not.toHaveProperty("energyCost");
+  });
+});
+
 describe("status stretch", () => {
   const offer = {
     actionId: "action-draft",

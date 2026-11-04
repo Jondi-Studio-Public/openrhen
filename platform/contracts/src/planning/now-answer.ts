@@ -1,5 +1,6 @@
 import type { CurrentDirective, DayPlan, DayPlanBlock } from "./plan-forecast.js";
 import type { PortalStateContract } from "../portal/state-schema.js";
+import { buildEnergyCostAnswer, type EnergyCostAnswer } from "./energy-cost.js";
 import { buildStretchAnswer, type StretchBlock, type StretchOfferAnswer } from "./stretch.js";
 import { DEFAULT_TIMEZONE, resolveLocale } from "../locale.js";
 import { resolveNowActivity, type NowActivityState } from "./now-activity.js";
@@ -265,6 +266,8 @@ export interface NowAnswer {
   stretchOffer: StretchOfferAnswer | null;
   /** The running stretch, today's count and the morning-after loan line; null when there is nothing to say. */
   stretch: StretchBlock | null;
+  /** What declared low energy is holding back: `text` is the sentence to tell the person once, `next` what to do. Null when nothing is. */
+  energyCost: EnergyCostAnswer | null;
 }
 
 /** The most aged-effort questions Now raises at once, so a long backlog of old estimates cannot flood it. */
@@ -530,19 +533,32 @@ export function buildNowAnswer(input: NowAnswerInput, locationNameById: Readonly
         brain.currentBedtimeStep
       )
     : null;
+  const timeZone = state.settings.timezone || DEFAULT_TIMEZONE;
+  const locale = resolveLocale(state.settings.locale);
+  const stretchAnswer = buildStretchAnswer({
+    recommendation: input.recommendation,
+    stretch: state.currentSituation.stretch,
+    energySetAt: state.currentSituation.energySetAt,
+    planCalculatedAt: input.planCalculatedAt,
+    planCurrent: input.planCurrent,
+    now,
+    timeZone,
+    locale
+  });
   return {
     directive,
     anchors: runningAnchors(state, now),
     needs: buildNeeds(input, locationNameById),
-    ...buildStretchAnswer({
+    ...stretchAnswer,
+    energyCost: buildEnergyCostAnswer({
       recommendation: input.recommendation,
-      stretch: state.currentSituation.stretch,
       energySetAt: state.currentSituation.energySetAt,
       planCalculatedAt: input.planCalculatedAt,
       planCurrent: input.planCurrent,
+      stretchOfferActionId: stretchAnswer.stretchOffer?.actionId,
       now,
-      timeZone: state.settings.timezone || DEFAULT_TIMEZONE,
-      locale: resolveLocale(state.settings.locale)
+      timeZone,
+      locale
     })
   };
 }

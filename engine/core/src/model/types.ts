@@ -9,6 +9,7 @@ import type {
   TravelSource,
   Uncertainty
 } from "@openrhen/contracts";
+import type { EnergyCost } from "../recommendation/energy-cost.js";
 import type { StretchOffer } from "../recommendation/stretch.js";
 import { commitmentTimeline } from "./commitment-timeline.js";
 import type { CommitmentTimeline } from "./commitment-timeline.js";
@@ -1132,6 +1133,12 @@ export interface Recommendation {
    * ranking above. See `deriveStretchOffer`.
    */
   stretchOffer?: StretchOffer;
+  /**
+   * What declared low energy is holding back: how many actions only the energy check keeps out, and
+   * which of them have a near external date. Absent when nothing is blocked, energy is stale or
+   * recovery. Describes only; never alters the ranking above. See `deriveEnergyCost`.
+   */
+  energyCost?: EnergyCost;
 }
 
 export interface WeekOutlookProject {

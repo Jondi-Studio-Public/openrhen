@@ -269,6 +269,18 @@ const CORE_WRITERS = {
     reason: "Writes commitments (the source link) only inside import-store.ts's commit transaction.",
     owners: ["portal/server/persistence/postgres/import-store.ts"]
   },
+  "portal/server/persistence/postgres/imports/calendar-feed-dates.ts": {
+    class: "helper",
+    reason:
+      "insertFeedDate and touchFeedDates write a rule's exception rows (commitments) and the feed link's snapshot only inside import-store.ts's commit transaction, called from the calendar feed import extension's hooks.",
+    owners: ["portal/server/persistence/postgres/import-store.ts"]
+  },
+  "portal/server/persistence/postgres/imports/calendar-feed-import-extension.ts": {
+    class: "helper",
+    reason:
+      "The calendar feed extension's afterRecord/afterCommit hooks write exception rows (commitments) and feed links only inside import-store.ts's commit transaction; its diff (diffCalendarFeed) also writes import_entity_keys at diff time so a per-date key resolves as an update, which is not a plan-input table.",
+    owners: ["portal/server/persistence/postgres/import-store.ts"]
+  },
   "portal/server/persistence/postgres/imports/upserts.ts": {
     class: "helper",
     reason:

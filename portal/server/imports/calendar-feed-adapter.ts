@@ -6,6 +6,7 @@ import {
   FeedReadError,
   prepareFeedRead
 } from "@/server/persistence/postgres/imports/calendar-profiles/calendar-feed";
+import { feedHolds } from "@/server/persistence/postgres/imports/calendar-feed-dates";
 import { localDateIn } from "@/server/persistence/postgres/imports/source-match-records";
 import type { CalendarRead, CalendarSyncAdapter } from "./calendar-sync";
 
@@ -24,6 +25,8 @@ export const calendarFeedAdapter: CalendarSyncAdapter = {
   provider: CALENDAR_FEED_PROVIDER,
   sourceType: CALENDAR_FEED_PROVIDER,
   ownSourceType: "calendar_feed_event",
+  // The series pass's records wait for a person unless they are a plain date cancel; per-instance events are untouched.
+  holds: feedHolds,
   async read({ timeMin, timeMax, timezone, env }): Promise<CalendarRead> {
     let response;
     try {

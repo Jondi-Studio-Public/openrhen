@@ -87,6 +87,21 @@ function spendsDeleteBudget(record: ImportRecord): boolean {
   return record.operation === "delete" || record.relationships.feedCancel === "true";
 }
 
+/**
+ * A date cancel the feed emits (`relationships.feedCancel`), on an existing date (an update) or one the commit still has
+ * to insert (a create). Only a provider that emits the marker has any, so for the others the auto filter is unchanged.
+ */
+function isFeedCancel(record: ImportRecord): boolean {
+  return (
+    record.entityType === "fixed_commitment" &&
+    record.relationships.feedCancel === "true" &&
+    (record.operation === "update" || record.operation === "create")
+  );
+}
+
+/** The `feedMove` pair a record belongs to, or undefined (only the feed has any). */
+const pairOf = (record: ImportRecord): string | undefined => record.relationships.feedMove ?? undefined;
+
 /** Reads the chosen Google calendars over the window and hands the diff over to the import store. */
 export const googleCalendarAdapter: CalendarSyncAdapter = {
   provider: "google_calendar",
@@ -264,12 +279,13 @@ async function applyDiff(
 
   const changed = diff.records.filter(
     (record) =>
-      record.entityType === "fixed_commitment" &&
-      (record.operation === "update" || record.operation === "delete") &&
-      record.matchedEntityId
+      (record.entityType === "fixed_commitment" &&
+        (record.operation === "update" || record.operation === "delete") &&
+        record.matchedEntityId) ||
+      isFeedCancel(record)
   );
   const fedElsewhere = await store.commitmentsFedByOtherSources(
-    changed.map((record) => record.matchedEntityId!),
+    changed.flatMap((record) => (record.matchedEntityId ? [record.matchedEntityId] : [])),
     adapter.provider,
     adapter.ownSourceType
   );
@@ -279,21 +295,43 @@ async function applyDiff(
   let auto = changed.filter(
     (record) =>
       record.errors.length === 0 &&
-      !fedElsewhere.has(record.matchedEntityId!) &&
-      (record.operation === "update" || record.relationships.remoteCancelled === "true")
+      !(record.matchedEntityId && fedElsewhere.has(record.matchedEntityId)) &&
+      (record.operation === "update" || record.relationships.remoteCancelled === "true" || isFeedCancel(record))
   );
   // An adapter may hold records back from applying on their own (optional; inert when absent).
   if (adapter.holds) auto = auto.filter((record) => !adapter.holds!(record));
   // The same guard as the publish sweep: past the threshold, every delete of the run is held. Date
   // cancels share the one budget with deletes (rule-end deletes included).
   if (auto.filter(spendsDeleteBudget).length > maxDeletes) auto = auto.filter((record) => !spendsDeleteBudget(record));
+  // The two halves of a moved meeting go together (a cancel without its replacement loses the meeting, a replacement
+  // without its cancel doubles it): when one half is held, so is the other, and commitReady never sees a half pair.
+  const pairSize = new Map<string, number>();
+  for (const record of diff.records)
+    if (pairOf(record)) pairSize.set(pairOf(record)!, (pairSize.get(pairOf(record)!) ?? 0) + 1);
+  // A half whose partner is not in the diff (it names its pair's size) is never applied on its own either.
+  const lone = (record: ImportRecord) =>
+    pairOf(record) !== undefined &&
+    (pairSize.get(pairOf(record)!) ?? 0) < Number(record.relationships.feedMoveSize ?? 0);
+  const heldPairs = new Set(
+    diff.records.filter((record) => pairOf(record) && (!auto.includes(record) || lone(record))).map(pairOf)
+  );
+  if (heldPairs.size) auto = auto.filter((record) => !pairOf(record) || !heldPairs.has(pairOf(record)));
   let held = diff.records.filter((record) => !auto.includes(record));
 
   let committedBatchId: string | null = null;
   let updated = 0;
   let deleted = 0;
-  if (auto.length) {
-    const preview = await store.preview(diff.previewFor(auto));
+  let preview = auto.length ? await store.preview(diff.previewFor(auto)) : null;
+  // A half that turned out a blocker once resolved against the database takes its partner with it into review.
+  for (let pass = 0; preview && pass < 3; pass += 1) {
+    const blockedPairs = new Set(preview.records.filter((record) => pairOf(record) && isBlocker(record)).map(pairOf));
+    if (!blockedPairs.size) break;
+    await store.delete(preview.id);
+    held = [...held, ...auto.filter((record) => blockedPairs.has(pairOf(record)))];
+    auto = auto.filter((record) => !blockedPairs.has(pairOf(record)));
+    preview = auto.length ? await store.preview(diff.previewFor(auto)) : null;
+  }
+  if (preview) {
     // Every auto record turned out to be a blocker once resolved against the database: `commitReady`
     // would throw rather than leave an empty committed batch, so hold them instead.
     if (!preview.records.some((record) => !isBlocker(record))) {

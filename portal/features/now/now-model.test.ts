@@ -1174,6 +1174,48 @@ describe("recommendedActionFinished", () => {
   });
 });
 
+describe("buildNowModel energy cost", () => {
+  const energyCost = {
+    declaredEnergy: "low",
+    blockedCount: 3,
+    dueSoon: [{ actionId: "act-1", title: "Unit 3 reading", deadlineAt: iso(60 * 20) }]
+  };
+  const withNote = (): PortalState => {
+    const base = stateWithPlanningResult(createSeedState(now));
+    return {
+      ...base,
+      planning: {
+        ...base.planning!,
+        result: { ...base.planning!.result!, recommendation: { energyCost } as unknown as JsonValue }
+      }
+    };
+  };
+
+  it("reads the note from the stored recommendation and agrees with the shared builder", () => {
+    const state = withNote();
+    const built = model(state);
+    expect(built.energyCost?.text).toMatch(/^Low energy is holding back 3 actions, 1 due /);
+    const answer = buildNowAnswer(
+      {
+        state,
+        currentDirective: null,
+        recommendation: state.planning?.result?.recommendation,
+        planCalculatedAt: state.planning?.lastSuccessfulAt,
+        planCurrent: true,
+        now
+      },
+      new Map()
+    );
+    expect(built.energyCost).toEqual(answer.energyCost);
+  });
+
+  it("is null without a note, and hidden while the plan is not current", () => {
+    expect(model(stateWithPlanningResult(createSeedState(now))).energyCost).toBeNull();
+    const stale = { ...withNote(), planning: { ...withNote().planning!, validUntil: iso(-1) } };
+    expect(model(stale).energyCost).toBeNull();
+  });
+});
+
 describe("buildNowModel stretch", () => {
   const offer = {
     actionId: "act-1",

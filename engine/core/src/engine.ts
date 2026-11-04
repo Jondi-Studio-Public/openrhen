@@ -24,6 +24,7 @@ import {
   calibrationFactorForArea,
   currentSituationSchema,
   dependencyPositions,
+  deterministicUuid,
   evaluateConditions,
   nextStaleAt,
   openSessionTitle,
@@ -3233,24 +3234,4 @@ function toJson<T>(value: T): JsonValue {
 }
 function toJsonArray<T>(value: T[]): JsonValue[] {
   return JSON.parse(JSON.stringify(value)) as JsonValue[];
-}
-function deterministicUuid(value: string) {
-  let a = 0x811c9dc5,
-    b = 0x9e3779b9,
-    c = 0x85ebca6b,
-    d = 0xc2b2ae35;
-  for (const character of value) {
-    const code = character.codePointAt(0)!;
-    a = Math.imul(a ^ code, 16777619);
-    b = Math.imul(b + code, 2246822519);
-    c = Math.imul(c ^ code, 3266489917);
-    d = Math.imul(d + code, 668265263);
-  }
-  const hex = [a, b, c, d]
-    .map((part) => (part >>> 0).toString(16).padStart(8, "0"))
-    .join("")
-    .split("");
-  hex[12] = "4";
-  hex[16] = ["8", "9", "a", "b"][parseInt(hex[16]!, 16) & 3]!;
-  return `${hex.slice(0, 8).join("")}-${hex.slice(8, 12).join("")}-${hex.slice(12, 16).join("")}-${hex.slice(16, 20).join("")}-${hex.slice(20).join("")}`;
 }

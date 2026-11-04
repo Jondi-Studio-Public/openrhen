@@ -2,6 +2,7 @@ import { isClosedStatus } from "@openrhen/contracts";
 import {
   buildNeeds,
   buildRecommendationAnswer,
+  buildEnergyCostAnswer,
   buildStretchAnswer,
   resolveLocale,
   resolveNowActivity,
@@ -15,7 +16,8 @@ import {
   type StartByWarning,
   type StayUpOffer,
   type StretchBlock,
-  type StretchOfferAnswer
+  type StretchOfferAnswer,
+  type EnergyCostAnswer
 } from "@openrhen/contracts";
 import { assessDeliverable } from "@openrhen/contracts/readiness";
 import type {
@@ -271,6 +273,8 @@ export interface NowModel {
   stretchOffer: StretchOfferAnswer | null;
   /** The running stretch, today's count and the morning-after loan line; null when there is nothing to say. */
   stretch: StretchBlock | null;
+  /** What declared low energy is holding back, as one plain sentence; null when nothing is. Built by `buildEnergyCostAnswer`. */
+  energyCost: EnergyCostAnswer | null;
 }
 
 /** Which hero Now is showing, for the needs it already asks in its own words. */
@@ -657,6 +661,17 @@ export function buildNowModel({
     locale: resolveLocale(state.settings.locale)
   });
 
+  const energyCost = buildEnergyCostAnswer({
+    recommendation: state.planning?.result?.recommendation,
+    energySetAt: state.currentSituation.energySetAt,
+    planCalculatedAt: state.planning?.lastSuccessfulAt ?? undefined,
+    planCurrent: planningDecisionCurrent,
+    stretchOfferActionId: stretchAnswer.stretchOffer?.actionId,
+    now: new Date(now.getTime() + serverClockOffsetMs),
+    timeZone: timezone,
+    locale: resolveLocale(state.settings.locale)
+  });
+
   return {
     timezone,
     planningDecisionCurrent,
@@ -717,6 +732,7 @@ export function buildNowModel({
     recommendationAnswer,
     needs,
     stretchOffer: stretchAnswer.stretchOffer,
-    stretch: stretchAnswer.stretch
+    stretch: stretchAnswer.stretch,
+    energyCost
   };
 }
