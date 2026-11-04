@@ -1,0 +1,18 @@
+# A minimal add-on compose file for the seam tests: one service, one appended portal variable, one secret
+# declaration, and a Dockerfile override that builds core plus the add-on's packages.
+services:
+  portal:
+    environment:
+      NOTES_TOKEN: ${NOTES_TOKEN:-}
+    x-openrhen:
+      secrets: [NOTES_TOKEN]
+    build:
+      dockerfile: addon/Dockerfile.portal
+  notes:
+    image: example/notes:1
+    profiles: ["planning", "app"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    x-openrhen:
+      secrets: [NOTES_DB_URL]

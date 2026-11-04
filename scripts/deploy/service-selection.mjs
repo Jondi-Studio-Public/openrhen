@@ -1,5 +1,5 @@
 import "./private/index.mjs";
-import { deployServiceExtensions } from "./service-extensions.mjs";
+import { onDeployServiceRegistered } from "./service-extensions.mjs";
 
 /**
  * Which services a manual-fallback deploy builds and brings up. Kept apart from deploy-home-server.mjs
@@ -12,12 +12,19 @@ import { deployServiceExtensions } from "./service-extensions.mjs";
  */
 export const DEPENDS_ON = {
   portal: ["engine-service", "outbound-proxy", "migrate"],
-  "engine-worker": ["engine-service", "migrate"],
-  ...Object.fromEntries(deployServiceExtensions().map((entry) => [entry.service, entry.dependsOn]))
+  "engine-worker": ["engine-service", "migrate"]
 };
 
 /** The services that wait for `migrate` to exit 0 directly: the ones that must not be writing while it runs. */
-export const MIGRATE_DEPENDENTS = Object.keys(DEPENDS_ON).filter((service) => DEPENDS_ON[service].includes("migrate"));
+export const MIGRATE_DEPENDENTS = ["portal", "engine-worker"];
+
+// A registered service adds its dependencies (a core service keeps its own) and, when it waits for migrate, joins the writers.
+onDeployServiceRegistered((entry) => {
+  DEPENDS_ON[entry.service] = [...new Set([...(DEPENDS_ON[entry.service] ?? []), ...entry.dependsOn])];
+  if (DEPENDS_ON[entry.service].includes("migrate") && !MIGRATE_DEPENDENTS.includes(entry.service)) {
+    MIGRATE_DEPENDENTS.push(entry.service);
+  }
+});
 
 /** Whether `migrate` is `service` itself or one of its direct or transitive dependencies. */
 export function reachesMigrate(service, seen = new Set()) {
