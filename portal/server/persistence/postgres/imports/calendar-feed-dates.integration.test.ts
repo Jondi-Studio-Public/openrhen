@@ -1061,7 +1061,8 @@ describe("generations", () => {
     await replan(second.recurrence_rule_id, 90);
     expect(await sync(readOf(dated))).toMatchObject({ status: "synced", updated: 1 });
     expect(await dateRow(second.recurrence_rule_id, week(3))).toMatchObject({ status: "cancelled" });
-    expect(await dateRow(first, week(3))).toBeUndefined();
+    // The old generation's date was closed when the feed ended it (not deleted), and stays closed: no open duplicate.
+    expect(await dateRow(first, week(3))).toMatchObject({ status: "cancelled" });
   });
 
   it("starts the revival at the first date from today that is not cancelled or moved", async () => {

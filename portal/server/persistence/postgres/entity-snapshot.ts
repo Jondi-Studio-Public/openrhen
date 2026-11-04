@@ -70,36 +70,25 @@ export async function watchProjectWrite(snap: WriteSnapshot | null, id: string):
 }
 
 /**
- * A recurring commitment's rule, and the occurrences a series save detaches (started or in progress) or ends (the
- * future ones). Ending deletes the future occurrences, and the database takes their dependants with them: calendar
- * links, routine steps (and their dependencies) are deleted (ON DELETE CASCADE) and what extensions recorded against them,
- * live conditions and prep actions that named them are unlinked (ON DELETE SET NULL), so those are kept too and
- * an undo puts them back linked. `calendar_publications` is not among them: it has no foreign key to the
- * commitment, so the delete leaves it alone.
+ * A recurring commitment's rule, and the occurrences a series save detaches (started or in progress), closes (ending
+ * the rule cancels its future ones) or brings back (setting an ended rule active again). Nothing is deleted: the
+ * future occurrences and their routine steps change status, so those two tables are watched. An undo puts each back
+ * as it was; the links, dependencies, extension rows and prep that hang off an occurrence are not touched.
  */
 export async function watchCommitmentRecurrenceWrite(
   snap: WriteSnapshot | null,
   ruleId: string,
-  ends: boolean
+  changesOccurrences: boolean
 ): Promise<void> {
   if (!snap) return;
   await snap.before("commitment_recurrence_rules", [ruleId]);
-  // A save that stays active changes occurrences only through `applyOccurrenceInProgressRule`, which keeps the
-  // ones it detaches itself; ending deletes the future ones (and every one the series still has is kept here).
-  if (!ends) return;
+  // A save that leaves the rule's status alone changes occurrences only through `applyOccurrenceInProgressRule`, which
+  // keeps the ones it detaches itself.
+  if (!changesOccurrences) return;
   await snap.watch("commitments", "t.recurrence_rule_id = $1", [ruleId]);
-  // The occurrences the end deletes: the same condition as its DELETE.
+  // The occurrences the end closes or the re-activation reopens: the future ones.
   const going = "(SELECT f.id FROM commitments f WHERE f.recurrence_rule_id = $1 AND f.starts_at > now())";
-  await snap.watch("calendar_event_links", `t.commitment_id IN ${going}`, [ruleId]);
   await snap.watch("routine_steps", `t.commitment_id IN ${going}`, [ruleId]);
-  await snap.watch(
-    "routine_step_dependencies",
-    `t.step_id IN (SELECT s.id FROM routine_steps s WHERE s.commitment_id IN ${going})`,
-    [ruleId]
-  );
-  await watchExtensions(snap, { kind: "series-end", ruleId, going });
-  await snap.watch("condition_definitions", `t.commitment_id IN ${going}`, [ruleId]);
-  await snap.watch("actions", `t.prep_for_commitment_id IN ${going}`, [ruleId]);
 }
 
 /** Ending a manual recurrence goal: the rule, the action and the occurrences still pending. */

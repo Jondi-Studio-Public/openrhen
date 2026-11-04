@@ -1110,6 +1110,8 @@ export async function persistDerivedState(sql: postgres.Sql, userId: string, res
       WHERE s.commitment_id=commitments.id AND s.status NOT IN ('pending','cancelled')
     )
   `;
+  // A closed (cancelled) occurrence is never pruned: ending a rule, or a person's own cancel, closes it for good and
+  // restoring it needs the row (archive-removals design section 7). The delete below leaves such rows alone.
   // The delete below treats the derived list as the complete set of surviving future occurrences, so it
   // is only as safe as the list is trustworthy. Two shapes of list are not, and each skips the delete
   // for this run (the upserts above still applied — they only ever add or heal a row the engine named,
@@ -1150,10 +1152,10 @@ export async function persistDerivedState(sql: postgres.Sql, userId: string, res
     const deleted = commitmentOccurrenceIds.length
       ? await sql<
           { id: string }[]
-        >`DELETE FROM commitments WHERE user_id=${userId} AND recurrence_rule_id IS NOT NULL AND starts_at>${resolvedFrom} AND id NOT IN ${sql(commitmentOccurrenceIds)} AND ${routineStepsActedOn} RETURNING id`
+        >`DELETE FROM commitments WHERE user_id=${userId} AND recurrence_rule_id IS NOT NULL AND starts_at>${resolvedFrom} AND id NOT IN ${sql(commitmentOccurrenceIds)} AND status<>'cancelled' AND ${routineStepsActedOn} RETURNING id`
       : await sql<
           { id: string }[]
-        >`DELETE FROM commitments WHERE user_id=${userId} AND recurrence_rule_id IS NOT NULL AND starts_at>${resolvedFrom} AND ${routineStepsActedOn} RETURNING id`;
+        >`DELETE FROM commitments WHERE user_id=${userId} AND recurrence_rule_id IS NOT NULL AND starts_at>${resolvedFrom} AND status<>'cancelled' AND ${routineStepsActedOn} RETURNING id`;
     if (deleted.length > 0)
       console.info(
         JSON.stringify({

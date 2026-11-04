@@ -95,7 +95,7 @@ export async function commitRecords(
           const linkId = record.relationships.sourceLinkId;
           if (linkId) await markSourceClosed(sql, userId, linkId);
         }
-        if (type === "fixed_commitment_recurrence") await endCommitmentRecurrenceRule(sql, id!, record);
+        if (type === "fixed_commitment_recurrence") await endCommitmentRecurrenceRule(sql, userId, id!, record, close);
         continue;
       }
       const value = fieldReader(record);

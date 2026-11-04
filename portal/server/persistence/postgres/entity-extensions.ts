@@ -17,7 +17,7 @@ export interface SnapshotWatch {
 }
 
 export type SnapshotEvent =
-  /** A series ends: `going` is the sub-select of the occurrences deleted, `$1` the rule id. */
+  /** Retired in PR 7b: ending a series closes its future occurrences instead of deleting them, so nothing emits this. */
   | { kind: "series-end"; ruleId: string; going: string }
   /** A save drops routine steps: `dropped` is the sub-select of their ids. */
   | { kind: "steps-dropped"; dropped: string; params: readonly unknown[] }

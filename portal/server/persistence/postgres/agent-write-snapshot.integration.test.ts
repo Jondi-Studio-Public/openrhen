@@ -560,7 +560,7 @@ describe("an undo restores the whole row, including what the planner usually own
     expect(await image("commitments", "id = $1", id)).toEqual(saved);
   });
 
-  it("puts back the links, routine steps, relinked rows and prep that ending a series took", async () => {
+  it("puts back the occurrence and routine steps that ending a series closed, leaving its links, dependencies and prep as they were", async () => {
     const ruleCommand = {
       commandId: crypto.randomUUID(),
       expectedVersion: null,
@@ -619,10 +619,16 @@ describe("an undo restores the whole row, including what the planner usually own
       rule: { ...ruleCommand.rule, status: "ended" }
     } as typeof ruleCommand;
     await asAgent(() => saveCommitmentRecurrenceRule(sql, end));
-    expect(await sql`SELECT 1 FROM commitments WHERE id = ${futureId}`).toHaveLength(0);
-    expect(await sql`SELECT 1 FROM calendar_event_links`).toHaveLength(0);
-    expect(await sql`SELECT 1 FROM routine_steps`).toHaveLength(0);
-    expect((await image("actions", "id = $1", actionId))!.prep_for_commitment_id).toBeNull();
+    // Ending closes the future date instead of deleting it: the row, its link, steps, dependencies and prep stay.
+    expect(await image("commitments", "id = $1", futureId)).toMatchObject({
+      status: "cancelled",
+      closed_by: "agent:claude",
+      closed_reason: "Recurrence ended"
+    });
+    expect(await sql`SELECT 1 FROM calendar_event_links`).toHaveLength(1);
+    expect(await sql`SELECT 1 FROM routine_steps WHERE status = 'cancelled'`).toHaveLength(2);
+    expect(await sql`SELECT 1 FROM routine_step_dependencies`).toHaveLength(1);
+    expect((await image("actions", "id = $1", actionId))!.prep_for_commitment_id).toBe(futureId);
 
     await asAgent(() => runRevertCommand(sql, revert(end.commandId!, "undo")));
     const after = await Promise.all(tables.map(([table, where, params]) => image(table, where, ...params)));
@@ -631,8 +637,8 @@ describe("an undo restores the whole row, including what the planner usually own
     expect(await sql`SELECT 1 FROM routine_step_dependencies`).toHaveLength(1);
 
     await asAgent(() => runRevertCommand(sql, revert(end.commandId!, "redo")));
-    expect(await sql`SELECT 1 FROM commitments WHERE id = ${futureId}`).toHaveLength(0);
-    expect(await sql`SELECT 1 FROM routine_steps`).toHaveLength(0);
+    expect(await image("commitments", "id = $1", futureId)).toMatchObject({ status: "cancelled" });
+    expect(await sql`SELECT 1 FROM routine_steps WHERE status = 'cancelled'`).toHaveLength(2);
   });
 
   it("puts back a removed action window with its occurrences, completed ones included, and its linked steps", async () => {

@@ -575,9 +575,12 @@ describe("normalized PostgreSQL portal persistence (part 10)", () => {
       expectedVersion: blocking.version ?? null,
       rule: { ...blocking, status: "ended" }
     });
-    expect(
-      state.commitments.filter((item) => item.recurrenceRuleId === rule.id && new Date(item.startsAt) > now)
-    ).toHaveLength(0);
+    // Ending closes the future dates instead of deleting them: none is left open, and they are still there to restore.
+    const future = state.commitments.filter(
+      (item) => item.recurrenceRuleId === rule.id && new Date(item.startsAt) > now
+    );
+    expect(future.length).toBeGreaterThan(0);
+    expect(future.every((item) => item.status === "cancelled")).toBe(true);
   }, 30_000);
 
   // Changing a whole recurring series' engagement level worked, but changing one

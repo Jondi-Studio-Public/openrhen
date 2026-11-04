@@ -253,7 +253,21 @@ export async function batchEntries(
       { evidence: { cascade?: CascadedRow[] } }[]
     >`SELECT evidence FROM write_rows WHERE user_id=${userId} AND entity_type=${type} AND entity_id=${id} AND operation='close' AND evidence->>'batch'=${closedBatch} LIMIT 1`
   )[0];
-  return ledger?.evidence.cascade ?? [];
+  if (ledger) return ledger.evidence.cascade ?? [];
+  if (type !== "commitment") return [];
+  // An occurrence closed by its rule's end has no row of its own: the rule's `close` row holds the steps that closed
+  // with every occurrence of that end (`[step, commitment, from, version]`), so this one's come from there. An import
+  // can end several rules in one batch, so every row of the batch is read.
+  const ends = await tx<
+    { evidence: { steps?: unknown } }[]
+  >`SELECT evidence FROM write_rows WHERE user_id=${userId} AND entity_type='commitment_recurrence_rule' AND operation='close' AND evidence->>'batch'=${closedBatch}`;
+  const rows: CascadedRow[] = [];
+  for (const end of ends)
+    for (const tuple of Array.isArray(end.evidence.steps) ? (end.evidence.steps as unknown[]) : []) {
+      if (!Array.isArray(tuple) || tuple[1] !== id) continue;
+      rows.push({ type: "routine_step", id: String(tuple[0]), from: String(tuple[2]), version: Number(tuple[3]) });
+    }
+  return rows;
 }
 
 /**
