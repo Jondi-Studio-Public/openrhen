@@ -100,13 +100,14 @@ export function baselineProblems(baseline, entries) {
     );
 
   if (legacy.length > 0) {
+    // A set sharing core's ledger lists core's whole legacy history, not its own idx run.
     legacy.forEach((row, position) => {
-      if (row.idx !== position)
+      if (ownLedger && row.idx !== position)
         problems.push(
           `baseline.json legacy entry ${position} has idx ${row.idx}; legacy idx must run 0..${baselineIdx} with no gaps`
         );
     });
-    if (legacy.length !== baselineIdx + 1)
+    if (ownLedger && legacy.length !== baselineIdx + 1)
       problems.push(
         `baseline.json legacy has ${legacy.length} entries; it must run 0..${baselineIdx} (${baselineIdx + 1})`
       );
