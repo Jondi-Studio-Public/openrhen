@@ -30,6 +30,7 @@ import type { SessionOutcome } from "@/features/deliverables/components/session-
 import { WorkspaceActions } from "@/features/deliverables/components/workspace-actions";
 import { PhaseBar, type WorkspaceDrawer } from "@/features/deliverables/components/phase-bar";
 import { ConnectionsSection } from "@/features/plan-map/components/connections-section";
+import { CloseControl } from "@/features/closed/components/close-control";
 import { WorkspaceSheets } from "@/features/deliverables/components/workspace-sheets";
 import type { SourceAttachment } from "@/features/deliverables/components/source-panel";
 import {
@@ -368,6 +369,7 @@ export default function DeliverablesPage() {
           currentStepTitle={undefined}
           dirty={false}
           onBack={back}
+          closeControl={<CloseControl type="deliverable" id={working.id} />}
         />
         <PlaceTabs />
         {error && (
@@ -420,6 +422,7 @@ export default function DeliverablesPage() {
         currentStepTitle={currentStep?.title}
         dirty={dirty}
         onBack={back}
+        closeControl={<CloseControl type="deliverable" id={working.id} dirty={dirty} />}
       />
       <PlaceTabs />
       {error && (

@@ -66,7 +66,7 @@ export function sortedAreas(areas: StoredArea[]): StoredArea[] {
 export function partitionArchivedAreas(areas: StoredArea[]): { live: StoredArea[]; archived: StoredArea[] } {
   const ordered = sortedAreas(areas);
   return {
-    live: ordered.filter((area) => area.status !== "archived"),
-    archived: ordered.filter((area) => area.status === "archived")
+    live: ordered.filter((area) => !isClosedStatus(area.status)),
+    archived: ordered.filter((area) => isClosedStatus(area.status))
   };
 }

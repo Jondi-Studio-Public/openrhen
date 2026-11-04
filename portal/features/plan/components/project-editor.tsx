@@ -1,13 +1,14 @@
 "use client";
 
-import type { FormEvent } from "react";
+import { isClosedStatus } from "@openrhen/contracts";
+import type { FormEvent, ReactNode } from "react";
 import type { StoredAction, StoredArea, StoredDeliverable, StoredOutcome, StoredProject } from "@/state/portal-state";
 import { PrerequisitePicker } from "@/features/plan/components/prerequisite-picker";
 import { statuses, type ProjectDraft } from "@/features/plan/plan-drafts";
 import { projectInheritedPrivacyFrom } from "@/features/plan/pulse-privacy";
 import { Field } from "@/components/field";
 import { FormActions, useSubmitGuard } from "@/components/form-actions";
-import { statusOption } from "@/components/status-option";
+import { StatusField } from "@/components/status-field";
 
 /**
  * Add or edit a project. Both deadlines are offered because the internal one is what the forecast
@@ -23,7 +24,8 @@ export function ProjectEditor({
   onChange,
   onSubmit,
   onCancel,
-  open = Boolean(draft.id)
+  open = Boolean(draft.id),
+  closeControl
 }: {
   draft: ProjectDraft;
   outcomes: StoredOutcome[];
@@ -38,6 +40,8 @@ export function ProjectEditor({
   onCancel: () => void;
   /** Whether the card is unfolded; open while editing by default, and a sheet holds it open. */
   open?: boolean;
+  /** The Archive / Cancel / Restore control, shown only for a record that exists. */
+  closeControl?: ReactNode;
 }) {
   const inheritedFrom = areas ? projectInheritedPrivacyFrom(draft.outcomeId, outcomes, areas) : null;
   const guard = useSubmitGuard(onSubmit);
@@ -54,7 +58,8 @@ export function ProjectEditor({
               .filter(
                 (item) =>
                   item.id === draft.outcomeId ||
-                  (item.status !== "archived" && areas?.find((area) => area.id === item.areaId)?.status !== "archived")
+                  (!isClosedStatus(item.status) &&
+                    !isClosedStatus(areas?.find((area) => area.id === item.areaId)?.status ?? ""))
               )
               .map((item) => (
                 <option key={item.id} value={item.id}>
@@ -110,14 +115,11 @@ export function ProjectEditor({
             onChange={(event) => onChange({ ...draft, consequence: Number(event.target.value) })}
           />
         </Field>
-        <Field label="Status">
-          <select
-            value={draft.status}
-            onChange={(event) => onChange({ ...draft, status: event.target.value as StoredProject["status"] })}
-          >
-            {statuses.map(statusOption)}
-          </select>
-        </Field>
+        <StatusField
+          value={draft.status}
+          options={statuses}
+          onChange={(status) => onChange({ ...draft, status: status as StoredProject["status"] })}
+        />
         <PrerequisitePicker
           self={{ kind: "project", id: draft.id || undefined }}
           plan={{ projects, deliverables, actions }}
@@ -139,6 +141,7 @@ export function ProjectEditor({
           {inheritedFrom ? `Private through ${inheritedFrom}.` : "Hides this project from the published pulse."}
         </p>
         <FormActions editing={Boolean(draft.id)} cancel={onCancel} pending={guard.pending} />
+        {draft.id && closeControl}
       </form>
     </details>
   );

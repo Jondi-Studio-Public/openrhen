@@ -60,8 +60,9 @@ describe("CloseToastRegion", () => {
     );
     await mount();
     act(() => closeToasts.show({ kind: "closed", title: "Quarterly report", closed: closedProject() }));
+    const undo = await screen.findByRole("button", { name: "Undo" });
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+      fireEvent.click(undo);
     });
     await waitFor(() => expect(screen.getByRole("status", { name: "Archive and cancel results" }).textContent).toContain("Restored Quarterly report as paused."));
     expect(posts).toHaveLength(1);
@@ -79,8 +80,9 @@ describe("CloseToastRegion", () => {
       type: "outcome"
     };
     act(() => closeToasts.show({ kind: "closed", title: "Garden", closed }));
+    const undo = await screen.findByRole("button", { name: "Undo" });
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+      fireEvent.click(undo);
     });
     await waitFor(() => expect(posts).toHaveLength(1));
     expect(posts[0]).toMatchObject({ type: "outcome", includeChildren: true });
@@ -91,8 +93,9 @@ describe("CloseToastRegion", () => {
     stubCloseServer((command) => conflictReply(command, 9));
     await mount();
     act(() => closeToasts.show({ kind: "closed", title: "Quarterly report", closed: closedProject() }));
+    const undo = await screen.findByRole("button", { name: "Undo" });
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+      fireEvent.click(undo);
     });
     await waitFor(() =>
       expect(screen.getByRole("status", { name: "Archive and cancel results" }).textContent).toContain(
@@ -113,8 +116,9 @@ describe("CloseToastRegion", () => {
     );
     await mount();
     act(() => closeToasts.show({ kind: "closed", title: "Quarterly report", closed: closedProject() }));
+    const undo = await screen.findByRole("button", { name: "Undo" });
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+      fireEvent.click(undo);
     });
     await waitFor(() => expect(screen.getByRole("status", { name: "Archive and cancel results" }).textContent).toContain("Restore that first."));
   });

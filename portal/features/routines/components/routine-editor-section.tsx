@@ -6,6 +6,7 @@ import { RoutineBoard } from "@/features/routines/components/routine-board";
 import { RoutineEmptyState } from "@/features/routines/components/routine-empty-state";
 import { RoutinePresetSidebar } from "@/features/routines/components/routine-preset-sidebar";
 import { RoutineToolbar } from "@/features/routines/components/routine-toolbar";
+import { CloseControl } from "@/features/closed/components/close-control";
 import { cadenceActionOptions, recurringWindowOptions } from "@/features/routines/recurring-windows";
 import {
   newRoutineStep,
@@ -187,8 +188,19 @@ export function RoutineEditorSection({ heading }: { heading: ReactNode }) {
                 saving={saving}
                 dirty={dirty}
                 onNameChange={(name) => patch({ name })}
-                onStatusChange={(status) => patch({ status })}
                 onAddStep={addStep}
+                closeControl={
+                  <CloseControl
+                    type="routine_preset"
+                    id={draft.id}
+                    dirty={dirty}
+                    onDone={() => {
+                      setDraft(null);
+                      setBaseline("");
+                      setEditingId(null);
+                    }}
+                  />
+                }
               />
               {message && (
                 <p

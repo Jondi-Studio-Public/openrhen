@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { Field } from "@/components/field";
+import { CloseControl } from "@/features/closed/components/close-control";
 import { ConditionDefinitionEditor, type GeocodeMatch } from "@/features/settings/components/context-definition-editor";
 import {
   commitmentConditionTarget,
@@ -160,6 +161,21 @@ export function TypedConditionManager({
       }}
       onChange={set}
       onSave={() => void save()}
+      closeControl={
+        editingId ? (
+          <CloseControl
+            type="condition_definition"
+            id={editingId}
+            // A close bumps the version, so it waits for unsaved edits to be saved or discarded.
+            dirty={JSON.stringify(draft) !== JSON.stringify(definitions.find((entry) => entry.id === editingId))}
+            onDone={() => {
+              setEditingId(null);
+              setDraft(null);
+              clearLookup();
+            }}
+          />
+        ) : null
+      }
       onCancel={() => {
         setEditingId(null);
         setDraft(null);

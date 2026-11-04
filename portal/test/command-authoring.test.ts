@@ -49,7 +49,6 @@ const EXEMPT_AUTHORING_MODULES: Record<string, number> = {
   "components/situation-panel.tsx": 1,
   "features/capture/capture-commands.ts": 7,
   "features/check-in/check-in-command.ts": 3,
-  "features/commitments/cancel-prep.ts": 1,
   "features/commitments/commitment-commands.ts": 3,
   "features/deliverables/deliverable-commands.ts": 5,
   "features/disruptions/disruption-commands.ts": 2,

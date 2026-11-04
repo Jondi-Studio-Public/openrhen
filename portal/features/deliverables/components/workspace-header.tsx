@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import type { StoredDeliverable } from "@/state/portal-state";
 import {
   CLOSED_DELIVERABLE_STATUSES,
@@ -20,7 +21,8 @@ export function WorkspaceHeader({
   mode,
   currentStepTitle,
   dirty,
-  onBack
+  onBack,
+  closeControl
 }: {
   deliverable: StoredDeliverable;
   projectTitle: string | undefined;
@@ -29,6 +31,8 @@ export function WorkspaceHeader({
   currentStepTitle: string | undefined;
   dirty: boolean;
   onBack: () => void;
+  /** The Archive, Cancel or Restore control, passed in so this header stays provider-free. */
+  closeControl?: ReactNode;
 }) {
   // A closed deliverable is past its phases: the strip reads as finished, not stuck in the doing stage.
   const closed = CLOSED_DELIVERABLE_STATUSES.has(deliverable.status);
@@ -62,6 +66,7 @@ export function WorkspaceHeader({
         <button type="button" className="quiet small" onClick={onBack}>
           All deliverables
         </button>
+        {closeControl}
         <div className="bcr-strip" aria-label="Stage progress">
           <span className={done || phase !== "Breakdown" ? "done" : "active"}>
             1 <small>Breakdown</small>

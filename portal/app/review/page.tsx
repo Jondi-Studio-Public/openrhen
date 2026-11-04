@@ -1,8 +1,8 @@
 "use client";
 
-import { isClosedStatus } from "@openrhen/contracts";
+import { isClosedStatus, type CloseEntityResult } from "@openrhen/contracts";
 import { dateTimeFormat, displayLocale } from "@/shared/locale";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { usePortal } from "@/state/portal-provider";
 import Link from "next/link";
 import { outcomePlanHref, projectPlanHref, resolveProjectAreaId } from "@/features/plan/area-grouping";
@@ -25,6 +25,8 @@ import { AgentTimeLine } from "@/features/review/components/agent-time-line";
 import { AgentChangesPanel } from "@/features/review/components/agent-changes-panel";
 import { ReviewStep, StaleProjects, stepStates, type StaleChoice } from "@/features/review/components/weekly-review";
 import { recordInState } from "@/shared/record-in-state";
+import { createClientId } from "@/shared/client-id";
+import { closeCommandFor, failureText, isChildrenRefusal, undoCommandFor } from "@/features/closed/close-commands";
 import { AgentProposalList } from "@/features/agent-proposals/components/agent-proposal-list";
 import {
   shownAgentProposals,
@@ -75,7 +77,8 @@ export default function ReviewPage() {
     saveActionCommand,
     saveProjectCommand,
     saveEntityCommand,
-    confirmProjectWantedCommand
+    confirmProjectWantedCommand,
+    closeEntityCommand
   } = usePortal();
   const editors = usePlanEditors();
   const doctor = useDoctorReport();
@@ -96,10 +99,15 @@ export default function ReviewPage() {
   // The last Keep, Pause or Drop, so it can be undone: Drop is one tap, like an Inbox ignore. A Keep remembers the
   // stamp it replaced (null when there was none); "Keep all remaining" lists every project it kept.
   const [lastChange, setLastChange] = useState<
-    | { choice: "pause" | "drop"; id: string; title: string; from: (typeof state.projects)[number]["status"] }
+    | { choice: "pause"; id: string; title: string; from: (typeof state.projects)[number]["status"] }
+    | { choice: "drop"; id: string; title: string; closed: CloseEntityResult }
     | { choice: "keep"; kept: { id: string; title: string; previous: string | null }[] }
     | null
   >(null);
+  // A Drop of a project that still has open actions: the server's own sentence, and the choice to close them with it.
+  const [dropQuestion, setDropQuestion] = useState<{ projectId: string; message: string } | null>(null);
+  // One command id per project dropped, so the "Close all" resend after the refusal replays the same attempt.
+  const dropIds = useRef(new Map<string, string>());
   // The last Extend 7 days, so the new end date shows and can be undone.
   const [lastExtend, setLastExtend] = useState<{ id: string; title: string; from: string; to: string } | null>(null);
   // The last "Seen, leave it", so it can be undone back to the stamp it replaced.
@@ -226,13 +234,41 @@ export default function ReviewPage() {
         setDecided((count) => count + 1);
         return;
       }
-      await saveProjectCommand(projectStatusCommand(project, choice === "pause" ? "paused" : "cancelled"));
-      setLastChange({ choice, id: project.id, title: project.title, from: project.status });
+      if (choice === "drop") return await drop(project, false);
+      await saveProjectCommand(projectStatusCommand(project, "paused"));
+      setLastChange({ choice: "pause", id: project.id, title: project.title, from: project.status });
       setDecided((count) => count + 1);
     } catch (error) {
       setProblem(error instanceof Error ? error.message : `${project.title} could not be changed.`);
     } finally {
       setBusy(null);
+    }
+  }
+
+  /**
+   * Drop is a cancel, so it goes through the close route like the Cancel button does: stamped as the person, with the
+   * server's own checks. A project with open actions asks first (`dropQuestion`) rather than leaving them open under it.
+   */
+  async function drop(project: (typeof state.projects)[number], includeChildren: boolean) {
+    const key = `${project.id}:${project.version ?? ""}`;
+    const commandId = dropIds.current.get(key) ?? createClientId();
+    dropIds.current.set(key, commandId);
+    try {
+      const closed = await closeEntityCommand(
+        closeCommandFor(
+          { type: "project", id: project.id, version: project.version },
+          "cancel",
+          { commandId, includeChildren }
+        ),
+        { handles: (refusal) => isChildrenRefusal(refusal) && !includeChildren }
+      );
+      dropIds.current.delete(key);
+      setDropQuestion(null);
+      setLastChange({ choice: "drop", id: project.id, title: project.title, closed });
+      setDecided((count) => count + 1);
+    } catch (error) {
+      if (isChildrenRefusal(error) && !includeChildren) return setDropQuestion({ projectId: project.id, message: error.message });
+      throw new Error(failureText(error, "close"));
     }
   }
 
@@ -274,6 +310,14 @@ export default function ReviewPage() {
         }
         setDecided((count) => Math.max(0, count - lastChange.kept.length));
         setLastChange(null);
+        return;
+      }
+      if (lastChange.choice === "drop") {
+        // The restore is built from the close's result (verb, version, and the children it took), never the tool call.
+        const commandId = createClientId();
+        await closeEntityCommand(undoCommandFor(lastChange.closed, { commandId }));
+        setLastChange(null);
+        setDecided((count) => Math.max(0, count - 1));
         return;
       }
       const current = state.projects.find((item) => item.id === lastChange.id);
@@ -552,7 +596,11 @@ export default function ReviewPage() {
       <div className="visually-hidden" role="status">
         {announce}
       </div>
-      <PageHeader title="Weekly review" answer={reviewAnswer} />
+      <PageHeader
+        title="Weekly review"
+        answer={reviewAnswer}
+        actions={<Link href="/review/closed">Closed items</Link>}
+      />
       <PlaceTabs />
       {dataToFix > 0 && (
         <p className={styles.finish}>
@@ -799,6 +847,32 @@ export default function ReviewPage() {
               <p className={`form-error ${styles.problem}`} role="alert">
                 {problem}
               </p>
+            )}
+            {dropQuestion && (
+              <div className={styles.undo} role="group" aria-label="Close the open actions with it?">
+                <span>{dropQuestion.message}</span>
+                <Button
+                  size="sm"
+                  variant="danger"
+                  disabled={busy !== null}
+                  onClick={() => {
+                    const project = state.projects.find((item) => item.id === dropQuestion.projectId);
+                    if (!project) return setDropQuestion(null);
+                    setBusy(project.id);
+                    setProblem("");
+                    drop(project, true)
+                      .catch((error: unknown) =>
+                        setProblem(error instanceof Error ? error.message : `${project.title} could not be changed.`)
+                      )
+                      .finally(() => setBusy(null));
+                  }}
+                >
+                  Close all
+                </Button>
+                <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => setDropQuestion(null)}>
+                  Keep open
+                </Button>
+              </div>
             )}
             {lastChange && (
               <p className={styles.undo}>

@@ -138,4 +138,29 @@ describe("ActionEditor: assumed values", () => {
     rerender(editor({ draft: actionDraftFrom(plain, SEED_ZONE), actions: [plain] }));
     expect(screen.queryByText("assumed")).toBeNull();
   });
+
+  it("offers no archived or cancelled status, and shows a closed action's status as text without a select", () => {
+    const { rerender } = render(editor({ draft: { ...emptyAction(SEED_ZONE), id: "x1", title: "Draft" } }));
+    const statusSelect = screen.getByRole<HTMLSelectElement>("combobox", { name: "Status" });
+    expect(Array.from(statusSelect.options).map((option) => option.textContent)).toEqual([
+      "inbox",
+      "planned",
+      "active",
+      "doing",
+      "waiting",
+      "blocked",
+      "done"
+    ]);
+    rerender(editor({ draft: { ...emptyAction(SEED_ZONE), id: "x1", title: "Draft", status: "cancelled" } }));
+    expect(screen.queryByRole("combobox", { name: "Status" })).toBeNull();
+    expect(screen.getByText("cancelled")).toBeTruthy();
+  });
+
+  it("shows the close control only for an action that exists", () => {
+    const control = <button type="button">Cancel action</button>;
+    const { rerender } = render(editor({ closeControl: control }));
+    expect(screen.queryByRole("button", { name: "Cancel action" })).toBeNull();
+    rerender(editor({ closeControl: control, draft: { ...emptyAction(SEED_ZONE), id: "x1", title: "Draft" } }));
+    expect(screen.getByRole("button", { name: "Cancel action" })).toBeTruthy();
+  });
 });

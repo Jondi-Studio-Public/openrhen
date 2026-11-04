@@ -16,7 +16,7 @@ import { assumedInDraft } from "@/features/plan/assumed-fields";
 import { belowProjectInheritedPrivacyFrom } from "@/features/plan/pulse-privacy";
 import { Field } from "@/components/field";
 import { FormActions, useSubmitGuard } from "@/components/form-actions";
-import { statusOption } from "@/components/status-option";
+import { StatusField } from "@/components/status-field";
 import { PrerequisitePicker } from "@/features/plan/components/prerequisite-picker";
 import { ActionContextFields } from "@/features/plan/components/action-context-fields";
 import { ActionRecurrenceFields } from "@/features/plan/components/action-recurrence-fields";
@@ -37,7 +37,8 @@ export function ActionEditor({
   onChange,
   onSubmit,
   onCancel,
-  open = Boolean(draft.id)
+  open = Boolean(draft.id),
+  closeControl
 }: {
   draft: ActionDraft;
   projects: StoredProject[];
@@ -53,6 +54,8 @@ export function ActionEditor({
   onCancel: () => void;
   /** Whether the card is unfolded; open while editing by default, and a sheet holds it open. */
   open?: boolean;
+  /** The Archive / Cancel / Restore control, shown only for a record that exists. */
+  closeControl?: ReactNode;
 }) {
   const inheritedFrom =
     outcomes && areas ? belowProjectInheritedPrivacyFrom(draft.projectId, projects, outcomes, areas) : null;
@@ -265,14 +268,11 @@ export function ActionEditor({
           prerequisites={draft.prerequisites ?? []}
           onChange={(split) => onChange({ ...draft, ...split })}
         />
-        <Field label="Status">
-          <select
-            value={draft.status}
-            onChange={(event) => onChange({ ...draft, status: event.target.value as StoredAction["status"] })}
-          >
-            {actionStatuses.map(statusOption)}
-          </select>
-        </Field>
+        <StatusField
+          value={draft.status}
+          options={actionStatuses}
+          onChange={(status) => onChange({ ...draft, status: status as StoredAction["status"] })}
+        />
         {/* Pulse privacy; inherited from the
             project (or its area) and not editable downward once one of those is private. */}
         <Field label="Private">
@@ -287,6 +287,7 @@ export function ActionEditor({
           {inheritedFrom ? `Private through ${inheritedFrom}.` : "Hides this action from the published pulse."}
         </p>
         <FormActions editing={Boolean(draft.id)} cancel={onCancel} pending={guard.pending} />
+        {draft.id && closeControl}
       </form>
     </details>
   );

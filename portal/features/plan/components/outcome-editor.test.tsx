@@ -72,4 +72,23 @@ describe("OutcomeEditor", () => {
     fireEvent.change(screen.getByLabelText("Definition of done"), { target: { value: "Floor clear" } });
     expect(onChange).toHaveBeenCalledWith({ ...emptyOutcome(), definitionOfDone: "Floor clear" });
   });
+
+  it("offers no archived or cancelled status, and shows a closed outcome's status as text without a select", () => {
+    const props = { areas: seed().areas, onChange: () => {}, onSubmit: () => {}, onCancel: () => {} };
+    const { rerender } = render(<OutcomeEditor draft={{ ...emptyOutcome(), id: "o1", title: "Tidy" }} {...props} />);
+    const statusSelect = screen.getByRole<HTMLSelectElement>("combobox", { name: "Status" });
+    expect(Array.from(statusSelect.options).map((option) => option.textContent)).toEqual(["active", "paused", "done"]);
+    rerender(<OutcomeEditor draft={{ ...emptyOutcome(), id: "o1", title: "Tidy", status: "cancelled" }} {...props} />);
+    expect(screen.queryByRole("combobox", { name: "Status" })).toBeNull();
+    expect(screen.getByText("cancelled")).toBeTruthy();
+  });
+
+  it("shows the close control only for an outcome that exists", () => {
+    const control = <button type="button">Close outcome…</button>;
+    const props = { areas: seed().areas, onChange: () => {}, onSubmit: () => {}, onCancel: () => {}, closeControl: control };
+    const { rerender } = render(<OutcomeEditor draft={emptyOutcome()} {...props} />);
+    expect(screen.queryByRole("button", { name: "Close outcome…" })).toBeNull();
+    rerender(<OutcomeEditor draft={{ ...emptyOutcome(), id: "o1", title: "Tidy" }} {...props} />);
+    expect(screen.getByRole("button", { name: "Close outcome…" })).toBeTruthy();
+  });
 });

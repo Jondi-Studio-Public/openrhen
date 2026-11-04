@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createSeedState, type StoredAction } from "@/state/portal-state";
 import {
+  actionStatuses,
+  statuses,
   actionDraftFrom,
   areaDraftFrom,
   deliverableDraftFrom,
@@ -112,5 +114,15 @@ describe("plan drafts", () => {
     });
     form.set("uncertainty", "nonsense");
     expect(deliverableDraftFrom(form).uncertainty).toBe("some");
+  });
+});
+
+describe("status lists", () => {
+  // Typed by hand: closing is its own button (archive-removals design, section 6), so no editor offers a closed status.
+  it("the lifecycle choices are the open ones and done", () => {
+    expect([...statuses]).toEqual(["active", "paused", "done"]);
+  });
+  it("the action choices are the open ones and done", () => {
+    expect([...actionStatuses]).toEqual(["inbox", "planned", "active", "doing", "waiting", "blocked", "done"]);
   });
 });

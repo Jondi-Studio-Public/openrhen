@@ -212,27 +212,16 @@ describe("Commitment editor", () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps a cancel confirmation on screen for a resolvable contact, and opens the sheet with it", () => {
-    const contactDefinitions = [
-      ...definitions,
-      { id: "sam", name: "Sam", kind: "contact", status: "active", channels: [] }
-    ] as unknown as ConditionDefinition[];
-    const onSubmit = vi.fn((event: { preventDefault: () => void }) => event.preventDefault());
-    render(
-      editor({
-        onSubmit,
-        definitions: contactDefinitions,
-        draft: {
-          ...draft,
-          id: "class",
-          title: "Dentist",
-          startsAt: "2026-09-10T10:00",
-          status: "cancelled",
-          contactId: "sam"
-        }
-      })
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  const sam = [
+    ...definitions,
+    { id: "sam", name: "Sam", kind: "contact", status: "active", channels: [] }
+  ] as unknown as ConditionDefinition[];
+
+  it("offers the 'Let Sam know?' confirmation once the commitment has been cancelled, and opens the sheet with it", () => {
+    const existing = { ...draft, id: "class", title: "Dentist", startsAt: "2026-09-10T10:00", contactId: "sam" };
+    const { rerender } = render(editor({ definitions: sam, draft: existing }));
+    expect(screen.queryByText("Cancelled.")).toBeNull();
+    rerender(editor({ definitions: sam, draft: existing, cancelledNotice: true }));
     expect(screen.getByText("Cancelled.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Let Sam know?" }));
     expect(openCaptureSheetMock).toHaveBeenCalledWith("disruption", {
@@ -242,16 +231,35 @@ describe("Commitment editor", () => {
     });
   });
 
-  it("closes as today when cancelling without a resolvable contact", () => {
+  it("makes no offer after a cancel when there is no contact to tell", () => {
+    render(editor({ cancelledNotice: true, draft: { ...draft, id: "class", contactId: "" } }));
+    expect(screen.queryByText("Cancelled.")).toBeNull();
+  });
+
+  it("does not turn a save into a cancel: no 'Cancelled' offer follows a plain save", () => {
     const onSubmit = vi.fn((event: { preventDefault: () => void }) => event.preventDefault());
-    render(
-      editor({
-        onSubmit,
-        draft: { ...draft, id: "class", status: "cancelled", contactId: "" }
-      })
-    );
+    render(editor({ onSubmit, definitions: sam, draft: { ...draft, id: "class", contactId: "sam" } }));
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     expect(screen.queryByText("Cancelled.")).toBeNull();
+  });
+
+  it("offers Confirmed and Tentative only, and shows a cancelled commitment's status as text", () => {
+    const { rerender } = render(editor({ draft: { ...draft, id: "class" } }));
+    const select = screen.getByRole<HTMLSelectElement>("combobox", { name: "Status" });
+    expect(Array.from(select.options).map((option) => option.textContent)).toEqual(["Confirmed", "Tentative"]);
+    rerender(editor({ draft: { ...draft, id: "class", status: "cancelled" } }));
+    expect(screen.queryByRole("combobox", { name: "Status" })).toBeNull();
+    expect(screen.getByText("cancelled")).toBeTruthy();
+  });
+
+  it("shows the close control for a one-off or occurrence that exists, never for a new one or a series", () => {
+    const control = <button type="button">Cancel commitment</button>;
+    const { rerender } = render(editor({ closeControl: control }));
+    expect(screen.queryByRole("button", { name: "Cancel commitment" })).toBeNull();
+    rerender(editor({ closeControl: control, draft: { ...draft, id: "class" } }));
+    expect(screen.getByRole("button", { name: "Cancel commitment" })).toBeTruthy();
+    rerender(editor({ closeControl: control, draft: { ...draft, id: "class", repeats: true } }));
+    expect(screen.queryByRole("button", { name: "Cancel commitment" })).toBeNull();
   });
 
   it("toggles the Private switch", () => {

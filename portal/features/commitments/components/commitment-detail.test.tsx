@@ -19,8 +19,11 @@ registerConnectionManifest({
   }
 });
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { OCCURRENCE_IN_PROGRESS_MESSAGE } from "@openrhen/contracts";
-import { fireEvent, render, screen, within } from "@/test/render";
+import { OCCURRENCE_IN_PROGRESS_MESSAGE, closeEntityCommandSchema } from "@openrhen/contracts";
+import { act, fireEvent, render, screen, within } from "@/test/render";
+import { resultFor } from "@/test/close-fixtures";
+import { closeToastText } from "@/features/closed/close-commands";
+import { closeToasts } from "@/features/closed/close-toast-store";
 import { createSeedState, type PortalState, type StoredCommitment } from "@/state/portal-state";
 import { freezeClock } from "@/shared/clock";
 import { CommitmentDetail } from "./commitment-detail";
@@ -83,6 +86,18 @@ const saveCommitmentRecurrenceRuleCommand = vi.fn().mockResolvedValue(undefined)
 const recalculate = vi.fn().mockResolvedValue(undefined);
 const saveActionCommand = vi.fn().mockResolvedValue(undefined);
 const splitCommitmentSourceCommand = vi.fn().mockResolvedValue(undefined);
+// Stands in for the server: a body the close route would refuse fails the test; the cascade is what the handler lists
+// for a commitment (its prep actions and routine steps).
+const closeEntityCommand = vi.fn(async (command: unknown) =>
+  resultFor(closeEntityCommandSchema.parse(command), {
+    version: 2,
+    cascaded: [
+      { type: "action", id: "prep-1", from: "planned", version: 4 },
+      { type: "action", id: "prep-2", from: "planned", version: 4 },
+      { type: "routine_step", id: "pack", from: "pending", version: 3 }
+    ]
+  })
+);
 let context: Record<string, unknown>;
 vi.mock("@/state/portal-provider", () => ({ usePortal: () => context }));
 
@@ -109,6 +124,7 @@ function show(overrides: Partial<StoredCommitment> = {}, extra: Partial<PortalSt
     saveActionCommand,
     saveCommitmentRecurrenceRuleCommand,
     splitCommitmentSourceCommand,
+    closeEntityCommand,
     recalculate
   };
   return render(<CommitmentDetail commitmentId="squad" />);
@@ -120,6 +136,8 @@ beforeEach(() => {
   recalculate.mockClear();
   saveActionCommand.mockReset().mockResolvedValue(undefined);
   splitCommitmentSourceCommand.mockReset().mockResolvedValue(undefined);
+  closeEntityCommand.mockClear();
+  closeToasts.clear();
   vi.unstubAllGlobals();
 });
 
@@ -313,86 +331,102 @@ describe("Commitment detail surface", () => {
     expect((within(sheet).getByLabelText("Title") as HTMLInputElement).value).toBe("Swim squad");
   });
 
-  const prepAction = (id: string, title: string, status: string, prepForCommitmentId = "squad") => ({
-    id,
-    version: 4,
-    projectId: "p1",
-    title,
-    status,
-    optimisticMinutes: 5,
-    expectedMinutes: 10,
-    pessimisticMinutes: 15,
-    remainingMinutes: 10,
-    energy: "low",
-    minimumSessionMinutes: 5,
-    maximumSessionMinutes: 10,
-    splittable: true,
-    setupMinutes: 0,
-    importance: 3,
-    consequence: 3,
-    contexts: [],
-    dependencyIds: [],
-    requirementPathways: [],
-    preferences: [],
-    prepForCommitmentId
-  });
+  describe("cancelling", () => {
+    const sam = {
+      id: "sam",
+      name: "Sam",
+      kind: "contact" as const,
+      status: "active" as const,
+      pathways: [],
+      portability: "portable" as const,
+      grants: [],
+      channels: []
+    };
 
-  it("offers to cancel the open prep when a save cancels the commitment, and cancels only what is still open", async () => {
-    show(
-      {},
-      {
-        actions: [
-          prepAction("print", "Print the handouts", "planned"),
-          prepAction("book", "Book the room", "doing"),
-          prepAction("old", "Already done", "done"),
-          prepAction("other", "Someone else's prep", "planned", "elsewhere")
-        ] as unknown as PortalState["actions"]
-      }
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
-    const sheet = screen.getByRole("dialog", { name: "Edit commitment" });
-    fireEvent.change(within(sheet).getByLabelText("Status"), { target: { value: "cancelled" } });
-    fireEvent.submit(sheet.querySelector("form")!);
+    it("offers one Cancel commitment button, and no Cancelled option in the status list", () => {
+      show();
+      fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+      const sheet = screen.getByRole("dialog", { name: "Edit commitment" });
+      expect(within(sheet).getByRole("button", { name: /^Cancel commitment/ })).toBeTruthy();
+      const select = within(sheet).getByRole<HTMLSelectElement>("combobox", { name: "Status" });
+      expect(Array.from(select.options).map((option) => option.value)).toEqual(["confirmed", "tentative"]);
+    });
 
-    expect(await within(sheet).findByText(/Cancel its 2 open prep actions too\?/)).toBeTruthy();
-    expect(saveActionCommand).not.toHaveBeenCalled();
-    fireEvent.click(within(sheet).getByRole("button", { name: "Cancel prep" }));
+    it("cancels through the close route, lists what went with it in the toast, and no longer asks about prep", async () => {
+      show();
+      fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+      const sheet = screen.getByRole("dialog", { name: "Edit commitment" });
+      await act(async () => {
+        fireEvent.click(within(sheet).getByRole("button", { name: /^Cancel commitment/ }));
+      });
+      expect(closeEntityCommand).toHaveBeenCalledOnce();
+      expect(closeEntityCommandSchema.parse(closeEntityCommand.mock.calls[0]![0])).toMatchObject({
+        type: "commitment",
+        id: "squad",
+        verb: "cancel",
+        do: "close",
+        expectedVersion: 2
+      });
+      expect(saveEntityCommand).not.toHaveBeenCalled();
+      expect(saveActionCommand).not.toHaveBeenCalled();
+      const toast = closeToasts.get();
+      if (toast?.kind !== "closed") throw new Error("expected the close toast");
+      expect(toast.title).toBe("Swim squad");
+      expect(closeToastText("Swim squad", toast.closed)).toBe("Swim squad cancelled, with 2 actions and 1 routine step.");
+      // no contact to tell: the editor closes
+      await vi.waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit commitment" })).toBeNull());
+      expect(screen.queryByText(/open prep/)).toBeNull();
+    });
 
-    await vi.waitFor(() => expect(saveActionCommand).toHaveBeenCalledTimes(2));
-    const saved = saveActionCommand.mock.calls.map(([command]) => command);
-    expect(saved.map((command) => command.action.id)).toEqual(["print", "book"]);
-    expect(saved.every((command) => command.action.status === "cancelled" && command.expectedVersion === 4)).toBe(true);
-    expect(await within(sheet).findByText("Prep cancelled.")).toBeTruthy();
-  });
+    it("keeps the editor open for 'Cancelled. Let Sam know?' when the commitment has a contact", async () => {
+      show({ contactId: "sam" } as never, { conditionDefinitions: [pool, sam] as never });
+      fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+      const sheet = screen.getByRole("dialog", { name: "Edit commitment" });
+      await act(async () => {
+        fireEvent.click(within(sheet).getByRole("button", { name: /^Cancel commitment/ }));
+      });
+      const open = screen.getByRole("dialog", { name: "Edit commitment" });
+      expect(within(open).getByText("Cancelled.")).toBeTruthy();
+      expect(within(open).getByRole("button", { name: "Let Sam know?" })).toBeTruthy();
+    });
 
-  it("makes no prep offer when the cancelling save fails, or when it was already cancelled", async () => {
-    const actions = [prepAction("print", "Print the handouts", "planned")] as unknown as PortalState["actions"];
-    show({}, { actions });
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
-    fireEvent.change(screen.getByLabelText("Status"), { target: { value: "cancelled" } });
-    saveEntityCommand.mockRejectedValueOnce(new Error("Changed elsewhere"));
-    fireEvent.submit(screen.getByRole("dialog", { name: "Edit commitment" }).querySelector("form")!);
-    await vi.waitFor(() => expect(saveEntityCommand).toHaveBeenCalledTimes(1));
-    await vi.waitFor(() => expect(screen.getByRole("dialog", { name: "Edit commitment" })).toBeTruthy());
-    expect(screen.queryByText(/open prep/)).toBeNull();
-  });
+    it("is disabled while the form holds unsaved edits", () => {
+      show();
+      fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+      const sheet = screen.getByRole("dialog", { name: "Edit commitment" });
+      fireEvent.change(within(sheet).getByLabelText("Title"), { target: { value: "Swim squad (new)" } });
+      expect((within(sheet).getByRole("button", { name: /^Cancel commitment/ }) as HTMLButtonElement).disabled).toBe(true);
+    });
 
-  it("makes no prep offer when an already-cancelled commitment is saved again", async () => {
-    const actions = [prepAction("print", "Print the handouts", "planned")] as unknown as PortalState["actions"];
-    show({ status: "cancelled" }, { actions });
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
-    fireEvent.submit(screen.getByRole("dialog", { name: "Edit commitment" }).querySelector("form")!);
-    await vi.waitFor(() => expect(saveEntityCommand).toHaveBeenCalledTimes(1));
-    expect(screen.queryByText(/open prep/)).toBeNull();
-  });
+    it("shows a cancelled commitment's status as text with Restore, and no close button", () => {
+      show({ status: "cancelled" });
+      fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+      const sheet = screen.getByRole("dialog", { name: "Edit commitment" });
+      expect(within(sheet).queryByRole("combobox", { name: "Status" })).toBeNull();
+      expect(within(sheet).getByRole("button", { name: /^Restore/ })).toBeTruthy();
+      expect(within(sheet).queryByRole("button", { name: /^Cancel commitment/ })).toBeNull();
+    });
 
-  it("asks nothing about prep when the commitment has none open, or when it is not being cancelled", async () => {
-    show({}, { actions: [prepAction("old", "Already done", "done")] as unknown as PortalState["actions"] });
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
-    fireEvent.change(screen.getByLabelText("Status"), { target: { value: "cancelled" } });
-    fireEvent.submit(screen.getByRole("dialog", { name: "Edit commitment" }).querySelector("form")!);
-    await vi.waitFor(() => expect(saveEntityCommand).toHaveBeenCalled());
-    expect(screen.queryByText(/open prep/)).toBeNull();
+    it("has no cancel button on a series editor", () => {
+      const rule = {
+        id: "squad-rule",
+        version: 1,
+        title: "Squad",
+        timezone: "Australia/Sydney",
+        startDate: "2026-08-01",
+        repeat: { unit: "days" as const, intervalDays: 7 },
+        localStartTime: "16:00",
+        localEndTime: "17:00",
+        setupBeforeMinutes: 5,
+        transitionAfterMinutes: 5,
+        status: "active" as const
+      };
+      show({ recurrenceRuleId: "squad-rule", localDate: "2026-08-19" }, { commitmentRecurrenceRules: [rule] });
+      const section = screen.getByRole("heading", { name: "Recurrence" }).closest("section")!;
+      fireEvent.click(within(section as HTMLElement).getByRole("button", { name: "Edit the series" }));
+      const sheet = screen.getByRole("dialog", { name: "Edit recurring commitment" });
+      expect(within(sheet).queryByRole("button", { name: /^Cancel commitment/ })).toBeNull();
+    });
   });
 
   it("saves the attendance and preferred location the editor was given", async () => {

@@ -1,5 +1,6 @@
 "use client";
 
+import { isClosedStatus } from "@openrhen/contracts";
 import Link from "next/link";
 import { useRef, useState, type FormEvent } from "react";
 import { usePortal } from "@/state/portal-provider";
@@ -219,7 +220,7 @@ function CheckInPrompt() {
             <select value={deviationTargetId} onChange={(event) => setDeviationTargetId(event.target.value)}>
               <option value="">None named</option>
               {state.projects.map((project) => {
-                const items = state.actions.filter((item) => item.status !== "done" && item.projectId === project.id);
+                const items = state.actions.filter((item) => item.status !== "done" && !isClosedStatus(item.status) && item.projectId === project.id);
                 return items.length ? (
                   <optgroup key={project.id} label={project.title}>
                     {items.map((action) => (

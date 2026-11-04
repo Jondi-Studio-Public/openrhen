@@ -60,4 +60,21 @@ describe("ProjectEditor", () => {
     expect(checkbox.disabled).toBe(true);
     expect(screen.getByText("Private through Home and administration.")).toBeTruthy();
   });
+
+  it("offers no archived or cancelled status, and shows a closed project's status as text without a select", () => {
+    const { rerender } = render(editor({ draft: { ...emptyProject(), id: "p1", title: "Beds" } }));
+    const statusSelect = screen.getByRole<HTMLSelectElement>("combobox", { name: "Status" });
+    expect(Array.from(statusSelect.options).map((option) => option.textContent)).toEqual(["active", "paused", "done"]);
+    rerender(editor({ draft: { ...emptyProject(), id: "p1", title: "Beds", status: "archived" } }));
+    expect(screen.queryByRole("combobox", { name: "Status" })).toBeNull();
+    expect(screen.getByText("archived")).toBeTruthy();
+  });
+
+  it("shows the close control only for a project that exists", () => {
+    const control = <button type="button">Close project…</button>;
+    const { rerender } = render(editor({ closeControl: control }));
+    expect(screen.queryByRole("button", { name: "Close project…" })).toBeNull();
+    rerender(editor({ closeControl: control, draft: { ...emptyProject(), id: "p1", title: "Beds" } }));
+    expect(screen.getByRole("button", { name: "Close project…" })).toBeTruthy();
+  });
 });

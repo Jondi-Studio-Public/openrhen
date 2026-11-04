@@ -12,7 +12,8 @@ export interface CloseTarget {
   /** The id as the portal state shows it, which is what the route takes. */
   id: string;
   title: string;
-  version: number;
+  /** The version the caller read; absent for a row whose version the state does not carry (the close then skips the check). */
+  version: number | undefined;
 }
 
 interface Envelope {
@@ -31,7 +32,7 @@ export function closeCommandFor(
     id: target.id,
     verb,
     do: "close",
-    expectedVersion: target.version,
+    ...(target.version === undefined ? {} : { expectedVersion: target.version }),
     ...(options.includeChildren ? { includeChildren: true } : {})
   };
 }

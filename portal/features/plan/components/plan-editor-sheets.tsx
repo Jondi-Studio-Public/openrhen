@@ -15,6 +15,8 @@ import { OutcomeEditor } from "@/features/plan/components/outcome-editor";
 import { ProjectEditor } from "@/features/plan/components/project-editor";
 import { DeliverableRegisterForm } from "@/features/plan/components/deliverable-register-form";
 import { ActionEditor } from "@/features/plan/components/action-editor";
+import { CloseControl } from "@/features/closed/components/close-control";
+import { actionDraftFrom, areaDraftFrom, outcomeDraftFrom, projectDraftFrom } from "@/features/plan/plan-drafts";
 
 /**
  * Every Plan editor, one at a time, inside the popup `editors.openEditor` names. The editors
@@ -43,6 +45,13 @@ export function PlanEditorSheets({
   timezone: string;
 }) {
   const kind = editors.openEditor;
+  // A close bumps the record's version, so it waits while the form holds edits that a save would then conflict with.
+  const stored = <T extends { id: string }>(items: T[], id: string) => items.find((item) => item.id === id);
+  const changed = (draft: unknown, fresh: unknown) => fresh !== undefined && JSON.stringify(draft) !== JSON.stringify(fresh);
+  const storedArea = stored(areas, editors.area.id);
+  const storedOutcome = stored(outcomes, editors.outcome.id);
+  const storedProject = stored(projects, editors.project.id);
+  const storedAction = stored(actions, editors.action.id);
   const title =
     kind === "area"
       ? editors.area.id
@@ -76,6 +85,14 @@ export function PlanEditorSheets({
           onSubmit={editors.saveArea}
           onCancel={editors.close}
           open
+          closeControl={
+            <CloseControl
+              type="area"
+              id={editors.area.id}
+              dirty={changed(editors.area, storedArea && areaDraftFrom(storedArea))}
+              onDone={editors.close}
+            />
+          }
         />
       )}
       {kind === "outcome" && (
@@ -86,6 +103,14 @@ export function PlanEditorSheets({
           onSubmit={editors.saveOutcome}
           onCancel={editors.close}
           open
+          closeControl={
+            <CloseControl
+              type="outcome"
+              id={editors.outcome.id}
+              dirty={changed(editors.outcome, storedOutcome && outcomeDraftFrom(storedOutcome, timezone))}
+              onDone={editors.close}
+            />
+          }
         />
       )}
       {kind === "project" && (
@@ -100,6 +125,14 @@ export function PlanEditorSheets({
           onSubmit={editors.saveProject}
           onCancel={editors.close}
           open
+          closeControl={
+            <CloseControl
+              type="project"
+              id={editors.project.id}
+              dirty={changed(editors.project, storedProject && projectDraftFrom(storedProject, timezone))}
+              onDone={editors.close}
+            />
+          }
         />
       )}
       {kind === "deliverable" && (
@@ -127,6 +160,14 @@ export function PlanEditorSheets({
           onSubmit={editors.saveAction}
           onCancel={editors.close}
           open
+          closeControl={
+            <CloseControl
+              type="action"
+              id={editors.action.id}
+              dirty={changed(editors.action, storedAction && actionDraftFrom(storedAction, timezone))}
+              onDone={editors.close}
+            />
+          }
         />
       )}
     </Sheet>

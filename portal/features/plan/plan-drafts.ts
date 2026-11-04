@@ -12,13 +12,9 @@ import { dateInput, dateOnly } from "@/features/plan/plan-formatting";
 // load — see the design notes on why client code imports
 // `@openrhen/contracts/readiness` instead. A type-only import still fails the build the moment
 // this list and the contract's `LifecycleStatus` diverge, at zero bundle cost.
-export const statuses = [
-  "active",
-  "paused",
-  "done",
-  "cancelled",
-  "archived"
-] as const satisfies readonly LifecycleStatus[];
+// Closed statuses (`archived`, `cancelled`) are not here on purpose: closing is its own button (archive-removals design,
+// section 6), so no editor offers them.
+export const statuses = ["active", "paused", "done"] as const satisfies readonly LifecycleStatus[];
 // `satisfies` rather than deriving from `actionStatusSchema.options`: this module backs client-side
 // Plan editors, and the package's main entry point builds every zod schema at module load — see
 // the design notes on why client code imports
@@ -31,9 +27,7 @@ export const actionStatuses = [
   "doing",
   "waiting",
   "blocked",
-  "done",
-  "cancelled",
-  "archived"
+  "done"
 ] as const satisfies readonly ActionStatus[];
 
 export type AreaDraft = {
