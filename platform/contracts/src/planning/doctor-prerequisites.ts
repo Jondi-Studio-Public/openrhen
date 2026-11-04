@@ -1,3 +1,4 @@
+import { CLOSED_STATUSES } from "../closed-status.js";
 /**
  * The doctor's prerequisites-and-blockers checks: pure and deterministic over a
  * plain slice. The rules are the owners' own: `unmetPrerequisites` and `firstPrerequisiteCycle` for what is
@@ -50,8 +51,8 @@ export interface DoctorPrerequisitesSlice {
   contactLinkedHandles: string[];
 }
 
-const FINISHED_ACTION = new Set(["done", "cancelled", "archived"]);
-const FINISHED_DELIVERABLE = new Set(["completed", "cancelled", "archived"]);
+const FINISHED_ACTION = new Set(["done", ...CLOSED_STATUSES]);
+const FINISHED_DELIVERABLE = new Set(["completed", ...CLOSED_STATUSES]);
 
 const iso = (value: string | null): { since: string } | Record<string, never> => {
   const t = value ? Date.parse(value) : Number.NaN;

@@ -502,6 +502,19 @@ describe("refusal wording", () => {
   });
 });
 
+describe("scopesForRoute: stretch answers", () => {
+  it("keeps the stretch route the owner's until agents can read the offer", () => {
+    for (const body of [undefined, { choice: "accept", actionId: "a", basis: "stated", evidence: "yes" }]) {
+      const decision = scopesForRoute("POST", "/api/commands/stretch", body);
+      expect(decision).toMatchObject({ kind: "refused", reason: "owner-only" });
+      expect((decision as { message: string }).message).toMatch(
+        /^Answering a stretch offer is for the owner; an agent token cannot use it, so nothing was changed\. The person does it in the portal\./
+      );
+    }
+    expect(classifiedRoutes()).toContain("POST /api/commands/stretch");
+  });
+});
+
 describe("scopesForRoute: reads", () => {
   it("classifies reads into plan, mail, files, changes and proposals", () => {
     const read = (route: string) => {

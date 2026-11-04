@@ -22,6 +22,8 @@ import type {
   SaveProjectCommand,
   SessionCommand,
   ReenterCommand,
+  StretchCommand,
+  StretchResult,
   RecordDisruptionCommand,
   SettleCatchUpCommand,
   SettleCatchUpResult,
@@ -46,6 +48,7 @@ interface StateStore {
   runSessionCommand(command: SessionCommand): Promise<PortalState>;
   runActivityCommand(command: ActivityCommand): Promise<PortalState>;
   runWakeCommand(command: WakeCommand): Promise<{ wake: WakeResult | null; state: PortalState }>;
+  runStretchCommand(command: StretchCommand): Promise<{ result: StretchResult; state: PortalState }>;
   runCheckInCommand(command: CheckInCommand): Promise<PortalState>;
   runRevertCommand(command: RevertCommand): Promise<PortalState>;
   runChangeset(command: ChangesetCommand): Promise<ChangesetResult>;
@@ -135,6 +138,10 @@ class PostgresStateStore implements StateStore {
 
   runWakeCommand(command: WakeCommand) {
     return this.withWriteClient((sql) => new NormalizedPostgresStateStore(sql).runWakeCommand(command));
+  }
+
+  runStretchCommand(command: StretchCommand) {
+    return this.withWriteClient((sql) => new NormalizedPostgresStateStore(sql).runStretchCommand(command));
   }
 
   runCheckInCommand(command: CheckInCommand) {

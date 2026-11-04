@@ -93,7 +93,7 @@ describe("MCP tool annotations", () => {
       .map((spec) => `rhen_${spec.name.replaceAll("-", "_")}`);
     const open = tools.filter((tool) => tool.annotations.openWorldHint).map((tool) => tool.name);
     expect(open.sort()).toEqual(
-      ["rhen_deliverable", "rhen_doctor", "rhen_inbox", "rhen_inbox_act", ...moduleOpenWorld].sort()
+      ["rhen_attention", "rhen_deliverable", "rhen_doctor", "rhen_inbox", "rhen_inbox_act", ...moduleOpenWorld].sort()
     );
   });
 });

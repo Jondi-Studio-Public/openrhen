@@ -59,6 +59,7 @@ const KIND_LABEL: Record<SnapshotKind, string> = {
   cadence: "This cadence completion",
   wake: "This wake",
   reenter: "This re-entry",
+  stretch: "This stretch answer",
   disruption: "This disruption"
 };
 
@@ -361,6 +362,7 @@ async function revertOne(tx: TxSql, userId: string, command: RevertCommand, walk
   );
   try {
     await restore(tx, rows, targetOf, restoredSkipOf);
+    if (snapshot.kind === "stretch") await restoreStretchKey(tx, rows, targetOf);
   } catch (error) {
     // A row coming back would take a slot something newer now holds (the next pending check-in the scheduler
     // opened, a cadence completion already logged for that day): refuse rather than fail with a 500.
@@ -670,6 +672,27 @@ async function restore(
         ...current.params
       ]);
     }
+  }
+}
+
+/**
+ * A `stretch` snapshot images only the `stretch` key of `user_preferences.current_situation` (`imageExpression`), which
+ * the generic restore cannot write back (it is no column). Sets or removes just that key, so everything else in the
+ * situation, a location the phone reported since among it, stays as it is. The version and `updated_at` were bumped by
+ * `restore`.
+ */
+async function restoreStretchKey(tx: TxSql, rows: StoredRow[], targetOf: (row: StoredRow) => Image): Promise<void> {
+  for (const row of rows) {
+    if (row.table !== "user_preferences") continue;
+    const target = targetOf(row);
+    if (target === null) continue;
+    // `user_preferences` is keyed by `user_id` alone, so the stored id is the user id.
+    const userId = row.id;
+    const stretch = target.stretch ?? null;
+    if (stretch === null)
+      await tx`UPDATE user_preferences SET current_situation=COALESCE(current_situation,'{}'::jsonb) - 'stretch' WHERE user_id=${userId}`;
+    else
+      await tx`UPDATE user_preferences SET current_situation=jsonb_set(COALESCE(current_situation,'{}'::jsonb),'{stretch}',${tx.json(stretch as never)}) WHERE user_id=${userId}`;
   }
 }
 

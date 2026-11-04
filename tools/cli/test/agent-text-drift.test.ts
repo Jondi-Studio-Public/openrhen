@@ -254,6 +254,32 @@ describe("agent policy lines", () => {
       expectLines(`${surface} skill`, skillTextFor(surface), "the person", "full");
   });
 
+  it("name the attention feed in the instructions, as the answer to the status block", () => {
+    expect(MCP_SERVER_INSTRUCTIONS).toContain("Status shows attention: rhen_attention once");
+  });
+
+  it("tell the agent, on every surface, to call the feed when status shows attention", () => {
+    const status = commands.find((command) => command.name === "status")!;
+    expect(status.description).toContain("If the answer has attention, call rhen_attention once;");
+    expect(status.description).toContain(
+      "only if now or decided is higher than last time, or once to retry a failed source"
+    );
+    for (const surface of ["stdio", "remote"] as const) {
+      expect(skillTextFor(surface), `${surface} skill`).toContain(
+        "`rhen_status` shows `attention`: call `rhen_attention` once"
+      );
+      const workflows = guideTopicsFor(surface).find((topic) => topic.name === "workflows")?.text ?? "";
+      expect(workflows, `${surface} guide`).toContain("Attention (when");
+      expect(workflows, `${surface} guide`).toMatch(
+        surface === "stdio" ? /rhen attention --since/ : /rhen_attention \{since:/
+      );
+    }
+    if (pluginSkill !== undefined)
+      expect(pluginSkill).toContain(
+        "| `attention` is present, first time this session or a count rose | `rhen_attention`"
+      );
+  });
+
   it("keep the instructions short", () => {
     expect(Buffer.byteLength(MCP_SERVER_INSTRUCTIONS)).toBeLessThan(4600);
   });

@@ -139,9 +139,9 @@ const TYPED_SAVE_KINDS: { kind: SaveEntityKind; what: string; required: string; 
 
 function typedSaveDescription(kind: SaveEntityKind, what: string, required: string, defaults: string): string {
   return (
-    `Creates or updates ${what}: rhen_save with entityType ${kind}, every field checked (its rules for id, ` +
-    `create, expected-version and removal by status apply). Required on create: ${required}. Defaults: ${defaults}. ` +
-    "Returns and undoes as rhen_save does."
+    `Creates or updates ${what}: rhen_save with entityType ${kind}, every field checked (same id, create, ` +
+    `expected-version and removal rules). Required on create: ${required}. Defaults: ${defaults}. ` +
+    "Returns and undoes as rhen_save."
   );
 }
 
@@ -175,6 +175,23 @@ function withoutFormatPatterns(value: unknown): unknown {
   );
 }
 
+/** The safe-integer bounds, which zod prints on every integer (`maximum`, or `minimum` for a signed one); no JSON number can exceed it, so it only costs bytes. */
+function withoutSafeIntegerMaximum(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutSafeIntegerMaximum);
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(
+        ([key, item]) =>
+          !(
+            (key === "maximum" && item === Number.MAX_SAFE_INTEGER) ||
+            (key === "minimum" && item === Number.MIN_SAFE_INTEGER)
+          )
+      )
+      .map(([key, item]) => [key, withoutSafeIntegerMaximum(item)])
+  );
+}
+
 /** The kind's fields as a JSON Schema object property. Nothing is required: an update names only what changes. */
 export function fieldsProperty(kind: SaveEntityKind): Record<string, unknown> {
   const generated = z.toJSONSchema(ENTITY_FIELD_SCHEMAS[kind], { io: "input", unrepresentable: "any" }) as Record<
@@ -185,7 +202,7 @@ export function fieldsProperty(kind: SaveEntityKind): Record<string, unknown> {
     $schema: _schema,
     required: _required,
     ...rest
-  } = withoutFormatPatterns(generated) as Record<string, unknown>;
+  } = withoutSafeIntegerMaximum(withoutFormatPatterns(generated)) as Record<string, unknown>;
   const properties = Object.fromEntries(
     Object.entries((rest.properties ?? {}) as Record<string, Record<string, unknown>>).map(([field, schema]) => [
       field,
@@ -227,6 +244,7 @@ export const REMOTE_TOOLS: RemoteTool[] = [
   { command: "proposals", scopes: ["read:proposals"], rewrite: [SNAPSHOT_REWRITE] },
   { command: "catch-up", scopes: ["read:plan"], rewrite: [SNAPSHOT_REWRITE] },
   { command: "doctor", scopes: ["read:plan"] },
+  { command: "attention", scopes: ["read:plan"] },
   { command: "history", scopes: ["read:plan"] },
   // Each room reads what its source allows; a room the token cannot read reports an error and the rest still show.
   { command: "inbox", scopes: ["read:plan"] },

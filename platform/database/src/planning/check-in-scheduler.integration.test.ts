@@ -655,3 +655,74 @@ describe("runCheckInSchedulerTick notifies state_changed", () => {
     expect(await pendingCheckIns()).toEqual([]);
   });
 });
+
+describe("runCheckInSchedulerTick — agent wake when a check-in times out", () => {
+  const minutesAgo = (minutes: number) => new Date(now.getTime() - minutes * 60_000);
+
+  async function insertPending(createdAt: Date): Promise<string> {
+    const rows = await sql<{ id: string }[]>`
+      INSERT INTO check_in (user_id,slot_at,created_at,updated_at,directive_kind,directive_target_id,directive_title,status)
+      VALUES (${userId},${createdAt.toISOString()}::timestamptz,${createdAt.toISOString()}::timestamptz,${createdAt.toISOString()}::timestamptz,'action',${crypto.randomUUID()},'Write chapter','pending')
+      RETURNING id`;
+    return rows[0]!.id;
+  }
+
+  async function wakes() {
+    return sql<{ target_id: string; event: string }[]>`
+      SELECT target_id, event FROM agent_wakes WHERE user_id=${userId} ORDER BY created_at`;
+  }
+
+  it("queues exactly one wake for the timed-out check-in, even if the tick repeats", async () => {
+    const id = await insertPending(minutesAgo(11));
+    await runCheckInSchedulerTick(sql, userId, now);
+    await runCheckInSchedulerTick(sql, userId, now);
+    expect(await wakes()).toEqual([{ target_id: id, event: "check_in_unanswered" }]);
+  });
+
+  it("queues nothing while the owner is asleep", async () => {
+    await insertPending(minutesAgo(11));
+    await storePlanningRun({ currentDirective: { kind: "sleep", title: "Sleep" } });
+    await runCheckInSchedulerTick(sql, userId, now);
+    expect(await wakes()).toEqual([]);
+  });
+
+  it("queues nothing under a silent commitment", async () => {
+    await insertPending(minutesAgo(11));
+    const commitmentId = crypto.randomUUID();
+    await sql`
+      INSERT INTO commitments (id,user_id,title,starts_at,ends_at,status,prompt_policy)
+      VALUES (${commitmentId},${userId},'Exam',${minutesAgo(10).toISOString()}::timestamptz,${new Date(now.getTime() + 50 * 60_000).toISOString()}::timestamptz,'confirmed','silent')`;
+    await storePlanningRun({
+      currentDirective: { kind: "none", title: "Exam" },
+      protectedCommitment: { id: commitmentId, title: "Exam", phase: "setup" }
+    });
+    await runCheckInSchedulerTick(sql, userId, now);
+    expect(await wakes()).toEqual([]);
+  });
+
+  it("queues nothing for a check-in still inside its window", async () => {
+    await insertPending(minutesAgo(3));
+    await runCheckInSchedulerTick(sql, userId, now);
+    expect(await wakes()).toEqual([]);
+  });
+
+  it("backs off: a second timeout queues nothing while the previous wake has had no answer since", async () => {
+    const first = await insertPending(minutesAgo(30));
+    await runCheckInSchedulerTick(sql, userId, now);
+    expect((await wakes()).map((w) => w.target_id)).toEqual([first]);
+    await insertPending(minutesAgo(11));
+    await runCheckInSchedulerTick(sql, userId, now);
+    expect((await wakes()).map((w) => w.target_id)).toEqual([first]);
+  });
+
+  it("allows a new wake once a check-in was answered after the previous wake", async () => {
+    const first = await insertPending(minutesAgo(30));
+    await runCheckInSchedulerTick(sql, userId, now);
+    await sql`
+      INSERT INTO check_in (user_id,slot_at,created_at,updated_at,answered_at,directive_kind,directive_target_id,directive_title,status)
+      VALUES (${userId},${minutesAgo(5).toISOString()}::timestamptz,${minutesAgo(20).toISOString()}::timestamptz,${minutesAgo(5).toISOString()}::timestamptz,CURRENT_TIMESTAMP + interval '1 minute','action','x','Write chapter','on_track')`;
+    const second = await insertPending(minutesAgo(11));
+    await runCheckInSchedulerTick(sql, userId, now);
+    expect((await wakes()).map((w) => w.target_id)).toEqual([first, second]);
+  });
+});

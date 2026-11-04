@@ -183,6 +183,24 @@ describe("proposeAgentChange", () => {
     expect((await listAgentProposals(sql, userId, { agent: "scribe" })).length).toBe(2);
   });
 
+  it("returns the old card unchanged when a corrected save reuses the first call's commandId", async () => {
+    const commandId = crypto.randomUUID();
+    const first = await proposeAgentChange(
+      sql,
+      "scribe",
+      proposal("p1", "One", null, { commandId, coalesceKey: "rename" })
+    );
+    const corrected = await proposeAgentChange(
+      sql,
+      "scribe",
+      proposal("p1", "Uno", null, { commandId, coalesceKey: "rename" })
+    );
+    expect(corrected).toMatchObject({ outcome: "existing", proposal: { id: first.proposal.id, revision: 1 } });
+    expect((await listAgentProposals(sql, userId, { agent: "scribe" })).length).toBe(1);
+    const fresh = await proposeAgentChange(sql, "scribe", proposal("p1", "Uno", null, { coalesceKey: "rename" }));
+    expect(fresh.proposal.revision).toBe(2);
+  });
+
   it("does not treat another agent's identical payload as the same proposal", async () => {
     const mine = await proposeAgentChange(sql, "scribe", proposal("p1", "One", null));
     const theirs = await proposeAgentChange(sql, "other", proposal("p1", "One", null));

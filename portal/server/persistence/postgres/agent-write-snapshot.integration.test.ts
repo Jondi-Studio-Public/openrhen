@@ -1220,6 +1220,55 @@ describe("the second review's undo guards", () => {
     expect(await sql`SELECT 1 FROM routine_presets WHERE id = ${preset!.id}`).toHaveLength(0);
   });
 
+  it("keeps an instantiated step linked to its preset step when the preset is re-saved", async () => {
+    const preset = (name: string, steps: string[], version: number | null) =>
+      entityCommand(
+        "routine_preset",
+        {
+          id: "evening",
+          name,
+          steps: steps.map((id, index) => ({
+            id,
+            title: id,
+            durationMinutes: 5 + index,
+            timingRule: "contiguous",
+            energy: "low",
+            dependencyIds: index ? [steps[index - 1]!] : []
+          }))
+        },
+        version
+      );
+    await runWithActor(null, () => saveEntity(sql, preset("Evening", ["a", "b"], null)));
+    const presetId = await stableUuid(`routine-preset:${userId}`, "evening");
+    const stepA = await stableUuid(`routine-preset-step:${presetId}`, "a");
+    const stepB = await stableUuid(`routine-preset-step:${presetId}`, "b");
+    const [commitment] = await sql<{ id: string }[]>`
+      INSERT INTO commitments (user_id,title,starts_at,ends_at) VALUES (${userId},'Out',now() + interval '1 day',now() + interval '2 days') RETURNING id`;
+    const link = async (stepId: string, sequence: number) =>
+      (
+        await sql<{ id: string }[]>`
+          INSERT INTO routine_steps (user_id,commitment_id,anchor_id,title,duration_minutes,sequence,timing_rule,preset_step_id)
+          VALUES (${userId},${commitment!.id},${commitment!.id},'S',5,${sequence},'contiguous',${stepId}) RETURNING id`
+      )[0]!.id;
+    const linkA = await link(stepA, 1);
+    const linkB = await link(stepB, 2);
+    const presetStepOf = async (id: string) =>
+      (await sql<{ preset_step_id: string | null }[]>`SELECT preset_step_id FROM routine_steps WHERE id = ${id}`)[0]!
+        .preset_step_id;
+
+    await runWithActor(null, () => saveEntity(sql, preset("Evening renamed", ["a", "b"], 1)));
+    expect(await presetStepOf(linkA)).toBe(stepA);
+    expect(await presetStepOf(linkB)).toBe(stepB);
+
+    // A step the save drops is still deleted (its link clears); one it keeps stays linked.
+    await runWithActor(null, () => saveEntity(sql, preset("Evening renamed", ["a"], 2)));
+    expect(await presetStepOf(linkA)).toBe(stepA);
+    expect(await presetStepOf(linkB)).toBeNull();
+    expect(
+      (await sql<{ id: string }[]>`SELECT id FROM routine_preset_steps WHERE preset_id = ${presetId}`).map((r) => r.id)
+    ).toEqual([stepA]);
+  });
+
   it("restores a swapped step order, the links to the preset's steps, and redoes it", async () => {
     const preset = (steps: string[]) =>
       entityCommand(
@@ -1257,7 +1306,8 @@ describe("the second review's undo guards", () => {
     const swap = preset(["b", "a"]);
     await asAgent(() => saveEntity(sql, swap));
     expect((await sequences())[0]).not.toBe(stepA);
-    expect((await image("routine_steps", "id = $1", linked!.id))!.preset_step_id).toBeNull();
+    // The reorder keeps step "a" under its stable id, so its instantiated step stays linked.
+    expect((await image("routine_steps", "id = $1", linked!.id))!.preset_step_id).toBe(stepA);
 
     await asAgent(() => runRevertCommand(sql, revert(swap.commandId, "undo")));
     expect((await sequences())[0]).toBe(stepA);

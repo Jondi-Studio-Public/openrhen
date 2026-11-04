@@ -9,9 +9,11 @@ import {
   effectiveDeadline,
   deadlineIsExternal,
   projectDeadlineIsExternal,
-  scoreAction
+  scoreAction,
+  type ScoreActionInput
 } from "./score.js";
 import { formatDate, formatTime } from "./format.js";
+import { deriveStretchOffer, type StretchContext } from "./stretch.js";
 import { currentCompatibleWindow, slotFitsAction } from "../scheduling/slots.js";
 import { zonedDateTime } from "@openrhen/contracts";
 import { addLocalDays, localDate } from "../recurrence/recurrence.js";
@@ -118,6 +120,16 @@ export interface RecommendArguments {
    * the plan agrees with Now. Absent means none, the old behaviour.
    */
   energyWaivedActionIds?: readonly string[];
+  /**
+   * When each waiver above ends. The day-plan replay waives an id only at instants before its end;
+   * an id with no entry is waived throughout. Absent means every waiver is open-ended.
+   */
+  energyWaivedUntil?: Record<string, Date>;
+  /**
+   * What earlier answers to stretch offers say (declined actions, "no stretches tonight", next
+   * wake). Absent means nothing declined and no sleep-first check. See `deriveStretchOffer`.
+   */
+  stretch?: StretchContext;
   timezone?: string;
   locale?: string;
   /** The one journey lookup's per-request index, for the matcher's own `travelTo` resolution. */
@@ -194,21 +206,22 @@ export function recommend(args: RecommendArguments): Recommendation {
   const trip: TripContext | undefined = args.travel
     ? { ...args.travel, nextAnchor: nextAnchorAfter(args.now, args.travel.anchors, arrivalMarginMinutes) }
     : undefined;
+  const scoreOne = (action: Action, extra: Partial<ScoreActionInput> = {}) =>
+    scoreAction({
+      ...args,
+      resolved,
+      action,
+      project: projectById.get(action.projectId),
+      forecast: forecastById.get(action.projectId),
+      planning,
+      lastAction,
+      dependencyAnalysis,
+      ...(trip ? { trip } : {}),
+      ...extra
+    });
   const candidates = bundleTrips(
     args.actions
-      .map((action) =>
-        scoreAction({
-          ...args,
-          resolved,
-          action,
-          project: projectById.get(action.projectId),
-          forecast: forecastById.get(action.projectId),
-          planning,
-          lastAction,
-          dependencyAnalysis,
-          ...(trip ? { trip } : {})
-        })
-      )
+      .map((action) => scoreOne(action))
       .sort((a, b) => candidateSort(a, b, projectById, forecastById, args.now))
   ).sort((a, b) => candidateSort(a, b, projectById, forecastById, args.now));
 
@@ -245,9 +258,21 @@ export function recommend(args: RecommendArguments): Recommendation {
     lastAction,
     dependencyAnalysis
   });
-  const alongside: Pick<Recommendation, "openAnchor" | "earlyStep"> = {
+  // Derived after ranking and never feeding back into it: the offer reads eligibility, tiers and a
+  // rescore with one action's energy check waived, and changes none of them.
+  const stretchOffer = deriveStretchOffer({
+    now: args.now,
+    currentEnergy: args.currentEnergy,
+    candidates,
+    projectOf: (action) => projectById.get(action.projectId),
+    forecastOf: (action) => forecastById.get(action.projectId),
+    rescoreWaived: (action) => scoreOne(action, { energyWaivedActionIds: [action.id] }),
+    ...(args.stretch ? { context: args.stretch } : {})
+  });
+  const alongside: Pick<Recommendation, "openAnchor" | "earlyStep" | "stretchOffer"> = {
     ...(protectedCommitment ? { openAnchor: protectedCommitment } : {}),
-    ...(earlyStep ? { earlyStep } : {})
+    ...(earlyStep ? { earlyStep } : {}),
+    ...(stretchOffer ? { stretchOffer } : {})
   };
 
   // Several execution options of one deliverable are several ways to spend the same time, not several

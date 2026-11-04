@@ -432,17 +432,95 @@ describe("status", () => {
     expect(JSON.parse(json.stdout).directive.boundaryEdge).toBe("end");
   });
 
-  it("never sends a POST, and reads exactly the five GET routes", async () => {
+  it("never sends a POST, and reads exactly the six GET routes", async () => {
     const { calls } = await runStatus(["status"], {});
     expect(calls.some((call) => call.method === "POST")).toBe(false);
     const paths = calls.map((call) => call.path).sort();
     expect(paths).toEqual([
+      "/api/attention",
       "/api/catch-up",
       "/api/check-ins/current",
       "/api/plan-map",
       "/api/pulse/reentry",
       "/api/state"
     ]);
+    // The block asks for the counts only, never the whole feed.
+    expect(new URL(calls.find((call) => call.path === "/api/attention")!.url).search).toBe("?counts=1");
+  });
+});
+
+describe("status attention block", () => {
+  const counts = (over: Record<string, unknown> = {}) => ({
+    viewer: "agent",
+    healthBlocking: 0,
+    sourcesFailed: 0,
+    decided: 0,
+    ...over
+  });
+  const feed = (body: unknown) => ({ "/api/attention": { body } });
+
+  it("adds now (blocking items plus failed sources), decided and the tool to call, in full and brief answers", async () => {
+    const routes = feed(counts({ healthBlocking: 2, sourcesFailed: 1, decided: 4 }));
+    const expected = { now: 3, decided: 4, call: "rhen_attention" };
+    expect(JSON.parse((await runStatus(["status", "--json"], routes)).stdout).attention).toEqual(expected);
+    expect(JSON.parse((await runStatus(["status", "--brief", "--json"], routes)).stdout).attention).toEqual(expected);
+    expect((await runStatus(["status"], routes)).stdout).toContain("3 need action now, 4 decided");
+  });
+
+  it("is present when only one count is above zero", async () => {
+    const decidedOnly = await runStatus(["status", "--json"], feed(counts({ decided: 1 })));
+    expect(JSON.parse(decidedOnly.stdout).attention).toEqual({ now: 0, decided: 1, call: "rhen_attention" });
+    const failedOnly = await runStatus(["status", "--json"], feed(counts({ sourcesFailed: 1 })));
+    expect(JSON.parse(failedOnly.stdout).attention).toEqual({ now: 1, decided: 0, call: "rhen_attention" });
+  });
+
+  it("is absent when both counts are zero", async () => {
+    const quiet = await runStatus(["status", "--json"], feed(counts()));
+    expect(JSON.parse(quiet.stdout)).not.toHaveProperty("attention");
+    expect(quiet.stdout).not.toContain("rhen_attention");
+    expect((await runStatus(["status"], feed(counts()))).stdout).not.toContain("Attention");
+  });
+
+  it("is absent for the owner view, which has no agent and so no outcomes", async () => {
+    const owner = await runStatus(["status", "--json"], feed(counts({ viewer: "owner", healthBlocking: 2 })));
+    expect(JSON.parse(owner.stdout)).not.toHaveProperty("attention");
+  });
+
+  it("leaves the block out, and still answers, when the counts read fails or is unreadable", async () => {
+    for (const route of [
+      { status: 500, body: { error: "boom" } },
+      { status: 428, body: { error: "reentry_required" } },
+      { status: 403, body: { error: "insufficientScopes" } },
+      { body: { unexpected: true } },
+      { body: counts({ healthBlocking: -1 }) },
+      { body: counts({ decided: "3" }) }
+    ]) {
+      const run = await runStatus(["status", "--json"], { "/api/attention": route });
+      expect(run.exitCode).toBe(0);
+      expect(JSON.parse(run.stdout)).not.toHaveProperty("attention");
+      expect(JSON.parse(run.stdout).directive).toBeDefined();
+    }
+  });
+
+  it("carries a decided count of 0 from a token without read:proposals as the portal sent it", async () => {
+    const run = await runStatus(["status", "--json"], feed(counts({ healthBlocking: 1, decided: 0 })));
+    expect(JSON.parse(run.stdout).attention).toEqual({ now: 1, decided: 0, call: "rhen_attention" });
+  });
+
+  it("is skipped for a --state-file snapshot, which has no portal to ask", async () => {
+    const calls: RecordedCall[] = [];
+    const out: string[] = [];
+    const exitCode = await runCli(["status", "--json", "--state-file", "snapshot.json"], {
+      stdout: (text) => out.push(text),
+      stderr: () => undefined,
+      env: {},
+      now: () => fixtureNow,
+      readStateFile: () => JSON.stringify(fixtureRawState()),
+      fetchImpl: fakeFetch(feed(counts({ healthBlocking: 5 })), calls)
+    });
+    expect(exitCode).toBe(0);
+    expect(calls).toEqual([]);
+    expect(JSON.parse(out.join("\n"))).not.toHaveProperty("attention");
   });
 });
 

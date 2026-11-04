@@ -8,8 +8,11 @@ import {
   pruneExpiredPlanningEvidence,
   reclaimExpiredPlanForecastJobs,
   recoverAbandonedPlanForecastJobs,
+  pruneAgentWakes,
   runCheckInSchedulerTick,
-  runLeaveByTick
+  runLeaveByTick,
+  sendNextAgentWake,
+  validateAgentWakeUrl
 } from "@openrhen/database";
 import {
   afterCalendarSyncAttempt,
@@ -59,6 +62,11 @@ let nextPruneAt = 0;
 let nextCheckInTickAt = 0;
 /** ~60s, matching the prune gate's own shape — cheap enough to run far more often than a plan job. */
 const CHECK_IN_TICK_INTERVAL_MS = 60_000;
+let nextAgentWakeTickAt = 0;
+const AGENT_WAKE_TICK_INTERVAL_MS = 60_000;
+const AGENT_WAKE_PRUNE_INTERVAL_MS = 60 * 60_000;
+let nextAgentWakePruneAt = 0;
+let agentWakeConfigLogged = false;
 let nextLeaveByTickAt = 0;
 /**
  * Leave-by push: a minute is the design's own stated cadence for
@@ -225,6 +233,7 @@ await runIndependentLoops(
     { name: "reclaim-plan-forecast-jobs", run: reclaimPlanForecastJobs },
     { name: "prune-planning-evidence", run: prunePlanningEvidence },
     { name: "check-in-scheduler", run: tickCheckInScheduler },
+    { name: "agent-wake", run: tickAgentWake },
     { name: "leave-by-push", run: afterPortalReady(tickLeaveByPush) },
     { name: "pulse-tick", run: afterPortalReady(tickPulseRecorder) },
     { name: "plan-map-sweep", run: afterPortalReady(tickPlanMapSweep) },
@@ -317,6 +326,41 @@ async function tickCheckInScheduler() {
   } catch (error) {
     process.stderr.write(
       `${JSON.stringify({ level: "error", message: "Check-in scheduler tick failed", workerId, error: error instanceof Error ? error.message : "Unknown error" })}\n`
+    );
+  }
+}
+
+/**
+ * Sends one queued agent wake. Gated like `tickCheckInScheduler`. Needs
+ * `OPENCLAW_HOOKS_URL` and `OPENCLAW_HOOKS_TOKEN`; with either empty or the URL invalid it does nothing. The token
+ * is never logged.
+ */
+async function tickAgentWake() {
+  if (Date.now() < nextAgentWakeTickAt) return;
+  nextAgentWakeTickAt = Date.now() + AGENT_WAKE_TICK_INTERVAL_MS;
+  const rawUrl = process.env.OPENCLAW_HOOKS_URL ?? "";
+  const token = process.env.OPENCLAW_HOOKS_TOKEN ?? "";
+  const url = validateAgentWakeUrl(rawUrl);
+  try {
+    const now = new Date();
+    // Pruned even while the sender is off: the producers still queue rows, and nothing else would ever remove them.
+    if (Date.now() >= nextAgentWakePruneAt) {
+      nextAgentWakePruneAt = Date.now() + AGENT_WAKE_PRUNE_INTERVAL_MS;
+      await pruneAgentWakes(sql, now);
+    }
+    if (!url || !token) {
+      if (!agentWakeConfigLogged) {
+        agentWakeConfigLogged = true;
+        process.stderr.write(
+          `${JSON.stringify({ level: "info", message: "Agent wake sender off: OPENCLAW_HOOKS_URL or OPENCLAW_HOOKS_TOKEN is empty or the URL is not allowed", workerId })}\n`
+        );
+      }
+      return;
+    }
+    await sendNextAgentWake(sql, { url, token, now });
+  } catch (error) {
+    process.stderr.write(
+      `${JSON.stringify({ level: "error", message: "Agent wake tick failed", workerId, error: error instanceof Error ? error.message : "Unknown error" })}\n`
     );
   }
 }

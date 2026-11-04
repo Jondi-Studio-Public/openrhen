@@ -1,3 +1,4 @@
+import { CLOSED_STATUSES } from "../closed-status.js";
 import { codesIn } from "./plan-code-pattern.js";
 /**
  * Plan health checks: pure, deterministic rules over a
@@ -47,8 +48,8 @@ export interface HealthFindingDraft {
   suggestedChanges: unknown[];
 }
 
-const FINISHED_ACTION = new Set(["done", "cancelled", "archived"]);
-const FINISHED_DELIVERABLE = new Set(["completed", "cancelled", "archived"]);
+const FINISHED_ACTION = new Set(["done", ...CLOSED_STATUSES]);
+const FINISHED_DELIVERABLE = new Set(["completed", ...CLOSED_STATUSES]);
 const OPEN_BLOCKER = new Set(["open", "awaiting_response"]);
 
 export interface HealthProject {

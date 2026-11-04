@@ -1,3 +1,4 @@
+import { CLOSED_STATUSES } from "@openrhen/contracts";
 import type { CoverageFailure, DeliverableReadiness } from "@openrhen/contracts";
 import type {
   ActiveSession,
@@ -61,7 +62,7 @@ export function replaceAt<T>(items: T[], index: number, value: T): T[] {
 }
 
 export const OPEN_BLOCKER_STATES = new Set(["open", "awaiting_response", "possibly_resolved"]);
-export const CLOSED_DELIVERABLE_STATUSES = new Set(["completed", "cancelled", "archived"]);
+export const CLOSED_DELIVERABLE_STATUSES = new Set(["completed", ...CLOSED_STATUSES]);
 
 /** Breakdown until both approvals stand; Review once the deliverable has moved past carrying out. */
 export function phaseOf(deliverable: StoredDeliverable): Phase {

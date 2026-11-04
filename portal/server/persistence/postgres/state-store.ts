@@ -13,6 +13,8 @@ import type {
   SaveProjectCommand,
   SessionCommand,
   ReenterCommand,
+  StretchCommand,
+  StretchResult,
   RecordDisruptionCommand,
   SettleCatchUpCommand,
   SettleCatchUpResult,
@@ -34,6 +36,7 @@ import { confirmProjectWanted, saveAction, saveProject } from "./project-command
 import { settleCatchUp } from "./catch-up";
 import { recordDisruption, type RecordDisruptionResult } from "./pulse-disruption";
 import { reenter, type ReenterResult } from "./reenter";
+import { runStretchCommand } from "./stretch-command";
 import { endRecurrenceGoal, recordCadenceCompletion, saveCommitmentRecurrenceRule } from "./recurrence-commands";
 import { runRevertCommand } from "./write-revert";
 import { runSessionCommand } from "./session-commands";
@@ -121,6 +124,11 @@ export class NormalizedPostgresStateStore {
 
   runWakeCommand(command: WakeCommand): Promise<{ wake: WakeResult | null; state: PortalState }> {
     return runWakeCommand(this.sql, command);
+  }
+
+  async runStretchCommand(command: StretchCommand): Promise<{ result: StretchResult; state: PortalState }> {
+    const { result } = await withCommandRetry(() => runStretchCommand(this.sql, command));
+    return { result, state: await readStateAfterCommit(this.sql) };
   }
 
   runCheckInCommand(command: CheckInCommand): Promise<PortalState> {

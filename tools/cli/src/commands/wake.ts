@@ -99,9 +99,9 @@ export const wakeCommand: CommandSpec = {
   mutates: true,
   examples: [
     "wake",
-    "wake --at 2026-10-28T07:00:00+10:00",
-    "wake --at 2026-10-28T07:00:00+10:00 --slept-at 2026-10-27T23:15:00+10:00",
-    "wake --slept-at 2026-10-27T23:15:00+10:00 --dry-run"
+    "wake --at 2026-10-28T07:00:00<offset>",
+    "wake --at 2026-10-28T07:00:00<offset> --slept-at 2026-10-27T23:15:00<offset>",
+    "wake --slept-at 2026-10-27T23:15:00<offset> --dry-run"
   ],
   async run(context: CommandContext, args) {
     const now = context.now();

@@ -3327,6 +3327,86 @@
               "type": "string",
               "format": "date-time"
             },
+            "stretch": {
+              "type": "object",
+              "properties": {
+                "accepted": {
+                  "default": [],
+                  "maxItems": 30,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "actionId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "acceptedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "until": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "minutes": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1440
+                      },
+                      "by": {
+                        "type": "string",
+                        "enum": [
+                          "person",
+                          "agent"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "actionId",
+                      "title",
+                      "acceptedAt",
+                      "until",
+                      "minutes",
+                      "by"
+                    ]
+                  }
+                },
+                "declined": {
+                  "default": [],
+                  "maxItems": 50,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "actionId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "at": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    },
+                    "required": [
+                      "actionId",
+                      "at"
+                    ]
+                  }
+                },
+                "declinedAllAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            },
             "overrides": {
               "default": {},
               "type": "object",

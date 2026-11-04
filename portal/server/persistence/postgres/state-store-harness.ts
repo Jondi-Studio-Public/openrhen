@@ -252,6 +252,7 @@ export function setupStateStoreSuite(base: string, options: { resetBetweenTests?
         "runSessionCommand",
         "runActivityCommand",
         "runWakeCommand",
+        "runStretchCommand",
         "recalculate",
         "saveEntity",
         "saveCommitmentRecurrenceRule",

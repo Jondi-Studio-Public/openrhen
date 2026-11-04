@@ -213,6 +213,17 @@ describe("CheckInBanner while the pulse is unknown", () => {
     expect(body).toMatchObject({ type: "answer_check_in", status: "on_track" });
   });
 
+  it("says when the saved title was the plan when the pulse carries no live activity", () => {
+    const { doing: _doing, ...noDoing } = unknownPulse;
+    context = {
+      state: { ...state, pulse: noDoing },
+      pendingCheckIn: checkIn({ status: "unknown", slotAt: new Date(now.getTime() - 40 * 60_000).toISOString() }),
+      dismissPendingCheckIn: vi.fn()
+    };
+    render(<CheckInBanner />);
+    expect(screen.getByText(/^Still doing .+\? The plan had you on it at .+\.$/)).toBeTruthy();
+  });
+
   it("opens the deviation flow from Something else", () => {
     withPulse(checkIn());
     render(<CheckInBanner />);

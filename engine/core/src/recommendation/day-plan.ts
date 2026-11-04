@@ -242,6 +242,7 @@ export function simulateDayPlan(input: DayPlanSimulationInput): DayPlan {
           actions,
           planning,
           forecasts: schedule.forecasts,
+          ...waivedAt(recommendArguments, t),
           dailyHorizonEnd: dailyHorizonEnd(state, t),
           // Steps the simulation has already ticked off (`advance`'s `routine_step` case) must count
           // as done here too, or a commitment the plan itself just finished prepping for would still
@@ -726,4 +727,14 @@ function displacedUnits(
   return found.sort(
     (a, b) => a.latestSafeStartAt.localeCompare(b.latestSafeStartAt) || a.targetId.localeCompare(b.targetId)
   );
+}
+
+/** The stretch waivers still open at `t`: an accepted stretch ends at its `until`, mid-day included. */
+function waivedAt(args: RecommendArguments, t: Date): Pick<RecommendArguments, "energyWaivedActionIds"> {
+  if (!args.energyWaivedActionIds?.length) return {};
+  const until = args.energyWaivedUntil;
+  const open = until
+    ? args.energyWaivedActionIds.filter((id) => until[id] === undefined || until[id]!.getTime() > t.getTime())
+    : args.energyWaivedActionIds;
+  return { energyWaivedActionIds: open };
 }

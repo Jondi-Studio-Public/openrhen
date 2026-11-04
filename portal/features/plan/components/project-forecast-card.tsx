@@ -1,5 +1,6 @@
 "use client";
 
+import { isClosedStatus } from "@openrhen/contracts";
 import { formatShortDate } from "@/shared/date-format";
 import type { ReactNode } from "react";
 import { useNow } from "@/shared/clock";
@@ -108,7 +109,7 @@ export function ProjectForecastCard({
             itemAction.recurrence &&
             !itemAction.recurrence.completedAt &&
             onRecordCadenceCompletion &&
-            !["done", "cancelled", "archived"].includes(itemAction.status) &&
+            !(itemAction.status === "done" || isClosedStatus(itemAction.status)) &&
             !cadenceDoneToday(itemAction, now) && (
               <button className="quiet small" onClick={() => onRecordCadenceCompletion(itemAction)}>
                 Done today

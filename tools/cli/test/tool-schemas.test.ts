@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { runCli } from "../src/cli.js";
 import { EXIT } from "../src/errors.js";
 import { guideTopics, guideTopicsFor } from "../src/guide-content.js";
+import { commands } from "../src/registry.js";
 import { fakeFetch } from "./fake-fetch.js";
 import { fixtureNow, fixtureRawState } from "./fixture-state.js";
 
@@ -183,5 +184,23 @@ describe("F27: propose says how to replace a pending proposal and who can reject
     expect(text).toMatch(/no withdraw/i);
     expect(text).toMatch(/coalesce-key/);
     expect(text).toMatch(/only the owner can (confirm or )?reject/i);
+  });
+
+  it("the stdio propose and proposals text say the same, in plain words", () => {
+    const propose = commands.find((command) => command.name === "propose")!.description;
+    expect(propose).toMatch(/no withdraw/i);
+    expect(propose).toMatch(/coalesce-key/);
+    expect(propose).toMatch(/only the owner can (confirm or )?reject/i);
+    const proposals = commands.find((command) => command.name === "proposals")!.description;
+    expect(proposals).toMatch(/cannot take a proposal back/i);
+  });
+
+  it("the remote propose no longer offers a retract that is impossible or leaves a card", () => {
+    const text = tool("rhen_propose").description;
+    expect(text).not.toMatch(/replace it the same way with a payload that changes nothing/);
+    expect(text).not.toMatch(/retract one you no longer want/);
+    expect(text).toMatch(/tell the owner to reject it/i);
+    const proposals = tool("rhen_proposals").description;
+    expect(proposals).toMatch(/cannot take a proposal back/i);
   });
 });

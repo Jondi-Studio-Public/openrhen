@@ -51,8 +51,14 @@ function remoteSnapshot(event: Pick<CalendarEvent, RemoteField>): Record<RemoteF
   };
 }
 
+/** The part of an event a link's snapshot and hash are made of; a batch source that keeps only these can write the link. */
+export type FixedBlockEvent = Pick<
+  CalendarEvent,
+  "externalEventId" | "title" | "startsAt" | "endsAt" | "allDay" | "location" | "status"
+>;
+
 /** What a link keeps of an event: the compared fields plus what the hash also watches, in a fixed key order. */
-function storedSnapshot(event: CalendarEvent): Record<string, unknown> {
+export function fixedBlockSnapshot(event: FixedBlockEvent): Record<string, unknown> {
   return {
     externalEventId: event.externalEventId,
     title: event.title,
@@ -64,7 +70,8 @@ function storedSnapshot(event: CalendarEvent): Record<string, unknown> {
   };
 }
 
-function remoteHash(event: CalendarEvent): string {
+/** The hash of what the diff watches on an event. */
+export function fixedBlockHash(event: FixedBlockEvent): string {
   const view = remoteSnapshot(event);
   return JSON.stringify([...remoteFields.map((name) => view[name]), event.allDay, event.status]);
 }
@@ -125,21 +132,38 @@ function isDismissed(event: CalendarEvent, dismissals: Map<string, CalendarDismi
   return Boolean(own && own.title === event.title && instant(event.startsAt) === own.starts_at.toISOString());
 }
 
-/** The dismissals a batch's create records call for, as the `calendar` profile's: only declined proposals. */
+/**
+ * The dismissals a batch's create records call for, as the `calendar` profile's: only declined proposals. A series
+ * create (a source that carries rule descriptors in `series`, which only the calendar feed does) is remembered as
+ * `series:<stem>` with the title and first date it had; the diff reads that dismissal by the stem alone.
+ */
 function dismissalInserts(provider: string) {
   const prefix = `${provider}:event:`;
+  const seriesPrefix = `${provider}:series:`;
   return (
     records: Pick<ImportRecord, "importKey" | "operation" | "removed" | "entityType" | "relationships">[],
     source: CalendarSource,
     mode: "deselected" | "all"
   ): CalendarDismissalInsert[] => {
     const out: CalendarDismissalInsert[] = [];
+    const series = (source as { series?: Record<string, { title: string; startDate: string }> }).series;
     for (const record of records) {
       if (!isProposal(record) || (mode === "deselected" && !record.removed)) continue;
-      if (record.entityType !== "fixed_commitment" || !record.importKey.startsWith(prefix)) continue;
-      const key = record.importKey.slice(prefix.length);
-      const event = source.events[key];
-      if (event) out.push({ externalEventId: key, title: event.title, startsAt: event.startsAt });
+      if (record.entityType === "fixed_commitment" && record.importKey.startsWith(prefix)) {
+        const key = record.importKey.slice(prefix.length);
+        const event = source.events[key];
+        if (event) out.push({ externalEventId: key, title: event.title, startsAt: event.startsAt });
+      }
+      if (record.entityType === "fixed_commitment_recurrence" && record.importKey.startsWith(seriesPrefix)) {
+        const stem = record.importKey.slice(seriesPrefix.length);
+        const descriptor = series?.[stem];
+        if (descriptor)
+          out.push({
+            externalEventId: `series:${stem}`,
+            title: descriptor.title,
+            startsAt: new Date(`${descriptor.startDate}T00:00:00.000Z`).toISOString()
+          });
+      }
     }
     return out;
   };
@@ -187,8 +211,8 @@ export function fixedBlocksProfileFor(provider: string, label: string): Calendar
         location: raw.location ?? null
       });
     },
-    storedSnapshot,
-    remoteHash,
+    storedSnapshot: fixedBlockSnapshot,
+    remoteHash: fixedBlockHash,
     createFields: createFields(label),
     // A primary feed is definitive: joining a commitment another source made, its title, times and place apply.
     ...(primary ? { matchApplyFields: PRIMARY_OWNED_FIELDS } : {}),

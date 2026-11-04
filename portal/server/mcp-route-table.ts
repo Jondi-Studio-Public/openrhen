@@ -42,6 +42,7 @@ export const CORE_MCP_ROUTE_TABLE: Record<string, () => Promise<RouteModule>> = 
   "/api/commands/reenter": () => import("@/app/api/commands/reenter/route"),
   "/api/commands/revert": () => import("@/app/api/commands/revert/route"),
   "/api/commands/session": () => import("@/app/api/commands/session/route"),
+  "/api/commands/stretch": () => import("@/app/api/commands/stretch/route"),
   "/api/commands/wake": () => import("@/app/api/commands/wake/route"),
   "/api/commitments/matches": () => import("@/app/api/commitments/matches/route"),
   "/api/connections/[connectionId]/calendars": () => import("@/app/api/connections/[connectionId]/calendars/route"),

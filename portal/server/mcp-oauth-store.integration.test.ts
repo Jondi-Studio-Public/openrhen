@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { integrationDatabaseName } from "@openrhen/database";
 import { allDirectWritesOn } from "@openrhen/contracts";
 import { createAgentToken } from "./agent-token-store";
+import { ensureUser } from "@/server/persistence/postgres/ensure-user";
 import {
   AUTHORIZATION_CODE_PREFIX,
   MAX_OAUTH_CLIENTS,
@@ -46,6 +47,29 @@ const register = (name = "OpenClaw") =>
   registerClient(sql, { clientName: name, redirectUris: ["http://127.0.0.1:8123/callback"] });
 
 const scopes = ["read:plan"];
+
+/**
+ * Bulk-seeds `count` clients named `<prefix><i>` in one statement each, in registration order, so the cap tests do not
+ * pay one eviction query and round trip per client. With `granted`, each also holds a live agent token and refresh token.
+ */
+async function seedClients(count: number, prefix: string, granted = false): Promise<void> {
+  const userId = await ensureUser(sql);
+  await sql`
+    INSERT INTO oauth_clients (user_id, client_id, client_name, redirect_uris)
+    SELECT ${userId}, ${"pri_client_" + prefix} || i, ${prefix} || i, '["http://127.0.0.1:8123/callback"]'::jsonb
+    FROM generate_series(0, ${count - 1}::int) AS i`;
+  if (!granted) return;
+  await sql`
+    INSERT INTO agent_tokens (user_id, name, token_hash, scopes, direct_writes, expires_at)
+    SELECT ${userId}, ${prefix} || i, encode(sha256(convert_to(${prefix} || i, 'UTF8')), 'hex'),
+           '["read:plan"]'::jsonb, '{}'::jsonb, now() + interval '30 days'
+    FROM generate_series(0, ${count - 1}::int) AS i`;
+  await sql`
+    INSERT INTO oauth_refresh_tokens (user_id, token_hash, client_id, agent_token_id, resource, scopes, expires_at)
+    SELECT ${userId}, encode(sha256(convert_to('refresh-' || ${prefix} || i, 'UTF8')), 'hex'), 'pri_client_' || ${prefix} || i, a.id, 'r',
+           '["read:plan"]'::jsonb, now() + interval '30 days'
+    FROM generate_series(0, ${count - 1}::int) AS i JOIN agent_tokens a ON a.name = ${prefix} || i AND a.revoked_at IS NULL`;
+}
 
 beforeAll(async () => {
   const admin = postgres(adminUrl!, { max: 1, connect_timeout: 10 });
@@ -99,7 +123,7 @@ describe("clients", () => {
       scopes
     });
     const second = await register("second");
-    for (let i = 2; i < MAX_OAUTH_CLIENTS; i += 1) await register(`filler-${i}`);
+    await seedClients(MAX_OAUTH_CLIENTS - 2, "filler-");
     const extra = await register("extra");
     expect(await findClient(sql, granted.clientId)).not.toBeNull();
     expect(await findClient(sql, second.clientId)).toBeNull();
@@ -108,11 +132,7 @@ describe("clients", () => {
   }, 30_000);
 
   it("throws OauthStoreFull when every client at the cap holds a live grant", async () => {
-    for (let i = 0; i < MAX_OAUTH_CLIENTS; i += 1) {
-      const client = await register(`c${i}`);
-      const agent = await grantClient(sql, { client, scopes });
-      await issueRefreshToken(sql, { clientId: client.clientId, agent, resource: "r", scopes });
-    }
+    await seedClients(MAX_OAUTH_CLIENTS, "c", true);
     await expect(register("one-too-many")).rejects.toBeInstanceOf(OauthStoreFull);
     expect((await sql`SELECT 1 FROM oauth_clients`).length).toBe(MAX_OAUTH_CLIENTS);
   }, 60_000);
@@ -122,7 +142,7 @@ describe("clients", () => {
     const agent = await grantClient(sql, { client, scopes });
     await issueRefreshToken(sql, { clientId: client.clientId, agent, resource: "r", scopes });
     await sql`UPDATE agent_tokens SET revoked_at = now() WHERE id = ${agent.id}`;
-    for (let i = 1; i < MAX_OAUTH_CLIENTS; i += 1) await register(`filler-${i}`);
+    await seedClients(MAX_OAUTH_CLIENTS - 1, "filler-");
     await register("extra");
     expect(await findClient(sql, client.clientId)).toBeNull();
   }, 30_000);

@@ -143,6 +143,27 @@ interface PulseRecordSummary {
   disruption?: { doing: string; until: string; locationId: string; contexts: string[]; exclusive: boolean };
 }
 
+/**
+ * The status answer's trigger for `rhen_attention`: two counts
+ * and the tool to call. Present only when a count is above zero.
+ */
+export interface AttentionLine {
+  now: number;
+  decided: number;
+  call: "rhen_attention";
+}
+
+/** What the attention route's `?counts=1` answer carries; anything else is treated as unreadable. */
+function attentionLine(reply: unknown): AttentionLine | undefined {
+  if (typeof reply !== "object" || reply === null) return undefined;
+  const counts = reply as Record<string, unknown>;
+  const { viewer, healthBlocking, sourcesFailed, decided } = counts;
+  const whole = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0;
+  if (viewer !== "agent" || !whole(healthBlocking) || !whole(sourcesFailed) || !whole(decided)) return undefined;
+  const now = healthBlocking + sourcesFailed;
+  return now > 0 || decided > 0 ? { now, decided, call: "rhen_attention" } : undefined;
+}
+
 /** `status`'s catch-up line: `due` only when the switch is on and the window is due. */
 export interface CatchUpLine {
   state: "none" | "due";
@@ -196,6 +217,8 @@ interface StatusSummary {
   addOns?: Record<string, string>;
   /** Absent when the ledger read failed. */
   catchUp?: CatchUpLine;
+  /** Absent when both counts are zero, the viewer is the owner, the read failed or the run is a snapshot. */
+  attention?: AttentionLine;
   /** Whether getting ready for the next commitment is keeping pace; absent when nothing is prepping. */
   prepPace: PrepPace | null;
   /**
@@ -349,7 +372,8 @@ function buildSummary(
   now: Date,
   addOns?: Record<string, string>,
   catchUp?: CatchUpLine,
-  pulseView?: PulseReentryView
+  pulseView?: PulseReentryView,
+  attention?: AttentionLine
 ): StatusSummary {
   const timezone = state.settings.timezone;
   const planning = state.planning;
@@ -514,6 +538,7 @@ function buildSummary(
     ...(checkInError !== undefined ? { checkInError } : {}),
     ...(addOns !== undefined ? { addOns } : {}),
     ...(catchUp !== undefined ? { catchUp } : {}),
+    ...(attention !== undefined ? { attention } : {}),
     prepPace: planning?.result?.prepPace ?? null,
     // The recorder's own `state`, `since`, `lastConfirmedAt`, `silenceUntil` and what re-entry needs
     // sit on the resolver's `pulse`; its confirmation wins when it has one.
@@ -813,6 +838,10 @@ function addOnsLine(addOns: Record<string, string>): string {
     : "all off (only the owner switches them on, in Settings > Add-ons and sign-in)";
 }
 
+function attentionText(line: AttentionLine): string {
+  return `${line.now} need action now, ${line.decided} decided (rhen attention)`;
+}
+
 function catchUpText(line: CatchUpLine, timezone: string, now: Date): string {
   const since = line.since === null ? "never" : formatWhen(line.since, timezone, now);
   return line.state === "due"
@@ -879,6 +908,7 @@ function renderStatusTable(summary: StatusSummary, timezone: string, now: Date):
   if (summary.pulse.reentry?.due)
     rows.push(["Re-entry", [`required: rhen reenter (still needed: ${summary.pulse.reentry.missing.join("; ")})`]]);
   if (summary.catchUp?.state === "due") rows.push(["Catch-up", [catchUpText(summary.catchUp, timezone, now)]]);
+  if (summary.attention) rows.push(["Attention", [attentionText(summary.attention)]]);
   if (summary.addOns) rows.push(["Add-ons", [addOnsLine(summary.addOns)]]);
 
   const width = Math.max(...rows.map(([label]) => label.length));
@@ -1003,6 +1033,7 @@ function buildBrief(summary: StatusSummary, state: PortalState, now: Date) {
     inboxPending: state.captures.filter((capture) => capture.status === "pending").length,
     risks: summary.risks.length + (summary.risksOmitted ?? 0),
     ...(summary.catchUp !== undefined ? { catchUp: summary.catchUp } : {}),
+    ...(summary.attention !== undefined ? { attention: summary.attention } : {}),
     ...(summary.pulse.state !== undefined
       ? {
           pulse: {
@@ -1039,6 +1070,7 @@ function renderBriefTable(brief: ReturnType<typeof buildBrief>, timezone: string
     ])
   );
   if (brief.catchUp?.state === "due") rows.push(["Catch-up", catchUpText(brief.catchUp, timezone, now)]);
+  if (brief.attention) rows.push(["Attention", attentionText(brief.attention)]);
   if (brief.risks) rows.push(["Risks", `${brief.risks} (rhen status for the list)`]);
   rows.push(["Inbox", `${brief.inboxPending} pending`]);
   const width = Math.max(...rows.map(([label]) => label.length));
@@ -1052,12 +1084,13 @@ export const statusCommand: CommandSpec = {
     "What to do now and why, as the Now page shows it from the same planning run: the plan's freshness, what has " +
     "gone stale and has to be told again (needs, each with the exact call that settles it in answer.call (replace each " +
     "<placeholder>; answer.action is only a label) and whether the " +
-    "directive waits on it), the engine's directive with its reason, why not the runner-up, what would change it, when it " +
+    "directive waits on it), the engine's directive with its reason, why not the runner-up, what would change it (wouldChangeIf, often empty; guide topic reading-data), when it " +
     "ends, tonight's sleep errors and stay-up offer; then what is at risk, the rest of today hour by hour, the " +
     "active session, commitments, what is done and any pending check-in. Read this rather than state. Reading the " +
     "check-in marks it as prompted, exactly as opening the portal does. Tell the person `answer`: it is the directive " +
     "on the clock; recommendation.headline speaks only for the ranked task list and can say nothing fits while the " +
-    "directive is a routine step.",
+    "directive is a routine step. If the answer has attention, call rhen_attention once; call it again this " +
+    "session only if now or decided is higher than last time, or once to retry a failed source.",
   positionals: [],
   options: {
     brief: {
@@ -1117,8 +1150,19 @@ export const statusCommand: CommandSpec = {
       // The pulse is context for the answer, not the answer; a failed read must not fail `status`.
     }
 
+    // Two counts from the portal's memoised health read and one SQL count; a snapshot has no portal to ask. A failed
+    // read leaves the block out, as for catch-up and the pulse: the feed is context for the answer, not the answer.
+    let attention: AttentionLine | undefined;
+    if (args.values["state-file"] === undefined) {
+      try {
+        attention = attentionLine(await context.client.get<unknown>("/api/attention?counts=1"));
+      } catch {
+        // No block; the agent simply is not told to call the feed.
+      }
+    }
+
     const now = context.now();
-    const summary = buildSummary(state, checkIn, checkInError, now, addOns, catchUp, pulseView);
+    const summary = buildSummary(state, checkIn, checkInError, now, addOns, catchUp, pulseView, attention);
 
     // The directive, the day and upcoming show commitment titles by id only; list the calendar-sourced ids so
     // the MCP result can fence those titles (see outside-text.ts). `outsideText` exists only for the MCP fence,

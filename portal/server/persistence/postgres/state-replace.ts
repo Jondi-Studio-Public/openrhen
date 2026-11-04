@@ -58,6 +58,9 @@ export async function replaceState(sql: Sql, userId: string, input: PortalState)
     WHERE a.user_id = ${userId}
   `;
   const projectIdList = projectIds.map((row) => row.id);
+  // The rows are deleted and written again below, and the state document does not carry closed_* (archive-removals
+  // design, section 5), so a closed row's stamp is read now and put back after the rewrite.
+  const closedStamps = await readClosedStamps(sql, userId);
 
   if (projectIdList.length) {
     await sql`DELETE FROM recommendation_candidates WHERE action_id IN (SELECT id FROM actions WHERE project_id IN ${sql(projectIdList)})`;
@@ -412,6 +415,49 @@ export async function replaceState(sql: Sql, userId: string, input: PortalState)
       }
     }
   }
+  await restoreClosedStamps(sql, closedStamps);
+}
+
+const STAMPED_TABLES = {
+  areas:
+    "SELECT t.id::text AS id, t.closed_at, t.closed_from_status, t.closed_by, t.closed_batch, t.closed_reason FROM areas t WHERE t.closed_at IS NOT NULL AND t.user_id = $1",
+  outcomes:
+    "SELECT t.id::text AS id, t.closed_at, t.closed_from_status, t.closed_by, t.closed_batch, t.closed_reason FROM outcomes t JOIN areas a ON a.id = t.area_id WHERE t.closed_at IS NOT NULL AND a.user_id = $1",
+  projects:
+    "SELECT t.id::text AS id, t.closed_at, t.closed_from_status, t.closed_by, t.closed_batch, t.closed_reason FROM projects t JOIN outcomes o ON o.id = t.outcome_id JOIN areas a ON a.id = o.area_id WHERE t.closed_at IS NOT NULL AND a.user_id = $1",
+  actions:
+    "SELECT t.id::text AS id, t.closed_at, t.closed_from_status, t.closed_by, t.closed_batch, t.closed_reason FROM actions t JOIN projects p ON p.id = t.project_id JOIN outcomes o ON o.id = p.outcome_id JOIN areas a ON a.id = o.area_id WHERE t.closed_at IS NOT NULL AND a.user_id = $1",
+  deliverables:
+    "SELECT t.id::text AS id, t.closed_at, t.closed_from_status, t.closed_by, t.closed_batch, t.closed_reason FROM deliverables t JOIN projects p ON p.id = t.project_id JOIN outcomes o ON o.id = p.outcome_id JOIN areas a ON a.id = o.area_id WHERE t.closed_at IS NOT NULL AND a.user_id = $1",
+  commitments:
+    "SELECT t.id::text AS id, t.closed_at, t.closed_from_status, t.closed_by, t.closed_batch, t.closed_reason FROM commitments t WHERE t.closed_at IS NOT NULL AND t.user_id = $1"
+} as const;
+
+type ClosedStampRow = {
+  id: string;
+  closed_at: Date;
+  closed_from_status: string | null;
+  closed_by: string | null;
+  closed_batch: string | null;
+  closed_reason: string | null;
+};
+
+async function readClosedStamps(sql: Sql, userId: string): Promise<Map<string, ClosedStampRow[]>> {
+  const stamps = new Map<string, ClosedStampRow[]>();
+  for (const [table, query] of Object.entries(STAMPED_TABLES))
+    stamps.set(table, await sql.unsafe<ClosedStampRow[]>(query, [userId]));
+  return stamps;
+}
+
+/** A row written closed again by the rewrite gets its old stamp back; a row that is no longer closed is left alone. */
+async function restoreClosedStamps(sql: Sql, stamps: Map<string, ClosedStampRow[]>): Promise<void> {
+  for (const [table, rows] of stamps)
+    for (const row of rows)
+      await sql.unsafe(
+        `UPDATE ${table} SET closed_at = $2, closed_from_status = $3, closed_by = $4, closed_batch = $5, closed_reason = $6
+         WHERE id = $1::uuid AND closed_at IS NOT NULL`,
+        [row.id, row.closed_at, row.closed_from_status, row.closed_by, row.closed_batch, row.closed_reason]
+      );
 }
 
 /**

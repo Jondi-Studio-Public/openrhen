@@ -1,3 +1,4 @@
+import { isClosedStatus } from "@openrhen/contracts";
 import type { PortalState } from "@/state/portal-state";
 import { projectPlanHref } from "@/features/plan/area-grouping";
 
@@ -46,11 +47,12 @@ export function planningAttention(state: PortalState): PlanningAttentionItem[] {
         (item) =>
           item.status === "active" &&
           !state.actions.some(
-            (action) => action.projectId === item.id && !["done", "cancelled", "archived"].includes(action.status)
+            (action) => action.projectId === item.id && !(action.status === "done" || isClosedStatus(action.status))
           ) &&
           !state.deliverables.some(
             (deliverable) =>
-              deliverable.projectId === item.id && !["completed", "cancelled", "archived"].includes(deliverable.status)
+              deliverable.projectId === item.id &&
+              !(deliverable.status === "completed" || isClosedStatus(deliverable.status))
           )
       )
       .map((item) => ({

@@ -303,3 +303,21 @@ describe("an enum is never narrower than the command it fronts", () => {
     expect(enumOf("rhen_catch_up_settle", "bulk")).toEqual(["all_skipped", "all_dropped", "skip_older_than"]);
   });
 });
+
+describe("CLI help dates (F3-04)", () => {
+  it("never teaches a fixed +10:00 offset in the guide or a command's examples", async () => {
+    const { commands } = await import("../src/registry.js");
+    const { guideOverviewFor, guideTopicsFor } = await import("../src/guide-content.js");
+    const texts: [string, string][] = [];
+    for (const surface of ["stdio", "remote"] as const) {
+      texts.push([`guide overview (${surface})`, guideOverviewFor(surface)]);
+      for (const topic of guideTopicsFor(surface)) texts.push([`guide ${topic.name} (${surface})`, topic.text]);
+    }
+    for (const command of commands)
+      for (const example of command.examples) texts.push([`${command.name} example`, example]);
+    const offenders = texts
+      .filter(([, text]) => text.includes("+10:00"))
+      .map(([where, text]) => `${where}: ${text.slice(0, 100)}`);
+    expect(offenders).toEqual([]);
+  });
+});

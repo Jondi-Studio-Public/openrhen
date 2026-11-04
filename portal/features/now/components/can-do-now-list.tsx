@@ -33,9 +33,13 @@ export function CanDoNowList({
       <ul>
         {items.map((item) => (
           <li key={item.stepId}>
-            <span className="title">{item.title}</span>
-            <span className="minutes">{item.durationMinutes} min</span>
-            {item.startBy && <span className="start-by">start by {clock(new Date(item.startBy), timezone)}</span>}
+            <span className="title">{item.title}</span> <span className="minutes">{item.durationMinutes} min</span>
+            {item.startBy && (
+              <>
+                {" "}
+                <span className="start-by">start by {clock(new Date(item.startBy), timezone)}</span>
+              </>
+            )}{" "}
             <button
               type="button"
               disabled={saving}

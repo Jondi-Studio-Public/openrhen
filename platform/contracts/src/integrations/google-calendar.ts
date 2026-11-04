@@ -81,6 +81,26 @@ export const calendarSyncProviderSchema = connectionIdSchema.refine((id) => inte
   message: "not an interval-scheduled calendar source"
 });
 
+/** What one run of the calendar feed left out; only that connection reports it. */
+export const calendarSyncNotImportedSchema = z.object({
+  /** Repeating events the proxy could not express as a rule: not imported, by design. */
+  unrepresentableSeries: z.number().int().nonnegative(),
+  /** Repeating events with a rule descriptor the series pass left alone for now (a new series that already has changed dates). */
+  seriesPending: z.number().int().nonnegative(),
+  /**
+   * Repeating entries already on the plan whose feed side has changed (a date cancelled or moved, a new end, a new
+   * time, a shape the portal can no longer follow) and which the plan has not followed, or a linked one-off event whose
+   * UID has become a repeating series (it stays as it is). The rule keeps materialising from its old shape until a
+   * later change applies the new one.
+   */
+  seriesChanged: z.number().int().nonnegative().default(0),
+  /** Events that could not be read. */
+  unreadable: z.number().int().nonnegative(),
+  /** Records past the batch ceilings, left for a later run. */
+  droppedForSize: z.number().int().nonnegative()
+});
+export type CalendarSyncNotImported = z.infer<typeof calendarSyncNotImportedSchema>;
+
 /**
  * The outcome of one calendar sync, the worker's hourly run or a "Sync now". Changes to events already
  * linked to a commitment commit on their own; new events and conflicts wait in the Inbox as one open
@@ -99,7 +119,9 @@ export const calendarSyncResultSchema = z.discriminatedUnion("status", [
     deleted: z.number().int().nonnegative(),
     heldForReview: z.number().int().nonnegative(),
     reviewBatchId: z.string().uuid().nullable(),
-    committedBatchId: z.string().uuid().nullable()
+    committedBatchId: z.string().uuid().nullable(),
+    /** Only the calendar feed sets this: what a run left out (the card that words it is a later change). */
+    notImported: calendarSyncNotImportedSchema.optional()
   }),
   z.object({
     status: z.literal("failed"),

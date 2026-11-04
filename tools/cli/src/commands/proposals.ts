@@ -25,7 +25,7 @@ export const proposalsCommand: CommandSpec = {
     "Lists the proposals this agent made with `propose` (or any agent's, when run as the person), newest first, " +
     "with status (pending, confirmed, rejected, expired or stale) and the person's resolution note. Read it " +
     "to learn what was accepted or rejected and stop proposing rejected shapes; `stale` means the record " +
-    "changed after you proposed, so read it again and propose again. 20 rows by default. Needs the live " +
+    "changed after you proposed, so read it again and propose again. You cannot take a proposal back: save again with the same record id to replace it, or tell the owner to reject it. 20 rows by default. Needs the live " +
     "portal, so it refuses --state-file.",
   positionals: [],
   options: {

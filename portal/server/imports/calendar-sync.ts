@@ -5,6 +5,7 @@ import {
   sourceLabel,
   type ConnectionManifest,
   type CalendarSyncProvider,
+  type CalendarSyncNotImported,
   type CalendarSyncResult,
   type GoogleCalendarFailureReason,
   type ImportRecord,
@@ -15,6 +16,7 @@ import {
   fetchGoogleCalendarProof
 } from "@/integrations/google-calendar/google-calendar-proxy-client";
 import { ensureUser } from "@/server/persistence/postgres/ensure-user";
+import { calendarFeedAdapter } from "./calendar-feed-adapter";
 import { isCalendarSyncEnabled } from "./calendar-sync-providers";
 import { calendarSyncAdapterFor as registeredAdapterFor, requestCalendarPublish } from "./calendar-providers";
 import { DEFAULT_MAX_DELETES } from "./publish-marker";
@@ -45,6 +47,8 @@ const RUN_RETENTION_DAYS = 90;
 export interface PreparedCalendarDiff {
   records: ImportRecord[];
   previewFor: (records: ImportRecord[]) => PreviewImport;
+  /** Optional. What the provider could not bring in, for the run summary (only the calendar feed sets it). */
+  notImported?: CalendarSyncNotImported;
 }
 
 export type CalendarRead =
@@ -154,7 +158,9 @@ type DiffProfileId = NonNullable<ConnectionManifest["calendarSource"]>["diffProf
 
 /** Adapters by the diff profile a connection's manifest declares, never by connection id. */
 const adapters: Partial<Record<DiffProfileId, CalendarSyncAdapter>> = {
-  calendar: googleCalendarAdapter
+  calendar: googleCalendarAdapter,
+  // Core, not private: the calendar feed is the one `fixed_blocks` connection.
+  fixed_blocks: calendarFeedAdapter
 };
 
 function adapterFor(provider: CalendarSyncProvider): CalendarSyncAdapter | undefined {
@@ -453,16 +459,18 @@ async function runCalendarSyncLocked({
         synced({ eventCount: 0, updated: 0, deleted: 0, heldForReview: 0, reviewBatchId: null, committedBatchId: null })
       );
 
-    const applied = await withImportStore(async (store) =>
-      applyDiff(
+    const { applied, notImported } = await withImportStore(async (store) => {
+      const diff = await read.diff(store);
+      const applied = await applyDiff(
         store,
         adapter,
         read.eventCount,
-        await read.diff(store),
+        diff,
         positiveInteger(env.CALENDAR_SYNC_MAX_DELETES, DEFAULT_MAX_DELETES)
-      )
-    );
-    return finish(synced(applied));
+      );
+      return { applied, notImported: diff.notImported };
+    });
+    return finish({ ...synced(applied), ...(notImported ? { notImported } : {}) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "The calendar sync failed.";
     const reason = (error as { reason?: GoogleCalendarFailureReason } | null)?.reason;

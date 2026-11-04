@@ -288,11 +288,25 @@ export function isFiledProposal(response: unknown): response is FiledProposal {
   return typeof proposal === "object" && proposal !== null && typeof proposal.id === "string";
 }
 
+/** Table mode prints these on stdout, where the portal's agentNote is not shown; JSON and stderr stay unchanged. */
+const CORRECTION_LINES =
+  "You cannot take a proposal back. To correct it, repeat the same save with the same record id and the corrected " +
+  "values (a new command id, or none): while the card is pending, that replaces it. If the correction is applied " +
+  "instead, or the write has no record id (settings, delete), a second call files a second card: ask the owner to " +
+  "reject the first in Inbox > Captured > From agents. A corrected `rhen save` that reuses the first call's " +
+  "command id returns the old card unchanged.";
+
 /** Tells the caller a write was filed as a proposal. Not a failure: the command still exits 0. */
-export function reportFiledProposal(context: CommandContext, response: FiledProposal): void {
+export function reportFiledProposal(
+  context: CommandContext,
+  response: FiledProposal,
+  /** True only for a plain save (agentNote's case): bulk and undo have no record id to correct by and say nothing here. */
+  options: { correction?: boolean } = {}
+): void {
   const message = `Filed as proposal ${response.proposal.id}, waiting for the owner`;
   const reason = response.filedBecause ? ` (${response.filedBecause})` : "";
-  if (context.mode === "table") context.stdout(`${message}${reason}.`);
+  if (context.mode === "table")
+    context.stdout(`${message}${reason}.` + (options.correction === true ? `\n${CORRECTION_LINES}` : ""));
   else
     context.stdout(
       toJson({ filedAsProposal: true, applied: false, proposalId: response.proposal.id, message, ...response }, true)
@@ -492,7 +506,7 @@ export async function postCommand(
   context.stderr(`rhen: ${options.summary}`);
   if (isFiledProposal(response)) {
     // Held for the owner: nothing changed, so there is no state to show and nothing to undo.
-    reportFiledProposal(context, response);
+    reportFiledProposal(context, response, { correction: true });
     return { state: null };
   }
   const state = response?.state;

@@ -31,7 +31,7 @@ UPDATE_ENGINE_STATE_READS=1 corepack pnpm --filter @openrhen/engine-core exec vi
 
 ### `state.currentSituation`
 
-`carrying`, `energySetAt`, `locationId`, `locationSetAt`, `overrides.campus`, `overrides.home`, `transportModes[]`, `travel`, `travelOff`, `travelRefreshedAt`
+`carrying`, `energySetAt`, `locationId`, `locationSetAt`, `overrides.campus`, `overrides.home`, `stretch`, `transportModes[]`, `travel`, `travelOff`, `travelRefreshedAt`
 
 ### `state.deliverables`
 

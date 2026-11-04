@@ -6,6 +6,7 @@ import {
   rateLimitMessage,
   scopeCovers
 } from "@openrhen/contracts";
+import { replaceExpiredTokenFor } from "./agent-token-recipe";
 import type { AgentPrincipal } from "./agent-tokens";
 import type { StoredAgentToken } from "./agent-token-store";
 import { remoteAddress, sharedFailureThrottle, type FailureThrottle } from "./agent-token-throttle";
@@ -688,7 +689,35 @@ export async function authenticateBearer(
     if (count) deps.throttle.fail(address);
     return { ok: false, response: unauthorized(request, "invalid_token", description) };
   };
-  if (!stored) return fail("The access token is not recognised.", true);
+  if (!stored) {
+    // A pasted agent token is a known hash, not a guess: say what it is and what state it is in.
+    let agent: StoredAgentToken | null = null;
+    try {
+      agent = await deps.findAgentToken(
+        createHash("sha256")
+          .update(match[1] as string)
+          .digest("hex")
+      );
+    } catch {
+      agent = null;
+    }
+    if (agent) {
+      const lead = `That is the agent token "${agent.name}", not an access token, so nothing was done.`;
+      const next = "If the owner is not in this conversation, put that in your next report.";
+      const text = agent.revokedAt
+        ? `${lead} It was revoked. Do not retry. Tell the owner it was revoked and ask whether they want it replaced. ${next}`
+        : agent.expiresAt.getTime() <= deps.now().getTime()
+          ? `${lead} It expired on ${agent.expiresAt.toISOString().slice(0, 10)}. Do not retry. Tell the owner: ` +
+            `"This agent's token has expired; please issue a replacement (in a terminal: ` +
+            `${replaceExpiredTokenFor(agent.scopes, agent.name)})." ${next}`
+          : `${lead} /mcp takes access tokens only. Exchange it with POST ${publicOrigin(request)}${TOKEN_PATH} ` +
+            `as application/x-www-form-urlencoded with grant_type=client_credentials, client_id=${agent.name}, ` +
+            `client_secret=<the agent token you hold>, resource=${resourceUrl(request)}, then send the returned ` +
+            `access_token as the bearer.`;
+      return fail(text, false);
+    }
+    return fail("The access token is not recognised.", true);
+  }
   if (stored.resource !== resourceUrl(request))
     return fail("The access token was issued for a different resource.", false);
   const now = deps.now().getTime();

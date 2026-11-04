@@ -401,7 +401,7 @@ describe("outcome templates", () => {
         { entity: "project", id: "x" }
       ]) {
         const item = outcome(1, "stale", { held, target });
-        expect(item.why).not.toMatch(/citing|proposal's id|openrhen_attention/);
+        expect(item.why).not.toMatch(/citing|proposal's id|rhen_attention/);
       }
   });
 
@@ -777,7 +777,7 @@ describe("safe pointers", () => {
         items.push(outcome(1, status, { held, target: { entity: "action", id: uuid(2) } }));
       for (const item of items) {
         const everything = JSON.stringify({ ...item, quoted: undefined });
-        expect(everything, item.id).not.toContain("openrhen_attention");
+        expect(everything, item.id).not.toContain("rhen_attention");
         if (item.nextCall && "tool" in item.nextCall) {
           expect(attentionCallProblem(item.nextCall, held), item.id).toBeUndefined();
           expect(item.nextCall.tool).not.toBe("rhen_status");
@@ -887,7 +887,7 @@ describe("review fixes", () => {
   it("keeps every doctor template free of the feed name and citing", () => {
     // Provider names are deliberately not spelled here: the export audit forbids them in the public tree,
     // and templates only ever describe a check in terms of its area.
-    const forbidden = /openrhen_attention|citing/i;
+    const forbidden = /rhen_attention|citing/i;
     for (const [check, template] of Object.entries(ATTENTION_DOCTOR_TEMPLATES)) {
       expect(`${template.title} ${template.why}`, check).not.toMatch(forbidden);
     }

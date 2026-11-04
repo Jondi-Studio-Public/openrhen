@@ -1,5 +1,6 @@
 "use client";
 
+import { isClosedStatus } from "@openrhen/contracts";
 import { PlaceTabs } from "@/components/place-tabs";
 import { useEffect } from "react";
 import { useNow } from "@/shared/clock";
@@ -213,7 +214,7 @@ export function AreaDetail({ areaId }: { areaId: string }) {
                       {itemAction.schedulingMode === "cadence" &&
                         itemAction.recurrence &&
                         !itemAction.recurrence.completedAt &&
-                        !["done", "cancelled", "archived"].includes(itemAction.status) &&
+                        !(itemAction.status === "done" || isClosedStatus(itemAction.status)) &&
                         !cadenceDoneToday(itemAction, now) && (
                           <button className="quiet small" onClick={() => editors.recordCadenceCompletion(itemAction)}>
                             Done today

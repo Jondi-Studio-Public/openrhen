@@ -1,3 +1,4 @@
+import { CLOSED_STATUSES, isClosedStatus } from "@openrhen/contracts";
 import {
   buildPlanIndex,
   navigate,
@@ -110,9 +111,7 @@ export function buildMapView(
   });
   // Archived and cancelled items have left the plan: the map does not draw them around a live centre
   // (centring on one directly still works, so an old link can be looked up).
-  const gone = new Set(
-    result.cards.filter((card) => card.status === "archived" || card.status === "cancelled").map((card) => card.handle)
-  );
+  const gone = new Set(result.cards.filter((card) => isClosedStatus(card.status)).map((card) => card.handle));
   const kept = result.edges.filter((edge) => !gone.has(edge.from) && !gone.has(edge.to));
   // A card reached only through a dropped one would float unjoined, so keep just what the root still reaches.
   const reached = new Set([item.handle]);
@@ -167,7 +166,7 @@ export function mapStarts(view: Pick<MapView, "index">): { handle: string; title
   );
 }
 
-const CLOSED = new Set(["done", "cancelled", "archived"]);
+const CLOSED = new Set(["done", ...CLOSED_STATUSES]);
 
 /**
  * Where `/map` opens when no item is named: the live area with the most work still open in it — one

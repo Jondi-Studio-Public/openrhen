@@ -466,6 +466,10 @@
       "fixtures": 1
     },
     {
+      "path": "state.currentSituation.stretch",
+      "fixtures": 17
+    },
+    {
       "path": "state.currentSituation.transportModes[]",
       "fixtures": 8
     },
@@ -1055,6 +1059,7 @@
         "locationSetAt",
         "overrides.campus",
         "overrides.home",
+        "stretch",
         "transportModes[]",
         "travel",
         "travelOff",

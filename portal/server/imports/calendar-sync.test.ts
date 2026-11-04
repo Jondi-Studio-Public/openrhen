@@ -530,6 +530,41 @@ describe("runCalendarSync (google_calendar)", () => {
       expect(fake.committed).toEqual([]);
     });
 
+    it("holds a series rule create for review, whatever else applies on its own (the feed's series pass relies on it)", async () => {
+      const fake = editedWorld();
+      useStore(fake);
+      const ruleCreate = (record: ImportRecord): ImportRecord => ({
+        ...record,
+        importKey: "calendar_feed:series:weekly",
+        entityType: "fixed_commitment_recurrence",
+        operation: "create",
+        matchedEntityId: null,
+        expectedVersion: null,
+        errors: []
+      });
+      const adapter = {
+        ...googleCalendarAdapter,
+        async read(args: Parameters<typeof googleCalendarAdapter.read>[0]) {
+          const read = await googleCalendarAdapter.read(args);
+          if (read.status !== "read") return read;
+          return {
+            ...read,
+            diff: async (store: Parameters<typeof read.diff>[0]) => {
+              const diff = await read.diff(store);
+              return { ...diff, records: [...diff.records, ruleCreate(diff.records[0]!)] };
+            }
+          };
+        }
+      };
+      expect(await runCalendarSync({ provider: "google_calendar", trigger: "scheduled", adapter })).toMatchObject({
+        status: "needs_review",
+        updated: 1,
+        heldForReview: 1
+      });
+      const heldKeys = fake.created.at(-1)!.records.map((record) => record.importKey);
+      expect(heldKeys).toEqual(["calendar_feed:series:weekly"]);
+    });
+
     it("counts a date cancel against the same budget as deletes", async () => {
       state.env.CALENDAR_SYNC_MAX_DELETES = "2";
       const deletes = [cancelled("d1", 1)];
@@ -580,6 +615,39 @@ describe("runCalendarSync (google_calendar)", () => {
       expect(inert.created).toEqual(baseline.created);
       expect(inert.committed).toEqual(baseline.committed);
       expect(baseline.result).toMatchObject({ updated: 1, heldForReview: 0 });
+    });
+  });
+
+  describe("what a run left out", () => {
+    const editedWorld = () => {
+      const prior = event({ externalEventId: "upd" });
+      fetchGoogleCalendarEvents.mockResolvedValue([{ ...prior, title: "Moved" }]);
+      return fakeStore({ links: [linkRow(prior)] });
+    };
+    const notImported = {
+      unrepresentableSeries: 2,
+      seriesPending: 1,
+      seriesChanged: 5,
+      unreadable: 3,
+      droppedForSize: 4
+    };
+    const withNotes = (): typeof googleCalendarAdapter => ({
+      ...googleCalendarAdapter,
+      async read(args) {
+        const read = await googleCalendarAdapter.read(args);
+        return read.status === "read"
+          ? { ...read, diff: async (store) => ({ ...(await read.diff(store)), notImported }) }
+          : read;
+      }
+    });
+
+    it("reports it on the run when the provider's diff says so, and not at all for a provider that does not", async () => {
+      useStore(editedWorld());
+      const plain = await runCalendarSync({ provider: "google_calendar", trigger: "scheduled" });
+      expect("notImported" in plain).toBe(false);
+      useStore(editedWorld());
+      const noted = await runCalendarSync({ provider: "google_calendar", trigger: "scheduled", adapter: withNotes() });
+      expect(noted).toMatchObject({ status: "synced", notImported });
     });
   });
 

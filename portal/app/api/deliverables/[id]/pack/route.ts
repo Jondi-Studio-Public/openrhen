@@ -1,3 +1,4 @@
+import { CLOSED_STATUSES } from "@openrhen/contracts";
 import { notFoundResponse } from "@/server/not-found-response";
 import { redact, withRoute } from "@/server/logging";
 import { assessDeliverable } from "@openrhen/contracts/readiness";
@@ -10,7 +11,7 @@ import type { PortalState } from "@/state/portal-state";
 import type { TranscriptRow } from "@openrhen/contracts";
 
 const TRANSCRIPT_LIMIT = 30;
-const CLOSED_STATUSES = new Set(["completed", "cancelled", "archived"]);
+const FINISHED_STATUSES = new Set(["completed", ...CLOSED_STATUSES]);
 
 /**
  * Everything an external coordinator (a CLI agent or desktop AI app driving `rhen deliverable
@@ -57,7 +58,7 @@ export const GET = withRoute(
           ? state.activeSession
           : null;
 
-      const closed = CLOSED_STATUSES.has(deliverable.status) || deliverable.status === "awaiting_result";
+      const closed = FINISHED_STATUSES.has(deliverable.status) || deliverable.status === "awaiting_result";
       const eligible = !closed && readiness.executableStepIds.length > 0;
       const eligibilityReason = eligible
         ? undefined

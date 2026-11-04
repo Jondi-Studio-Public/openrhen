@@ -11,6 +11,7 @@ import { ensureUser } from "./ensure-user";
 import { CommandConflictError, InvalidCommandError } from "./command-errors";
 import { DisruptionIncompleteError, recordDisruption } from "./pulse-disruption";
 import { runRevertCommand } from "./write-revert";
+import { waitUntilBlocked } from "./wait-until-blocked";
 
 /**
  * `record_disruption` (the pulse on plan design note, sections 1 and 2): all or nothing with each missing field named,
@@ -225,7 +226,7 @@ describe("record_disruption", () => {
     await lockTaken;
     let finished = false;
     const done = recordDisruption(sql as never, command(), NOW).then(() => (finished = true));
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    await waitUntilBlocked(sql);
     expect(finished).toBe(false);
     release();
     await tick;
@@ -247,7 +248,7 @@ describe("record_disruption", () => {
     });
     await lockTaken;
     const outcome = recordDisruption(sql as never, command(), NOW).catch((error) => error);
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await waitUntilBlocked(sql);
     release();
     await tick;
     expect(await outcome).toBeInstanceOf(CommandConflictError);

@@ -132,6 +132,11 @@ const CORE_WRITERS = {
     reason:
       "reenter calls recordStateChange once per re-entry transaction, after settling the window through catch-up.ts and writing the situation."
   },
+  "portal/server/persistence/postgres/stretch-command.ts": {
+    class: "owner",
+    reason:
+      "stretch calls recordStateChange once per answer transaction, after writing only the stretch key of the situation."
+  },
   "portal/server/persistence/postgres/import-store.ts": {
     class: "owner",
     reason: "Import commit transactions call recordStateChange once per commit."

@@ -436,6 +436,30 @@ async function readBody(request: Request): Promise<unknown> {
 }
 
 /**
+ * What an agent does about a proposal it now regrets. There is no withdraw, so say so, and say which of the two cases
+ * it is in: a save with a record id carries a coalesce key and a corrected save replaces the pending card; a settings
+ * save, a delete or a new record without an id has no key, so a different second call files a second card.
+ * Every call is the backticked CLI form, which stdio rewrites to the tool name; the agent may have used any of the
+ * save tools, hence "the same save call you just used".
+ */
+function takeBackNote(proposalId: string, hasRecordId: boolean): string {
+  if (!hasRecordId)
+    return (
+      "You cannot take a proposal back. A different second call files a second card (an identical copy returns " +
+      `the same card), so do not resend. If the owner is in this conversation, say: "Please reject proposal ${proposalId} ` +
+      'in Inbox > Captured > From agents." Otherwise put that in your next report.'
+    );
+  return (
+    "You cannot take a proposal back. To correct it, repeat the same save call you just used (`rhen save` for a " +
+    "plain save) with the same record id, the corrected values and a new commandId (or none). If the answer is again " +
+    `"Filed as proposal" and its revision is above 1, it replaced this card. If the correction is applied directly ` +
+    `instead, proposal ${proposalId} is still pending: tell the owner to reject it in Inbox > Captured > From agents. ` +
+    "A replaced card does not prove the owner had not already confirmed the first: check `rhen proposals` after " +
+    "a minute, and if the first shows confirmed, tell the owner."
+  );
+}
+
+/**
  * Returns the response that ends the request (a refusal, or the 202 for a write filed as a proposal), or null
  * when the handler should run. Environment tokens and anonymous callers never reach this.
  */
@@ -498,18 +522,17 @@ export async function enforceAgentRequest(
   // so the summary then lists only the new values. Confirming still checks the version and goes stale.
   const current = stored?.version === payload.expectedVersion ? stored : undefined;
   try {
-    const { proposal } = await (deps.propose ?? defaultPropose)(
-      principal.name,
-      entityProposal(decision.command, payload, claim, outcome.shadow, current)
-    );
+    const filing = entityProposal(decision.command, payload, claim, outcome.shadow, current);
+    const { proposal } = await (deps.propose ?? defaultPropose)(principal.name, filing);
     return Response.json(
       {
         proposal,
         filedBecause: outcome.reason,
         agentNote:
           `Filed as proposal ${proposal.id}. Your change has NOT been applied: the owner must confirm it in ` +
-          "Inbox > Captured > From agents. Do not send it again. Check the outcome later with `rhen proposals` " +
-          `(status pending, confirmed, rejected or stale). Why it was filed: ${outcome.reason}`
+          "Inbox > Captured > From agents. Do not send it again unchanged. Check the outcome later with `rhen proposals` " +
+          `(status pending, confirmed, rejected or stale). Why it was filed: ${outcome.reason} ` +
+          takeBackNote(proposal.id, filing.coalesceKey !== undefined)
       },
       { status: 202 }
     );

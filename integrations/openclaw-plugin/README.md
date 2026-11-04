@@ -69,6 +69,12 @@ inside its MCP client, where plugin code cannot reach it, and the server binds t
    token is set, or if the plugin was not stamped, it logs "agent time is not reported" once at start and sends
    nothing.
 
+### Agent wake (optional)
+
+OpenRhen can send the agent one scripted message, starting `[OpenRhen wake]`, when a check-in goes unanswered for
+10 minutes or the pulse lapses; the agent then asks the owner in chat. It needs OpenClaw hooks and two server
+variables: see agent wake setup.
+
 ## Update
 
 Install the newer release the same way (unpack, stamp, `openclaw plugins install ./openclaw-plugin

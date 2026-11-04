@@ -31,6 +31,20 @@ export const timestamps = {
   version: integer("version").notNull().default(1)
 };
 
+/**
+ * Closed-record columns (archive-removals design, section 5), on the eight tables in CLOSED_TABLES. Stamped by the
+ * `stamp_closed_columns` BEFORE INSERT/UPDATE trigger (migration 0140) on a status transition into or out of a closed
+ * status, never by application code; all nullable. `closed_by` is the `openrhen.actor` setting at the time, `system`
+ * when unset, and NULL on rows that were already closed when the columns were added.
+ */
+export const closedColumns = {
+  closedAt: timestamp("closed_at", { withTimezone: true }),
+  closedFromStatus: text("closed_from_status"),
+  closedBy: text("closed_by"),
+  closedBatch: uuid("closed_batch"),
+  closedReason: text("closed_reason")
+};
+
 export const recordStatus = pgEnum("record_status", ["active", "paused", "done", "cancelled", "archived"]);
 export const actionStatus = pgEnum("action_status", [
   "inbox",
@@ -360,7 +374,8 @@ export const areas = pgTable(
     /** The pulse criteria and publish design note ("Private"): hides this area, and everything under
         it, from the published pulse. Effective privacy is OR-inherited down to the leaf. */
     private: boolean("private").notNull().default(false),
-    ...timestamps
+    ...timestamps,
+    ...closedColumns
   },
   (table) => [
     uniqueIndex("areas_user_name_unique").on(table.userId, table.name),
@@ -382,7 +397,8 @@ export const outcomes = pgTable(
     deadlineAt: timestamp("deadline_at", { withTimezone: true }),
     reviewOn: date("review_on"),
     completedAt: timestamp("completed_at", { withTimezone: true }),
-    ...timestamps
+    ...timestamps,
+    ...closedColumns
   },
   (table) => [
     check("outcomes_value_check", sql`${table.value} between 1 and 5`),
@@ -419,7 +435,8 @@ export const projects = pgTable(
     // Set only by the review's "Seen, leave it" on an overdue project: it stops counting toward that review week.
     overdueSeenAt: timestamp("overdue_seen_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
-    ...timestamps
+    ...timestamps,
+    ...closedColumns
   },
   (table) => [
     check(
@@ -507,7 +524,8 @@ export const actions = pgTable(
     prepForCommitmentId: uuid("prep_for_commitment_id").references(() => commitments.id, {
       onDelete: "set null"
     }),
-    ...timestamps
+    ...timestamps,
+    ...closedColumns
   },
   (table) => [
     check(
@@ -734,7 +752,8 @@ export const deliverables = pgTable(
     completedAt: timestamp("completed_at", { withTimezone: true }),
     /** Pulse privacy, inherited from the project unless set here — see `areas.private`. */
     private: boolean("private").notNull().default(false),
-    ...timestamps
+    ...timestamps,
+    ...closedColumns
   },
   (table) => [
     check(
@@ -1225,7 +1244,8 @@ export const commitments = pgTable(
      * (`DEFAULT_CHECK_IN_EXTRA_MINUTES`, 15).
      */
     checkInExtraMinutes: integer("check_in_extra_minutes"),
-    ...timestamps
+    ...timestamps,
+    ...closedColumns
   },
   (table) => [
     check("commitments_time_check", sql`${table.endsAt} > ${table.startsAt}`),
@@ -1640,7 +1660,8 @@ export const routinePresets = pgTable(
      * The wake routine design note.
      */
     replacesWakeRoutine: boolean("replaces_wake_routine").notNull().default(false),
-    ...timestamps
+    ...timestamps,
+    ...closedColumns
   },
   (table) => [
     uniqueIndex("routine_presets_user_name_unique").on(table.userId, table.name),
@@ -1766,7 +1787,8 @@ export const conditionDefinitions = pgTable(
      */
     phone: text("phone"),
     email: text("email"),
-    ...timestamps
+    ...timestamps,
+    ...closedColumns
   },
   (table) => [
     primaryKey({ columns: [table.userId, table.id] }),
@@ -1923,6 +1945,38 @@ export const pushOutbox = pgTable(
       "push_outbox_channel_check",
       sql`${table.channel} IN (${sql.raw(["webpush", ...EXTRA_PUSH_CHANNELS].map((channel) => `'${channel}'`).join(","))})`
     )
+  ]
+);
+
+/**
+ * Wakes for the owner's OpenClaw agent. A producer inserts a row, one worker tick
+ * claims and sends it. `sent` is set before the POST (at-most-once); `dead` covers expired, refused three times, stale
+ * (`last_error` "stale") and cancelled ("cancelled"). Regenerable: a restore must not resurrect old wakes.
+ */
+export const agentWakes = pgTable(
+  "agent_wakes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    event: text("event").notNull(),
+    /** The check_in id or the lapse's start: what the template names. Ids only, never record text. */
+    targetId: text("target_id").notNull(),
+    dedupeKey: text("dedupe_key").notNull(),
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    /** An HTTP status plus a fixed reason, never gateway output. */
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    uniqueIndex("agent_wakes_user_dedupe_unique").on(table.userId, table.dedupeKey),
+    index("agent_wakes_status_created_idx").on(table.status, table.createdAt),
+    check("agent_wakes_event_check", sql`${table.event} IN ('check_in_unanswered','pulse_lapsed')`),
+    check("agent_wakes_status_check", sql`${table.status} IN ('pending','sent','dead')`)
   ]
 );
 

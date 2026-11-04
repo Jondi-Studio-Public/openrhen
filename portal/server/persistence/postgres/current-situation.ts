@@ -1,5 +1,12 @@
 /** Reading and updating the momentary "where I am and what I have" record on user preferences. */
-import { currentSituationSchema, transportModeSchema } from "@openrhen/contracts";
+import {
+  currentSituationSchema,
+  stretchDeclineSchema,
+  stretchRecordSchema,
+  stretchStateSchema,
+  type StretchState,
+  transportModeSchema
+} from "@openrhen/contracts";
 import type { PortalState } from "@/state/portal-state";
 import type { Sql } from "./sql-pool";
 
@@ -81,10 +88,12 @@ export function parseCurrentSituation(value: unknown): PortalState["currentSitua
   // storage gets the benefit of the doubt.
   const storedModes = filterTransportModes(raw.transportModes);
   const transportModes = storedModes.length ? storedModes : [...ALL_TRANSPORT_MODES];
+  const stretch = parseStretch(raw.stretch);
   return {
     locationId: typeof raw.locationId === "string" ? raw.locationId : null,
     ...(typeof raw.locationSetAt === "string" ? { locationSetAt: raw.locationSetAt } : {}),
     ...(parseEnergySetAt(raw.energySetAt) !== undefined ? { energySetAt: parseEnergySetAt(raw.energySetAt) } : {}),
+    ...(stretch !== undefined ? { stretch } : {}),
     overrides,
     carrying,
     transportModes,
@@ -98,6 +107,59 @@ export function parseCurrentSituation(value: unknown): PortalState["currentSitua
 function parseEnergySetAt(value: unknown): string | undefined {
   const parsed = currentSituationSchema.shape.energySetAt.safeParse(value);
   return parsed.success ? parsed.data : undefined;
+}
+
+/**
+ * Entry by entry, so one bad record never costs the rest (or the whole situation): bad entries are
+ * dropped, and `undefined` comes back when nothing is left.
+ */
+function parseStretch(value: unknown): StretchState | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  const accepted = (Array.isArray(raw.accepted) ? raw.accepted : []).flatMap((entry) => {
+    const parsed = stretchRecordSchema.safeParse(entry);
+    return parsed.success ? [parsed.data] : [];
+  });
+  const declined = (Array.isArray(raw.declined) ? raw.declined : []).flatMap((entry) => {
+    const parsed = stretchDeclineSchema.safeParse(entry);
+    return parsed.success ? [parsed.data] : [];
+  });
+  const declinedAllAt = stretchStateSchema.shape.declinedAllAt.safeParse(raw.declinedAllAt);
+  // Newest kept at the schema's caps, so an over-long stored list can never fail the engine request.
+  accepted.splice(0, Math.max(0, accepted.length - 30));
+  declined.splice(0, Math.max(0, declined.length - 50));
+  if (!accepted.length && !declined.length && !declinedAllAt.data) return undefined;
+  return {
+    accepted,
+    declined,
+    ...(declinedAllAt.data ? { declinedAllAt: declinedAllAt.data } : {})
+  };
+}
+
+const DAY_MS = 86_400_000;
+
+/**
+ * Drops what no longer matters: loan records whose `until` is over a week old, declines and "no
+ * stretches" older than two days; then caps the lists (oldest first). Pure; `undefined` when empty.
+ */
+export function pruneStretch(stretch: StretchState | undefined, now: Date): StretchState | undefined {
+  if (!stretch) return undefined;
+  const acceptedCutoff = now.getTime() - 7 * DAY_MS;
+  const declineCutoff = now.getTime() - 2 * DAY_MS;
+  const accepted = stretch.accepted
+    .filter((entry) => new Date(entry.until).getTime() >= acceptedCutoff)
+    .sort((a, b) => a.acceptedAt.localeCompare(b.acceptedAt))
+    .slice(-30);
+  const declined = stretch.declined
+    .filter((entry) => new Date(entry.at).getTime() >= declineCutoff)
+    .sort((a, b) => a.at.localeCompare(b.at))
+    .slice(-50);
+  const declinedAllAt =
+    stretch.declinedAllAt && new Date(stretch.declinedAllAt).getTime() >= declineCutoff
+      ? stretch.declinedAllAt
+      : undefined;
+  if (!accepted.length && !declined.length && !declinedAllAt) return undefined;
+  return { accepted, declined, ...(declinedAllAt ? { declinedAllAt } : {}) };
 }
 
 /**
@@ -152,6 +214,8 @@ export function nextCurrentSituation(
     // Only the energy write dates energy (`entity-commands.ts`, on the server's clock): whatever the
     // payload carries back, including a whole stored situation resent, is ignored.
     ...(previous.energySetAt !== undefined ? { energySetAt: previous.energySetAt } : {}),
+    // Same for the stretch answers: only the stretch command writes them, never a situation payload.
+    ...(previous.stretch !== undefined ? { stretch: previous.stretch } : {}),
     underway: nextUnderway(previous.underway, raw, nextLocationId, locationAsserted)
   };
 }

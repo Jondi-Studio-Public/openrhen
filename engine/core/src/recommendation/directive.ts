@@ -330,13 +330,26 @@ export function selectCurrentDirective(input: SelectDirectiveInput): CurrentDire
   // offered early"). A deadline-critical primary — any tier `recommend()` did not rank as `ordinary` —
   // always wins regardless of score, since `recommendation.earlyStep` never enters a critical tier
   // itself and has no claim against one that did.
+  //
+  // A step whose own slot falls on a later local day is offered (Can do now) but never outranks real
+  // work today: tomorrow-morning prep (lunch for an 8 am class) scored above an assessment task purely
+  // on its low effort, and Now told the person to make lunch at 3 pm. It still leads when nothing else does.
+  const earlyStepRow = recommendation.earlyStep
+    ? state.routineSteps.find((item) => item.id === recommendation.earlyStep!.stepId)
+    : undefined;
+  const earlyIsLaterDay =
+    earlyStepRow?.scheduledStartAt !== undefined &&
+    earlyStepRow.scheduledStartAt !== null &&
+    localDate(new Date(earlyStepRow.scheduledStartAt), state.settings.timezone) >
+      localDate(now, state.settings.timezone);
   if (
     recommendation.earlyStep &&
     (!recommendation.primary ||
       (recommendation.primary.criticalRank === ORDINARY_RANK &&
+        !earlyIsLaterDay &&
         recommendation.primary.totalScore < recommendation.earlyStep.totalScore))
   ) {
-    const step = state.routineSteps.find((item) => item.id === recommendation.earlyStep!.stepId);
+    const step = earlyStepRow;
     if (step)
       return { kind: "routine_step", targetId: step.id, title: step.title, recommendedMinutes: step.durationMinutes };
   }

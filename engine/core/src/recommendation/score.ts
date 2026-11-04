@@ -393,7 +393,11 @@ function slackUntil(args: ScoreActionInput): Date | undefined {
  * stored before this field existed), this is exactly `forecast.latestSafeStarts[unitId] ?? undefined`,
  * so every caller's behaviour before the field existed is unchanged.
  */
-function resolvedLatestSafeStart(forecast: ProjectForecast | undefined, unitId: string, now: Date): Date | undefined {
+export function resolvedLatestSafeStart(
+  forecast: ProjectForecast | undefined,
+  unitId: string,
+  now: Date
+): Date | undefined {
   if (forecast?.unplacedUnitIds?.includes(unitId)) return now;
   return forecast?.latestSafeStarts[unitId] ?? undefined;
 }

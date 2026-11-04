@@ -1,3 +1,4 @@
+import { isClosedStatus } from "@openrhen/contracts";
 import {
   buildNeeds,
   buildRecommendationAnswer,
@@ -307,8 +308,7 @@ export function recommendedActionFinished(state: PortalState, primary: NowCandid
   if (!primary) return false;
   const id = primary.action.id;
   const action = state.actions.find((item) => item.id === id);
-  if (action && (action.status === "done" || action.status === "cancelled" || action.status === "archived"))
-    return true;
+  if (action && (action.status === "done" || isClosedStatus(action.status))) return true;
   return state.occurrences.some(
     (item) => item.id === id && (item.status === "completed" || item.status === "cancelled")
   );

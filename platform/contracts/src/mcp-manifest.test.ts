@@ -57,6 +57,7 @@ describe("filtering by scope", () => {
       "rhen_proposals",
       "rhen_catch_up",
       "rhen_doctor",
+      "rhen_attention",
       "rhen_history",
       "rhen_inbox",
       "rhen_guide",
@@ -68,6 +69,16 @@ describe("filtering by scope", () => {
     expect(readOnly.filter((tool) => tool.annotations.readOnlyHint !== true).map((tool) => tool.name)).toEqual([
       "rhen_reenter"
     ]);
+  });
+
+  it("lists the attention feed to a read:plan token and not to a read:proposals-only token", () => {
+    expect(names(["read:plan"])).toContain("rhen_attention");
+    expect(names(["read:proposals"])).not.toContain("rhen_attention");
+    expect(mcpToolsForScopes(["read:plan"]).find((tool) => tool.name === "rhen_attention")?.annotations).toMatchObject({
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: true
+    });
   });
 
   it("shows a token with no scope the tools use only the guide", () => {

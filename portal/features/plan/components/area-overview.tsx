@@ -1,5 +1,6 @@
 "use client";
 
+import { isClosedStatus } from "@openrhen/contracts";
 import { dateTimeFormat, displayLocale } from "@/shared/locale";
 import { cx } from "@/components/ui/cx";
 import { useState } from "react";
@@ -25,8 +26,6 @@ const HEALTH_BADGE: Record<string, { tone: BadgeTone; text: string }> = {
   ahead: { tone: "accent", text: "Ahead" },
   unknown: { tone: "neutral", text: "No forecast" }
 };
-
-const CLOSED_ACTION = new Set(["cancelled", "archived"]);
 
 /**
  * `unknown` is not a verdict — it's the engine declining to forecast (no deadline, deadline beyond
@@ -171,7 +170,7 @@ function AreaRow({
   const lapsedCount = areaForecasts.filter((forecast) => isLapsedSelfSet(forecast)).length;
   const { health } = worstHealth(areaForecasts);
   const projectIds = new Set(areaProjects.map((project) => project.id));
-  const work = actions.filter((action) => projectIds.has(action.projectId) && !CLOSED_ACTION.has(action.status));
+  const work = actions.filter((action) => projectIds.has(action.projectId) && !isClosedStatus(action.status));
   const done = work.filter((action) => action.status === "done").length;
   const now = useNow("minute").getTime();
   const nextDue = areaProjects
@@ -208,7 +207,7 @@ function AreaRow({
       meta={
         <>
           <span className={styles.purpose}>
-            {`${archivedArea ? "Archived · " : ""}${area.description || "No description yet"} · ${plural(areaOutcomes.length, "outcome")} · ${plural(areaProjects.length, "project")}`}
+            {`${archivedArea ? "Archived · " : ""}${area.description || "No description yet"} · ${plural(areaOutcomes.filter((item) => !isClosedStatus(item.status)).length, "outcome")} · ${plural(areaProjects.filter((item) => !isClosedStatus(item.status)).length, "project")}`}
           </span>
           <span className={styles.phoneCaption}>{caption}</span>
         </>

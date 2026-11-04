@@ -1,6 +1,7 @@
 import {
   assumedFieldsAfterUpdate,
   entityFieldNames,
+  HIDING_STATUS,
   normalizeAssumedFields,
   normalizeStatus,
   SAVE_ENTITY_KINDS,
@@ -296,25 +297,6 @@ export function buildWriteRequest(
     );
   return { path: "/api/commands/entity", payload: parsed.data };
 }
-
-/**
- * The status that takes a record this CLI just created out of the plan without removing it, per entity type.
- * Setting one is a field change, not a removal, so it is not on the agent hard floor
- * (`hardFloorReason` in `platform/contracts/src/agent-scopes.ts`) and applies for a direct-write agent. A
- * capture has no such status in its own scope: ignoring it is the inbox action (`write:inbox`), and it is the
- * only way out of the Inbox short of confirming it. Types missing here have no status that hides them
- * (routine steps, sleep plans, planning focus, deliverables, the singletons) and are not journaled.
- */
-const HIDING_STATUS: Record<string, string> = {
-  area: "archived",
-  outcome: "cancelled",
-  project: "cancelled",
-  action: "cancelled",
-  commitment: "cancelled",
-  capture: "ignored",
-  routine_preset: "archived",
-  condition_definition: "archived"
-};
 
 /**
  * A capture create restated with what the insert path defaults (`proposalType`, `proposedFields`), so the

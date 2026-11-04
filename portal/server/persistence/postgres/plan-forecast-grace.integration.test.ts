@@ -8,6 +8,7 @@ import { integrationDatabaseName, lockPlanForecastPublication } from "@openrhen/
 import { CommandConflictError, InvalidCommandError } from "./command-errors";
 import { ensureUser } from "./ensure-user";
 import { requireCurrentPlanForecast } from "./planning-evidence";
+import { waitUntilBlocked } from "./wait-until-blocked";
 
 /**
  * Acting on a plan run past its validity boundary (the server tolerates two hours) must be safe
@@ -153,7 +154,7 @@ describe("requireCurrentPlanForecast past the validity boundary", () => {
       command = sql
         .begin((tx) => requireCurrentPlanForecast(tx as never, userId, now))
         .then(() => order.push("command"));
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      await waitUntilBlocked(sql);
       order.push("published");
     });
     await command;
@@ -169,7 +170,7 @@ describe("requireCurrentPlanForecast past the validity boundary", () => {
       await lockPlanForecastPublication(holder as unknown as postgres.Sql, userId);
       // The command starts while the lock is held, then the lock holder commits its new run.
       const command = sql.begin((tx) => requireCurrentPlanForecast(tx as never, userId, now));
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      await waitUntilBlocked(sql);
       await holder`UPDATE planning_runs SET superseded_at=${now} WHERE user_id=${userId} AND superseded_at IS NULL`;
       const requestId = crypto.randomUUID();
       await holder`
@@ -212,7 +213,7 @@ describe("requireCurrentPlanForecast past the validity boundary", () => {
     await sql.begin(async (tx) => {
       await requireCurrentPlanForecast(tx as never, userId, now);
       publish = publishNewRun(now, new Date(now.getTime() + 60 * MINUTE)).then(() => order.push("published"));
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      await waitUntilBlocked(sql);
       order.push("command-committing");
     });
     await publish;

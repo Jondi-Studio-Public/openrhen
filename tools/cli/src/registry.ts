@@ -9,6 +9,7 @@ import { bulkCommand } from "./commands/bulk.js";
 import { cadenceCommand } from "./commands/cadence.js";
 import { captureCommand } from "./commands/capture.js";
 import { catchUpCommand } from "./commands/catch-up.js";
+import { attentionCommand } from "./commands/attention.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { catchUpSettleCommand } from "./commands/catch-up-settle.js";
 import { changesCommand } from "./commands/changes.js";
@@ -62,6 +63,7 @@ const coreCommands: CommandSpec[] = [
   proposalsCommand,
   catchUpCommand,
   doctorCommand,
+  attentionCommand,
   saveCommand,
   changesetCommand,
   captureCommand,

@@ -6,6 +6,7 @@
  */
 import { cadenceItems, type DoctorCadenceSlice } from "./doctor-cadence.js";
 import { duplicateItems, type DoctorDuplicatesSlice } from "./doctor-duplicates.js";
+import { closedStampItems, type DoctorClosedSlice } from "./doctor-closed.js";
 import { recordingItems, type DoctorRecordingSlice } from "./doctor-recording.js";
 import { prerequisiteItems, type DoctorPrerequisitesSlice } from "./doctor-prerequisites.js";
 import { publishingItems, type DoctorPublishingSlice } from "./doctor-publishing.js";
@@ -77,7 +78,9 @@ export const DOCTOR_CHECKS = [
   "backup_never",
   "backup_warning",
   "backup_stale",
-  "location_ping_silent"
+  "location_ping_silent",
+  "closed_stamp_stray",
+  "closed_stamp_missing"
 ] as const;
 export type DoctorCheck = (typeof DOCTOR_CHECKS)[number];
 
@@ -219,12 +222,13 @@ export interface DoctorSnapshot {
   cadence: DoctorCadenceSlice;
   duplicates: DoctorDuplicatesSlice;
   recording: DoctorRecordingSlice;
+  closed: DoctorClosedSlice;
 }
 
 /** The slices of a database with none of those problems (a backup that just ran), for a caller that has nothing to say about them. */
 export function emptyDoctorSlices(
   now: string
-): Pick<DoctorSnapshot, "prerequisites" | "publishing" | "cadence" | "duplicates" | "recording"> {
+): Pick<DoctorSnapshot, "prerequisites" | "publishing" | "cadence" | "duplicates" | "recording" | "closed"> {
   return {
     prerequisites: { projects: [], deliverables: [], actions: [], blockers: [], contactLinkedHandles: [] },
     publishing: { calendarSink: null, pushDevices: [], pulse: null },
@@ -233,7 +237,8 @@ export function emptyDoctorSlices(
     recording: {
       backup: { status: "synced", lastRunAt: now, lastSuccessAt: now },
       phonePing: { configured: false, lastPingAt: null }
-    }
+    },
+    closed: { tables: [] }
   };
 }
 
@@ -657,7 +662,8 @@ export function runDoctor(snapshot: DoctorSnapshot): DoctorReport {
     ...publishingItems(snapshot.publishing, now),
     ...cadenceItems(snapshot.cadence, now),
     ...duplicateItems(snapshot.duplicates, now),
-    ...recordingItems(snapshot.recording, now)
+    ...recordingItems(snapshot.recording, now),
+    ...closedStampItems(snapshot.closed)
   );
 
   items.sort(compare(now));

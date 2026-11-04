@@ -1,5 +1,6 @@
 "use client";
 
+import { selectableProjects } from "@/features/plan/area-grouping";
 import type { ReactNode, FormEvent } from "react";
 import type { AssumableActionField } from "@openrhen/contracts";
 import type {
@@ -73,7 +74,7 @@ export function ActionEditor({
         <Field label="Project">
           <select value={draft.projectId} onChange={(event) => onChange({ ...draft, projectId: event.target.value })}>
             <option value="">Choose project</option>
-            {projects.map((item) => (
+            {selectableProjects(projects, draft.projectId).map((item) => (
               <option key={item.id} value={item.id}>
                 {item.title}
               </option>

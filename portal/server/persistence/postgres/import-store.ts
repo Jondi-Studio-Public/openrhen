@@ -37,6 +37,8 @@ import { agentImportFloor } from "./imports/agent-import-floor";
 import { commitRecords } from "./imports/commit-records";
 import { importExtensions, isExtensionSourceType, type ExtensionLinkSource } from "./imports/import-extensions";
 import "./imports/private/index";
+// The calendar feed is core, so it registers beside the private seam, not inside it.
+import "./imports/calendar-feed-import-extension";
 import { installStoreMethods } from "./imports/store-methods";
 import { loadCommitmentLinks, loadMatchContext } from "./imports/source-links";
 import {

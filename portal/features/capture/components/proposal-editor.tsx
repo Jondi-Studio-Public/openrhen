@@ -1,5 +1,6 @@
 "use client";
 
+import { selectableProjects } from "@/features/plan/area-grouping";
 import type { FormEvent, ReactNode } from "react";
 import type { ResolvedQuestion } from "@openrhen/contracts";
 import { Button } from "@/components/ui/button";
@@ -194,7 +195,7 @@ export function ProposalEditor({
                   onChange={(event) => setDraft({ ...draft, projectId: event.target.value })}
                 >
                   <option value="">Choose project</option>
-                  {state.projects.map((project) => (
+                  {selectableProjects(state.projects, draft.projectId).map((project) => (
                     <option key={project.id} value={project.id}>
                       {project.title}
                     </option>
@@ -245,7 +246,7 @@ export function ProposalEditor({
                   onChange={(event) => setDraft({ ...draft, projectId: event.target.value })}
                 >
                   <option value="">Choose project</option>
-                  {state.projects.map((project) => (
+                  {selectableProjects(state.projects, draft.projectId).map((project) => (
                     <option key={project.id} value={project.id}>
                       {project.title}
                     </option>

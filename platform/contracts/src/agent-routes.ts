@@ -518,6 +518,9 @@ const OWNER_ROUTES: Record<string, string> = {
   ...mergedRecord((extension) => extension.routes?.ownerRoutes),
   "POST /api/agent-proposals/[id]/resolve": "Confirming or rejecting a proposal",
   "POST /api/agent-tokens": "Issuing an agent token",
+  // Owner-only until the stretch offer is readable by agents (PR 4 opens it as a write under the availability scope):
+  // an agent token must not answer an offer it cannot see.
+  "POST /api/commands/stretch": "Answering a stretch offer",
   "POST /api/agent-changes/[id]/undo": "Undoing or redoing an agent change",
   "POST /api/owner/enroll": "Enrolling a browser",
   "POST /api/owner/signout": "Signing out",

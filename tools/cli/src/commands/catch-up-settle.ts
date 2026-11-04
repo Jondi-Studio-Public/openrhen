@@ -168,8 +168,8 @@ export const catchUpSettleCommand: CommandSpec = {
     `catch-up-settle --verdicts-json '[{"entryId":"occurrence:abc","verdict":"done"}]' --basis stated --evidence "yes did that Tuesday"`,
     "catch-up-settle --bulk all_skipped --day 2026-10-12 --close-window",
     "catch-up-settle --bulk skip_older_than --days 7",
-    `catch-up-settle --verdicts-json '[{"entryId":"session:<id>","verdict":"ended","at":"2026-10-12T17:30:00+10:00"}]'`,
-    `catch-up-settle --verdicts-json '[{"entryId":"deadline:p1","verdict":"pending","moveTo":"2026-11-01T17:00:00+10:00","version":4}]'`
+    `catch-up-settle --verdicts-json '[{"entryId":"session:<id>","verdict":"ended","at":"2026-10-12T17:30:00<offset>"}]'`,
+    `catch-up-settle --verdicts-json '[{"entryId":"deadline:p1","verdict":"pending","moveTo":"2026-11-01T17:00:00<offset>","version":4}]'`
   ],
   async run(context, args) {
     const basis = stringOption(args.values, "basis");

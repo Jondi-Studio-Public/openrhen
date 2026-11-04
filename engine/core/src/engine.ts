@@ -53,6 +53,7 @@ import {
 } from "./scheduling/routine-placement.js";
 import { resolvePlanningCapacity } from "./scheduling/capacity.js";
 import { localisePlanText } from "./recommendation/format.js";
+import { resolveStretchState } from "./recommendation/stretch.js";
 import { planSchedule, planningSlots } from "./scheduling/schedule.js";
 import { isStepOfferableNow, recommend, type RecommendArguments } from "./recommendation/recommend.js";
 import {
@@ -388,6 +389,17 @@ export function calculatePlanAndForecast(input: PlanForecastRequest): PlanForeca
       }
     : schedule;
   const locale = settingsLocale(request.state.settings);
+  const nextWakeAt = nights.reduce<Date | undefined>(
+    (earliest, plan) => (!earliest || plan.plannedWakeAt < earliest ? plan.plannedWakeAt : earliest),
+    undefined
+  );
+  const stretchState = resolveStretchState({
+    situation: request.state.currentSituation,
+    now,
+    timeZone: request.state.settings.timezone,
+    energyFresh: !freshness.energy.stale,
+    ...(nextWakeAt ? { nextWakeAt } : {})
+  });
   const recommendArguments: RecommendArguments = {
     now,
     horizonEnd,
@@ -422,6 +434,13 @@ export function calculatePlanAndForecast(input: PlanForecastRequest): PlanForeca
     currentSituation: request.state.currentSituation,
     conditionDefinitions: request.state.conditionDefinitions,
     ...(freshness.energy.stale ? {} : { currentEnergy: request.state.currentEnergy }),
+    ...(stretchState.energyWaivedActionIds.length
+      ? {
+          energyWaivedActionIds: stretchState.energyWaivedActionIds,
+          energyWaivedUntil: stretchState.energyWaivedUntil
+        }
+      : {}),
+    stretch: stretchState.context,
     timezone: request.state.settings.timezone,
     locale,
     dailyHorizonEnd: dailyHorizonEnd(request.state, now),

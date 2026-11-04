@@ -680,6 +680,45 @@ describe("the bearer check for /mcp", () => {
       expect(await unknown.response.json()).toMatchObject({ error_description: "The access token is not recognised." });
   });
 
+  it("tells an agent whose pasted agent token reached /mcp what it is and the exact next step", async () => {
+    const refusal = async (fakes: ReturnType<typeof fakeDeps>) => {
+      const result = await authenticateBearer(mcpRequest(SECRET), fakes.deps);
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error("expected a refusal");
+      const text = ((await result.response.json()) as { error_description: string }).error_description;
+      expect(text).not.toContain(SECRET);
+      expect(text).not.toContain(sha(SECRET));
+      return text;
+    };
+    const valid = await refusal(fakeDeps([agentRecord()]));
+    expect(valid).toContain("not an access token");
+    expect(valid).toContain("POST ");
+    expect(valid).toContain("/oauth/token");
+    expect(valid).toContain("grant_type=client_credentials");
+    expect(valid).toContain(`resource=${RESOURCE}`);
+    const revoked = await refusal(fakeDeps([agentRecord({ revokedAt: new Date("2026-10-18T00:00:00Z") })]));
+    expect(revoked).toContain("Do not retry");
+    expect(revoked).toContain("ask whether they want it replaced");
+    expect(revoked).toContain("next report");
+    const expired = await refusal(fakeDeps([agentRecord({ expiresAt: new Date("2026-10-18T00:00:00Z") })]));
+    expect(expired).toContain("expired on 2026-10-18");
+    expect(expired).toContain("Do not retry");
+    expect(expired).toContain("`rhen agent-token revoke companion`, then `rhen agent-token create --name companion");
+    expect(expired).toContain("next report");
+  });
+
+  it("counts an unknown bearer against the throttle but not a known agent token", async () => {
+    const known = fakeDeps([agentRecord()]);
+    for (let i = 0; i < 12; i += 1) {
+      const r = await authenticateBearer(mcpRequest(SECRET), known.deps);
+      expect(r.ok === false && r.response.status).toBe(401);
+    }
+    const unknown = fakeDeps();
+    for (let i = 0; i < 10; i += 1) await authenticateBearer(mcpRequest(`pri_at_guess${i}`), unknown.deps);
+    const blocked = await authenticateBearer(mcpRequest("pri_at_guess-next"), unknown.deps);
+    expect(blocked.ok === false && blocked.response.status).toBe(429);
+  });
+
   it("holds the principal to what the agent token holds now, whatever the access token says", async () => {
     const { deps, token, access } = await issued();
     const stored = [...access.values()][0]!;

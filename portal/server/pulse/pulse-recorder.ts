@@ -27,6 +27,7 @@ import {
   type SessionSanction,
   type UsableDisruption
 } from "@openrhen/contracts";
+import { enqueueAgentWake } from "@openrhen/database";
 import { queueBackOnPlanPush } from "./back-on-plan-push";
 import { ensureUser } from "../persistence/postgres/ensure-user";
 import type { PoolSql, TxSql } from "../persistence/postgres/sql-pool";
@@ -1012,7 +1013,11 @@ export async function runPulseRecorderTick(sql: PoolSql, nowOverride?: Date): Pr
 
     // Once per lapse: the instant the state moved into `off/lapsed`, for the "Back on plan?" push.
     const enteredLapsedAt = result.enteredLapsed ? now : (stateRow?.entered_lapsed_at ?? null);
-    if (result.enteredLapsed) await queueBackOnPlanPush(tx, userId, now);
+    if (result.enteredLapsed) {
+      await queueBackOnPlanPush(tx, userId, now);
+      // Wakes the owner's agent to ask where they are.
+      await enqueueAgentWake(tx, { userId, event: "pulse_lapsed", targetId: now.toISOString(), now });
+    }
     const unansweredPrompts =
       result.state === "unknown" && result.unknownSince
         ? promptsSentAt.filter((at) => at.getTime() > result.unknownSince!.getTime()).length

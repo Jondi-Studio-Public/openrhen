@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PortalState } from "@/state/portal-state";
-import { nextCurrentSituation, parseCurrentSituation, situationAfterWake } from "./current-situation";
+import { nextCurrentSituation, parseCurrentSituation, pruneStretch, situationAfterWake } from "./current-situation";
 
 const situation = (extra: Partial<PortalState["currentSituation"]> = {}): PortalState["currentSituation"] => ({
   locationId: "home",
@@ -220,5 +220,117 @@ describe("energySetAt", () => {
   it("situationAfterWake leaves it alone", () => {
     const after = situationAfterWake(situation({ energySetAt: said }), new Date("2026-08-18T21:00:00.000Z"));
     expect(after.energySetAt).toBe(said);
+  });
+});
+
+describe("stretch", () => {
+  const record = (over: Record<string, unknown> = {}) => ({
+    actionId: "a1",
+    title: "Unit 3",
+    acceptedAt: "2026-08-18T10:00:00.000Z",
+    until: "2026-08-18T10:40:00.000Z",
+    minutes: 40,
+    by: "person",
+    ...over
+  });
+  const now = new Date("2026-08-18T12:00:00.000Z");
+  const DAY = 86_400_000;
+  const ago = (ms: number) => new Date(now.getTime() - ms).toISOString();
+
+  it("reads an old row without the key exactly as before", () => {
+    expect(parseCurrentSituation({ locationId: "home" })).not.toHaveProperty("stretch");
+    expect(parseCurrentSituation({ locationId: "home", stretch: {} })).not.toHaveProperty("stretch");
+    expect(parseCurrentSituation({ locationId: "home", stretch: "x" })).not.toHaveProperty("stretch");
+  });
+
+  it("parses a valid state and drops bad entries one by one", () => {
+    const parsed = parseCurrentSituation({
+      locationId: "home",
+      stretch: {
+        accepted: [record(), record({ until: "later" }), record({ minutes: 0 }), "junk"],
+        declined: [
+          { actionId: "a2", at: "2026-08-18T09:00:00.000Z" },
+          { actionId: "", at: "x" }
+        ],
+        declinedAllAt: "not a date"
+      }
+    });
+    expect(parsed.stretch).toEqual({
+      accepted: [record()],
+      declined: [{ actionId: "a2", at: "2026-08-18T09:00:00.000Z" }]
+    });
+  });
+
+  it("carries the stored stretch and ignores a client-supplied one, even in a whole situation resent", () => {
+    const stored = { accepted: [record()] as never, declined: [] };
+    const previous = situation({ stretch: stored });
+    const forged = { accepted: [record({ actionId: "forged" })], declined: [] };
+    expect(nextCurrentSituation(previous, { locationId: "work" }).stretch).toEqual(stored);
+    expect(nextCurrentSituation(previous, { ...previous, stretch: forged }).stretch).toEqual(stored);
+    expect(nextCurrentSituation(situation(), { stretch: forged })).not.toHaveProperty("stretch");
+    expect(nextCurrentSituation(previous, undefined).stretch).toEqual(stored);
+  });
+
+  it("prunes at the 7 day and 2 day boundaries", () => {
+    const state = {
+      accepted: [
+        record({ actionId: "keep", until: ago(7 * DAY) }),
+        record({ actionId: "drop", until: ago(7 * DAY + 1) })
+      ],
+      declined: [
+        { actionId: "keep", at: ago(2 * DAY) },
+        { actionId: "drop", at: ago(2 * DAY + 1) }
+      ],
+      declinedAllAt: ago(2 * DAY + 1)
+    } as never;
+    const pruned = pruneStretch(state, now)!;
+    expect(pruned.accepted.map((entry) => entry.actionId)).toEqual(["keep"]);
+    expect(pruned.declined.map((entry) => entry.actionId)).toEqual(["keep"]);
+    expect(pruned.declinedAllAt).toBeUndefined();
+    expect(pruneStretch({ accepted: [], declined: [], declinedAllAt: ago(2 * DAY) }, now)?.declinedAllAt).toBe(
+      ago(2 * DAY)
+    );
+  });
+
+  it("returns undefined when nothing is left and caps oldest first", () => {
+    expect(pruneStretch(undefined, now)).toBeUndefined();
+    expect(pruneStretch({ accepted: [record({ until: ago(30 * DAY) })] as never, declined: [] }, now)).toBeUndefined();
+    const many = Array.from({ length: 35 }, (_, i) =>
+      record({
+        actionId: `a${i}`,
+        acceptedAt: new Date(now.getTime() - (40 - i) * 60_000).toISOString(),
+        until: ago(0)
+      })
+    );
+    const pruned = pruneStretch({ accepted: many as never, declined: [] }, now)!;
+    expect(pruned.accepted).toHaveLength(30);
+    expect(pruned.accepted[0]!.actionId).toBe("a5");
+    const declines = Array.from({ length: 60 }, (_, i) => ({
+      actionId: `d${i}`,
+      at: new Date(now.getTime() - (60 - i) * 60_000).toISOString()
+    }));
+    const prunedDeclines = pruneStretch({ accepted: [], declined: declines }, now)!;
+    expect(prunedDeclines.declined).toHaveLength(50);
+    expect(prunedDeclines.declined[0]!.actionId).toBe("d10");
+  });
+});
+
+describe("parseCurrentSituation stretch caps", () => {
+  it("keeps the newest 30 accepted and 50 declined entries, matching the engine wire schema", () => {
+    const at = "2026-08-18T12:00:00.000Z";
+    const accepted = Array.from({ length: 35 }, (_, i) => ({
+      actionId: `a${i}`,
+      title: `A${i}`,
+      acceptedAt: at,
+      until: at,
+      minutes: 30,
+      by: "person"
+    }));
+    const declined = Array.from({ length: 55 }, (_, i) => ({ actionId: `d${i}`, at }));
+    const parsed = parseCurrentSituation({ stretch: { accepted, declined } }).stretch!;
+    expect(parsed.accepted).toHaveLength(30);
+    expect(parsed.accepted[0]!.actionId).toBe("a5");
+    expect(parsed.declined).toHaveLength(50);
+    expect(parsed.declined[0]!.actionId).toBe("d5");
   });
 });
