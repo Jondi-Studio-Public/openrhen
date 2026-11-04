@@ -1,0 +1,18 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "minimumReleaseAge": "3 days",
+  "internalChecksFilter": "strict",
+  "dependencyDashboard": true,
+  "rangeStrategy": "pin",
+  "github-actions": {
+    "pinDigests": true
+  },
+  "packageRules": [
+    {
+      "description": "Major bumps get their own pull request and are reviewed by hand.",
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true
+    }
+  ]
+}
