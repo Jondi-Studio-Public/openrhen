@@ -11,6 +11,7 @@ import { closedInWindow } from "./close-budget";
 import { closeEntity } from "./close-commands";
 import { CommandConflictError } from "./command-errors";
 import { ensureUser } from "./ensure-user";
+import { runRevertCommand } from "./write-revert";
 
 /**
  * The close brake against a real ledger (archive-removals design section 4; plan WP3): token agents together close at
@@ -223,5 +224,67 @@ describe("the hourly close budget", () => {
     await sql`INSERT INTO writes (id,user_id,command_type,actor) VALUES (${writeId},${userId},'close_entity','claude')`;
     await sql`INSERT INTO write_rows (write_id,user_id,entity_type,entity_id,operation,evidence) VALUES (${writeId},${userId},'project',${a!.id},'close',${sql.json({ cascade: [{}, {}] } as never)})`;
     expect(await used()).toBe(closedCount({ cascade: [{}, {}] }));
+  });
+
+  describe("an undo or redo that puts rows back closed", () => {
+    const revert = (target: string, direction: "undo" | "redo") => ({
+      commandId: crypto.randomUUID(),
+      target,
+      direction
+    });
+    const spend = async (closed: number) => {
+      const writeId = crypto.randomUUID();
+      await sql`INSERT INTO writes (id,user_id,command_type,actor) VALUES (${writeId},${userId},'close_entity','claude')`;
+      await sql`INSERT INTO write_rows (write_id,user_id,entity_type,entity_id,operation,evidence) VALUES (${writeId},${userId},'action','seed','close',${sql.json({ closed, counted: true } as never)})`;
+    };
+    const statusOf = async (id: string) =>
+      (await sql<{ status: string }[]>`SELECT status::text AS status FROM actions WHERE id=${id}`)[0]!.status;
+
+    it("refuses a redo of a close once the hour is spent, and counts one that fits", async () => {
+      const [a] = await seedActions(1);
+      const commandId = crypto.randomUUID();
+      await asAgent(() => closeEntity(sql, cancel(a!.id, { commandId } as never)));
+      await asAgent(() => runRevertCommand(sql, revert(commandId, "undo")));
+      expect(await statusOf(a!.id)).toBe("planned");
+      // the first close ages out of the hour; others spend it
+      await sql`UPDATE write_rows SET created_at = now() - interval '2 hours' WHERE operation='close'`;
+      await spend(20);
+      const err = await asAgent(() => runRevertCommand(sql, revert(commandId, "redo"))).catch((e) => e);
+      expect(err.message).toMatch(/over the 20 allowed/);
+      expect(err.message).not.toMatch(/filed as a proposal/);
+      expect(await statusOf(a!.id)).toBe("planned");
+      // with room, the redo lands and is counted
+      await sql`DELETE FROM write_rows WHERE evidence->>'closed'='20'`;
+      await asAgent(() => runRevertCommand(sql, revert(commandId, "redo")));
+      expect(await statusOf(a!.id)).toBe("cancelled");
+      expect(await used()).toBe(1);
+    });
+
+    it("refuses an undo of a restore once the hour is spent", async () => {
+      const [a] = await seedActions(1);
+      const closed = await asAgent(() => closeEntity(sql, cancel(a!.id)));
+      const restoreId = crypto.randomUUID();
+      await asAgent(() =>
+        closeEntity(sql, { ...restoreOf(a!.id, closed.closed.version), commandId: restoreId } as never)
+      );
+      expect(await statusOf(a!.id)).toBe("planned");
+      await sql`UPDATE write_rows SET created_at = now() - interval '2 hours' WHERE operation='close'`;
+      await spend(20);
+      await expect(asAgent(() => runRevertCommand(sql, revert(restoreId, "undo")))).rejects.toThrow(
+        /over the 20 allowed/
+      );
+      expect(await statusOf(a!.id)).toBe("planned");
+    });
+
+    it("does not hold the owner, and reopening (undo of a close) is not counted", async () => {
+      const [a] = await seedActions(1);
+      const commandId = crypto.randomUUID();
+      await asAgent(() => closeEntity(sql, cancel(a!.id, { commandId } as never)));
+      await spend(20);
+      await asAgent(() => runRevertCommand(sql, revert(commandId, "undo")));
+      expect(await statusOf(a!.id)).toBe("planned");
+      await asOwner(() => runRevertCommand(sql, revert(commandId, "redo")));
+      expect(await statusOf(a!.id)).toBe("cancelled");
+    });
   });
 });

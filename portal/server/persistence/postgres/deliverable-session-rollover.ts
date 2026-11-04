@@ -111,7 +111,7 @@ export async function applyDeliverableStepOutcome(
     await tx`UPDATE actions SET remaining_minutes=GREATEST(0,remaining_minutes-${spent}),remaining_set_at=CASE WHEN GREATEST(0,remaining_minutes-${spent})<>remaining_minutes THEN ${recordedAt} ELSE remaining_set_at END,estimate_needs_review=(remaining_minutes-${spent})<0,last_worked_at=${at},version=version+1,updated_at=${recordedAt} WHERE id=${entry.step_id}`;
   }
   if (targetStepId)
-    await tx`UPDATE actions SET status=${outcome === "completed" ? "done" : outcome === "blocked" ? "blocked" : "planned"},completed_at=${outcome === "completed" ? at : null},version=version+1,updated_at=${recordedAt} WHERE id=${targetStepId} AND status NOT IN ('done','cancelled')`;
+    await tx`UPDATE actions SET status=${outcome === "completed" ? "done" : outcome === "blocked" ? "blocked" : "planned"},completed_at=${outcome === "completed" ? at : null},version=version+1,updated_at=${recordedAt} WHERE id=${targetStepId} AND status NOT IN ('done','cancelled','archived')`;
   await tx`UPDATE deliverables SET last_worked_at=${at},version=version+1,updated_at=${recordedAt} WHERE id=${deliverableId}`;
 }
 

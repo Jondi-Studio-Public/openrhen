@@ -45,8 +45,22 @@ export function closingRecordCount(ready: readonly ImportRecord[]): number {
   return ready.filter((record) => {
     if (record.entityType !== "fixed_commitment") return false;
     if (record.operation === "delete") return true;
-    return record.operation === "update" && isClosedStatus(fieldValue(record, "status") as string | undefined);
+    return writesStatus(record) && isClosedStatus(fieldValue(record, "status") as string | undefined);
   }).length;
+}
+
+/**
+ * Whether the commit writes this record's `status` into a row that already exists: an update does, and so does a link
+ * that carries a differing status (the commit applies the fields the review picked as an update, `commit-records.ts`).
+ * A link that picked no status, or none of its fields, leaves the commitment as it is.
+ */
+function writesStatus(record: ImportRecord): boolean {
+  if (record.operation === "update") return true;
+  if (record.operation !== "link") return false;
+  if (record.relationships.sourceMatchApplyFields) return false;
+  return String(record.relationships.sourceMatchDiffFields ?? "")
+    .split("|")
+    .includes("status");
 }
 
 /** The record kinds an import writes a status to that are also closeable rows (a commitment is counted by the brake instead). */
@@ -77,7 +91,7 @@ export async function assertImportNoClosedTransition(
 ): Promise<void> {
   for (const record of ready) {
     if (!CLOSEABLE_IMPORT_TYPES.has(record.entityType)) continue;
-    if (record.operation !== "create" && record.operation !== "update") continue;
+    if (record.operation !== "create" && !writesStatus(record)) continue;
     const sent = fieldValue(record, "status");
     // The condition upsert writes a carried but blank status cell as `active` (an absent column keeps the row's own).
     const status =

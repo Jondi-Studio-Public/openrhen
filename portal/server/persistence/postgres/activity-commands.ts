@@ -1,4 +1,4 @@
-import { isClosedStatus } from "@openrhen/contracts";
+import { isClosedStatus, restoreCall } from "@openrhen/contracts";
 import { requestAgent } from "@/server/agent-actor";
 import type { ActivityCommand } from "@openrhen/contracts";
 import type { PortalState } from "@/state/portal-state";
@@ -87,6 +87,19 @@ async function recordCadenceStepCompletion(
   const rule = await lockRecurrenceRule(tx, cadenceActionId);
   if (!rule) return;
   await recordCadenceCycle(tx, { actionId: cadenceActionId, rule, at, minutes, sessionId, source: "session", snap });
+}
+
+/**
+ * A step that is done, cancelled or archived is not worked on: starting or switching to it would write `doing` over a
+ * closed row without the restore rules. A cancelled or archived one is refused with the exact restore call.
+ */
+function closedStepRefusal(step: { id: string; status: string; version: number }) {
+  return alreadyClosed(
+    "step",
+    step.id,
+    step.status,
+    step.status === "done" ? undefined : restoreCall("action", step.id, step.version, step.status)
+  );
 }
 
 export async function runActivityCommand(sql: PoolSql, command: ActivityCommand): Promise<PortalState> {
@@ -217,8 +230,8 @@ export async function applyActivityCommand(
       // or switch a Carry-out step later inside the workspace.
       const step = command.stepId
         ? await tx<
-            { id: string; title: string; status: string }[]
-          >`SELECT id,title,status FROM actions WHERE id=${command.stepId} AND deliverable_id=${targetId}`
+            { id: string; title: string; status: string; version: number }[]
+          >`SELECT id,title,status,version FROM actions WHERE id=${command.stepId} AND deliverable_id=${targetId}`
         : [];
       if (command.stepId && !step[0])
         throw refused({
@@ -229,8 +242,7 @@ export async function applyActivityCommand(
             note: "its steps are listed there"
           }
         });
-      if (step[0] && ["done", "cancelled"].includes(step[0].status))
-        throw alreadyClosed("step", command.stepId, step[0].status);
+      if (step[0] && ["done", "cancelled", "archived"].includes(step[0].status)) throw closedStepRefusal(step[0]);
       title = target[0].title;
       await tx`UPDATE deliverables SET status=${target[0].status === "needs_breakdown" ? "in_progress" : target[0].status === "ready" ? "in_progress" : target[0].status},last_worked_at=${startTime},version=version+1,updated_at=${at} WHERE id=${targetId}`;
       if (command.stepId)
@@ -360,8 +372,8 @@ export async function applyActivityCommand(
           "This session has reached its checkpoint. Finish or stop it before doing more work."
         );
       const next = await tx<
-        { id: string; status: string }[]
-      >`SELECT id,status FROM actions WHERE id=${command.stepId} AND deliverable_id=${session[0].target_id}`;
+        { id: string; status: string; version: number }[]
+      >`SELECT id,status,version FROM actions WHERE id=${command.stepId} AND deliverable_id=${session[0].target_id}`;
       if (!next[0])
         throw refused({
           message: `Step "${command.stepId}" is not part of this deliverable.`,
@@ -371,7 +383,7 @@ export async function applyActivityCommand(
             note: "its steps are listed there"
           }
         });
-      if (["done", "cancelled"].includes(next[0].status)) throw alreadyClosed("step", command.stepId, next[0].status);
+      if (["done", "cancelled", "archived"].includes(next[0].status)) throw closedStepRefusal(next[0]);
       // Close the open segment before opening the next, so the elapsed minutes land on the step
       // they were actually spent on and no two segments ever run at once.
       await tx`UPDATE session_segments SET ended_at=${at} WHERE session_id=${session[0].id} AND ended_at IS NULL`;

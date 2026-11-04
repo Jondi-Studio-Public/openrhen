@@ -201,5 +201,38 @@ describe("an agent's import commit", () => {
         (await sql<{ status: string }[]>`SELECT status::text AS status FROM commitments WHERE title='Talk'`)[0]?.status
       ).toBe("cancelled");
     });
+
+    describe("a link record that carries a status", () => {
+      const asLink = async (batchId: string) =>
+        sql`UPDATE import_records SET operation='link', relationships = relationships || '{"sourceMatchDiffFields":"status"}'::jsonb WHERE batch_id=${batchId}`;
+      const talkStatus = async () =>
+        (await sql<{ status: string }[]>`SELECT status::text AS status FROM commitments WHERE title='Talk'`)[0]?.status;
+      const asTokenAgent = <T>(fn: () => Promise<T>) =>
+        runWithActor("claude", fn, undefined, undefined, ["write:import"]);
+
+      it("is counted by the brake when it cancels a commitment", async () => {
+        await store.put(createSeedState(fixedNow));
+        const open = await commitments(cancelled("talk", "confirmed"));
+        await importStore.commit(open.id, open.version);
+        const cancel = await commitments(cancelled("talk", "cancelled"));
+        await asLink(cancel.id);
+        // a cancel by link counts: with the hour spent it is refused, and the row stays open
+        const userId = (await sql<{ id: string }[]>`SELECT id FROM users LIMIT 1`)[0]!.id;
+        const writeId = crypto.randomUUID();
+        await sql`INSERT INTO writes (id,user_id,command_type,actor) VALUES (${writeId},${userId},'close_entity','claude')`;
+        await sql`INSERT INTO write_rows (write_id,user_id,entity_type,entity_id,operation,evidence) VALUES (${writeId},${userId},'action','seed','close',${sql.json({ closed: 20, counted: true } as never)})`;
+        await expect(asTokenAgent(() => importStore.commit(cancel.id, cancel.version))).rejects.toThrow(
+          /over the 20 allowed/
+        );
+        expect(await talkStatus()).toBe("confirmed");
+        // within the budget it lands and is counted
+        await sql`DELETE FROM write_rows WHERE write_id=${writeId}`;
+        await asTokenAgent(() => importStore.commit(cancel.id, cancel.version));
+        expect(await talkStatus()).toBe("cancelled");
+        expect(
+          await sql`SELECT 1 FROM write_rows WHERE operation='close' AND evidence->>'via'='import' AND (evidence->>'closed')::int=1`
+        ).toHaveLength(1);
+      });
+    });
   });
 });
