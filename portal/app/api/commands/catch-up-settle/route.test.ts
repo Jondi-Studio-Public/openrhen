@@ -129,7 +129,8 @@ describe("POST /api/commands/catch-up-settle", () => {
     expect(proposeAgentChange).toHaveBeenCalledWith(
       expect.anything(),
       "companion",
-      expect.objectContaining({ kind: "settle_catch_up", basis: "stated", commandId: body.commandId })
+      expect.objectContaining({ kind: "settle_catch_up", basis: "stated", commandId: body.commandId }),
+      { origin: "server" }
     );
   });
 

@@ -3,6 +3,8 @@ import type {
   ChangesetCommand,
   ChangesetResult,
   CheckInCommand,
+  CloseEntityCommand,
+  CloseEntityResult,
   ConfirmProjectWantedCommand,
   EndRecurrenceGoalCommand,
   RecalculateCommand,
@@ -32,6 +34,7 @@ import { saveEntity, type EntityCommandWithHash } from "./entity-commands";
 import { ensureUser } from "./ensure-user";
 import { recalculate, recordStateChange } from "./planning-evidence";
 import { withCommandRetry } from "./command-retry";
+import { closeEntity } from "./close-commands";
 import { confirmProjectWanted, saveAction, saveProject } from "./project-commands";
 import { settleCatchUp } from "./catch-up";
 import { recordDisruption, type RecordDisruptionResult } from "./pulse-disruption";
@@ -79,6 +82,10 @@ export class NormalizedPostgresStateStore {
 
   confirmProjectWanted(command: ConfirmProjectWantedCommand): Promise<PortalState> {
     return withCommandRetry(() => confirmProjectWanted(this.sql, command));
+  }
+
+  closeEntity(command: CloseEntityCommand): Promise<{ closed: CloseEntityResult; state: PortalState }> {
+    return withCommandRetry(() => closeEntity(this.sql, command));
   }
 
   saveAction(command: SaveActionCommand): Promise<PortalState> {

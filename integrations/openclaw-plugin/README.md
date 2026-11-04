@@ -72,7 +72,7 @@ inside its MCP client, where plugin code cannot reach it, and the server binds t
 ### Agent wake (optional)
 
 OpenRhen can send the agent one scripted message, starting `[OpenRhen wake]`, when a check-in goes unanswered for
-10 minutes or the pulse lapses; the agent then asks the owner in chat. It needs OpenClaw hooks and two server
+10 minutes, the pulse lapses, or the pulse goes unknown (only when no wake went out in the last 30 minutes); the agent then asks the owner in chat. It needs OpenClaw hooks and two server
 variables: see agent wake setup.
 
 ## Update

@@ -7,7 +7,7 @@
  * OpenClaw plugin's SKILL.md carries the number it was written for, so an installed copy can tell it is behind.
  * A renamed tool keeps its old name as an alias for one contract version (`aliases` in `remote-manifest.ts`).
  */
-export const AGENT_CONTRACT_VERSION = 10;
+export const AGENT_CONTRACT_VERSION = 11;
 
 /** The line that states the version, as shown in the guide overview and the skill. */
 export function agentContractLine(): string {

@@ -1,6 +1,8 @@
 import { booleanOption, requirePositional, stringOption, type CommandSpec } from "../command.js";
 import { entityItems, entityNames, findEntity, type AnyRecord, type EntityDefinition } from "../entities.js";
 import { CliError, EXIT } from "../errors.js";
+import { restoreCallOf, restoreCallText } from "../closed-rows.js";
+import type { AgentCall } from "@openrhen/contracts";
 import { emitRows, getPath, type Emitter } from "../output.js";
 import { outsideSourceOf } from "../outside-text.js";
 import { selectRows, validateFilterOptions } from "../selection.js";
@@ -20,7 +22,7 @@ export const listCommand: CommandSpec = {
     "listing them. Tables truncate long text; --json never does, but a large result should still use " +
     "--limit/--offset, --fields, or --count to stay manageable, especially over MCP. The same filters, " +
     'selection code, and --where syntax are shared by "bulk", so a bulk --dry-run shows exactly the ' +
-    "rows this would list.",
+    "rows this would list. A closed row carries restore, the call that reopens it.",
   positionals: [{ name: "entity", required: true, description: "The entity kind to list, plural" }],
   options: {
     project: { type: "string", placeholder: "id|title", description: "Only items in this project" },
@@ -124,6 +126,15 @@ export const listCommand: CommandSpec = {
       rows = rows.slice(0, limit);
     }
 
+    // A closed row carries the call that reopens it (D17), whatever fields were asked for.
+    const restores = new Map<unknown, AgentCall>();
+    rows = rows.map((row) => {
+      const call = restoreCallOf(entity.name, row);
+      if (call === undefined) return row;
+      restores.set(row.id, call);
+      return { ...row, restore: call };
+    });
+
     const fieldsRaw = stringOption(args.values, "fields");
     const fields = fieldsRaw ? fieldsRaw.split(",").map((field) => field.trim()) : undefined;
     // A narrowed row would lose where its text came from, which an agent's fence needs; ask for it back only
@@ -136,10 +147,15 @@ export const listCommand: CommandSpec = {
         if (!fields.includes(key)) fields.push(key);
       }
 
+    if (fields && restores.size > 0 && context.mode !== "table" && !fields.includes("restore")) fields.push("restore");
+
     emitRows({ mode: context.mode, stdout: context.stdout }, rows, entity.columns, {
       fields,
       timeZone: state.settings.timezone
     });
+    if (context.mode === "table")
+      for (const [id, call] of restores)
+        context.stdout(`${String(id)}: ${restoreCallText(call, context.mcp === true)}`);
   }
 };
 

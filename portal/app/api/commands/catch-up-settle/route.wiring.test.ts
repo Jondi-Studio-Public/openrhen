@@ -86,7 +86,8 @@ describe("catch-up settle through withRoute", () => {
     expect(proposeAgentChange).toHaveBeenLastCalledWith(
       expect.anything(),
       "companion",
-      expect.objectContaining({ kind: "settle_catch_up" })
+      expect.objectContaining({ kind: "settle_catch_up" }),
+      { origin: "server" }
     );
   });
 

@@ -43,7 +43,10 @@ describe("the remote MCP manifest", () => {
       expect(tool.name).toBe(
         tool.fixedArguments?.entityType ? `rhen_save_${tool.fixedArguments.entityType}` : toolName(spec!)
       );
-      expect(tool.annotations).toEqual(toolAnnotations(spec!));
+      // The remote list carries the four hints but not `title`: every title repeated the tool's summary, 3,220 bytes of tools/list.
+      const { title: _title, ...hints } = toolAnnotations(spec!);
+      expect(tool.annotations).toEqual(hints);
+      expect(tool.annotations).not.toHaveProperty("title");
       expect(tool.inputSchema.additionalProperties).toBe(false);
     }
   });
@@ -51,6 +54,8 @@ describe("the remote MCP manifest", () => {
   it("serves the agent tool set the plan names, and no other command", () => {
     expect([...new Set(MCP_TOOL_MANIFEST.map((tool) => tool.command))].sort()).toEqual(
       [
+        "archive",
+        "cancel",
         "deliverable",
         "status",
         "forecast",

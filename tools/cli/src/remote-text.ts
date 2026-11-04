@@ -1,5 +1,7 @@
 import {
   AGENT_BASES,
+  ARCHIVE_TYPES,
+  CANCEL_TYPES,
   CATCH_UP_BULKS,
   REENTRY_ENERGIES,
   STRETCH_CHOICES,
@@ -170,7 +172,7 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
       "`status=active`, `deadlineAt<+7d` or `area=a,b` (any of); `!=`, `<`, `>`, `<=`, `>=` also work, and a date-shaped " +
       "field compares as a time (ISO, today, or an offset such as -7d or +7d). from and to filter on the kind's own " +
       "time field. Page with limit and offset, narrow with fields, or set count (with by) for totals; always give limit " +
-      "on large kinds. Use rhen_search to find a record by words.",
+      "on large kinds. A closed row carries restore, the call that reopens it. Use rhen_search to find a record by words.",
     params: {
       entity: "The kind to list, preferably plural (singular and aliases are accepted).",
       where: "Tests such as `status=active` or `deadlineAt<+7d`; dotted paths allowed; a,b on the right matches any.",
@@ -367,8 +369,8 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
       "(filedAsProposal: true, applied: false, proposalId). A repeated command-id returns the record with " +
       "replayed: true, applied: false. rhen_undo reverses it. " +
       "entityType is the kind (its enum lists them); plurals and hyphens are accepted. An id that names no record is an error, not a new record: pass create: true to make one with an id you " +
-      "chose. A field the kind does not take is refused with the list it does. There is no delete: end a record by " +
-      "status (cancelled, archived, done); sleep_log_entry and span take remove: true, which is filed as a proposal. " +
+      "chose. A field the kind does not take is refused with the list it does. To close a record use " +
+      "rhen_archive or rhen_cancel, not a status set here; sleep_log_entry and span take remove: true, which is filed as a proposal. " +
       "Settings: plan preferences apply, timezone and setup become proposals, data-flow fields are refused. Required " +
       "fields and defaults for actions, projects, commitments and captures are in their typed tools. Use " +
       "rhen_capture for a quick thought.",
@@ -669,6 +671,44 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
       kind: "keep (default): off the stale list for 30 days; overdue_seen: its overdue date is seen for this review week."
     },
     enums: { subcommand: ["keep"], kind: ["keep", "overdue_seen"] }
+  },
+  rhen_archive: {
+    description:
+      "Archives a row without deleting it: an area, routine_preset, condition_definition (place, contact, capability), " +
+      "or a finished outcome, project, action or deliverable. A dropped open one, or a commitment, is rhen_cancel. " +
+      "do restore reopens a closed row (rhen_list and rhen_show carry its restore call). Agents give a " +
+      "reason. include-children also archives the open rows under an area, outcome or project. Over 20 rows, or " +
+      "anything the owner decides (a deadline, a shared appointment), files ONE proposal. Never set status archived " +
+      "with rhen_save. Returns the new status and version, what closed with it and the restore call; " +
+      "rhen_undo reverses it.",
+    params: {
+      type: "The kind of row.",
+      id: "Id or exact title.",
+      do: "close or restore; always required.",
+      reason: "Why; required for an agent.",
+      "expected-version": "The version you read; restore defaults to the current one.",
+      "include-children": "true also closes the open rows under it."
+    },
+    enums: { type: ARCHIVE_TYPES, do: ["close", "restore"] }
+  },
+  rhen_cancel: {
+    description:
+      "Cancels what will not happen: a commitment (appointment, shift, event), an abandoned outcome or project, or an " +
+      "open action or deliverable you drop. Finished work, an area, preset or place is rhen_archive. " +
+      "do restore reopens a closed row (rhen_list and rhen_show carry its restore call). Agents give a " +
+      "reason. include-children also cancels the open rows under an outcome or project; a commitment takes its " +
+      "preparation steps with it. Over 20 rows, or anything the owner decides (a deadline, a shared appointment), " +
+      "files ONE proposal. Never set status cancelled with rhen_save. Returns the new status and version, what " +
+      "closed with it and the restore call; rhen_undo reverses it.",
+    params: {
+      type: "The kind of row (area only to restore a legacy cancelled one).",
+      id: "Id or exact title.",
+      do: "close or restore; always required.",
+      reason: "Why; required for an agent.",
+      "expected-version": "The version you read; restore defaults to the current one.",
+      "include-children": "true also closes the open rows under it."
+    },
+    enums: { type: CANCEL_TYPES, do: ["close", "restore"] }
   },
   rhen_activity: {
     description:

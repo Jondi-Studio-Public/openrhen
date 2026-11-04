@@ -33,7 +33,7 @@ deliverable  sits beside actions inside a project, for work that needs its own p
   three estimates (optimistic, expected, pessimistic minutes), remaining minutes, the energy it needs, where or
   with what it can be done (requirements), session length limits, whether it can be split, importance and
   consequence from 1 to 5, and an optional due date. **No due date means open work**: offered when there is
-  slack, never overdue. Status is inbox, planned, active, doing, waiting, blocked, done, cancelled or archived;
+  slack, never overdue. Status is inbox, planned, active, doing, waiting, blocked, done, cancelled or archived (the last two through rhen_cancel and rhen_archive, not a save);
   only ready actions in active projects and outcomes compete for the recommendation.
 - **Deliverable.** A finishable, reviewable body of work in one project, such as an assessment, a report or a
   submission, that is too big to be one action. It has a completion contract (required outputs and criteria), an

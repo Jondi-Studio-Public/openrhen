@@ -190,7 +190,7 @@ export function toolInputSchema(spec: CommandSpec): Record<string, unknown> {
       description: positional.description,
       ...(positional.enum ? { enum: [...positional.enum] } : {})
     };
-    if (positional.required) required.push(positional.name);
+    if (positional.required || positional.mcpRequired) required.push(positional.name);
   }
   for (const [name, option] of Object.entries(spec.options)) properties[name] = optionProperty(option);
   // Not one of the command's own options: every mutating tool takes the global idempotency key, so an

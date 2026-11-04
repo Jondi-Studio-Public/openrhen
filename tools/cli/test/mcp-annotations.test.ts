@@ -78,7 +78,7 @@ describe("MCP tool annotations", () => {
     const tools = await listTools();
     const destructive = tools.filter((tool) => tool.annotations.destructiveHint).map((tool) => tool.name);
     expect(destructive.sort()).toEqual(
-      ["rhen_bulk", "rhen_import", "rhen_recurrence", "rhen_span", "rhen_undo"].sort()
+      ["rhen_archive", "rhen_bulk", "rhen_cancel", "rhen_import", "rhen_recurrence", "rhen_span", "rhen_undo"].sort()
     );
     for (const tool of tools) if (tool.annotations.readOnlyHint) expect(tool.annotations.destructiveHint).toBe(false);
   });

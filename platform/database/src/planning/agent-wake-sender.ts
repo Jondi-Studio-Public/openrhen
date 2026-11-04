@@ -65,10 +65,19 @@ async function isStale(sql: postgres.Sql, row: WakeRow & { user_id: string }): P
       WHERE id::text = ${row.target_id} AND user_id = ${row.user_id} AND status = 'unknown' AND answered_at IS NULL`;
     return rows.length === 0;
   }
-  const rows = await sql`
-    SELECT 1 FROM pulse_segments
-    WHERE user_id = ${row.user_id} AND ended_at IS NULL AND state = 'off' AND reason = 'lapsed' LIMIT 1`;
-  return rows.length === 0;
+  if (row.event === "pulse_lapsed") {
+    const rows = await sql`
+      SELECT 1 FROM pulse_segments
+      WHERE user_id = ${row.user_id} AND ended_at IS NULL AND state = 'off' AND reason = 'lapsed' LIMIT 1`;
+    return rows.length === 0;
+  }
+  if (row.event === "pulse_unknown") {
+    const rows = await sql`
+      SELECT 1 FROM pulse_segments
+      WHERE user_id = ${row.user_id} AND ended_at IS NULL AND state = 'unknown' LIMIT 1`;
+    return rows.length === 0;
+  }
+  throw new Error(`Unknown agent wake event: ${String(row.event satisfies never)}`);
 }
 
 function isRefusal(error: unknown): boolean {

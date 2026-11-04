@@ -2,13 +2,15 @@ import { describe, expect, it } from "vitest";
 import { renderCommandsForMcp } from "./agent-surface.js";
 import {
   classifiedRoutes,
+  closeTarget,
   ownerAuthExemption,
   placeNameTarget,
   proposableCommandRefusal,
   registerAgentRoutes,
   routeNeedsBody,
   scopesForRoute,
-  sharingTarget
+  sharingTarget,
+  type StoredFacts
 } from "./agent-routes.js";
 import { hardFloorReason, isKnownScope } from "./agent-scopes.js";
 import { AGENT_SCOPE_PRESETS } from "./agent-tokens.js";
@@ -289,6 +291,8 @@ describe("scopesForRoute: other writes", () => {
       scopes: ["propose:entity:action", "propose:entity:commitment", "write:session"]
     });
     expect(routeNeedsBody("POST", "/api/commands/changeset")).toBe(true);
+    // The close decision names its target in the body, so the body is read.
+    expect(routeNeedsBody("POST", "/api/commands/close")).toBe(true);
     // A replay sends no commands but reads a stored result back, so it needs the changeset tool's own scope.
     expect(scopesForRoute("POST", "/api/commands/changeset", { replay: true, items: [] })).toEqual({
       kind: "scopes",
@@ -645,5 +649,99 @@ describe("registered routes", () => {
     expect(scopesForRoute("POST", route).kind).toBe("refused");
     expect(classifiedRoutes()).not.toContain(`POST ${route}`);
     expect(ownerAuthExemption("PATCH", `${route}/[id]`)).toBeUndefined();
+  });
+});
+
+describe("scopesForRoute: archive and cancel (POST /api/commands/close)", () => {
+  const body = (type: string, extra: Record<string, unknown> = {}) => ({
+    type,
+    id: "x1",
+    verb: "cancel",
+    do: "close",
+    ...extra
+  });
+  const read = (extra: StoredFacts = {}): StoredFacts => ({
+    closeTypes: ["project"],
+    needsOwner: false,
+    shared: false,
+    rowCount: 1,
+    restorableByAgent: true,
+    ...extra
+  });
+  const scoped = (decision: ReturnType<typeof scopesForRoute>) => {
+    if (decision.kind !== "scopes") throw new Error(`expected scopes, got ${decision.kind}`);
+    return decision;
+  };
+
+  it("reads the target from the body, for the portal to look up", () => {
+    expect(closeTarget("POST", "/api/commands/close", body("project", { verb: "archive" }))).toEqual({
+      type: "project",
+      id: "x1",
+      verb: "archive",
+      do: "close"
+    });
+    expect(closeTarget("POST", "/api/commands/close", body("project", { do: "restore" }))?.do).toBe("restore");
+    expect(closeTarget("GET", "/api/commands/close", body("project"))).toBeUndefined();
+    expect(closeTarget("POST", "/api/commands/entity", body("project"))).toBeUndefined();
+    expect(closeTarget("POST", "/api/commands/close", { type: "project" })).toBeUndefined();
+    expect(closeTarget("POST", "/api/commands/close", { ...body("project"), verb: "delete" })).toBeUndefined();
+  });
+
+  it("is a downgradable write under the type's own scope and class, replayed as close_entity", () => {
+    for (const type of [
+      "area",
+      "outcome",
+      "project",
+      "action",
+      "deliverable",
+      "commitment",
+      "routine_preset",
+      "condition_definition"
+    ]) {
+      const decision = scoped(scopesForRoute("POST", "/api/commands/close", body(type), read({ closeTypes: [type] })));
+      expect(decision).toMatchObject({
+        scopes: [`write:entity:${type}`],
+        call: { tool: "cancel", entityType: type },
+        downgradable: true,
+        entityClass: type,
+        command: "close_entity"
+      });
+    }
+    expect(
+      scoped(scopesForRoute("POST", "/api/commands/close", { ...body("area"), verb: "archive" }, read())).call?.tool
+    ).toBe("archive");
+  });
+
+  it("names the eight types for an unknown one, as a 400", () => {
+    const decision = scopesForRoute("POST", "/api/commands/close", body("span"), read());
+    expect(decision).toMatchObject({ kind: "refused", reason: "unknown-entity" });
+    expect((decision as { message: string }).message).toContain("routine_preset");
+    expect(scopesForRoute("POST", "/api/commands/close", { type: "project" }, read())).toMatchObject({
+      kind: "refused",
+      reason: "unknown-entity"
+    });
+  });
+
+  it("files a proposal unless the stored facts were read and say it may apply", () => {
+    const decide = (facts: StoredFacts, extra: Record<string, unknown> = {}) =>
+      scoped(scopesForRoute("POST", "/api/commands/close", body("project", extra), facts));
+    expect(decide(read()).mustPropose).toBeUndefined();
+    // nothing read at all: the facts are not there to trust
+    expect(decide({}).mustPropose).toMatch(/could not be read/);
+    expect(decide(read({ needsOwner: true })).mustPropose).toMatch(/owner/);
+    expect(decide(read({ shared: true })).mustPropose).toMatch(/shared|other people/);
+    expect(decide(read({ closeTypes: ["project", "action"] })).closeTypes).toEqual(["project", "action"]);
+    // an agent's restore applies only when it closed the row itself
+    expect(decide(read({ restorableByAgent: false }), { do: "restore" }).mustPropose).toMatch(/closed/);
+    expect(decide(read({ restorableByAgent: false })).mustPropose).toBeUndefined();
+    expect(decide(read({ restorableByAgent: true }), { do: "restore" }).mustPropose).toBeUndefined();
+  });
+
+  it("puts a call past 20 rows on the hard floor", () => {
+    const decision = scoped(scopesForRoute("POST", "/api/commands/close", body("project"), read({ rowCount: 21 })));
+    expect(decision.floor?.rowCount).toBe(21);
+    expect(hardFloorReason(decision.floor!)).toMatch(/21 rows is over 20/);
+    const small = scoped(scopesForRoute("POST", "/api/commands/close", body("project"), read({ rowCount: 20 })));
+    expect(hardFloorReason(small.floor!)).toBeNull();
   });
 });
