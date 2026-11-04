@@ -11,6 +11,7 @@ An add-on is a set of files that you keep outside OpenRhen and lay over it, so y
 | Pages and API routes | Screens and handlers | `portal/app/(addon)/<folder>/` | The portal build |
 | Navigation | Go to palette entries | `nav.ts` beside the pages | A glob in `portal/components/addon-nav.ts` |
 | Write paths | A handler's plan-input writes, declared | `write-paths.json` beside the handler | `scripts/repository/addon-routes.mjs` |
+| Database | Tables of its own, migrated as a second set | `platform/database/addon-drizzle/` | The deploy migrator, and the integration suites (`addon-aware-migrate.ts`) |
 | Contracts | Agent scopes, route classes, MCP tools | `platform/contracts/src/private/index.ts` | The contracts package |
 | Other stubs | Portal, worker and CLI hooks | Each `private/index.ts` core ships empty | Imported by core |
 

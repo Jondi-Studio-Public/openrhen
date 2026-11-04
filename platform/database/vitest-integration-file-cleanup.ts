@@ -1,4 +1,5 @@
-import { afterAll } from "vitest";
+import { afterAll, vi } from "vitest";
+import { addonAwareMigrator } from "./src/operations/addon-aware-migrate.js";
 import { dropTrackedIntegrationDatabases } from "./src/operations/integration-database.js";
 
 /**
@@ -17,3 +18,9 @@ afterAll(async () => {
     console.warn("Could not drop this file's integration databases:", error);
   }
 });
+
+// Every suite builds its database with drizzle's migrator on core's folder. In a tree with an add-on set beside it
+// (addon-drizzle/ with a journal) the migrator also applies that set; with none this changes nothing.
+vi.mock("drizzle-orm/postgres-js/migrator", async (importOriginal) =>
+  addonAwareMigrator(await importOriginal<typeof import("drizzle-orm/postgres-js/migrator")>())
+);
