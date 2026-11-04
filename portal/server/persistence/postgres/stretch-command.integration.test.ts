@@ -208,6 +208,16 @@ describe("accepting a stretch", () => {
     expect(await sql`SELECT 1 FROM write_rows WHERE write_id=${cmd.commandId}`).toHaveLength(1);
   });
 
+  it("never replays a stored answer to an agent who would be refused", async () => {
+    await arrange();
+    const cmd = command();
+    const first = await run(cmd);
+    expect(first.result.by).toBe("person");
+    // Same command id, same answer: the person's stored response must not reach an agent without the person's word.
+    await expect(asAgent(() => run(cmd))).rejects.toThrow(/^Only the person can say yes or no to a stretch\./);
+    expect((await situation()).stretch.accepted).toHaveLength(1);
+  });
+
   it("refuses a command id reused for a different answer", async () => {
     await arrange();
     const cmd = command();

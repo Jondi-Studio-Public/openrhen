@@ -91,7 +91,7 @@ describe("stretchCommandSchema", () => {
 
 describe("agentStretchProblems", () => {
   const refusal =
-    "Only the person can say yes or no to a stretch. Next: ask the person; if they answered, call openrhen_stretch again with basis stated, evidence set to their own words (up to 300 characters), and a NEW command-id. If they cannot be reached, do nothing; do not raise declared energy instead.";
+    "Only the person can say yes or no to a stretch. Next: ask the person; if they answered, call rhen_stretch again with basis stated, evidence set to their own words (up to 300 characters), and a NEW command-id. If they cannot be reached, do nothing; do not raise declared energy instead.";
 
   it("refuses an unstated accept or decline with the exact text", () => {
     expect(agentStretchProblems({ choice: "accept", basis: "inferred" })).toEqual([refusal]);
@@ -193,8 +193,12 @@ describe("buildStretchAnswer", () => {
     const { stretchOffer, stretch } = buildStretchAnswer(base);
     expect(stretchOffer).toMatchObject({ actionId: "act-1", minutes: 40, endsAt: "2026-11-04T12:40:00.000Z" });
     expect(stretchOffer?.text).toBe(stretchOfferText(oneStep, { timeZone: TZ, locale, now: NOW }));
-    expect(stretchOffer?.next).toContain("Only the person answers");
-    expect(stretchOffer?.next).toContain("never raise declared energy");
+    expect(stretchOffer?.next).toContain("rhen_stretch only on their own answer");
+    expect(stretchOffer?.next).toContain(
+      "choice accept or decline, action this offer's actionId, basis stated, evidence"
+    );
+    expect(stretchOffer?.next).not.toContain("cannot accept");
+    expect(stretchOffer?.next).toContain("Never raise declared energy to get around the cut");
     expect(stretchOffer?.next).not.toMatch(/anyway/i);
     expect(stretch).toBeNull();
   });

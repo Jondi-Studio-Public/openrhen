@@ -59,7 +59,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
     name: "rhen_summary",
     command: "summary",
     description:
-      'For each local day from `from` to `to` (YYYY-MM-DD in the planning time zone, or an offset such as -7d or today; both default to today; at most 31 days): focused minutes by project and in total, sessions by result (completed, stopped, blocked, skipped, did_not_start), the actions those sessions finished, and sleep nights with planned and actual times. The portal keeps 30 days of sessions and sleep; sessionsFrom names the first day it covers. Check-in answers are not in the state and are not summarised. Read this rather than state. It looks backwards only (a future day shows zeros): for the week ahead call rhen_list with entity commitments, from "today", to "+7d"; then rhen_list with entity actions, where ["deadlineAt<+7d"] and status "inbox,planned,active,doing" (the open statuses; without status, done and cancelled come back too; the deadline test also returns OVERDUE items, so read the dates); then rhen_forecast.',
+      'For each local day from `from` to `to` (YYYY-MM-DD in the planning time zone, or an offset such as -7d or today; both default to today; at most 31 days): focused minutes by project and in total, sessions by result (completed, stopped, blocked, skipped, did_not_start), the actions those sessions finished, and sleep nights with planned and actual times. The portal keeps 30 days of sessions and sleep; sessionsFrom names the first day it covers. Check-in answers are not in the state and are not summarised. Read this rather than state. It looks backwards only (a future day shows zeros). For the week ahead call rhen_list with entity commitments, from "today", to "+7d"; then rhen_list with entity actions, where ["deadlineAt<+7d"] and status "inbox,planned,active,doing" (it also returns OVERDUE items: read the dates); then rhen_forecast.',
     inputSchema: {
       type: "object",
       properties: {
@@ -490,7 +490,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
     name: "rhen_catch_up",
     command: "catch-up",
     description:
-      "Read-only. The ledger of what should have an outcome recorded after time away: planned occurrences with no result, open sessions, and deadlines the owner set that have passed (stale dates). Returns the window (`since`: the last time anything was recorded), whether a catch-up is due, how many entries are unsettled and one page of entries, each with the `id` (its entryId) and `version` a verdict names; page with offset while `remaining` is above 0. Use after a short absence, when rhen_status shows catch-up due. Ask the owner what happened, then record only what they answered with rhen_catch_up_settle. Not for a long absence: if calls are refused with reentry_required (the pulse has lapsed), call rhen_reenter instead; it settles the same entries and also records where the owner is.",
+      "Read-only. The ledger of what should have an outcome recorded after time away: planned occurrences with no result, open sessions, and deadlines the owner set that have passed (stale dates). Returns the window (`since`: the last time anything was recorded), whether a catch-up is due, how many entries are unsettled and one page of entries, each with the `id` (its entryId) and `version` a verdict names; page with offset while `remaining` is above 0. Use after a short absence, when rhen_status shows catch-up due. Ask the owner what happened, then record only what they answered with rhen_catch_up_settle. Not for a long absence: if calls are refused with reentry_required (the pulse has lapsed), call rhen_reenter instead.",
     inputSchema: {
       type: "object",
       properties: {
@@ -580,7 +580,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
     name: "rhen_history",
     command: "history",
     description:
-      'Reads the History calendar\'s data for the days from `from` to `to` inclusive (YYYY-MM-DD in the portal\'s time zone, today, yesterday or an offset in days such as -30d; default the last 30 days). It looks backwards only (a future day shows zeros): for the week ahead call rhen_list with entity commitments, from "today", to "+7d"; then rhen_list with entity actions, where ["deadlineAt<+7d"] and status "inbox,planned,active,doing" (the open statuses; without status, done and cancelled come back too; the deadline test also returns OVERDUE items, so read the dates); then rhen_forecast. Returns sessions, sleep (tracked sleep sessions and nights logged by hand, each with a source of session or sleep_plan), closed recurring occurrences and spans. Spans are returned back to spansFrom (a year); the portal keeps sessions, sleep and occurrences only for the last 30 days, so those are clamped to that window: the output names the clamped start as sessionsFrom and a notice is returned when `from` is earlier. A day before sessionsFrom with no rows is not a day with no activity.',
+      'Reads the History calendar\'s data for the days from `from` to `to` inclusive (YYYY-MM-DD in the portal\'s time zone, today, yesterday or an offset in days such as -30d; default the last 30 days). It looks backwards only (a future day shows zeros). For the week ahead call rhen_list with entity commitments, from "today", to "+7d"; then rhen_list with entity actions, where ["deadlineAt<+7d"] and status "inbox,planned,active,doing" (it also returns OVERDUE items: read the dates); then rhen_forecast. Returns sessions, sleep (tracked sleep sessions and nights logged by hand, each with a source of session or sleep_plan), closed recurring occurrences and spans. Spans are returned back to spansFrom (a year); the portal keeps sessions, sleep and occurrences only for the last 30 days, so those are clamped to that window: the output names the clamped start as sessionsFrom and a notice is returned when `from` is earlier. A day before sessionsFrom with no rows is not a day with no activity.',
     inputSchema: {
       type: "object",
       properties: {
@@ -1841,14 +1841,13 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
     name: "rhen_propose",
     command: "propose",
     description:
-      "WRITES DATA. Files a change for the owner to confirm in the portal Inbox (Captured, From agents); nothing changes until they do. Almost never right: ask the owner, or make a normal write (rhen_save and the others apply at once when your token has direct writes, and are filed as proposals automatically when it does not). Use this only when you are unsure AND cannot ask. kind is entity_command; payload-json is {command, body}: save_entity with body {entityType, entity: {the record's fields}, expectedVersion} for an area, outcome, commitment and the other records (never an action or a project), or save_project / save_action with body {project | action: {the complete record: every required field, for an action id, projectId, title, status, optimisticMinutes, expectedMinutes, pessimisticMinutes, remainingMinutes, energy, minimumSessionMinutes, maximumSessionMinutes, splittable, setupMinutes, importance, consequence, contexts and dependencyIds}, expectedVersion}. expectedVersion is required: the record's version, or null for a new one. A refusal names the path of each wrong field. Returns the proposal id; check the outcome later with rhen_proposals (pending, confirmed, rejected, expired, stale). Proposals with the same coalesce-key replace each other while pending; you may hold 50 pending. There is no withdraw: to change a pending proposal, propose again with the same coalesce-key and the corrected payload. To retract one, or one for a new record, tell the owner to reject it (restating a record leaves a card with no field changes that still needs rejecting). Only the owner can reject (or confirm) a proposal, in the portal Inbox.",
+      "WRITES DATA. Files a change for the owner to confirm in the portal Inbox (Captured, From agents); nothing changes until they do. Almost never right: ask the owner, or make a normal write (rhen_save and the others apply at once when your token has direct writes, and are filed as proposals automatically when it does not). Use this only when you are unsure AND cannot ask. kind is entity_command; payload-json is {command, body}: save_entity with body {entityType, entity: {the record's fields}, expectedVersion} for an area, outcome, commitment and the other records (never an action or a project), or save_project / save_action with body {project | action: {the complete record: every required field, for an action id, projectId, title, status, optimisticMinutes, expectedMinutes, pessimisticMinutes, remainingMinutes, energy, minimumSessionMinutes, maximumSessionMinutes, splittable, setupMinutes, importance, consequence, contexts and dependencyIds}, expectedVersion}. expectedVersion is required: the record's version, or null for a new one. A refusal names the path of each wrong field. Returns the proposal id; check the outcome later with rhen_proposals (pending, confirmed, rejected, expired, stale). Proposals with the same coalesce-key replace each other while pending; you may hold 50 pending. There is no withdraw: to change a pending proposal, propose again with the same coalesce-key and the corrected payload. To retract one, or one for a new record, tell the owner to reject it (restating it leaves a card that still needs rejecting). Only the owner can reject (or confirm) a proposal, in the portal Inbox.",
     inputSchema: {
       type: "object",
       properties: {
         kind: {
           type: "string",
-          description:
-            "Always entity_command, which replays a stored save when the owner confirms. The portal refuses any other kind (entity_command_batch and settle_catch_up are filed by rhen_bulk and rhen_catch_up_settle)."
+          description: "Always entity_command; the portal refuses any other kind."
         },
         summary: {
           type: "string",
@@ -1962,7 +1961,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         bulk: {
           type: "string",
-          description: "One bulk verdict instead of a list: all_skipped, all_dropped or skip_older_than.",
+          description: "One bulk verdict instead of a list.",
           enum: ["all_skipped", "all_dropped", "skip_older_than"]
         },
         day: {
@@ -2022,14 +2021,13 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
     name: "rhen_reenter",
     command: "reenter",
     description:
-      "WRITES DATA. Call this FIRST whenever any other tool fails with reentry_required: the owner has been away long enough that the plan's pulse has lapsed and nothing else works until this is done. It supersedes rhen_catch_up_settle (it takes the same verdicts under settlement.items) and also records where the owner is. Reading (no arguments) works for any token that can read the plan or propose; submitting answers needs the write:catch-up scope, and without it you must tell the owner. Step 1: call with NO arguments. It is read-only and returns the gap, the tier (none, today, days or projects: how coarse an answer is allowed), what is still missing, the entries to review (entryId, kind, title, plannedAt, version), the ids and names of the places and contexts you may name, and answer: the energy meanings, what to answer (or that settlement-json may be left out) and an exact example. Step 2: ask the owner where they are (location), their energy (high, medium, low or recovery), which contexts are available now (ids or names from the read, comma-separated, or none) and what happened in the gap. Step 3: call once with everything plus basis stated and evidence (the owner's own words); without them it is refused. If the owner cannot be reached, stop; never guess. It is all or nothing; an incomplete answer is refused naming each gap; a form the tier does not allow is refused. Returns the new state; rhen_undo reverses it. startFresh and drop_all are owner-only (see settlement-json). A bulk answer never means done: mark done only what the owner confirmed.",
+      "WRITES DATA. Call this FIRST whenever any other tool fails with reentry_required: the owner has been away long enough that the plan's pulse has lapsed and nothing else works until this is done. It supersedes rhen_catch_up_settle (it takes the same verdicts under settlement.items) and also records where the owner is. Reading (no arguments) works for any token that can read the plan or propose; submitting answers needs the write:catch-up scope, and without it you must tell the owner. Step 1: call with NO arguments. It is read-only and returns the gap, the tier (none, today, days or projects: how coarse an answer is allowed), what is still missing, the entries to review (entryId, kind, title, plannedAt, version), the energy meanings, whether settlement-json may be left out, the places and contexts you may name, and an exact example. Step 2: ask the owner where they are, their energy, which contexts are available and what happened in the gap. Step 3: call once with everything plus basis stated and evidence (the owner's own words); without them it is refused. If the owner cannot be reached, stop; never guess. All or nothing. Returns the new state; rhen_undo reverses it. startFresh and drop_all are owner-only (see settlement-json). A bulk answer never means done: mark done only what the owner confirmed.",
     inputSchema: {
       type: "object",
       properties: {
         location: {
           type: "string",
-          description:
-            "Where the owner is now: a place's id or name from the no-argument read (rhen_disrupt with no options lists them too)."
+          description: "Where the owner is now: a place's id or name from the no-argument read."
         },
         energy: {
           type: "string",
@@ -2244,7 +2242,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
     name: "rhen_arrive",
     command: "arrive",
     description:
-      "WRITES DATA. Tells the plan the owner is now at a saved place, as the portal's one-tap 'I'm at <place>' button does. place is a saved place's id or exact name (rhen_list conditions, or rhen_disrupt with no options, lists them). Returns the new availability; rhen_undo reverses it. A changed location can make already-scheduled preparation moot and skip it automatically.",
+      "WRITES DATA. Tells the plan the owner is now at a saved place, as the portal's one-tap 'I'm at <place>' button does. place is a saved place's id or exact name (rhen_list conditions). Returns the new availability; rhen_undo reverses it. A changed location can make already-scheduled preparation moot and skip it automatically.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2284,6 +2282,55 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       openWorldHint: false
     },
     scopes: ["write:arrival", "write:entity:current_availability", "read:plan"]
+  },
+  {
+    name: "rhen_stretch",
+    command: "stretch",
+    description:
+      "WRITES DATA. Answers the stretch offer rhen_status shows (stretchOffer). Tell the person its text and call only on their own answer, quoted in evidence with basis stated. accept starts the stretch for action (the server rechecks the offer and sets its end); decline skips that action until tomorrow; decline_all means no stretches tonight (it may be inferred; never ask again after a no). Never raise declared energy to get around the cut: re-declaring it ends a stretch only when the value changes or is asserted. Returns the stretch and its end; rhen_undo reverses it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        choice: {
+          type: "string",
+          description: "The person's answer.",
+          enum: ["accept", "decline", "decline_all"]
+        },
+        action: {
+          type: "string",
+          description: "stretchOffer.actionId from rhen_status; leave out for decline_all."
+        },
+        "dry-run": {
+          type: "boolean",
+          description: "true previews, saves nothing, checks only the shape (not ids, evidence or scopes)."
+        },
+        "command-id": {
+          type: "string",
+          description:
+            "A uuid made once per intended write. Resend the SAME one after a timeout, never after a conflict or validation error."
+        },
+        basis: {
+          type: "string",
+          enum: ["stated", "inferred", "observed"],
+          description:
+            "stated (the owner said it; quote them in evidence), observed (read from mail, a page or a file) or inferred (your guess; default)."
+        },
+        evidence: {
+          type: "string",
+          maxLength: 300,
+          description: "The owner's own words, required with basis stated (max 300)."
+        }
+      },
+      additionalProperties: false
+    },
+    annotations: {
+      title: "Answer a stretch offer: work on a cut action for a bounded time, or decline",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false
+    },
+    scopes: ["write:entity:current_availability", "read:plan"]
   },
   {
     name: "rhen_wake",
@@ -2343,8 +2390,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       properties: {
         subcommand: {
           type: "string",
-          description:
-            "The step: start, alternative, pause, resume, continue, finish, block, did-not-start, feedback or set-start.",
+          description: "The step; the description says what each one takes.",
           enum: [
             "start",
             "alternative",
@@ -2573,18 +2619,18 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
     name: "rhen_activity",
     command: "activity",
     description:
-      'WRITES DATA. Drives a session on a NON-action target: a routine step (a commitment\'s preparation, or a bedtime or wake step), sleep, a fixed commitment\'s phase, or a deliverable step. For work on an action use rhen_session. Subcommands: start (type routine_step | sleep | fixed_commitment | deliverable, target and minutes (required: whole minutes planned, 1 to 1440) are all required; phase setup, travel, arrival, active, transition or return for fixed_commitment only), switch-step (step: the deliverable step now timed), pause, resume, finish (outcome completed, stopped, blocked, did_not_start or skipped, default completed; note?; ended-at?), skip-step and unskip-step (step: a routine step skipped outright, or unskipped by mistake). start only works on what the CURRENT plan is tracking right now, never on something later: a routine_step must be open and due now; sleep takes the planned sleep plan the plan is tracking now (not a past or future night); a fixed_commitment must be the commitment running now, in the phase it is in now (if it is at a place, record arrival with rhen_arrive first); a deliverable needs its step. Minutes must equal the plan\'s own for a routine_step, sleep plan or deliverable (see minutes). A start for anything else is refused as not in the current plan: call rhen_status to see what the plan lets you start now, and rhen_list with entity routine-steps, sleep-plans or commitments for ids. Example: {"subcommand":"start","type":"routine_step","target":"<routine step id>","minutes":15}. Returns the session; rhen_undo reverses it.',
+      'WRITES DATA. Drives a session on a NON-action target: a routine step (a commitment\'s preparation, or a bedtime or wake step), sleep, a fixed commitment\'s phase, or a deliverable step. For work on an action use rhen_session. Subcommands: start (type routine_step | sleep | fixed_commitment | deliverable, target and minutes (required: whole minutes planned, 1 to 1440) are all required; phase setup, travel, arrival, active, transition or return for fixed_commitment only), switch-step (step: the deliverable step now timed), pause, resume, finish (outcome completed, stopped, blocked, did_not_start or skipped, default completed; note?; ended-at?), skip-step and unskip-step (step: a routine step skipped outright, or unskipped by mistake). start only works on what the CURRENT plan is tracking right now, never on something later: a routine_step must be open and due now; sleep takes the planned sleep plan the plan is tracking now (not a past or future night); a fixed_commitment must be the commitment running now, in the phase it is in now (if it is at a place, record arrival with rhen_arrive first); a deliverable needs its step. Minutes must equal the plan\'s own (see minutes). A start for anything else is refused as not in the current plan: call rhen_status to see what the plan lets you start now, and rhen_list with entity routine-steps, sleep-plans or commitments for ids. Example: {"subcommand":"start","type":"routine_step","target":"<routine step id>","minutes":15}. Returns the session; rhen_undo reverses it.',
     inputSchema: {
       type: "object",
       properties: {
         subcommand: {
           type: "string",
-          description: "start, switch-step, pause, resume, finish, skip-step or unskip-step.",
+          description: "The step; the description says what each one takes.",
           enum: ["start", "switch-step", "pause", "resume", "finish", "skip-step", "unskip-step"]
         },
         type: {
           type: "string",
-          description: "start: the target type: routine_step, sleep, fixed_commitment or deliverable.",
+          description: "start: the target type.",
           enum: ["routine_step", "sleep", "fixed_commitment", "deliverable"]
         },
         target: {
@@ -2606,12 +2652,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         phase: {
           type: "string",
-          description: "start, fixed_commitment only: setup, travel, arrival, active, transition or return.",
+          description: "start, fixed_commitment only.",
           enum: ["setup", "travel", "arrival", "active", "transition", "return"]
         },
         outcome: {
           type: "string",
-          description: "finish: completed, stopped, blocked, did_not_start or skipped.",
+          description: "finish: default completed.",
           enum: ["completed", "stopped", "blocked", "did_not_start", "skipped"]
         },
         note: {
@@ -2625,7 +2671,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         "ended-at": {
           type: "string",
           description:
-            "finish, optional: when the work really ended, ISO 8601 with the owner's UTC offset from status.timezone (2026-09-03T09:30:00<offset>). Send it only to report late: after the running segment's start, no later than now. Omit it to end now, and always for a paused session: its end is the pause already recorded."
+            "finish, optional: when the work really ended, ISO 8601 with the owner's offset (status.timezone). Only to report late: after the segment's start, not after now. Omit it to end now, and always for a paused session."
         },
         "dry-run": {
           type: "boolean",
@@ -2675,7 +2721,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         category: {
           type: "string",
-          description: "Needed with deviated: work, family, life_admin or other.",
+          description: "Needed with deviated.",
           enum: ["work", "family", "life_admin", "other"]
         },
         note: {
@@ -2724,7 +2770,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
     name: "rhen_disruption",
     command: "disruption",
     description:
-      "WRITES DATA. Logs an interruption to the day (a call, an emergency, a visitor, a school phone call) as a commitment so the plan routes around it. For 'I am doing something instead of the plan right now' after a check-in use rhen_disrupt instead. Subcommands: start (title required; when, duration, source, routine, location-id or location; starts tracking time on it when live unless no-track; source is one of work, family, life_admin or other, so a visitor is source family or other; duration is a bare number of minutes such as 30, or rest_of_day, unknown or a preset from settings), extend and finish (id; correct the end once the truth is known; extend takes minutes, may be negative) and status (the disruption worth mentioning today, if any). Returns the disruption commitment; rhen_undo reverses it.",
+      "WRITES DATA. Logs an interruption to the day (a call, an emergency, a visitor, a school phone call) as a commitment so the plan routes around it. For 'I am doing something instead of the plan right now' after a check-in use rhen_disrupt instead. Subcommands: start (title required; when, duration, source, routine, location-id or location; starts tracking time on it when live unless no-track; a visitor is source family or other; duration is a bare number of minutes such as 30, or rest_of_day, unknown or a preset from settings), extend and finish (id; correct the end once the truth is known; extend takes minutes, may be negative) and status (the disruption worth mentioning today, if any). Returns the disruption commitment; rhen_undo reverses it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2744,7 +2790,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         source: {
           type: "string",
           description:
-            "Which part of life interrupted (start; default other): work, family, life_admin or other. A visitor, a school call or a neighbour is family or other.",
+            "Which part of life interrupted (start; default other). A visitor, a school call or a neighbour is family or other.",
           enum: ["work", "family", "life_admin", "other"]
         },
         when: {
@@ -3046,12 +3092,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       properties: {
         room: {
           type: "string",
-          description: "captured, kept or map, or a further room the description names.",
+          description: "The room; the description names each one.",
           enum: ["captured", "kept", "map"]
         },
         action: {
           type: "string",
-          description: "captured: confirm or ignore; kept: reopen or drop; map: link, links-bulk or finding.",
+          description: "What to do; the description lists the actions for each room.",
           enum: ["confirm", "ignore", "reopen", "drop", "link", "links-bulk", "finding"]
         },
         id: {
@@ -3394,8 +3440,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         category: {
           type: "string",
-          description:
-            "record-blocker, and submit (default waiting_on_someone): missing_information, waiting_on_someone, prerequisite, tool_or_context_unavailable, technical_problem, energy_or_health or other.",
+          description: "record-blocker, and submit (default waiting_on_someone).",
           enum: [
             "missing_information",
             "waiting_on_someone",
@@ -3455,7 +3500,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
     name: "rhen_undo",
     command: "undo",
     description:
-      "WRITES DATA. Reverses your latest recorded write (redo: true reapplies the one you just undid). Covers your saves (new records included), skip-step/unskip-step, pause/resume, arrive, review keep, span add/set, recurrence, cadence and activity writes, a deliverable move, an Inbox confirm, a wake, a disrupt, a disruption and a re-entry, and a session, check-in or catch-up settle: the portal restores the rows the write touched exactly as they were, and removes a record it added, spans included. list: true shows what is recorded, with each entry's id. Without id this reverses your newest write, so repeating the call goes one write further back; to retry after a timeout or a doubtful answer, pass id (from list) so the same entry is not reversed twice. Only your own writes are reversed. If anything the write touched changed since, nothing is overwritten and the answer says so: leave it to the person. Writes of other kinds (email, imports, a deliverable's notes) are not recorded; a bulk edit is recorded row by row, so each call reverses one row. Anything the person undid from their Agent changes list is theirs to put back, not yours. Returns what was reversed (or, with list: true, the recorded writes with their ids).",
+      "WRITES DATA. Reverses your latest recorded write (redo: true reapplies the one you just undid). Covers every recorded write (a stretch answer too): the portal restores the rows the write touched exactly as they were, and removes a record it added. list: true shows what is recorded, with each entry's id. Without id this reverses your newest write, so repeating the call goes one write further back; to retry after a timeout or a doubtful answer, pass id (from list) so the same entry is not reversed twice. Only your own writes are reversed. If anything the write touched changed since, nothing is overwritten and the answer says so: leave it to the person. Writes of other kinds (email, imports, a deliverable's notes) are not recorded; a bulk edit is recorded row by row, so each call reverses one row. Anything the person undid from their Agent changes list is theirs to put back, not yours. Returns what was reversed (or, with list: true, the recorded writes with their ids).",
     inputSchema: {
       type: "object",
       properties: {

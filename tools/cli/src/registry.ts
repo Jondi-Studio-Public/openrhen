@@ -35,6 +35,7 @@ import { recalculateCommand } from "./commands/recalculate.js";
 import { recurrenceCommand } from "./commands/recurrence.js";
 import { disruptCommand } from "./commands/disrupt.js";
 import { reenterCommand } from "./commands/reenter.js";
+import { stretchCommand } from "./commands/stretch.js";
 import { saveCommand } from "./commands/save.js";
 import { searchCommand } from "./commands/search.js";
 import { selfUpdateCommand } from "./commands/self-update.js";
@@ -74,6 +75,7 @@ const coreCommands: CommandSpec[] = [
   reenterCommand,
   disruptCommand,
   arriveCommand,
+  stretchCommand,
   wakeCommand,
   bulkCommand,
   sessionCommand,

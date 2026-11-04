@@ -2,6 +2,7 @@ import {
   AGENT_BASES,
   CATCH_UP_BULKS,
   REENTRY_ENERGIES,
+  STRETCH_CHOICES,
   catchUpEntryVerdictSchema,
   reentrySettlementSchema
 } from "@openrhen/contracts";
@@ -54,10 +55,9 @@ export const COMMON_PARAMS: Record<string, string> = {
 
 /** Closes the descriptions of the two tools that read the past: where the week ahead is. */
 const WEEK_AHEAD_POINTER =
-  "It looks backwards only (a future day shows zeros): for the week ahead call rhen_list with entity " +
+  "It looks backwards only (a future day shows zeros). For the week ahead call rhen_list with entity " +
   'commitments, from "today", to "+7d"; then rhen_list with entity actions, where ["deadlineAt<+7d"] and ' +
-  'status "inbox,planned,active,doing" (the open statuses; without status, done and cancelled come back too; the ' +
-  "deadline test also returns OVERDUE items, so read the dates); then rhen_forecast.";
+  'status "inbox,planned,active,doing" (it also returns OVERDUE items: read the dates); then rhen_forecast.';
 
 /** The JSON Schema zod writes, without the noise: the long date pattern beside a format and the safe-integer bounds. */
 function compact(value: unknown): unknown {
@@ -262,8 +262,7 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
       "each with the `id` (its entryId) and `version` a verdict names; page with offset while `remaining` is above 0. " +
       "Use after a short absence, when rhen_status shows catch-up due. Ask the owner what happened, then record only " +
       "what they answered with rhen_catch_up_settle. Not for a long absence: if calls are refused with " +
-      "reentry_required (the pulse has lapsed), call rhen_reenter instead; it settles the same entries and also " +
-      "records where the owner is.",
+      "reentry_required (the pulse has lapsed), call rhen_reenter instead.",
     params: {
       since: "Window start, an ISO date-time (default: the portal's own `since`).",
       offset: "Skip the first n entries; page through `remaining`."
@@ -456,10 +455,10 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
       "check the outcome later with rhen_proposals (pending, confirmed, rejected, expired, stale). Proposals with the " +
       "same coalesce-key replace each other while pending; you may hold 50 pending. There is no withdraw: to change a " +
       "pending proposal, propose again with the same coalesce-key and the corrected payload. To retract one, or one " +
-      "for a new record, tell the owner to reject it (restating a record leaves a card with no field changes that " +
-      "still needs rejecting). Only the owner can reject (or confirm) a proposal, in the portal Inbox.",
+      "for a new record, tell the owner to reject it (restating it leaves a card that still needs " +
+      "rejecting). Only the owner can reject (or confirm) a proposal, in the portal Inbox.",
     params: {
-      kind: "Always entity_command, which replays a stored save when the owner confirms. The portal refuses any other kind (entity_command_batch and settle_catch_up are filed by rhen_bulk and rhen_catch_up_settle).",
+      kind: "Always entity_command; the portal refuses any other kind.",
       summary: "Ignored: the portal describes the change from the payload. Leave it out.",
       "payload-json":
         'The command to replay. Example: {"command":"save_entity","body":{"entityType":"area","entity":{"id":"area-home","name":"Home"},"expectedVersion":null}}.',
@@ -496,7 +495,7 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
     params: {
       "verdicts-json":
         'One verdict per entry. Example: [{"entryId":"occurrence:abc","verdict":"done"},{"entryId":"deadline:p1","verdict":"pending","moveTo":"2026-11-20T17:00:00Z","version":4}]. Z is UTC: send the owner\'s offset. entryId and version come from rhen_catch_up.',
-      bulk: "One bulk verdict instead of a list: all_skipped, all_dropped or skip_older_than.",
+      bulk: "One bulk verdict instead of a list.",
       day: "With bulk all_skipped: only this local day, YYYY-MM-DD.",
       project: "With bulk: only this project (an id; required for all_dropped).",
       days: "With bulk skip_older_than: skip everything planned more than n days ago.",
@@ -514,16 +513,13 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
       "works for any token that can read the plan or propose; submitting answers needs the write:catch-up scope, and " +
       "without it you must tell the owner. Step 1: call with NO arguments. It is read-only and returns the gap, " +
       "the tier (none, today, days or projects: how coarse an answer is allowed), what is still missing, the entries to " +
-      "review (entryId, kind, title, plannedAt, version), the ids and names of the places and contexts you may name, and answer: " +
-      "the energy meanings, what to answer (or that settlement-json may be left out) and an exact example. " +
-      "Step 2: ask the owner where they are (location), their energy (high, medium, low or recovery), which contexts are " +
-      "available now (ids or names from the read, comma-separated, or none) and what happened in the gap. Step 3: call once with everything plus basis stated and evidence (the owner's own words); without them it is refused. If the owner cannot be reached, stop; never guess. It is all or nothing; an incomplete answer is refused naming each gap; " +
-      "a form the tier does not allow is refused. Returns the new state; rhen_undo reverses it. " +
+      "review (entryId, kind, title, plannedAt, version), the energy meanings, whether settlement-json may be left out, the places and contexts you may name, and an exact example. " +
+      "Step 2: ask the owner where they are, their energy, which contexts are available and what happened in the gap. " +
+      "Step 3: call once with everything plus basis stated and evidence (the owner's own words); without them it is refused. If the owner cannot be reached, stop; never guess. All or nothing. Returns the new state; rhen_undo reverses it. " +
       "startFresh and drop_all are owner-only (see settlement-json). A bulk answer never means done: mark done only " +
       "what the owner confirmed.",
     params: {
-      location:
-        "Where the owner is now: a place's id or name from the no-argument read (rhen_disrupt with no options lists them too).",
+      location: "Where the owner is now: a place's id or name from the no-argument read.",
       energy: "Energy now: high, medium, low or recovery.",
       contexts: "Contexts available now: ids or names from the no-argument read, comma-separated, or the word none.",
       "settlement-json":
@@ -562,15 +558,14 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
       "Logs an interruption to the day (a call, an emergency, a visitor, a school phone call) as a commitment so the plan " +
       "routes around it. For 'I am doing something instead of the plan right now' after a check-in use rhen_disrupt " +
       "instead. Subcommands: start (title required; when, duration, source, routine, location-id or location; starts " +
-      "tracking time on it when live unless no-track; source is one of work, family, life_admin or other, so a visitor " +
-      "is source family or other; duration is a bare number of minutes such as 30, or rest_of_day, unknown or a preset " +
+      "tracking time on it when live unless no-track; a visitor is source family or other; duration is a bare number of minutes such as 30, or rest_of_day, unknown or a preset " +
       "from settings), extend and finish (id; correct the end once the truth is known; " +
       "extend takes minutes, may be negative) and status (the disruption worth mentioning today, if any). Returns the " +
       "disruption commitment; rhen_undo reverses it.",
     params: {
       subcommand: "start, extend, finish or status.",
       source:
-        "Which part of life interrupted (start; default other): work, family, life_admin or other. A visitor, a school call or a neighbour is family or other.",
+        "Which part of life interrupted (start; default other). A visitor, a school call or a neighbour is family or other.",
       duration:
         "How long it runs (start): a bare number is MINUTES, 1 to 1440 (30 means thirty minutes), or rest_of_day, unknown, or the id or label of a duration preset from settings. Default: the first preset.",
       "no-track": "true logs a live disruption without starting a tracked session on it (start).",
@@ -580,10 +575,22 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
   },
   rhen_arrive: {
     description:
-      "Tells the plan the owner is now at a saved place, as the portal's one-tap 'I'm at <place>' button does. place is a saved place's id or exact name (rhen_list conditions, or " +
-      "rhen_disrupt with no options, lists them). Returns the new availability; rhen_undo reverses it. A " +
+      "Tells the plan the owner is now at a saved place, as the portal's one-tap 'I'm at <place>' button does. place is a saved place's id or exact name (rhen_list conditions). Returns the new availability; rhen_undo reverses it. A " +
       "changed location can make already-scheduled preparation moot and skip it automatically.",
     params: { place: "A saved place's id or exact name (from rhen_list conditions)." }
+  },
+  rhen_stretch: {
+    description:
+      "Answers the stretch offer rhen_status shows (stretchOffer). Tell the person its text and call only on their " +
+      "own answer, quoted in evidence with basis stated. accept starts the stretch for action (the server rechecks the " +
+      "offer and sets its end); decline skips that action until tomorrow; decline_all means no stretches tonight (it may " +
+      "be inferred; never ask again after a no). Never raise declared energy to get around the cut: re-declaring it ends " +
+      "a stretch only when the value changes or is asserted. Returns the stretch and its end; rhen_undo reverses it.",
+    params: {
+      choice: "The person's answer.",
+      action: "stretchOffer.actionId from rhen_status; leave out for decline_all."
+    },
+    enums: { choice: STRETCH_CHOICES }
   },
   rhen_wake: {
     append: " Returns what was recorded (startAssumed when the planned start was " + "taken); rhen_undo reverses it.",
@@ -607,8 +614,7 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
       "remaining = minutes left when progress; ended-at?; note?); block (reason, status blocked or waiting); " +
       "did-not-start (it never began); feedback; set-start (started-at: correct the running session). Returns the session now; rhen_undo reverses it.",
     params: {
-      subcommand:
-        "The step: start, alternative, pause, resume, continue, finish, block, did-not-start, feedback or set-start.",
+      subcommand: "The step; the description says what each one takes.",
       action:
         "An action's id or title, or an occurrence id for a recurring one (start/alternative; default the recommendation).",
       status: "block: the action's status afterwards, blocked (default) or waiting.",
@@ -676,24 +682,23 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
       "CURRENT plan is tracking right now, never on something later: a routine_step must be open and due now; sleep " +
       "takes the planned sleep plan the plan is tracking now (not a past or future night); a fixed_commitment must be the " +
       "commitment running now, in the phase it is in now (if it is at a place, record arrival with rhen_arrive " +
-      "first); a deliverable needs its step. Minutes must equal the plan's own for a routine_step, sleep plan or deliverable " +
-      "(see minutes). A start for anything else is refused as not in the current plan: call " +
+      "first); a deliverable needs its step. Minutes must equal the plan's own (see minutes). A start for anything else is refused as not in the current plan: call " +
       "rhen_status to see what the plan lets you start now, and rhen_list with entity routine-steps, " +
       "sleep-plans or commitments for ids. " +
       'Example: {"subcommand":"start","type":"routine_step","target":"<routine step id>","minutes":15}. Returns the session; ' +
       "rhen_undo reverses it.",
     params: {
-      subcommand: "start, switch-step, pause, resume, finish, skip-step or unskip-step.",
-      type: "start: the target type: routine_step, sleep, fixed_commitment or deliverable.",
+      subcommand: "The step; the description says what each one takes.",
+      type: "start: the target type.",
       target:
         "start (required): a routine step's id (routine_step), a sleep plan's id (sleep; rhen_list sleep-plans), or a commitment or deliverable's id or exact title.",
       step: "The step id: for switch-step, skip-step and unskip-step; with a deliverable start, the step to time.",
       minutes:
         "start (required): whole minutes planned, 1 to 1440. For a routine_step, sleep or deliverable it must equal the minutes the plan gives that target (recommendedMinutes in rhen_status, or durationMinutes of a routine step / allowedMinutes of a sleep plan in rhen_list); a different number is refused naming the right one. For a fixed_commitment any number up to the phase's whole length (the cap is the full phase, not what is left of it).",
-      phase: "start, fixed_commitment only: setup, travel, arrival, active, transition or return.",
-      outcome: "finish: completed, stopped, blocked, did_not_start or skipped.",
+      phase: "start, fixed_commitment only.",
+      outcome: "finish: default completed.",
       "ended-at":
-        "finish, optional: when the work really ended, ISO 8601 with the owner's UTC offset from status.timezone (2026-09-03T09:30:00<offset>). Send it only to report late: after the running segment's start, no later than now. Omit it to end now, and always for a paused session: its end is the pause already recorded."
+        "finish, optional: when the work really ended, ISO 8601 with the owner's offset (status.timezone). Only to report late: after the segment's start, not after now. Omit it to end now, and always for a paused session."
     },
     enums: {
       subcommand: ["start", "switch-step", "pause", "resume", "finish", "skip-step", "unskip-step"],
@@ -712,7 +717,7 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
       "reverses it.",
     params: {
       status: "on-track, deviated or unknown.",
-      category: "Needed with deviated: work, family, life_admin or other.",
+      category: "Needed with deviated.",
       note: "deviated only: up to 1000 characters.",
       target: "deviated only: the id (or exact title) of the action actually worked on; recorded, never started."
     },
@@ -779,8 +784,8 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
         .join("") +
       ".",
     params: {
-      room: "captured, kept or map, or a further room the description names.",
-      action: "captured: confirm or ignore; kept: reopen or drop; map: link, links-bulk or finding.",
+      room: "The room; the description names each one.",
+      action: "What to do; the description lists the actions for each room.",
       id: "The item's id, from rhen_inbox (capture, submission, link or finding).",
       decision: "link: confirm, reject or remove; finding: accept or dismiss.",
       type: "confirm: what the capture becomes.",
@@ -867,8 +872,7 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
         'Example extend-plan: {"steps":[{"title":"Draft intro","expectedMinutes":45}]}. ' +
         'Example record-review: {"criteria":[{"title":"Cites sources","state":"satisfied","evidenceNote":"Five cited in section 2"}],"summary":"Ready"}. ' +
         "Run pick-up first: the pack's rules give the full shapes.",
-      category:
-        "record-blocker, and submit (default waiting_on_someone): missing_information, waiting_on_someone, prerequisite, tool_or_context_unavailable, technical_problem, energy_or_health or other."
+      category: "record-blocker, and submit (default waiting_on_someone)."
     },
     enums: {
       category: [

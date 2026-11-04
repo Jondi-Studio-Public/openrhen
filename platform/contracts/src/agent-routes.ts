@@ -467,6 +467,8 @@ const WRITE_RULES: Record<string, Rule> = {
   // Settles last night around when the person woke (`rhen wake`): finishes a running sleep, or completes last
   // night's planned sleep, or logs the night. Applied directly under the sleep log's scope, never a proposal.
   "POST /api/commands/wake": fixed({ tool: "wake" }),
+  // The answer to a stretch offer `rhen_status` shows; the command itself holds an agent to the person's word.
+  "POST /api/commands/stretch": fixed({ tool: "stretch" }),
   "POST /api/commands/activity": fixed({ tool: "activity" }),
   "POST /api/commands/check-in": fixed({ tool: "check-in" }),
   // Undo or redo of a session, check-in or catch-up write from its row snapshot; the `undo` tool's scope.
@@ -518,9 +520,6 @@ const OWNER_ROUTES: Record<string, string> = {
   ...mergedRecord((extension) => extension.routes?.ownerRoutes),
   "POST /api/agent-proposals/[id]/resolve": "Confirming or rejecting a proposal",
   "POST /api/agent-tokens": "Issuing an agent token",
-  // Owner-only until the stretch offer is readable by agents (PR 4 opens it as a write under the availability scope):
-  // an agent token must not answer an offer it cannot see.
-  "POST /api/commands/stretch": "Answering a stretch offer",
   "POST /api/agent-changes/[id]/undo": "Undoing or redoing an agent change",
   "POST /api/owner/enroll": "Enrolling a browser",
   "POST /api/owner/signout": "Signing out",

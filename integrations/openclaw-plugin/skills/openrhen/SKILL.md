@@ -7,7 +7,7 @@ metadata: {"openclaw":{"emoji":"🧭"}}
 # Driving OpenRhen
 
 **Start here.** At the start of a session call `rhen_skill` (flavour `openclaw`) for the current rules; the
-server's text wins over this file. This file was written for contract version 9. If `rhen_skill` reports a
+server's text wins over this file. This file was written for contract version 10. If `rhen_skill` reports a
 newer contract version, tell the owner the plugin needs repacking (the rest of this file is the fallback).
 
 OpenRhen is the owner's planning system. It holds their areas, outcomes, projects and actions, the time already
@@ -140,6 +140,7 @@ Read `openrhen-writing` before your first create or update in a conversation.
 | Any call fails `reentry_required` | `rhen_reenter` with no arguments (a read) | `openrhen-catch-up` |
 | `catchUp.state` is `due` | `rhen_catch_up` | ask grouped questions; `rhen_catch_up_settle` with the verdicts they gave |
 | `attention` is present, first time this session or a count rose | `rhen_attention` with the last cursor | act on `nextCall`, `askOwner` and the step in `why`; raise an owner item (`who: owner` or `askOwner`) once, only while the owner is present |
+| `stretchOffer` is present | tell the person its `text`; only on their own answer `rhen_stretch` `accept` or `decline` with `action`, `basis` `stated` and their words as `evidence` (`decline_all` for none tonight) | never raise declared energy to get around the cut |
 | They start something | `rhen_session` `start`, or `alternative` with `reason` | `openrhen-sessions` |
 | They stop | `rhen_session` `finish` with `outcome` (`completed`, `progress` or `unsure`) and `remaining` | ask how much is left |
 | Pending check-in | `rhen_check_in` `status` `on-track`, `deviated` or `unknown`; `deviated` needs `category` (`work`, `family`, `life_admin` or `other`) | then `rhen_disrupt` with all five fields |

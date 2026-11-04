@@ -172,6 +172,10 @@ with hyphens as underscores). Pass options by their flag name without the leadin
 - \`rhen_status\` shows \`attention\`: call \`rhen_attention\` once (again only if a count rose), act on
   \`nextCall\`, \`askOwner\` and the step in \`why\`, and raise an owner item (\`who: owner\` or \`askOwner\`) once, only while
   the owner is present.
+- \`rhen_status\` shows \`stretchOffer\`: tell the person its \`text\` and let them choose. Only on their own answer
+  call \`rhen_stretch\` (\`accept\` or \`decline\` with \`action\`, \`basis\` stated and their words as \`evidence\`;
+  \`decline_all\` for no stretches tonight, and never ask again after a no). Never raise declared energy to get around
+  the cut; \`rhen_undo\` reverses an answer.
 - A call that fails with \`reentry_required\` means the pulse lapsed: nothing else works until re-entry is done.
   \`rhen_reenter\` with no arguments reads the tier, the gap, what is missing, the items to review and the
   place and context ids. Ask the person where they are, their energy, their contexts and what happened in the

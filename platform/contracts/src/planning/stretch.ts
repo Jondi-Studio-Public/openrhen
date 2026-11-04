@@ -27,7 +27,7 @@ export const stretchCommandSchema = z
       context.addIssue({
         code: "custom",
         path: ["actionId"],
-        message: "Say which action the stretch is for (actionId); only decline_all names none."
+        message: "Say which action the stretch is for (action: the offer's actionId); only decline_all names none."
       });
     if (command.basis === "stated" && !command.evidence)
       context.addIssue({
@@ -46,7 +46,7 @@ export type StretchCommand = z.infer<typeof stretchCommandSchema>;
 export function agentStretchProblems(command: Pick<StretchCommand, "choice" | "basis">): string[] {
   if (command.choice === "decline_all" || command.basis === "stated") return [];
   return [
-    "Only the person can say yes or no to a stretch. Next: ask the person; if they answered, call openrhen_stretch again with basis stated, evidence set to their own words (up to 300 characters), and a NEW command-id. If they cannot be reached, do nothing; do not raise declared energy instead."
+    "Only the person can say yes or no to a stretch. Next: ask the person; if they answered, call rhen_stretch again with basis stated, evidence set to their own words (up to 300 characters), and a NEW command-id. If they cannot be reached, do nothing; do not raise declared energy instead."
   ];
 }
 
@@ -176,7 +176,7 @@ export const STRETCH_NEXT_CALL = {
 
 /** The next step when the answer was for an action other than the one on offer. */
 export const STRETCH_REASK_NEXT =
-  "call rhen_status, tell the person the sentence of the offer it shows, and if they answer send openrhen_stretch again for that action with a NEW command-id.";
+  "call rhen_status, tell the person the sentence of the offer it shows, and if they answer send rhen_stretch again for that action with a NEW command-id.";
 
 /** The offer as Now and `status` carry it: the engine's fields, the one sentence, and what an agent does with it. */
 export interface StretchOfferAnswer extends StretchOfferView {
@@ -200,7 +200,10 @@ export interface StretchBlock {
 
 /** Compact on purpose: it travels in every `status` read. */
 export const STRETCH_OFFER_NEXT =
-  "Tell the person the text and let them choose; both choices are reasonable. Only the person answers a stretch offer, in the portal on Now; you cannot accept or decline it for them yet, so do not try, and never raise declared energy to get around the cut. No answer means no change.";
+  "Tell the person the text and let them choose; both choices are reasonable. Call rhen_stretch only on their own answer: " +
+  "choice accept or decline, action this offer's actionId, basis stated, evidence their words (up to 300 characters) and a new command-id; " +
+  "choice decline_all if they want no stretches tonight (do not ask again after a no). No answer means no change. " +
+  "Never raise declared energy to get around the cut.";
 
 export interface StretchAnswerInput {
   /** The published run's recommendation, opaque; only `stretchOffer` is read. */

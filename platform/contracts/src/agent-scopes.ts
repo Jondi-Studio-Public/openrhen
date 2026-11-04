@@ -112,6 +112,8 @@ const FIXED_TOOL_SCOPES = {
   capture: ["propose:capture"],
   propose: ["propose:agent-change"],
   arrive: ["write:arrival"],
+  // The person's answer to a stretch offer: it waives the energy cut, so it takes the availability scope energy is set with.
+  stretch: ["write:entity:current_availability"],
   // When the person woke is a fact about last night's sleep, so it takes the sleep log's scope, as the wake-only
   // settings save does (`WAKE_SETTINGS_FIELDS`). Applied directly with no proposal: it records what happened.
   wake: ["write:entity:sleep_log_entry"],

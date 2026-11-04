@@ -787,8 +787,8 @@ describe("status stretch", () => {
     expect(json.stretchOffer).toMatchObject({ actionId: "action-draft", minutes: 45 });
     expect(json.stretchOffer.text).toContain("Draft chapter 3 has an outside deadline");
     expect(json.stretchOffer.text).toContain("Both are reasonable.");
-    expect(json.stretchOffer.next).toContain("Only the person answers");
-    expect(json.stretchOffer.next).toContain("never raise declared energy");
+    expect(json.stretchOffer.next).toContain("Call rhen_stretch only on their own answer");
+    expect(json.stretchOffer.next).toContain("Never raise declared energy");
     expect(json.stretch).toBeNull();
   });
 

@@ -105,6 +105,13 @@ export async function runStretchCommand(
   command: StretchCommand,
   clock?: Date
 ): Promise<{ result: StretchResult }> {
+  // An agent answers only on the person's word. This comes before everything else, the replay lookup included, so a
+  // stored answer is never returned to a caller who would be refused.
+  if (requestAgent() !== null) {
+    const problems = agentStretchProblems(command);
+    if (problems.length > 0) throw new InvalidCommandError(problems[0]!);
+  }
+
   const userId = await ensureUser(sql);
   const requestHash = commandRequestHash("stretch", command);
   const replay = async (queryable: Sql): Promise<StretchResult | null> => {
@@ -116,12 +123,6 @@ export async function runStretchCommand(
   };
   const earlier = await replay(sql);
   if (earlier) return { result: earlier };
-
-  // An agent answers only on the person's word; nothing is read or written before that is settled.
-  if (requestAgent() !== null) {
-    const problems = agentStretchProblems(command);
-    if (problems.length > 0) throw new InvalidCommandError(problems[0]!);
-  }
 
   return sql.begin(async (tx) => {
     if (!(await claimCommandReceipt(tx, { id: command.commandId, userId, commandType: "stretch", requestHash }))) {

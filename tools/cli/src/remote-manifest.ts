@@ -70,11 +70,9 @@ export interface RemoteTool {
  * fresh write: repeating the call reverses the next older entry, so a retry names the entry by `id`.
  */
 const UNDO_DESCRIPTION =
-  "Reverses your latest recorded write (redo: true reapplies the one you just undid). Covers your saves (new " +
-  "records included), skip-step/unskip-step, pause/resume, arrive, review keep, span add/set, recurrence, cadence " +
-  "and activity writes, a deliverable move, an Inbox confirm, a wake, a disrupt, a disruption and a re-entry, and a session, check-in or catch-up settle: the portal restores the rows " +
-  "the write touched exactly as they were, and removes a record it added, spans included. list: true shows what is " +
-  "recorded, with each entry's id. Without id this reverses your newest write, so repeating the call goes one write " +
+  "Reverses your latest recorded write (redo: true reapplies the one you just undid). Covers every recorded " +
+  "write (a stretch answer too): the portal restores the rows the write touched exactly as they were, and " +
+  "removes a record it added. list: true shows what is recorded, with each entry's id. Without id this reverses your newest write, so repeating the call goes one write " +
   "further back; to retry after a timeout or a doubtful answer, pass id (from list) so the same entry is not " +
   "reversed twice. Only your own writes are reversed. If anything the write touched changed since, nothing is " +
   "overwritten and the answer says so: leave it to the person. Writes of other kinds (email, imports, " +
@@ -328,6 +326,8 @@ export const REMOTE_TOOLS: RemoteTool[] = [
   },
   { command: "disrupt", scopes: ["write:check-in", "read:plan"] },
   { command: "arrive", scopes: ["write:arrival", "write:entity:current_availability", "read:plan"] },
+  // The answer to the stretch offer in status: it waives the energy cut, so it takes the availability scope energy is set with.
+  { command: "stretch", scopes: ["write:entity:current_availability", "read:plan"] },
   // Settles last night around a wake: finishes a running sleep, completes the planned one or logs the night, all
   // under the sleep log's scope. It reads nothing first; the portal does it in one transaction.
   { command: "wake", scopes: ["write:entity:sleep_log_entry"] },

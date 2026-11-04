@@ -109,3 +109,28 @@ describe("re-entry for a propose-only token", () => {
     });
   }
 });
+
+describe("a stretch answer for an agent token", () => {
+  const principal = (scopes: string[]): AgentPrincipal => ({
+    name: "companion",
+    source: "db",
+    tokenId: "t3",
+    scopes,
+    directWrites: allDirectWritesOn()
+  });
+  const decision = scopesForRoute("POST", "/api/commands/stretch", { choice: "decline_all" });
+
+  it("is allowed with the availability scope, or the entity scope that covers it", () => {
+    if (decision.kind !== "scopes") throw new Error("expected scopes");
+    expect(decideWrite(decision, principal(["write:entity:current_availability"])).action).toBe("apply");
+    expect(decideWrite(decision, principal(["write:entity"])).action).toBe("apply");
+  });
+
+  it("is refused without it, naming the scope", () => {
+    if (decision.kind !== "scopes") throw new Error("expected scopes");
+    expect(decideWrite(decision, principal(["read:plan", "write:arrival"]))).toEqual({
+      action: "deny",
+      missing: ["write:entity:current_availability"]
+    });
+  });
+});

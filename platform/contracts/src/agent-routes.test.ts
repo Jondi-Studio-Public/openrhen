@@ -503,13 +503,15 @@ describe("refusal wording", () => {
 });
 
 describe("scopesForRoute: stretch answers", () => {
-  it("keeps the stretch route the owner's until agents can read the offer", () => {
-    for (const body of [undefined, { choice: "accept", actionId: "a", basis: "stated", evidence: "yes" }]) {
+  it("is an agent write under the availability scope, never owner-only, for every answer", () => {
+    for (const body of [
+      undefined,
+      { choice: "accept", actionId: "a", basis: "stated", evidence: "yes" },
+      { choice: "decline_all" }
+    ]) {
       const decision = scopesForRoute("POST", "/api/commands/stretch", body);
-      expect(decision).toMatchObject({ kind: "refused", reason: "owner-only" });
-      expect((decision as { message: string }).message).toMatch(
-        /^Answering a stretch offer is for the owner; an agent token cannot use it, so nothing was changed\. The person does it in the portal\./
-      );
+      expect(decision).toMatchObject({ kind: "scopes", scopes: ["write:entity:current_availability"] });
+      expect(decision.kind === "scopes" && decision.floor ? hardFloorReason(decision.floor) : "none").toBeNull();
     }
     expect(classifiedRoutes()).toContain("POST /api/commands/stretch");
   });
