@@ -111,6 +111,10 @@ test("a fixed segment beside a [param] is not a collision between add-on routes,
   assert.equal(staticBeatsDynamic("/people/[id]", "/people/messages"), true);
   assert.equal(staticBeatsDynamic("/people/[id]", "/people/[slug]"), false);
   assert.equal(staticBeatsDynamic("/docs/[...rest]", "/docs/a"), false);
+  // Different param names at the same position are refused even when a later segment differs (a router rejects them).
+  assert.equal(staticBeatsDynamic("/x/[id]/a", "/x/[slug]/[b]"), false);
+  // The first differing segment decides: /a/old/[x] is the more specific route, so /a/old/new reaches it.
+  assert.equal(staticBeatsDynamic("/a/[id]/new", "/a/old/[x]"), true);
   const route = (url, file, addon = true) => ({ url, file, addon });
   assert.deepEqual(
     findCollisions([route("/people/[id]", "a/[id]/route.ts"), route("/people/messages", "a/messages/route.ts")]),
