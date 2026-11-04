@@ -16,7 +16,10 @@ import { fixedNow, setupStateStoreSuite, sql, unplannedStore } from "./state-sto
  */
 setupStateStoreSuite("openrhen_stretch_command");
 
-const NOW = new Date(fixedNow);
+// Pinned to local noon in the person's zone (Australia/Sydney, set in `arrange`), so "30 minutes ago" is the same
+// local day as NOW whenever the suite runs. The harness's wall-clock `fixedNow` made the declined-today refusals fail
+// when the suite ran in the first half hour after Sydney midnight (about 13:00Z).
+const NOW = new Date("2026-06-15T02:00:00.000Z");
 const minutes = (count: number) => new Date(NOW.getTime() + count * 60_000);
 const asAgent = <T>(fn: () => Promise<T>) => runWithActor("companion", fn);
 
