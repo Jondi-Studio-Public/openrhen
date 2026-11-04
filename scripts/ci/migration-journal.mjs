@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -257,7 +257,21 @@ export function checkMigrationsDir(dir, set = readMigrationSet(dir)) {
     }
   );
   if (set.baseline) problems.push(...baselineProblems(set.baseline, set.entries));
+  const tags = new Set(set.entries.map((entry) => entry.tag));
+  for (const file of existsSync(dir) ? readdirSync(dir) : [])
+    if (file.endsWith(".sql") && !tags.has(file.slice(0, -4)))
+      problems.push(`${label}/${file} has no journal entry; drizzle would never run it`);
   return problems;
+}
+
+/**
+ * The refusal when a folder has no journal: core's must exist, and so must any folder main already had one for.
+ * Only an add-on folder that has never had a journal is skipped.
+ */
+export function missingJournalProblem(label, isCore, baseHadJournal) {
+  if (isCore) return `${label}/meta/_journal.json is missing; core's migration journal must exist`;
+  if (baseHadJournal) return `${label}/meta/_journal.json is on main but missing here; never remove a deployed journal`;
+  return undefined;
 }
 
 export function parseDir(argv) {
@@ -272,7 +286,13 @@ function main() {
   const label = relative(root, dir) || dir;
   const set = readMigrationSet(dir);
   if (!set) {
-    console.log(`No ${label}/meta/_journal.json; nothing to check for this migration set.`);
+    const problem = missingJournalProblem(label, dir === resolve(root, MIGRATIONS_DIR), baseJournal(dir) !== undefined);
+    if (!problem) {
+      console.log(`No ${label}/meta/_journal.json; nothing to check for this migration set.`);
+      return;
+    }
+    console.log(`::error file=${label}/meta/_journal.json::${problem}`);
+    process.exitCode = 1;
     return;
   }
   const problems = checkMigrationsDir(dir, set);

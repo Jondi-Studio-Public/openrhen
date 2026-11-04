@@ -9,6 +9,7 @@ import {
   checkMigrationsDir,
   journalChangeProblems,
   journalProblems,
+  missingJournalProblem,
   parseDir
 } from "../ci/migration-journal.mjs";
 
@@ -184,4 +185,28 @@ test("baselineChangeProblems lets a sync append laterLegacy rows but not change 
   assert.equal(baselineChangeProblems(base, { ...base, legacy: [] }).length, 1);
   assert.equal(baselineChangeProblems(base, { ...base, baselineIdx: 4 }).length, 1);
   assert.equal(baselineChangeProblems(base, undefined).length, 1);
+});
+
+test("missingJournalProblem: core and a folder main had must keep a journal; a never-used add-on folder may lack one", () => {
+  assert.match(missingJournalProblem("platform/database/drizzle", true, true), /must exist/);
+  assert.match(missingJournalProblem("platform/database/addon-drizzle", false, true), /never remove/);
+  assert.equal(missingJournalProblem("platform/database/addon-drizzle", false, false), undefined);
+});
+
+test("checkMigrationsDir flags a .sql file with no journal entry", () => {
+  const dir = mkdtempSync(join(tmpdir(), "mj-"));
+  try {
+    mkdirSync(join(dir, "meta"));
+    writeFileSync(join(dir, "0000_a.sql"), "select 1;");
+    writeFileSync(join(dir, "0001_dead.sql"), "select 2;");
+    writeFileSync(join(dir, "meta/0000_snapshot.json"), JSON.stringify({ id: "a", prevId: "0" }));
+    writeFileSync(join(dir, "meta/_journal.json"), JSON.stringify({ entries: [{ idx: 0, tag: "0000_a", when: 1 }] }));
+    const problems = checkMigrationsDir(dir);
+    assert.ok(
+      problems.some((problem) => problem.includes("0001_dead.sql has no journal entry")),
+      problems.join("\n")
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
