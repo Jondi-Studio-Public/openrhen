@@ -4,6 +4,8 @@ import {
   type AgentProposal,
   type AgentProposalStatus,
   type ProposeAgentChange,
+  SERVER_FILED_KINDS,
+  SERVER_FILED_KIND_TOOLS,
   type ResolveAgentProposal
 } from "@openrhen/contracts";
 import { notifyStateChanged } from "@openrhen/database";
@@ -85,12 +87,25 @@ export async function proposeAgentChange(
   input: ProposeAgentChange & {
     /** Set by the route wrapper for a write `directWrites: shadow` held back; an agent cannot set it. */
     shadow?: boolean | undefined;
-  }
+  },
+  /**
+   * Who is filing. `agent` (the default, and every request an agent makes) cannot file a `SERVER_FILED_KINDS` kind; the
+   * portal's own tools pass `server` after deciding what may be proposed and pinning the rows it covers.
+   */
+  options: { origin?: "agent" | "server" } = {}
 ): Promise<{ proposal: AgentProposal; outcome: "created" | "coalesced" | "existing" }> {
   if (agent === null)
     throw new AgentProposalError(
       400,
       "This request carries no agent name, so a proposal cannot be filed under one. Tell the person this token needs a name (they create it with an agent name), or send the X-OpenRhen-Agent header."
+    );
+  if ((options.origin ?? "agent") === "agent" && (SERVER_FILED_KINDS as readonly string[]).includes(input.kind))
+    throw new AgentProposalError(
+      400,
+      `A proposal of kind "${input.kind}" cannot be filed directly: the portal files it for you when you use ${
+        SERVER_FILED_KIND_TOOLS[input.kind as keyof typeof SERVER_FILED_KIND_TOOLS]
+      }. Use that tool; if the token may not apply the change itself, the portal files the proposal.`,
+      { validValues: { kind: proposalKinds() } }
     );
   const applier = proposalApplier(input.kind);
   if (!applier)

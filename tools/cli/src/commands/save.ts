@@ -540,8 +540,8 @@ export const saveCommand: CommandSpec = {
     "the given fields over the stored one, and an id that names no record is an error, not a new record: pass " +
     "--create to make one with an id you chose (a record that already has it is updated). Settings sends only the " +
     "fields given (for an agent, plan preferences and lastWokeAt apply directly; timezone, setup and data-flow fields " +
-    "go to the person). There is no delete: removal is a status change (e.g. " +
-    "--set status=cancelled) except sleep_log_entry, which accepts --set remove=true, and span, which does the same. A new `save action` " +
+    "go to the person). There is no delete: close a record with rhen_archive or rhen_cancel, not a status set here; " +
+    "sleep_log_entry accepts --set remove=true, and span does the same. A new `save action` " +
     "defaults to status planned, a 60-minute estimate (60/60/60, so the project's uncertainty pads it), 60 minutes " +
     "remaining, splittable, no setup, medium energy, a 15-60 minute session range, importance and consequence 3, no " +
     "contexts and no dependencies. Part of the estimate fills in the rest the same way (each missing figure is the " +

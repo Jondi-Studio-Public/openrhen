@@ -15,6 +15,8 @@ const POSITIONALS: Readonly<Record<string, readonly string[]>> = {
   "inbox-act": ["room", "action", "id"],
   recurrence: ["subcommand", "target"],
   deliverable: ["subcommand", "deliverable"],
+  archive: ["type", "id", "do"],
+  cancel: ["type", "id", "do"],
   wake: [],
   stretch: [],
   undo: [],

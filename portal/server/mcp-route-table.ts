@@ -31,6 +31,7 @@ export const CORE_MCP_ROUTE_TABLE: Record<string, () => Promise<RouteModule>> = 
   "/api/commands/catch-up-settle": () => import("@/app/api/commands/catch-up-settle/route"),
   "/api/commands/changeset": () => import("@/app/api/commands/changeset/route"),
   "/api/commands/check-in": () => import("@/app/api/commands/check-in/route"),
+  "/api/commands/close": () => import("@/app/api/commands/close/route"),
   "/api/commands/commitment-recurrence": () => import("@/app/api/commands/commitment-recurrence/route"),
   "/api/commands/commitment-source-split": () => import("@/app/api/commands/commitment-source-split/route"),
   "/api/commands/entity": () => import("@/app/api/commands/entity/route"),

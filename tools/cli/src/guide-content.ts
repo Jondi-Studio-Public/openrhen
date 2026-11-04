@@ -10,7 +10,7 @@
  * here should be traceable to one of those.
  */
 
-import { agentContractLine, agentPolicyBullets } from "@openrhen/contracts";
+import { ARCHIVE_OR_CANCEL_FULL, agentContractLine, agentPolicyBullets } from "@openrhen/contracts";
 import { surfaceText, type TextSurface } from "./surface-text.js";
 
 type GuideSurface = TextSurface;
@@ -68,7 +68,8 @@ minutes, required energy, requirements as one or more routes (everything inside 
 together; any route being satisfied is enough), minimum/maximum session length, whether it is
 splittable, importance and consequence (1-5), and optional deadline and dependencies — a blank deadline
 means open work, offered when there is slack and never overdue. Status is one of
-inbox, planned, active, doing, waiting, blocked, done, cancelled, archived — only ready actions from
+inbox, planned, active, doing, waiting, blocked, done, cancelled, archived (the last two are set with
+rhen_cancel and rhen_archive, not a save) — only ready actions from
 active projects and outcomes compete for the recommendation.
 
 deliverable — a finishable, reviewable body of work belonging to one project (an assessment, a report,
@@ -477,13 +478,9 @@ const writingDataText = `Rules an AI tool must respect when writing through this
 - --yes gates multi-entity changes. A write that affects more than the one record you named (recurrence
   set, which rewrites every future occurrence of a series; a bulk) is refused until
   you pass --yes, so an AI tool cannot fan out a change by accident.
-- Removal is a status change, not a delete — there is no delete command for planning records. Set the
-  status that takes a record out of consideration for its entity kind:
-    areas, outcomes, projects, actions, conditions (places)  ->  status=archived
-    commitments, deliverables                              ->  status=cancelled
-    commitment recurrence rules (via "recurrence set")      ->  endDate=YYYY-MM-DD (its last date)
-    captures (via "save capture --set status=ignored", or "Ignore" in the app)  ->  status=ignored
-  The one literal exception is a sleep log entry, which accepts --set remove=true instead of a status.
+${ARCHIVE_OR_CANCEL_FULL.map((line) => `- ${line}`).join("\n")}
+- A capture is hidden with "save capture --set status=ignored" (or "Ignore" in the app). A sleep log entry accepts
+  --set remove=true instead of a status.
 - Whether a write applies, is filed as a proposal or is refused depends on your token. "guide limits" has the
   rules, and the answer to each write says which happened.`;
 

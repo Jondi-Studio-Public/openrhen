@@ -89,6 +89,8 @@ export interface PositionalSpec {
   description: string;
   /** The values it accepts, published to MCP as the argument's enum (the CLI may also take aliases). */
   enum?: readonly string[];
+  /** Optional on the command line (the CLI reports what is missing itself) but required in the MCP schema. */
+  mcpRequired?: boolean;
 }
 
 export interface CommandSpec {

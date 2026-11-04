@@ -804,7 +804,8 @@ export type AttentionOutcomeStatus = (typeof ATTENTION_OUTCOME_STATUSES)[number]
 const PROPOSAL_KIND_WORDS: Readonly<Record<string, string>> = {
   entity_command: "a plan change",
   entity_command_batch: "a batch of plan changes",
-  settle_catch_up: "a catch-up answer"
+  settle_catch_up: "a catch-up answer",
+  close_entity: "a close"
 };
 export const proposalKindWords = (kind: unknown): string =>
   (typeof kind === "string" ? PROPOSAL_KIND_WORDS[kind] : undefined) ?? "a change";

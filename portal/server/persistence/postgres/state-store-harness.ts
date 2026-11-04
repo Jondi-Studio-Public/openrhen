@@ -248,6 +248,7 @@ export function setupStateStoreSuite(base: string, options: { resetBetweenTests?
         "put",
         "saveProject",
         "confirmProjectWanted",
+        "closeEntity",
         "saveAction",
         "runSessionCommand",
         "runActivityCommand",

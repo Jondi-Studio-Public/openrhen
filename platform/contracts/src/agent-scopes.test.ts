@@ -30,9 +30,11 @@ import { commitmentStatusSchema, portalStateSchema, routinePresetStatusSchema } 
 /** The mutating commands in tools/cli/src/registry.ts (`mcp` excluded); tools/cli's own test compares the live registry to the table. */
 const REGISTRY_WRITE_TOOLS = [
   "activity",
+  "archive",
   "arrive",
   "bulk",
   "cadence",
+  "cancel",
   "capture",
   "catch-up-settle",
   "changeset",
@@ -104,7 +106,8 @@ describe("the write-tool table", () => {
   });
   it("gives every non-resolved tool at least one known scope", () => {
     for (const tool of AGENT_WRITE_TOOLS) {
-      if (tool === "save" || tool === "bulk" || tool === "inbox-act") continue;
+      if (tool === "save" || tool === "bulk" || tool === "inbox-act" || tool === "archive" || tool === "cancel")
+        continue;
       const scopes = requiredScopes({ tool });
       expect(scopes.length, tool).toBeGreaterThan(0);
       for (const scope of scopes) expect(isKnownScope(scope), scope).toBe(true);

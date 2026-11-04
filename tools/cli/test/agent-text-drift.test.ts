@@ -281,7 +281,9 @@ describe("agent policy lines", () => {
   });
 
   it("keep the instructions short", () => {
-    expect(Buffer.byteLength(MCP_SERVER_INSTRUCTIONS)).toBeLessThan(4600);
+    // Raised from 4600 to 4700 on 2026-11-04 for the Archive or cancel clause (about 450 bytes: the verb table must name every
+    // kind, and the plan allows a higher cap rather than dropping it).
+    expect(Buffer.byteLength(MCP_SERVER_INSTRUCTIONS)).toBeLessThan(4700);
   });
 
   it("do not leave the retired claims anywhere", () => {
@@ -290,7 +292,14 @@ describe("agent policy lines", () => {
       /settings[^.\n]* are his/i,
       /Writes carry the version/,
       /For more than a handful use `rhen_bulk`/,
-      /finished sessions and imports are not recorded/
+      /finished sessions and imports are not recorded/,
+      // Removal moved to rhen_archive and rhen_cancel (archive-removals design 8a).
+      /Removal is a status change/,
+      /end a record by status/i,
+      /Ending a record by status \(cancelled, archived, done\) is an ordinary write/,
+      /There is no delete: removal is a status change/,
+      /Removing is a status change/,
+      /status endings are ordinary writes/
     ];
     const texts = [
       ...remoteTexts.map((entry) => entry.text),

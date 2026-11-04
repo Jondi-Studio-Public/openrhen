@@ -12,6 +12,8 @@ import type {
   ChangesetCommand,
   ChangesetResult,
   CheckInCommand,
+  CloseEntityCommand,
+  CloseEntityResult,
   ConfirmProjectWantedCommand,
   EndRecurrenceGoalCommand,
   RecalculateCommand,
@@ -44,6 +46,7 @@ interface StateStore {
   put(state: unknown): Promise<void>;
   saveProject(command: SaveProjectCommand): Promise<PortalState>;
   confirmProjectWanted(command: ConfirmProjectWantedCommand): Promise<PortalState>;
+  closeEntity(command: CloseEntityCommand): Promise<{ closed: CloseEntityResult; state: PortalState }>;
   saveAction(command: SaveActionCommand): Promise<PortalState>;
   runSessionCommand(command: SessionCommand): Promise<PortalState>;
   runActivityCommand(command: ActivityCommand): Promise<PortalState>;
@@ -123,6 +126,10 @@ class PostgresStateStore implements StateStore {
 
   confirmProjectWanted(command: ConfirmProjectWantedCommand) {
     return this.withWriteClient((sql) => new NormalizedPostgresStateStore(sql).confirmProjectWanted(command));
+  }
+
+  closeEntity(command: CloseEntityCommand) {
+    return this.withWriteClient((sql) => new NormalizedPostgresStateStore(sql).closeEntity(command));
   }
 
   saveAction(command: SaveActionCommand) {

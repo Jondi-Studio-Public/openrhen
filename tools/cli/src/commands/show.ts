@@ -1,6 +1,7 @@
 import { prerequisiteNodes } from "@openrhen/contracts";
 import type { PortalState } from "../client.js";
 import { booleanOption, requirePositional, type CommandSpec } from "../command.js";
+import { restoreCallOf, restoreCallText } from "../closed-rows.js";
 import { entityItems, findEntity, type AnyRecord, type EntityDefinition } from "../entities.js";
 import { CliError, EXIT } from "../errors.js";
 import { localiseInstants, pickFields, renderRecord, renderTable, toJson } from "../output.js";
@@ -45,7 +46,7 @@ export const showCommand: CommandSpec = {
     "action's project and dependencies, a commitment's place, series, and routine steps, and so on. " +
     "The id may be shortened to a unique prefix. Relation lists longer than 20 rows are cut off with a note " +
     "on how to see the rest (--all, or the `list` command with the matching filter); --brief skips relations " +
-    "entirely and prints just the record.",
+    "entirely and prints just the record. A closed record carries restore, the call that reopens it.",
   positionals: [
     { name: "entity", required: true, description: "The entity kind, singular or plural" },
     { name: "id", required: true, description: "The entity id, or a unique prefix of it" }
@@ -75,7 +76,8 @@ export const showCommand: CommandSpec = {
     const timeZone = state.settings.timezone;
 
     if (context.mode === "json" || context.mode === "jsonl") {
-      const doc: Record<string, unknown> = { entity: entity.singular, item };
+      const restore = restoreCallOf(entity.name, item);
+      const doc: Record<string, unknown> = { entity: entity.singular, item, ...(restore ? { restore } : {}) };
       if (!brief) {
         const relationValues: Record<string, unknown> = {};
         const truncated: Record<string, unknown> = {};
@@ -94,6 +96,8 @@ export const showCommand: CommandSpec = {
     }
 
     const parts: string[] = [renderRecord(item, { timeZone })];
+    const restore = restoreCallOf(entity.name, item);
+    if (restore) parts.push(`Closed. To reopen: ${restoreCallText(restore, context.mcp === true)}`);
     for (const relation of Object.values(relations)) {
       if (relation.kind === "list") {
         if (relation.total === 0) continue;

@@ -472,7 +472,7 @@ describe("routes that cannot become proposals", () => {
     const stored = vi.fn<NonNullable<EnforceDeps["stored"]>>(async () => ({ shared: true }));
     const refused = await call("POST", route, held, body, {}, { stored });
     expect(refused?.status).toBe(403);
-    expect(stored).toHaveBeenCalledWith("POST", route, body);
+    expect(stored).toHaveBeenCalledWith("POST", route, body, expect.anything());
     expect(await call("POST", route, held, body, {}, { stored: async () => ({ shared: false }) })).toBeNull();
     const split = { commitmentId: "c1", expectedVersion: 3 };
     const splitHeld = principal(["write:recurrence"]);

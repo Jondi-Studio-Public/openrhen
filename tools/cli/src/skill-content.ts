@@ -8,7 +8,7 @@
  * `@openrhen/contracts`. The text has two renderings, stdio and remote (`surface-text.ts`): the remote `/mcp`
  * serves no schema, help, version, skill, import or email-draft tool, so the remote rendering names none.
  */
-import { agentContractLine, agentPolicyBullets } from "@openrhen/contracts";
+import { ARCHIVE_OR_CANCEL_FULL, agentContractLine, agentPolicyBullets } from "@openrhen/contracts";
 import { commandModules, registeredInboxActRooms } from "./command-modules.js";
 import { surfaceText, type TextSurface } from "./surface-text.js";
 
@@ -103,9 +103,8 @@ with hyphens as underscores). Pass options by their flag name without the leadin
   "Saved" means the write is in and only the answer could not be read: repeat with the same key to read it.
   Never repeat a failed write without that key.
 - A change that touches more than one record needs \`yes\`. Do not add it unless you meant the fan-out.
-- There is no delete. Removal is a status change made through \`rhen_save\` (\`archived\`,
-  \`cancelled\`, \`ended\` or \`ignored\`, depending on the entity; \`guide writing-data\` has the table).
-  Ending a recurrence is still guarded: set its end date instead (\`guide recurrence\`).
+${ARCHIVE_OR_CANCEL_FULL.map((line) => `- ${line}`).join("\n")}
+- A capture is hidden by ignoring it (\`rhen_save\` status \`ignored\`); a span or sleep log entry takes \`remove\`, filed as a proposal.
 - To start work in the past, pass \`started-at\` to \`session start\` or \`activity start\`, within the last 24
   hours. To end it in the past, pass \`ended-at\` to \`session finish\`; that also works once a forgotten session
   is awaiting feedback (its clock stopped at the planned end). A night is \`save sleep-log-entry --set sleepAt=... --set wakeAt=...\`; a wake is \`wake --at ...\`

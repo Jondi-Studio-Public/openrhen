@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
 import {
+  CLOSE_TYPES,
+  SERVER_FILED_KINDS,
+  closeEntityPayloadSchema,
   entityCommandBatchPayloadSchema,
   entityCommandPayloadSchema,
   planningEntityCommandSchema,
@@ -11,6 +14,7 @@ import {
 } from "@openrhen/contracts";
 import { proposalSummary, storedRecord, summaryList } from "@/server/agent-enforcement";
 import { settleCatchUp } from "@/server/persistence/postgres/catch-up";
+import { closeEntity, closeRowVersion } from "@/server/persistence/postgres/close-commands";
 import { CommandConflictError, InvalidCommandError } from "@/server/persistence/postgres/command-errors";
 import { stableUuid } from "@/server/persistence/postgres/command-values";
 import { nestedPool } from "@/server/persistence/postgres/nested-pool";
@@ -84,8 +88,8 @@ export function proposalApplier(kind: string) {
 
 /** The proposal kinds this portal can file and apply, for the refusal that names the ones it accepts. */
 export function proposalKinds(): string[] {
-  // The server files these itself (a bulk write, a catch-up settle); rhen_propose accepts only the rest.
-  const serverFiled = new Set([BATCH_KIND, "settle_catch_up"]);
+  // The server files these itself (a close, a bulk write, a catch-up settle); rhen_propose accepts only the rest.
+  const serverFiled: ReadonlySet<string> = new Set(SERVER_FILED_KINDS);
   return [...appliers.keys()].filter((kind) => !serverFiled.has(kind)).sort();
 }
 
@@ -230,6 +234,8 @@ async function readVersion(context: ProposalContext, key: string): Promise<numbe
     const id = await stableUuid(`commitment:${userId}`, rawId);
     return first(sql`SELECT version FROM commitments WHERE id=${id} AND user_id=${userId}`);
   }
+  if ((CLOSE_TYPES as readonly string[]).includes(type!))
+    return closeRowVersion(sql, userId, type as (typeof CLOSE_TYPES)[number], rawId);
   return undefined;
 }
 
@@ -442,5 +448,57 @@ registerProposalApplier(
       }
       return current;
     }
+  }
+);
+
+// ---- close_entity: a held archive, cancel or restore (the design notes D7, D9, D13) ----
+
+const CLOSE_KIND = "close_entity";
+
+/** The key a close proposal pins its target under; `readVersion` reads the same key. */
+const closeKey = (payload: { type: string; id: string }) => `${payload.type}:${payload.id}`;
+
+registerProposalApplier(
+  CLOSE_KIND,
+  async (context, proposal) => {
+    const parsed = closeEntityPayloadSchema.safeParse(proposal.payload);
+    if (!parsed.success)
+      throw new InvalidCommandError("This change cannot be confirmed: the stored close is no longer valid.");
+    const { children, cascadeTypes: _types, ...call } = parsed.data;
+    // The proposal's own receipt. Confirming runs as the owner, so the close is stamped `agent:<name>:confirmed`, the
+    // agent brake and the person-closed rule do not apply, and the rows under it must still be the ones pinned.
+    const { closed } = await closeEntity(
+      context.sql,
+      { ...call, commandId: receiptId(proposal) },
+      call.do === "close" ? { expectedChildren: children } : {}
+    );
+    return closed;
+  },
+  {
+    validate(payload) {
+      const parsed = closeEntityPayloadSchema.safeParse(payload);
+      if (!parsed.success)
+        return {
+          ok: false,
+          error: `Close is invalid: ${parsed.error.issues[0]?.path.join(".") ?? "payload"} ${parsed.error.issues[0]?.message ?? "validation failed"}.`
+        };
+      return {
+        ok: true,
+        targetVersions:
+          parsed.data.expectedVersion === undefined ? {} : { [closeKey(parsed.data)]: parsed.data.expectedVersion }
+      };
+    },
+    summarize(_context, payload) {
+      const parsed = closeEntityPayloadSchema.parse(payload);
+      const word = parsed.do === "restore" ? "Restore" : parsed.verb === "archive" ? "Archive" : "Cancel";
+      const label = parsed.type.replace(/_/g, " ");
+      const under = parsed.children.length;
+      return Promise.resolve(
+        `${word} ${label} "${parsed.id}"${under > 0 ? ` and ${under} ${under === 1 ? "item" : "items"} under it` : ""}${
+          parsed.reason ? `: ${parsed.reason}` : ""
+        }`
+      );
+    },
+    currentVersions: currentVersionsOf
   }
 );

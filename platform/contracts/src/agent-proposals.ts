@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CLOSE_TYPES } from "./closed-entity.js";
 
 /**
  * Agent proposals: a write an agent wants made, held for the
@@ -120,3 +121,47 @@ export const entityCommandBatchPayloadSchema = z.object({
   atomic: z.boolean().optional()
 });
 export type EntityCommandBatchPayload = z.infer<typeof entityCommandBatchPayloadSchema>;
+
+/**
+ * Proposal kinds the portal files itself and an agent can never file through `POST /api/agent-proposals` or
+ * `proposeAgentChange`: a close (it carries the rows pinned at the moment the owner's decision was made), a bulk write
+ * and a catch-up settle each go through their own tool, which decides what may be proposed and how.
+ */
+export const SERVER_FILED_KINDS = ["close_entity", "entity_command_batch", "settle_catch_up"] as const;
+
+/** The tool an agent uses instead of filing a server-filed kind itself. */
+export const SERVER_FILED_KIND_TOOLS: Readonly<Record<(typeof SERVER_FILED_KINDS)[number], string>> = {
+  close_entity: "rhen_archive or rhen_cancel",
+  entity_command_batch: "rhen_bulk or rhen_changeset",
+  settle_catch_up: "rhen_catch_up_settle"
+};
+
+/** Most rows one close proposal may pin besides its target. */
+export const CLOSE_ENTITY_CHILDREN_MAX = 500;
+
+/**
+ * The payload of the `close_entity` kind: the close or restore as the agent asked for it, and the rows under it the
+ * server resolved when it filed the proposal. Confirming replays the close and goes stale if the live set differs.
+ */
+export const closeEntityPayloadSchema = z
+  .object({
+    type: z.enum(CLOSE_TYPES),
+    verb: z.enum(["archive", "cancel"]),
+    id: z.string().min(1),
+    do: z.enum(["close", "restore"]),
+    expectedVersion: z.number().int().positive().optional(),
+    reason: z.string().max(500).optional(),
+    includeChildren: z.boolean().optional(),
+    /** Every other row the call changes (children, a commitment's steps and prep), at the version they had. */
+    children: z
+      .array(z.object({ type: z.string().min(1), id: z.string().min(1), version: z.number().int().positive() }))
+      .max(CLOSE_ENTITY_CHILDREN_MAX)
+      .default([]),
+    /** The types the call touches besides its own, for the card. */
+    cascadeTypes: z.array(z.string()).optional()
+  })
+  .refine((payload) => payload.do !== "restore" || payload.expectedVersion !== undefined, {
+    message: "A restore needs the expected version of the closed row.",
+    path: ["expectedVersion"]
+  });
+export type CloseEntityPayload = z.infer<typeof closeEntityPayloadSchema>;
