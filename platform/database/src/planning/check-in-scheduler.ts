@@ -367,11 +367,20 @@ async function currentlyArrivedLocationId(sql: postgres.Sql, userId: string, now
   return currentFreshLocationId(situationRows[0]?.current_situation, now, DEFAULT_LOCATION_STALE_AFTER_MINUTES);
 }
 
-/**
- * Runs one tick for one user against the real database: reads the engine's current belief and the
- * active session cheaply (no plan run, no HTTP to the engine service), decides, and applies.
- */
-export async function runCheckInSchedulerTick(sql: postgres.Sql, userId: string, now: Date): Promise<void> {
+interface BeliefInputs {
+  currentDirective: RawCurrentDirective | null;
+  protectedCommitment: RawProtectedCommitment | null;
+  openAnchor: RawProtectedCommitment | null;
+  sessionRows: {
+    target_type: string;
+    target_id: string | null;
+    target_title: string | null;
+    started_at: Date | null;
+  }[];
+}
+
+/** The stored plan run's belief fields and the open session, read cheaply (no plan run, no HTTP to the engine). */
+async function readBeliefInputs(sql: postgres.Sql, userId: string): Promise<BeliefInputs> {
   const planningRows = await sql<
     {
       current_directive: RawCurrentDirective | null;
@@ -384,17 +393,42 @@ export async function runCheckInSchedulerTick(sql: postgres.Sql, userId: string,
       result->'recommendation'->'openAnchor' AS open_anchor
     FROM planning_runs WHERE user_id=${userId} AND superseded_at IS NULL
   `;
-  const currentDirective = planningRows[0]?.current_directive ?? null;
-  const protectedCommitment = planningRows[0]?.protected_commitment ?? null;
-  const openAnchor = planningRows[0]?.open_anchor ?? null;
-
-  const sessionRows = await sql<
-    { target_type: string; target_id: string | null; target_title: string | null; started_at: Date | null }[]
-  >`
+  const sessionRows = await sql<BeliefInputs["sessionRows"]>`
     SELECT target_type, target_id, target_title, started_at FROM sessions
     WHERE user_id=${userId} AND ended_at IS NULL AND status IN ('running','paused','awaiting_feedback')
     ORDER BY created_at DESC LIMIT 1
   `;
+  return {
+    currentDirective: planningRows[0]?.current_directive ?? null,
+    protectedCommitment: planningRows[0]?.protected_commitment ?? null,
+    openAnchor: planningRows[0]?.open_anchor ?? null,
+    sessionRows
+  };
+}
+
+/**
+ * What the engine believes the person is doing right now, as a slot would snapshot it, or null when it
+ * believes nothing askable. The same read and derivation the scheduler tick uses; a voluntary check-in
+ * (`portal/.../check-in-commands.ts`) snapshots it too.
+ */
+export async function readCurrentBelief(sql: postgres.Sql, userId: string): Promise<CheckInBeliefSnapshot | null> {
+  const inputs = await readBeliefInputs(sql, userId);
+  const session = inputs.sessionRows[0];
+  return deriveBeliefSnapshot(
+    inputs.currentDirective,
+    inputs.protectedCommitment,
+    inputs.openAnchor,
+    session ? { targetType: session.target_type, targetId: session.target_id, targetTitle: session.target_title } : null
+  );
+}
+
+/**
+ * Runs one tick for one user against the real database: reads the engine's current belief and the
+ * active session cheaply (no plan run, no HTTP to the engine service), decides, and applies.
+ */
+export async function runCheckInSchedulerTick(sql: postgres.Sql, userId: string, now: Date): Promise<void> {
+  const { currentDirective, protectedCommitment, openAnchor, sessionRows } = await readBeliefInputs(sql, userId);
+
   const hasActiveSession = sessionRows.length > 0;
   const activeSessionStartedAt = sessionRows[0]?.started_at ?? null;
   const sleeping = isSleepWindow(currentDirective, sessionRows[0]?.target_type ?? null);

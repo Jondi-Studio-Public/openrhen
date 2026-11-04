@@ -1,8 +1,10 @@
+import { readCurrentBelief } from "@openrhen/database";
+import type postgres from "postgres";
 import { requestAgent } from "@/server/agent-actor";
 import type { CheckInCommand } from "@openrhen/contracts";
 import type { PortalState } from "@/state/portal-state";
 import { claimCommandReceipt, commandRequestHash, hasCommandReceipt } from "./command-receipt";
-import { alreadyClosed, notFound, versionConflict } from "./command-errors";
+import { alreadyClosed, InvalidCommandError, notFound, versionConflict } from "./command-errors";
 import { ensureUser } from "./ensure-user";
 import { readStateAfterCommit } from "./read-after-commit";
 import type { PoolSql, TxSql } from "./sql-pool";
@@ -10,6 +12,7 @@ import { WriteSnapshot } from "./write-snapshot";
 
 type AnswerCheckInCommand = Extract<CheckInCommand, { type: "answer_check_in" }>;
 type AnswerCheckInsCommand = Extract<CheckInCommand, { type: "answer_check_ins" }>;
+type VoluntaryCheckInCommand = Extract<CheckInCommand, { type: "voluntary_check_in" }>;
 
 /**
  * Answers one check-in, or a whole reconciliation trail in one transaction. Record-only: this writes
@@ -35,6 +38,8 @@ export async function runCheckInCommand(sql: PoolSql, command: CheckInCommand): 
     const snap = await WriteSnapshot.open(tx, userId, command.commandId, "check_in");
     if (command.type === "answer_check_in") {
       await answerCheckIn(tx, userId, command, snap);
+    } else if (command.type === "voluntary_check_in") {
+      await recordVoluntaryCheckIn(tx, userId, command, snap);
     } else {
       await answerCheckInsBatch(tx, userId, command, snap);
     }
@@ -132,4 +137,48 @@ async function answerCheckInsBatch(
       WHERE id=${checkInId}
     `;
   }
+}
+
+/**
+ * A check-in nobody asked for: with the pulse unknown and no check-in waiting, the owner (or their agent)
+ * says what is happening. Inserted already answered, never `pending` (the partial unique index allows one
+ * pending row per user), with the directive snapshot the scheduler would have taken at this instant
+ * (`readCurrentBelief`, the scheduler's own read). It reads as contact to the pulse like a prompted answer
+ * (`prompted_at` stays null, which is how a voluntary row differs), and `inserted` lets `rhen_undo` delete it.
+ */
+async function recordVoluntaryCheckIn(
+  tx: TxSql,
+  userId: string,
+  command: VoluntaryCheckInCommand,
+  snap: WriteSnapshot | null
+): Promise<void> {
+  const open = await tx<{ id: string }[]>`
+    SELECT id FROM check_in
+    WHERE user_id=${userId} AND answered_at IS NULL AND status IN ('pending','unknown')
+    ORDER BY created_at DESC LIMIT 1 FOR UPDATE`;
+  if (open[0])
+    throw alreadyClosed("check-in", open[0].id, "waiting for an answer, so it is answered, not recorded anew", {
+      tool: "rhen_check_in",
+      arguments: { status: command.status.replace("_", "-") },
+      note: "send the same call again: with a check-in waiting it answers that one"
+    });
+  const belief = await readCurrentBelief(tx as unknown as postgres.Sql, userId);
+  if (!belief?.targetId)
+    throw new InvalidCommandError(
+      "There is no check-in waiting and the plan has nothing current to check in on, so there is nothing to record. " +
+        "Read rhen_status; if the owner is doing something, record it with rhen_activity (subcommand start) or rhen_session.",
+      { nextCall: { tool: "rhen_status", arguments: {}, note: "shows what the plan believes now and what to record" } }
+    );
+  const at = new Date();
+  const id = crypto.randomUUID();
+  await tx`
+    INSERT INTO check_in (
+      id, user_id, slot_at, directive_kind, directive_target_id, directive_phase, directive_title, status,
+      answered_at, deviation_category, deviation_note, deviation_target_id, answer_source, answered_by
+    ) VALUES (
+      ${id}, ${userId}, ${at}, ${belief.kind}, ${belief.targetId}, ${belief.phase}, ${belief.title}, ${command.status},
+      ${at}, ${command.deviationCategory ?? null}, ${command.deviationNote ?? null},
+      ${command.deviationTargetId ?? null}, ${command.answerSource}, ${requestAgent()}
+    )`;
+  snap?.inserted("check_in", [id]);
 }

@@ -122,11 +122,37 @@ beforeAll(async () => {
 }, 30_000);
 
 beforeEach(async () => {
-  await sql.unsafe("TRUNCATE TABLE check_in, writes, write_rows CASCADE");
+  await sql.unsafe("TRUNCATE TABLE check_in, writes, write_rows, planning_runs CASCADE");
 });
 
 afterAll(async () => {
   await sql?.end();
+});
+
+describe("undo of a voluntary check-in", () => {
+  it("deletes the voluntary row on undo and puts it back on redo", async () => {
+    const now = new Date();
+    await sql`
+      INSERT INTO planning_runs (user_id,request_id,input_version,contract_version,engine_version,calculated_at,valid_until,result)
+      VALUES (${userId},${crypto.randomUUID()},'v1','1','v1',${now},${new Date(now.getTime() + 3_600_000)},
+        ${sql.json({ currentDirective: { kind: "action", targetId: crypto.randomUUID(), title: "Write" } } as never)})`;
+    const commandId = crypto.randomUUID();
+    await asAgent("openclaw", () =>
+      runCheckInCommand(sql, {
+        commandId,
+        type: "voluntary_check_in",
+        expectedVersion: null,
+        status: "on_track",
+        answerSource: "sheet"
+      })
+    );
+    const count = async () => (await sql`SELECT id FROM check_in WHERE user_id=${userId}`).length;
+    expect(await count()).toBe(1);
+    await asAgent("openclaw", () => runRevertCommand(sql, revert(commandId, "undo")));
+    expect(await count()).toBe(0);
+    await asAgent("openclaw", () => runRevertCommand(sql, revert(commandId, "redo")));
+    expect(await count()).toBe(1);
+  });
 });
 
 describe("snapshots of check-in answers", () => {

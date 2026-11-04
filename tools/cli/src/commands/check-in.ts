@@ -49,9 +49,9 @@ function readPendingCheckIn(row: Record<string, unknown>): PendingCheckIn {
 
 export const checkInCommand: CommandSpec = {
   name: "check-in",
-  summary: "Answer the pending check-in",
+  summary: "Answer or record a check-in",
   description:
-    "Answers the one pending check-in slot, the same way the check-in sheet does. A deviated answer requires " +
+    "Answers the one pending check-in slot, the same way the check-in sheet does; with none waiting it records a voluntary one for what the plan believes now. A deviated answer requires " +
     "--category; --category, --note and --target belong to a deviated answer and are refused on on-track or " +
     "unknown. --target is the id of the action that was actually being worked on (an exact title also works); " +
     "it is checked against your actions, and nothing is started or switched.",
@@ -115,14 +115,15 @@ export const checkInCommand: CommandSpec = {
 
     const response = await context.client.get<{ checkIn: Record<string, unknown> | null }>("/api/check-ins/current");
     const row = response?.checkIn ?? null;
-    if (!row) throw new CliError("No check-in is pending.", EXIT.notFound);
-    const { id, version } = readPendingCheckIn(row);
+    // None waiting: record a voluntary check-in; the server refuses it with the next call if the plan has nothing current.
+    const pending = row ? readPendingCheckIn(row) : null;
+    const id = pending?.id ?? null;
 
     const payload: Record<string, unknown> = {
       commandId: newCommandId(),
-      expectedVersion: version,
-      type: "answer_check_in",
-      checkInId: id,
+      expectedVersion: pending?.version ?? null,
+      type: pending ? "answer_check_in" : "voluntary_check_in",
+      ...(pending ? { checkInId: pending.id } : {}),
       status,
       ...(status === "deviated" && category !== undefined ? { deviationCategory: category } : {}),
       ...(status === "deviated" && note !== undefined ? { deviationNote: note } : {}),
@@ -136,12 +137,16 @@ export const checkInCommand: CommandSpec = {
     const result = await postCommand(context, args, {
       path: "/api/commands/check-in",
       payload,
-      summary: `answer check-in ${id} as ${status}`,
+      summary: id ? `answer check-in ${id} as ${status}` : `record a voluntary check-in as ${status}`,
       reverse: "server"
     });
     if (result.state === null) return;
 
-    if (context.mode !== "table") context.stdout(toJson({ ok: true, checkInId: id, status }, true));
-    else context.stdout(`rhen: check-in ${id} answered as ${status}.`);
+    if (context.mode !== "table")
+      context.stdout(toJson({ ok: true, checkInId: id, status, voluntary: id === null }, true));
+    else
+      context.stdout(
+        id ? `rhen: check-in ${id} answered as ${status}.` : `rhen: voluntary check-in recorded as ${status}.`
+      );
   }
 };

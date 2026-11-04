@@ -749,11 +749,11 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
   },
   rhen_check_in: {
     description:
-      "Answers the one pending check-in shown by rhen_status. status is " +
+      "Answers the pending check-in from rhen_status; none waiting, records a voluntary one. status is " +
       "on-track, deviated or unknown. A deviated answer needs a category; category, note and target belong to deviated " +
       "only and are refused otherwise. If they are doing something other than the plan, follow it at once with " +
-      "rhen_disrupt, or the pulse lapses. target is the action actually " +
-      "worked on (id or exact title); it is recorded, nothing is started. Returns the recorded answer; rhen_undo " +
+      "rhen_disrupt, or the pulse lapses. target: action " +
+      "worked on (id or exact title); recorded, nothing started. Returns the answer; rhen_undo " +
       "reverses it.",
     params: {
       status: "on-track, deviated or unknown.",

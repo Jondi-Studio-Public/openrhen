@@ -43,6 +43,13 @@ describe("POST /api/commands/check-in", () => {
     expect(await response.json()).toEqual({ state: { marker: "state" }, revertible: body.commandId });
   });
 
+  it("accepts a voluntary check-in that names no check-in id", async () => {
+    const { checkInId: _omitted, ...rest } = body;
+    const response = await call({ ...rest, type: "voluntary_check_in", expectedVersion: null });
+    expect(response.status).toBe(200);
+    expect(runCheckInCommand).toHaveBeenCalledOnce();
+  });
+
   it("rejects an invalid answer without running it", async () => {
     agent.name = "companion";
     expect((await call({ ...body, status: "maybe" })).status).toBe(400);

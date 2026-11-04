@@ -486,6 +486,7 @@ export type PulseRecorderOutcome =
 const CONTACT_COMMAND_TYPES = [
   "answer_check_in",
   "answer_check_ins",
+  "voluntary_check_in",
   "start",
   "select_alternative",
   "correct_start",

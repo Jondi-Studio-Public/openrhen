@@ -655,10 +655,24 @@ const answerCheckInsObjectSchema = z.object({
   })
 });
 
+/**
+ * A voluntary check-in: the answer when no check-in is waiting (the pulse went unknown and nobody was asked).
+ * The server records a new, already-answered `check_in` row for the engine's current belief and refuses when
+ * a check-in is open (answer that with `answer_check_in`) or the engine believes nothing.
+ */
+const voluntaryCheckInObjectSchema = commandBase.extend({
+  type: z.literal("voluntary_check_in"),
+  status: z.enum(["on_track", "deviated", "unknown"]),
+  deviationCategory: deviationCategorySchema.optional(),
+  deviationNote: z.string().trim().max(1000).optional(),
+  deviationTargetId: z.string().min(1).optional(),
+  answerSource: z.enum(["in_app_banner", "sheet"])
+});
+
 export const checkInCommandSchema = z
-  .discriminatedUnion("type", [answerCheckInObjectSchema, answerCheckInsObjectSchema])
+  .discriminatedUnion("type", [answerCheckInObjectSchema, answerCheckInsObjectSchema, voluntaryCheckInObjectSchema])
   .superRefine((value, context) => {
-    if (value.type === "answer_check_in") {
+    if (value.type === "answer_check_in" || value.type === "voluntary_check_in") {
       if (value.deviationCategory && value.status !== "deviated")
         context.addIssue({ code: "custom", message: "A deviation category only belongs on a deviated answer." });
       if (value.deviationTargetId && value.status !== "deviated")
@@ -669,6 +683,7 @@ export const checkInCommandSchema = z
   });
 export type CheckInCommand = z.infer<typeof checkInCommandSchema>;
 export type AnswerCheckInCommand = Extract<CheckInCommand, { type: "answer_check_in" }>;
+export type VoluntaryCheckInCommand = Extract<CheckInCommand, { type: "voluntary_check_in" }>;
 export type AnswerCheckInsCommand = Extract<CheckInCommand, { type: "answer_check_ins" }>;
 
 export type SessionCommand = z.infer<typeof sessionCommandSchema>;

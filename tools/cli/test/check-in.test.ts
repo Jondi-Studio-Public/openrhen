@@ -97,10 +97,20 @@ describe("check-in", () => {
     expect(result.exitCode).toBe(EXIT.ok);
   });
 
-  it("reports notFound when no check-in is pending", async () => {
-    const result = await run(["on-track"], { "/api/check-ins/current": { body: { checkIn: null } } });
-    expect(result.exitCode).toBe(EXIT.notFound);
-    expect(result.calls.some((call) => call.method === "POST")).toBe(false);
+  it("records a voluntary check-in, with no id, when none is pending", async () => {
+    const result = await run(["on-track"], {
+      "/api/check-ins/current": { body: { checkIn: null } },
+      "/api/commands/check-in": (call) => {
+        expect(checkInCommandSchema.safeParse(call.body).success).toBe(true);
+        const body = call.body as Record<string, unknown>;
+        expect(body).toMatchObject({ type: "voluntary_check_in", status: "on_track", expectedVersion: null });
+        expect(body).not.toHaveProperty("checkInId");
+        return { body: { state: fixtureRawState() } };
+      }
+    });
+    expect(result.exitCode).toBe(EXIT.ok);
+    expect(result.text).toContain("voluntary check-in recorded as on_track");
+    expect(result.calls.filter((call) => call.method === "POST")).toHaveLength(1);
   });
 
   // "Not sure" in the portal UI, and the third answer a stale prompt offers:
@@ -217,9 +227,15 @@ describe("check-in argument validation", () => {
     expect(result.calls.filter((call) => call.method === "POST")).toHaveLength(1);
   });
 
-  it("still reports no pending check-in for valid arguments", async () => {
-    const result = await run(["deviated", "--category", "work"], noPending);
-    expect(result.exitCode).toBe(EXIT.notFound);
-    expect(result.stderr).toContain("No check-in is pending");
+  it("records a voluntary deviated check-in for valid arguments when none is pending", async () => {
+    const result = await run(["deviated", "--category", "work"], {
+      ...noPending,
+      "/api/commands/check-in": (call) => {
+        expect(checkInCommandSchema.safeParse(call.body).success).toBe(true);
+        expect(call.body).toMatchObject({ type: "voluntary_check_in", status: "deviated", deviationCategory: "work" });
+        return { body: { state: fixtureRawState() } };
+      }
+    });
+    expect(result.exitCode).toBe(EXIT.ok);
   });
 });

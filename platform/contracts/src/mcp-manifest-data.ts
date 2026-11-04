@@ -2807,7 +2807,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
     name: "rhen_check_in",
     command: "check-in",
     description:
-      "WRITES DATA. Answers the one pending check-in shown by rhen_status. status is on-track, deviated or unknown. A deviated answer needs a category; category, note and target belong to deviated only and are refused otherwise. If they are doing something other than the plan, follow it at once with rhen_disrupt, or the pulse lapses. target is the action actually worked on (id or exact title); it is recorded, nothing is started. Returns the recorded answer; rhen_undo reverses it.",
+      "WRITES DATA. Answers the pending check-in from rhen_status; none waiting, records a voluntary one. status is on-track, deviated or unknown. A deviated answer needs a category; category, note and target belong to deviated only and are refused otherwise. If they are doing something other than the plan, follow it at once with rhen_disrupt, or the pulse lapses. target: action worked on (id or exact title); recorded, nothing started. Returns the answer; rhen_undo reverses it.",
     inputSchema: {
       type: "object",
       properties: {
