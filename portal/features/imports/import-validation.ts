@@ -41,6 +41,9 @@ export function absentField(): ImportField {
  * extraction did not emit at all. A field that is present but says nothing about its source is read
  * as a cell, which is what every batch stored before provenance was recorded meant by it.
  */
+/** The note on an update of a commitment the person (or an agent) cancelled: the source's event does not reopen it. */
+export const STILL_CANCELLED_WARNING = "Still cancelled by you. Restore it from Review > Closed.";
+
 export function isAbsentColumn(record: Pick<ImportRecord, "fields">, name: string): boolean {
   const field = record.fields[name];
   return field === undefined || field.source === "absent";
@@ -123,7 +126,8 @@ export function validateImportRecords(input: ImportRecord[], options: ValidateIm
       return { ...record, errors: [], warnings: record.warnings };
     const errors: string[] =
       record.operation === "conflict" ? record.errors.filter((item) => isDiffConflictMessage(item)) : [];
-    const warnings: string[] = [];
+    // The diff's note that the source does not reopen a cancelled commitment survives validation: it is not a validation finding.
+    const warnings: string[] = record.warnings.filter((warning) => warning === STILL_CANCELLED_WARNING);
     if (record.importKey.startsWith("missing-")) errors.push("import_key is required.");
     if ((counts.get(`${record.entityType}:${record.importKey.toLowerCase()}`) ?? 0) > 1)
       errors.push("Duplicate import key in this batch.");

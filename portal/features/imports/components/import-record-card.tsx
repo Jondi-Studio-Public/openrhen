@@ -63,7 +63,10 @@ const managedRelationships = () => [
   "routinePresetId",
   "routineSteps",
   "remoteCancelEdited",
-  "remoteCancelled"
+  "remoteCancelled",
+  "sourceLinkId",
+  "sourceReopen",
+  "sourceClear"
 ];
 /** The source-matching relationships are the screen's own; the card explains them instead. */
 const isSourceMatchRelationship = (name: string) => name.startsWith("sourceMatch") || name.startsWith("sourceUnlink");

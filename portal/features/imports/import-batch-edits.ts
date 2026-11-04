@@ -467,12 +467,13 @@ export function resolveRecordSourceMatch(batch: ImportBatch, recordId: string, s
  */
 export function dropRecordCommitment(batch: ImportBatch, recordId: string): ImportBatch {
   return mapRecord(batch, recordId, (record) => {
-    const { sourceUnlinkLinkId: _linkId, sourceUnlinkOthers: _others, ...relationships } = record.relationships;
+    const { sourceUnlinkLinkId: linkId, sourceUnlinkOthers: _others, ...relationships } = record.relationships;
     return {
       ...record,
       operation: "delete" as const,
-      relationships,
-      warnings: ["Confirming this row permanently deletes the fixed commitment."]
+      // The link stays named so the commit can remember that this source's removal was applied.
+      relationships: { ...relationships, ...(linkId ? { sourceLinkId: linkId } : {}) },
+      warnings: ["Confirming this row cancels the commitment. You can restore it from Review > Closed."]
     };
   });
 }

@@ -106,10 +106,16 @@ describe("an agent's import commit", () => {
         Array.from({ length: 2 }, (_, i) => cancelRow(`l-${i}`, `Lecture ${i}`)).join("\r\n")
       );
       await asTokenAgent(() => importStore.commit(batch.id, batch.version));
+      // One ledger row per cancelled commitment (the brake counts their `closed` figures), all under the batch's command id.
       const rows = await sql<
-        { evidence: { closed: number; via: string; counted: boolean } }[]
-      >`SELECT evidence FROM write_rows WHERE operation='close'`;
-      expect(rows.map((r) => r.evidence)).toMatchObject([{ closed: 2, via: "import", counted: true }]);
+        { evidence: { closed: number; via: string; counted: boolean }; write_id: string }[]
+      >`SELECT evidence, write_id FROM write_rows WHERE operation='close' AND entity_type='commitment'`;
+      expect(rows.map((r) => r.evidence)).toMatchObject([
+        { closed: 1, via: "import", counted: true },
+        { closed: 1, via: "import", counted: true }
+      ]);
+      expect(new Set(rows.map((r) => r.write_id)).size).toBe(1);
+      expect(rows[0]!.write_id).toBe(batch.id);
     });
   });
 

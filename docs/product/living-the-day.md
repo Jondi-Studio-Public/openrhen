@@ -91,7 +91,7 @@ A fixed commitment removes time from capacity. Enter its title, start and end, p
 
 - **Confirmed**: occupied time.
 - **Tentative**: kept as a provisional "maybe".
-- **Cancelled**: set with the **Cancel** button rather than the status choice; it no longer blocks the plan and can be restored from Review > Closed.
+- **Cancelled**: set with the **Cancel** button rather than the status choice; it no longer blocks the plan and can be restored from Review > Closed. When a connected calendar cancels or drops an event, its commitment is cancelled the same way (with the reason "Removed at source") instead of being deleted. If the event comes back it reopens; one you cancelled yourself stays cancelled until you restore it.
 
 The **place** is one of your saved places (naming it lets the planner work out the journey). You can also set the project the time belongs to, whether you are **fully occupied** or **free to do other things** while there, and how often check-ins interrupt. A commitment can **repeat**: every N days, every N weeks on chosen weekdays, or monthly. A single date in a series can be edited or cancelled without touching the rest.
 

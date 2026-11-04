@@ -178,8 +178,12 @@ describe("a feed read through the adapter, persisted", () => {
       relationships: { remoteCancelled: "true" }
     });
     await commit(changed);
-    expect(await commitmentTitles()).toEqual(["Standup"]);
-    expect((await feedLinks()).map((l) => l.external_event_id)).toEqual(["a"]);
+    // The cancelled event's commitment is cancelled, not deleted, and its link stays.
+    expect(await commitmentTitles()).toEqual(["Review", "Standup"]);
+    expect(
+      await sql`SELECT 1 FROM commitments WHERE title='Review' AND status='cancelled' AND closed_by='system'`
+    ).toHaveLength(1);
+    expect((await feedLinks()).map((l) => l.external_event_id).sort()).toEqual(["a", "b"]);
     const row = await sql<{ starts_at: Date }[]>`SELECT starts_at FROM commitments WHERE title='Standup'`;
     expect(row[0]!.starts_at.toISOString()).toBe("2026-11-10T02:00:00.000Z");
   });

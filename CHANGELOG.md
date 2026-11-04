@@ -17,6 +17,7 @@ First public release (0.1.0). The release PR gives this section its date and ver
 
 ### Fixed
 
+- **Calendar cancellations**: when a connected calendar or feed cancels an event, or an event disappears from it, OpenRhen now cancels the commitment (with its steps and safe prep actions) instead of deleting it. It shows in Review > Closed with the reason "Removed at source" and can be restored there; an event that comes back reopens it, and one you cancelled yourself is never reopened by an import. The close brake counts these cancellations, and an import preview says "Still cancelled by you" for an update to a commitment you cancelled.
 - **Closing a finished step**: archiving a done deliverable step no longer breaks the state read with a validation error. The step comes back as archived, is left out of the deliverable's progress count and never holds up completion, and re-saving the deliverable keeps a closed step as it is without letting a save close one.
 
 ### Known limits

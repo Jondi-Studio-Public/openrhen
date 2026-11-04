@@ -634,6 +634,10 @@ describe("source matching edits", () => {
     const dropped = dropRecordCommitment(batchOf([unlink]), unlink.id).records[0]!;
     expect(dropped.operation).toBe("delete");
     expect(dropped.relationships.sourceUnlinkLinkId).toBeUndefined();
+    // the link stays named, so the commit remembers this source's removal; and the row says it cancels, not deletes
+    expect(dropped.relationships.sourceLinkId).toBe("link-1");
+    expect(dropped.warnings.join(" ")).toContain("cancels the commitment");
+    expect(dropped.warnings.join(" ")).not.toContain("permanently");
   });
 });
 

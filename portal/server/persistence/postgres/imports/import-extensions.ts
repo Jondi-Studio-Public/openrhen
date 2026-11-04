@@ -25,6 +25,8 @@ export interface ImportRecordContext {
   /** A joining source's own value for a field that differed from the plan, else the record's value. */
   remoteOr: (record: ImportRecord, value: (name: string) => unknown, name: string) => unknown;
   linkSource: unknown;
+  /** The import batch being committed (the close batch of anything it cancels), when the commit has one. */
+  batchId?: string | undefined;
 }
 
 export interface ImportCommitContext {

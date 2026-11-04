@@ -10,6 +10,8 @@ import {
 } from "@openrhen/contracts";
 import type { CalendarFeedSeries, CalendarFeedSeriesException } from "@openrhen/contracts/integrations/calendar-feed";
 import type { Sql } from "../sql-pool";
+import { closeCommitmentAsSystem } from "../system-close";
+import { guardedStatus } from "./upserts";
 import { importField, savedPlaceMatching, type LocationRow } from "./calendar-diff-core";
 import { CALENDAR_FEED_PROVIDER, FEED_FRAME, feedLocation, feedTitle } from "./calendar-profiles/calendar-feed";
 
@@ -448,15 +450,29 @@ export async function insertFeedDate(
   ruleId: string,
   date: string,
   snapshot: DateSnapshot,
-  locationId: string | null
+  locationId: string | null,
+  close: { batchId?: string | undefined } = {}
 ): Promise<string> {
   const id = commitmentOccurrenceRowId(ruleId, date);
-  await sql`
+  // The feed cancelled this date: the row is written open and then cancelled by the close helper, which stamps it, cascades
+  // it and records it. The conflict clause never writes `cancelled` itself and never reopens a cancelled row the import
+  // did not cancel (a person's or an agent's cancel of a planner-owned date stands).
+  const cancelling = snapshot.status === "cancelled";
+  const written = await sql<{ id: string }[]>`
     INSERT INTO commitments (id,user_id,title,starts_at,ends_at,status,location,location_id,setup_before_minutes,transition_after_minutes,presence,presence_source,recurrence_rule_id,local_date,project_id,routine_source,routine_preset_id,share_to_calendar,share_source,schedule_source,lateness_matters,transport_mode,contact_id)
-    SELECT ${id},r.user_id,${snapshot.title},${new Date(snapshot.startsAt)},${new Date(snapshot.endsAt)},${snapshot.status},${snapshot.location},${locationId},${snapshot.setupBeforeMinutes},${snapshot.transitionAfterMinutes},COALESCE(r.presence,'blocking'),'inherit',r.id,${date}::date,r.project_id,r.routine_source,r.routine_preset_id,r.share_to_calendar,'inherit','custom',r.lateness_matters,r.transport_mode,r.contact_id
+    SELECT ${id},r.user_id,${snapshot.title},${new Date(snapshot.startsAt)},${new Date(snapshot.endsAt)},${cancelling ? "confirmed" : snapshot.status},${snapshot.location},${locationId},${snapshot.setupBeforeMinutes},${snapshot.transitionAfterMinutes},COALESCE(r.presence,'blocking'),'inherit',r.id,${date}::date,r.project_id,r.routine_source,r.routine_preset_id,r.share_to_calendar,'inherit','custom',r.lateness_matters,r.transport_mode,r.contact_id
     FROM commitment_recurrence_rules r WHERE r.id=${ruleId} AND r.user_id=${userId}
-    ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title,starts_at=EXCLUDED.starts_at,ends_at=EXCLUDED.ends_at,status=EXCLUDED.status,location=EXCLUDED.location,location_id=EXCLUDED.location_id,setup_before_minutes=EXCLUDED.setup_before_minutes,transition_after_minutes=EXCLUDED.transition_after_minutes,schedule_source='custom',version=commitments.version+1,updated_at=CURRENT_TIMESTAMP WHERE commitments.schedule_source <> 'custom'
+    ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title,starts_at=EXCLUDED.starts_at,ends_at=EXCLUDED.ends_at,status=${guardedStatus(sql, cancelling ? "cancelled" : sql`EXCLUDED.status`)},location=EXCLUDED.location,location_id=EXCLUDED.location_id,setup_before_minutes=EXCLUDED.setup_before_minutes,transition_after_minutes=EXCLUDED.transition_after_minutes,schedule_source='custom',version=commitments.version+1,updated_at=CURRENT_TIMESTAMP WHERE commitments.schedule_source <> 'custom'
+    RETURNING id
   `;
+  // Only a row this statement wrote is cancelled: a custom date the owner edited is left exactly as it is.
+  if (cancelling && written.length > 0)
+    await closeCommitmentAsSystem(sql, {
+      userId,
+      id,
+      why: "Cancelled for this date in the calendar feed",
+      batchId: close.batchId
+    });
   return id;
 }
 

@@ -1,7 +1,13 @@
 import "@/test/example-calendar-sources";
 import { describe, expect, it } from "vitest";
 import type { ImportRecord } from "@openrhen/contracts";
-import { absentField, explicitField, isAbsentColumn, validateImportRecords } from "./import-validation";
+import {
+  STILL_CANCELLED_WARNING,
+  absentField,
+  explicitField,
+  isAbsentColumn,
+  validateImportRecords
+} from "./import-validation";
 import { parseImportCsv } from "./import-csv";
 
 /**
@@ -117,6 +123,22 @@ describe("weekly recurrence weekdays", () => {
     );
     expect(record!.fields.weekdays?.value).toEqual([2, 4]);
     expect(validateImportRecords([record!], { isExisting: isNew })[0]!.errors).toEqual([]);
+  });
+});
+
+describe("the note that a cancelled commitment stays cancelled", () => {
+  it("survives validation of an update, which rebuilds every other warning", () => {
+    const [base] = parseImportCsv(
+      "fixed_commitments",
+      "import_key,title,starts_at,ends_at,status\r\nk,Dentist,2026-10-10T09:00:00.000Z,2026-10-10T10:00:00.000Z,cancelled"
+    );
+    const withNote: ImportRecord = {
+      ...base!,
+      operation: "update",
+      matchedEntityId: "c1",
+      warnings: [STILL_CANCELLED_WARNING, "something the diff said"]
+    };
+    expect(validateImportRecords([withNote])[0]!.warnings).toEqual([STILL_CANCELLED_WARNING]);
   });
 });
 

@@ -33,6 +33,10 @@ export interface LinkRow {
   starts_at: Date;
   ends_at: Date;
   status: string;
+  /** How the commitment was closed, when it is cancelled: what tells a cancel the source made from the person's own. */
+  closed_by?: string | null | undefined;
+  closed_reason?: string | null | undefined;
+  closed_from_status?: string | null | undefined;
   location: string | null;
   setup_before_minutes: number;
   transition_after_minutes: number;

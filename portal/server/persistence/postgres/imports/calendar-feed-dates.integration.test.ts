@@ -9,7 +9,7 @@ import { commitmentOccurrenceRowId, commitmentRepeatFallsOn, zonedDateTime } fro
 import type { CalendarFeedSeries } from "@openrhen/contracts/integrations/calendar-feed";
 import { integrationDatabaseName, persistDerivedState } from "@openrhen/database";
 import { PostgresImportStore } from "../import-store";
-import { FEED_EXCEPTION_HORIZON_DAYS, addDays } from "./calendar-feed-dates";
+import { FEED_EXCEPTION_HORIZON_DAYS, addDays, insertFeedDate } from "./calendar-feed-dates";
 import { feedEvent, feedSeries, preparedFeed } from "./calendar-feed-test-support";
 
 /**
@@ -626,8 +626,8 @@ describe("a date the feed moves to another day", () => {
   const commitmentById = async (id: string) =>
     (
       await sql<
-        { title: string; starts_at: Date; status: string }[]
-      >`SELECT title, starts_at, status FROM commitments WHERE id=${id}`
+        { title: string; starts_at: Date; status: string; closed_by: string | null }[]
+      >`SELECT title, starts_at, status, closed_by FROM commitments WHERE id=${id}`
     )[0];
 
   /** Creates the series, then has the feed move week 1 and approves the pair. */
@@ -715,8 +715,9 @@ describe("a date the feed moves to another day", () => {
     expect(await replacementLink()).toBeDefined();
     await approveReview();
     expect(await dateRow(ruleId, originalDate())).toMatchObject({ status: "confirmed", schedule_source: "inherit" });
-    expect(await replacementLink()).toBeUndefined();
-    expect(await commitmentById(link.commitment_id!)).toBeUndefined();
+    // The replacement is cancelled with its link kept, not deleted (an event that comes back reopens it).
+    expect(await replacementLink()).toBeDefined();
+    expect(await commitmentById(link.commitment_id!)).toMatchObject({ status: "cancelled", closed_by: "system" });
     expect(await sync(readOf(seriesOf()))).toMatchObject({ status: "synced", heldForReview: 0 });
   });
 
@@ -734,7 +735,7 @@ describe("a date the feed moves to another day", () => {
       title: "Back home",
       schedule_source: "custom"
     });
-    expect(await replacementLink()).toBeUndefined();
+    expect(await replacementLink()).toBeDefined();
     expect(await sync(readOf(inPlace))).toMatchObject({ status: "synced", heldForReview: 0 });
   });
 
@@ -768,7 +769,7 @@ describe("a moved meeting is never left half done", () => {
       (
         await sql<
           { n: string }[]
-        >`SELECT count(*) AS n FROM commitments WHERE title='Moved meeting' AND recurrence_rule_id IS NULL`
+        >`SELECT count(*) AS n FROM commitments WHERE title='Moved meeting' AND recurrence_rule_id IS NULL AND status<>'cancelled'`
       )[0]!.n
     );
   const batchShape = async () =>
@@ -1154,7 +1155,7 @@ describe("what an owner's deletion leaves behind", () => {
     await approveReview();
     const key = `calendar_feed:event:${STEM}#move${compact(original)}`;
     expect(await importKeys()).toContain(key);
-    await sql`DELETE FROM commitments WHERE title='Moved meeting' AND recurrence_rule_id IS NULL`;
+    await sql`DELETE FROM commitments WHERE title='Moved meeting' AND recurrence_rule_id IS NULL AND status<>'cancelled'`;
     const result = await sync(readOf(seriesOf({ exceptions: [move] })));
     expect(result.status).not.toBe("failed");
     expect(await importKeys()).not.toContain(key);
@@ -1178,7 +1179,7 @@ describe("a moved meeting that the feed cancels or drops", () => {
       (
         await sql<
           { n: string }[]
-        >`SELECT count(*) AS n FROM commitments WHERE title='Moved meeting' AND recurrence_rule_id IS NULL`
+        >`SELECT count(*) AS n FROM commitments WHERE title='Moved meeting' AND recurrence_rule_id IS NULL AND status<>'cancelled'`
       )[0]!.n
     );
   async function approvedMove() {
@@ -1251,7 +1252,7 @@ describe("a moved meeting that the feed cancels or drops", () => {
 
   it("holds the owner's edit of the replacement as a conflict when the feed moves the date back, and loses nothing", async () => {
     const ruleId = await approvedMove();
-    await sql`UPDATE commitments SET title='Moved meeting (mine)', version=version+1 WHERE title='Moved meeting' AND recurrence_rule_id IS NULL`;
+    await sql`UPDATE commitments SET title='Moved meeting (mine)', version=version+1 WHERE title='Moved meeting' AND recurrence_rule_id IS NULL AND status<>'cancelled'`;
     const result = await sync(readOf(seriesOf()));
     expect(result.status).toBe("needs_review");
     const records = (await openBatch())!.records;
@@ -1262,5 +1263,137 @@ describe("a moved meeting that the feed cancels or drops", () => {
     await expect(store.commitReady(batch.id, batch.version)).rejects.toThrow();
     expect(await dateRow(ruleId, originalDate())).toMatchObject({ status: "cancelled" });
     expect(await sql`SELECT 1 FROM commitments WHERE title='Moved meeting (mine)'`).toHaveLength(1);
+  });
+});
+
+describe("a date the feed cancels, and a cancel the owner made on a planner-owned date", () => {
+  const stamp = async (ruleId: string, date: string) =>
+    (
+      await sql<
+        {
+          status: string;
+          closed_by: string | null;
+          closed_reason: string | null;
+          closed_batch: string | null;
+          closed_from_status: string | null;
+        }[]
+      >`SELECT status, closed_by, closed_reason, closed_batch, closed_from_status FROM commitments WHERE recurrence_rule_id=${ruleId} AND local_date=${date}::date`
+    )[0]!;
+  /** The owner cancelling a date from the portal: `closed_by` is `person`, as the close command stamps it. */
+  const ownerCancels = (ruleId: string, date: string) =>
+    sql.begin(async (tx) => {
+      await tx`SELECT set_config('priorities.actor', 'person', true)`;
+      await tx`UPDATE commitments SET status='cancelled', closed_reason='Not going', version=version+1 WHERE recurrence_rule_id=${ruleId} AND local_date=${date}::date`;
+    });
+  const ledger = (rowId: string) =>
+    sql<
+      { write_id: string; evidence: Record<string, any> }[]
+    >`SELECT write_id, evidence FROM write_rows WHERE operation='close' AND entity_type='commitment' AND entity_id=${rowId}`;
+
+  it("stamps a feed cancel of a planner-owned date as the source's removal, with a ledger row under the import batch", async () => {
+    const ruleId = await createSeries();
+    const result = await sync(readOf(seriesOf({ exceptions: [cancelOn(week(1))] })));
+    expect(result.committedBatchId).toEqual(expect.any(String));
+    const row = (await dateRow(ruleId, week(1)))!;
+    expect(await stamp(ruleId, week(1))).toMatchObject({
+      status: "cancelled",
+      closed_by: "system",
+      closed_reason: "Removed at source: Cancelled for this date in the calendar feed",
+      closed_from_status: "confirmed",
+      closed_batch: result.committedBatchId
+    });
+    const rows = await ledger(row.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.write_id).toBe(result.committedBatchId);
+    expect(rows[0]!.evidence).toMatchObject({ do: "close", verb: "cancel", via: "import", closed: 1 });
+  });
+
+  it("stamps a cancelled date the commit inserts itself, the same way", async () => {
+    const ruleId = await createSeries(seriesOf(), 0);
+    const result = await sync(readOf(seriesOf({ exceptions: [cancelOn(week(3))] })));
+    expect(await stamp(ruleId, week(3))).toMatchObject({
+      status: "cancelled",
+      closed_by: "system",
+      closed_reason: "Removed at source: Cancelled for this date in the calendar feed",
+      closed_batch: result.committedBatchId
+    });
+    expect(await ledger(commitmentOccurrenceRowId(ruleId, week(3)))).toHaveLength(1);
+  });
+
+  it("does not reopen a date the owner cancelled when the feed sends a change for it", async () => {
+    const ruleId = await createSeries();
+    await ownerCancels(ruleId, week(1));
+    const held = await sync(readOf(seriesOf({ exceptions: [changeOn(week(1))] })));
+    expect(held).toMatchObject({ status: "needs_review", heldForReview: 1 });
+    await approveReview();
+    expect(await dateRow(ruleId, week(1))).toMatchObject({ title: "Retimed", status: "cancelled" });
+    expect(await stamp(ruleId, week(1))).toMatchObject({ closed_by: "person", closed_reason: "Not going" });
+  });
+
+  it("does not reopen it through the insert either, when the planner made the date after the diff saw none", async () => {
+    const ruleId = await createSeries();
+    await ownerCancels(ruleId, week(1));
+    const row = (await dateRow(ruleId, week(1)))!;
+    await sql.begin((tx) =>
+      insertFeedDate(
+        tx as never,
+        userId,
+        ruleId,
+        week(1),
+        {
+          title: "Retimed",
+          startsAt: row.starts_at.toISOString(),
+          endsAt: row.ends_at.toISOString(),
+          status: "confirmed",
+          location: null,
+          setupBeforeMinutes: 0,
+          transitionAfterMinutes: 0
+        },
+        null
+      )
+    );
+    expect(await dateRow(ruleId, week(1))).toMatchObject({ title: "Retimed", status: "cancelled" });
+    expect(await stamp(ruleId, week(1))).toMatchObject({ closed_by: "person" });
+  });
+
+  it("leaves an already cancelled date alone when the feed cancels it too: nothing rewritten, nothing counted", async () => {
+    const ruleId = await createSeries();
+    await ownerCancels(ruleId, week(1));
+    const before = await stamp(ruleId, week(1));
+    const row = (await dateRow(ruleId, week(1)))!;
+    await sql.begin((tx) =>
+      insertFeedDate(
+        tx as never,
+        userId,
+        ruleId,
+        week(1),
+        {
+          title: row.title,
+          startsAt: row.starts_at.toISOString(),
+          endsAt: row.ends_at.toISOString(),
+          status: "cancelled",
+          location: null,
+          setupBeforeMinutes: 0,
+          transitionAfterMinutes: 0
+        },
+        null
+      )
+    );
+    expect(await stamp(ruleId, week(1))).toEqual(before);
+    expect(await ledger(row.id)).toHaveLength(0);
+  });
+
+  it("reopens a date the feed cancelled when the EXDATE goes, to the status it had", async () => {
+    const ruleId = await createSeries();
+    await sync(readOf(seriesOf({ exceptions: [cancelOn(week(1))] })));
+    await sync(readOf(seriesOf()));
+    await approveReview();
+    expect(await stamp(ruleId, week(1))).toEqual({
+      status: "confirmed",
+      closed_by: null,
+      closed_reason: null,
+      closed_batch: null,
+      closed_from_status: null
+    });
   });
 });

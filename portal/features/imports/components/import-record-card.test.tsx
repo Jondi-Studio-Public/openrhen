@@ -263,6 +263,24 @@ describe("ImportRecordCard", () => {
     expect(screen.queryByText("remoteCancelEdited")).toBeNull();
   });
 
+  it("shows a returning event's reopen as an update, with the source-return bookkeeping kept off the screen", () => {
+    render(
+      <ImportRecordCard
+        {...actions}
+        record={record({
+          entityType: "fixed_commitment",
+          operation: "update",
+          fields: { title: explicit("Dentist"), status: explicit("confirmed") },
+          relationships: { sourceReopen: "true", sourceClear: "true", sourceLinkId: "link-1" },
+          warnings: ["Still cancelled by you. Restore it from Review > Closed."]
+        })}
+      />
+    );
+    for (const name of ["sourceReopen", "sourceClear", "sourceLinkId", "link-1"])
+      expect(screen.queryByText(name)).toBeNull();
+    expect(screen.getByText("Still cancelled by you. Restore it from Review > Closed.")).toBeTruthy();
+  });
+
   it("shows the calendar feed's reason on a held end and lets the owner keep it, with no raw feed fields", () => {
     const toggle = vi.fn();
     render(
