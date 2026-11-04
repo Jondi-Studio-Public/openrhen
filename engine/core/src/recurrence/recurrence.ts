@@ -27,7 +27,10 @@ export interface ResolveOccurrencesInput {
 export function resolveRecurrenceOccurrences(input: ResolveOccurrencesInput): ActionOccurrence[] {
   if (input.rule.completedAt) return [];
   const through = localDate(new Date(input.through.getTime() - 1), input.rule.timezone);
-  const start = laterDate(input.rule.startDate, localDate(input.from, input.rule.timezone));
+  // One local day back: a window dated yesterday can still be open at `from` (22:00-01:00, or a
+  // sleep-anchored window ending after midnight). The `resolved.endsAt <= input.from` check below
+  // drops the ones that have ended, and `startDate` still bounds the look-back.
+  const start = laterDate(input.rule.startDate, addLocalDays(localDate(input.from, input.rule.timezone), -1));
   const end = earlierDate(input.rule.endDate ?? through, through);
   if (start > end) return [];
   const wakeAnchorByDate = wakeAnchorMap(input.anchors ?? []);

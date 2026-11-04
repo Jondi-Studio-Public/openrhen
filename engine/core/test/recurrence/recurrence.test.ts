@@ -47,6 +47,34 @@ describe("recurring action windows", () => {
     expect(result.map((item) => item.id)).toContain(occurrenceId("dental", "2026-08-10", "morning"));
   });
 
+  it("keeps a window that started on the previous local date and is still open (F1-02)", () => {
+    const nightRule: ActionRecurrenceRule = {
+      id: "night",
+      actionId: "night-action",
+      timezone: "Australia/Sydney",
+      startDate: "2026-08-10",
+      intervalDays: 1,
+      windows: [{ id: "late", name: "Late", anchor: "local_time", localStartTime: "22:00", localEndTime: "01:00" }]
+    };
+    // 00:30 local (UTC+10) on 2026-08-12 is 14:30Z on 2026-08-11.
+    const result = resolveRecurrenceOccurrences({
+      rule: nightRule,
+      from: new Date("2026-08-11T14:30:00Z"),
+      through: new Date("2026-08-12T14:30:00Z")
+    });
+    const open = result.find((item) => item.localDate === "2026-08-11");
+    expect(open?.id).toBe(occurrenceId("night", "2026-08-11", "late"));
+    expect(open?.windowEndsAt.toISOString()).toBe("2026-08-11T15:00:00.000Z");
+    // The previous day's window has ended and the look-back never goes before the rule's startDate.
+    expect(result.map((item) => item.localDate)).toEqual(["2026-08-11", "2026-08-12"]);
+    const first = resolveRecurrenceOccurrences({
+      rule: nightRule,
+      from: new Date("2026-08-09T14:30:00Z"),
+      through: new Date("2026-08-10T14:30:00Z")
+    });
+    expect(first.every((item) => item.localDate >= "2026-08-10")).toBe(true);
+  });
+
   it("prefers actual wake over planned wake and only changes pending resolution", () => {
     const input = {
       rule,
