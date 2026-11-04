@@ -560,7 +560,7 @@ describe("an undo restores the whole row, including what the planner usually own
     expect(await image("commitments", "id = $1", id)).toEqual(saved);
   });
 
-  it("puts back the occurrence and routine steps that ending a series closed, leaving its links, dependencies and prep as they were", async () => {
+  it("puts back the occurrence and routine steps that ending a series closed, closing its safe prep action with it and leaving its links and dependencies as they were", async () => {
     const ruleCommand = {
       commandId: crypto.randomUUID(),
       expectedVersion: null,
@@ -628,7 +628,11 @@ describe("an undo restores the whole row, including what the planner usually own
     expect(await sql`SELECT 1 FROM calendar_event_links`).toHaveLength(1);
     expect(await sql`SELECT 1 FROM routine_steps WHERE status = 'cancelled'`).toHaveLength(2);
     expect(await sql`SELECT 1 FROM routine_step_dependencies`).toHaveLength(1);
-    expect((await image("actions", "id = $1", actionId))!.prep_for_commitment_id).toBe(futureId);
+    // The prep action that passes the safe rules closes with its date, and stays linked to it.
+    expect(await image("actions", "id = $1", actionId)).toMatchObject({
+      status: "cancelled",
+      prep_for_commitment_id: futureId
+    });
 
     await asAgent(() => runRevertCommand(sql, revert(end.commandId!, "undo")));
     const after = await Promise.all(tables.map(([table, where, params]) => image(table, where, ...params)));

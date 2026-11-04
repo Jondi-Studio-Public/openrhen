@@ -303,6 +303,16 @@ describe("ending a recurrence rule", () => {
       (await sql<{ status: string }[]>`SELECT status FROM commitment_recurrence_rules WHERE id=${ruleId}`)[0]!.status
     ).toBe("ended");
     const stored = await row(f1);
+    const ruleBefore = (
+      await sql<{ version: number }[]>`SELECT version FROM commitment_recurrence_rules WHERE id=${ruleId}`
+    )[0]!.version;
+    expect(
+      (
+        await sql<
+          { write_id: string }[]
+        >`SELECT write_id FROM write_rows WHERE operation='close' AND entity_type='commitment_recurrence_rule'`
+      )[0]!.write_id
+    ).toBe(batchId);
     await sql.begin((tx) =>
       endCommitmentRecurrenceRule(tx as never, userId, ruleId, { ...record, expectedVersion: 2 } as ImportRecord, {
         batchId: crypto.randomUUID()
@@ -310,6 +320,9 @@ describe("ending a recurrence rule", () => {
     );
     expect(await row(f1)).toEqual(stored);
     expect(await ledger("close")).toHaveLength(1);
+    expect(
+      (await sql<{ version: number }[]>`SELECT version FROM commitment_recurrence_rules WHERE id=${ruleId}`)[0]!.version
+    ).toBe(ruleBefore);
   });
 });
 
@@ -444,13 +457,87 @@ describe("setting an ended rule active again", () => {
     expect((await row(f1)).status).toBe("confirmed");
   });
 
-  it("falls back to pending for a step the tuples do not cover (changed since the end)", async () => {
-    const { f1, steps } = await seed();
+  it("records at most 2000 step tuples and says so; a step past the cap returns pending, the rest as they were", async () => {
+    await createRule();
+    const date = await occurrence(3);
+    await sql`INSERT INTO routine_steps (user_id,commitment_id,anchor_id,title,duration_minutes,sequence,timing_rule,status)
+      SELECT ${userId},${date},${date},'Step '||n,10,n,'contiguous',CASE WHEN n=2001 THEN 'blocked' ELSE 'pending' END
+      FROM generate_series(1,2001) AS n`;
     await setStatus("ended")();
-    await sql`UPDATE routine_steps SET version=version+1 WHERE id=${steps.blocked}`;
+    const evidence = (await ledger("close"))[0]!.evidence;
+    expect(evidence.steps).toHaveLength(2000);
+    expect(evidence).toMatchObject({ truncated: true, stepCount: 2001 });
+    expect(await count("routine_steps WHERE status='cancelled'")).toBe("2001");
     await setStatus("active")();
-    expect(await row(f1)).toMatchObject({ status: "confirmed" });
-    expect(await stepRow(steps.blocked)).toMatchObject({ status: "pending", version: 4 });
+    expect(await count("routine_steps WHERE status='cancelled'")).toBe("0");
+    // the blocked step was past the cap: the pending fallback
+    expect((await sql<{ status: string }[]>`SELECT status FROM routine_steps WHERE sequence=2001`)[0]!.status).toBe(
+      "pending"
+    );
+  }, 30_000);
+
+  it("brings a tentative date back as tentative", async () => {
+    await createRule();
+    const date = await occurrence(3, "tentative");
+    await setStatus("ended")();
+    expect(await row(date)).toMatchObject({ status: "cancelled", closed_from_status: "tentative" });
+    await setStatus("active")();
+    expect((await row(date)).status).toBe("tentative");
+  });
+
+  it("with no ledger row left, re-activation still restores the latest end's dates", async () => {
+    const { f1, f2, steps } = await seed();
+    await setStatus("ended")();
+    await sql`DELETE FROM write_rows WHERE entity_type='commitment_recurrence_rule' AND operation='close'`;
+    await setStatus("active")();
+    expect((await row(f1)).status).toBe("confirmed");
+    expect((await row(f2)).status).toBe("confirmed");
+    // no tuples: the steps fall back to pending
+    expect((await stepRow(steps.blocked)).status).toBe("pending");
+  });
+
+  it("does not reopen a date under an archived project, and lists it as staying closed", async () => {
+    const { f1, f2 } = await seed();
+    const area = (
+      await sql<
+        { id: string }[]
+      >`INSERT INTO areas (user_id,name,status,sort_order) VALUES (${userId},${"Area " + crypto.randomUUID()},'active',0) RETURNING id`
+    )[0]!.id;
+    const outcome = (
+      await sql<
+        { id: string }[]
+      >`INSERT INTO outcomes (area_id,title,definition_of_done,status) VALUES (${area},'O','D','active') RETURNING id`
+    )[0]!.id;
+    const project = (
+      await sql<
+        { id: string }[]
+      >`INSERT INTO projects (outcome_id,title,status) VALUES (${outcome},'P','active') RETURNING id`
+    )[0]!.id;
+    await sql`UPDATE commitments SET project_id=${project} WHERE id=${f1}`;
+    await setStatus("ended")();
+    await sql`UPDATE projects SET status='archived' WHERE id=${project}`;
+    await setStatus("active")();
+    expect((await row(f1)).status).toBe("cancelled");
+    expect((await row(f2)).status).toBe("confirmed");
+    expect((await ledger("restore"))[0]!.evidence.stayedClosed).toEqual([
+      { id: f1, reason: "its project is archived" }
+    ]);
+  });
+
+  it("shares its ledger row with the write that ended it", async () => {
+    await seed();
+    const commandId = crypto.randomUUID();
+    await asPerson(async () =>
+      saveCommitmentRecurrenceRule(sql, {
+        commandId,
+        expectedVersion: await ruleVersion(),
+        rule: ruleBody("ended"),
+        ...withInProgress
+      } as SaveCommitmentRecurrenceRuleCommand)
+    );
+    const rows = await sql<{ write_id: string }[]>`
+      SELECT write_id FROM write_rows WHERE entity_type='commitment_recurrence_rule' AND operation='close'`;
+    expect(rows.map((r) => r.write_id)).toEqual([commandId]);
   });
 
   it("an agent's undo of a rule end puts the close-era state back (status, closed_*, steps) and a redo ends it again", async () => {
@@ -510,7 +597,7 @@ describe("restoring one occurrence of an ended rule", () => {
     expect((await stepRow(steps.other)).status).toBe("cancelled");
   });
 
-  it("an agent restoring an occurrence of a person-ended rule is not the closer (the route files a proposal); the agent's own end is its to restore", async () => {
+  it("records the real closer on each date: the person for a person-ended rule, the agent for an owner-confirmed agent end (the route files an agent's restore of a person-ended date as a proposal; an agent's restore of its own ended date is also a proposal while the date has steps, because steps need a person's write)", async () => {
     const { f1 } = await seed();
     await setStatus("ended")();
     const byPerson = await previewClose(sql, {
@@ -530,5 +617,160 @@ describe("restoring one occurrence of an ended rule", () => {
       do: "restore"
     } as CloseEntityCommand);
     expect(byAgent.closedBy).toBe("agent:claude");
+  });
+});
+
+// ---- a date restored on its own, while the rule stays ended ----
+
+describe("a date restored on its own while its rule is still ended", () => {
+  const restoreOne = async (id: string) =>
+    asPerson(async () =>
+      closeEntity(sql, {
+        type: "commitment",
+        id,
+        verb: "cancel",
+        do: "restore",
+        expectedVersion: (await row(id)).version
+      } as CloseEntityCommand)
+    );
+  const startsOf = async (id: string) =>
+    (await sql<{ starts_at: Date }[]>`SELECT starts_at FROM commitments WHERE id=${id}`)[0]!.starts_at;
+
+  it("survives the next replan, with only a pending step and with a blocked step too", async () => {
+    const { f1, f2, f3 } = await seed();
+    await setStatus("ended")();
+    await restoreOne(f1); // a pending and a blocked step
+    await restoreOne(f2); // one pending step
+    expect(await row(f2)).toMatchObject({ status: "confirmed" });
+    await replan([]);
+    await replan([]);
+    expect(await row(f1)).toMatchObject({ status: "confirmed" });
+    expect(await row(f2)).toMatchObject({ status: "confirmed" });
+    expect(
+      (await sql<{ schedule_source: string }[]>`SELECT schedule_source FROM commitments WHERE id=${f2}`)[0]!
+        .schedule_source
+    ).toBe("custom");
+    expect((await row(f3)).status).toBe("cancelled");
+  });
+
+  it("still prunes a stray open date of an ended rule that nobody restored", async () => {
+    await seed();
+    await setStatus("ended")();
+    const stray = await occurrence(30);
+    await replan([]);
+    expect(await sql`SELECT 1 FROM commitments WHERE id=${stray}`).toHaveLength(0);
+  });
+
+  it("is not duplicated when the rule is set active again and the planner derives the same date", async () => {
+    const { f2 } = await seed();
+    await setStatus("ended")();
+    await restoreOne(f2);
+    await setStatus("active")();
+    await replan([derived(f2, await startsOf(f2))]);
+    expect(
+      await sql`SELECT 1 FROM commitments WHERE recurrence_rule_id=${ruleId} AND starts_at=${await startsOf(f2)}`
+    ).toHaveLength(1);
+    expect((await row(f2)).status).toBe("confirmed");
+  });
+});
+
+// ---- prep actions ----
+
+describe("prep actions of an ended rule's dates", () => {
+  async function project(): Promise<string> {
+    const area = (
+      await sql<
+        { id: string }[]
+      >`INSERT INTO areas (user_id,name,status,sort_order) VALUES (${userId},${"Area " + crypto.randomUUID()},'active',0) RETURNING id`
+    )[0]!.id;
+    const outcome = (
+      await sql<
+        { id: string }[]
+      >`INSERT INTO outcomes (area_id,title,definition_of_done,status) VALUES (${area},'O','D','active') RETURNING id`
+    )[0]!.id;
+    return (
+      await sql<
+        { id: string }[]
+      >`INSERT INTO projects (outcome_id,title,status) VALUES (${outcome},'P','active') RETURNING id`
+    )[0]!.id;
+  }
+  async function prep(projectId: string, commitmentId: string, title: string, deadline = false): Promise<string> {
+    return (
+      await sql<{ id: string }[]>`
+        INSERT INTO actions (project_id,title,scheduling_mode,status,optimistic_minutes,expected_minutes,pessimistic_minutes,remaining_minutes,energy,minimum_session_minutes,maximum_session_minutes,prep_for_commitment_id,deadline_at)
+        VALUES (${projectId},${title},'one_off','planned',10,20,30,20,'low',5,30,${commitmentId},${deadline ? new Date(Date.now() + 10 * DAY) : null}) RETURNING id`
+    )[0]!.id;
+  }
+  const actionStatus = async (id: string) =>
+    (await sql<{ status: string }[]>`SELECT status::text AS status FROM actions WHERE id=${id}`)[0]!.status;
+
+  it("closes the safe ones with their date, leaves a deadlined one and one with a session running open, and restores with the batch", async () => {
+    const { f1 } = await seed();
+    const projectId = await project();
+    const safe = await prep(projectId, f1, "Buy clay");
+    const deadlined = await prep(projectId, f1, "Book kiln", true);
+    const running = await prep(projectId, f1, "Wedge clay");
+    await sql`INSERT INTO sessions (user_id,action_id,target_type,target_id,status,planned_started_at,planned_end_at,started_at,planned_minutes,remaining_before_minutes)
+      VALUES (${userId},${running},'action',${running},'running',now(),now()+interval '30 minutes',now(),30,20)`;
+    await setStatus("ended")();
+    expect(await actionStatus(safe)).toBe("cancelled");
+    expect(await actionStatus(deadlined)).toBe("planned");
+    expect(await actionStatus(running)).toBe("planned");
+    const evidence = (await ledger("close"))[0]!.evidence;
+    expect(evidence.steps).toEqual(expect.arrayContaining([[safe, f1, "planned", 2, "action"]]));
+    expect(evidence.skipped.map((s: { id: string }) => s.id)).toEqual(expect.arrayContaining([deadlined, running]));
+    await setStatus("active")();
+    expect(await actionStatus(safe)).toBe("planned");
+    expect(await actionStatus(deadlined)).toBe("planned");
+  });
+
+  it("a single date's restore brings its prep back too", async () => {
+    const { f1 } = await seed();
+    const safe = await prep(await project(), f1, "Buy clay");
+    await setStatus("ended")();
+    await asPerson(async () =>
+      closeEntity(sql, {
+        type: "commitment",
+        id: f1,
+        verb: "cancel",
+        do: "restore",
+        expectedVersion: (await row(f1)).version
+      } as CloseEntityCommand)
+    );
+    expect(await actionStatus(safe)).toBe("planned");
+  });
+});
+
+// ---- undo of a re-activation ----
+
+describe("undoing a re-activation", () => {
+  it("puts the end back, and the next re-activation still brings a blocked step back blocked", async () => {
+    const { f1, steps } = await seed();
+    await setStatus("ended")();
+    const commandId = crypto.randomUUID();
+    await asAgent(async () =>
+      saveCommitmentRecurrenceRule(sql, {
+        commandId,
+        expectedVersion: await ruleVersion(),
+        rule: ruleBody("active"),
+        ...withInProgress
+      } as SaveCommitmentRecurrenceRuleCommand)
+    );
+    expect((await row(f1)).status).toBe("confirmed");
+    await asAgent(() =>
+      runRevertCommand(sql, { commandId: crypto.randomUUID(), target: commandId, direction: "undo" })
+    );
+    expect(await row(f1)).toMatchObject({
+      status: "cancelled",
+      closed_by: "person",
+      closed_reason: RECURRENCE_ENDED_REASON
+    });
+    expect((await stepRow(steps.blocked)).status).toBe("cancelled");
+    expect(
+      (await sql<{ status: string }[]>`SELECT status FROM commitment_recurrence_rules WHERE id=${ruleId}`)[0]!.status
+    ).toBe("ended");
+    await setStatus("active")();
+    expect((await row(f1)).status).toBe("confirmed");
+    expect((await stepRow(steps.blocked)).status).toBe("blocked");
   });
 });

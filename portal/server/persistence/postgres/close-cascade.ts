@@ -265,7 +265,12 @@ export async function batchEntries(
   for (const end of ends)
     for (const tuple of Array.isArray(end.evidence.steps) ? (end.evidence.steps as unknown[]) : []) {
       if (!Array.isArray(tuple) || tuple[1] !== id) continue;
-      rows.push({ type: "routine_step", id: String(tuple[0]), from: String(tuple[2]), version: Number(tuple[3]) });
+      rows.push({
+        type: tuple[4] === "action" ? "action" : "routine_step",
+        id: String(tuple[0]),
+        from: String(tuple[2]),
+        version: Number(tuple[3])
+      });
     }
   return rows;
 }

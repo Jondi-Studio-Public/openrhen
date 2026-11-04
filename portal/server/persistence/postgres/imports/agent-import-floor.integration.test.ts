@@ -99,6 +99,63 @@ describe("an agent's import commit", () => {
       expect(await status(batch.id)).toBe("committed");
     });
 
+    // An import batch that ends one recurring series (the source dropped it), written straight into the tables.
+    const seriesEndBatch = async (ruleStatus: "active" | "ended") => {
+      const userId = (await sql<{ id: string }[]>`SELECT id FROM users LIMIT 1`)[0]!.id;
+      const rule = (
+        await sql<{ id: string; version: number }[]>`
+          INSERT INTO commitment_recurrence_rules (user_id,title,timezone,start_date,interval_days,local_start_time,local_end_time,presence,share_to_calendar,status)
+          VALUES (${userId},'Series','Australia/Sydney','2026-09-01',7,'18:00','19:00','blocking',false,${ruleStatus}) RETURNING id, version`
+      )[0]!;
+      await sql`INSERT INTO import_entity_keys (user_id,entity_type,import_key,entity_id) VALUES (${userId},'fixed_commitment_recurrence','series-1',${rule.id})`;
+      const batch = (
+        await sql<{ id: string; version: number }[]>`
+          INSERT INTO import_batches (user_id,source_type,input_kind,timezone,template_version,status)
+          VALUES (${userId},'csv','capacity_commitments','Australia/Sydney','1','ready') RETURNING id, version`
+      )[0]!;
+      await sql`INSERT INTO import_records (id,batch_id,import_key,entity_type,operation,expected_version,matched_entity_id,fields,relationships,validation_errors,warnings,removed,sort_order)
+        VALUES (${crypto.randomUUID()},${batch.id},'series-1','fixed_commitment_recurrence','delete',${rule.version},${rule.id},${sql.json({})},${sql.json({})},${sql.json([])},${sql.json([])},false,0)`;
+      return { batch, ruleId: rule.id };
+    };
+
+    it("counts an import that ends a series as one closure: refused past 20, applied when it fits", async () => {
+      await store.put(createSeedState(fixedNow));
+      await spend(20);
+      const over = await seriesEndBatch("active");
+      await expect(asTokenAgent(() => importStore.commit(over.batch.id, over.batch.version))).rejects.toThrow(
+        /21 closures by agents in the last hour/
+      );
+      expect(await status(over.batch.id)).not.toBe("committed");
+      expect(
+        (await sql<{ status: string }[]>`SELECT status FROM commitment_recurrence_rules WHERE id=${over.ruleId}`)[0]!
+          .status
+      ).toBe("active");
+    });
+
+    it("lets an import ending a series through when it fits the hour, and writes the one ledger row under the batch", async () => {
+      await store.put(createSeedState(fixedNow));
+      await spend(19);
+      const fits = await seriesEndBatch("active");
+      await sql`INSERT INTO commitments (user_id,title,starts_at,ends_at,recurrence_rule_id,local_date)
+        SELECT user_id,'Series',now()+interval '3 days',now()+interval '3 days 1 hour',id,current_date+3 FROM commitment_recurrence_rules WHERE id=${fits.ruleId}`;
+      await asTokenAgent(() => importStore.commit(fits.batch.id, fits.batch.version));
+      expect(await status(fits.batch.id)).toBe("committed");
+      const rows = await sql<
+        { write_id: string; evidence: { closed: number; via: string } }[]
+      >`SELECT write_id, evidence FROM write_rows WHERE entity_type='commitment_recurrence_rule' AND operation='close'`;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.evidence).toMatchObject({ closed: 1, via: "import" });
+      expect(rows[0]!.write_id).toBe(fits.batch.id);
+    });
+
+    it("counts nothing for a series that is already ended", async () => {
+      await store.put(createSeedState(fixedNow));
+      await spend(20);
+      const ended = await seriesEndBatch("ended");
+      await asTokenAgent(() => importStore.commit(ended.batch.id, ended.batch.version));
+      expect(await status(ended.batch.id)).toBe("committed");
+    });
+
     it("lets a small cancelling import through and counts it", async () => {
       await store.put(createSeedState(fixedNow));
       await seedCommitments(2);

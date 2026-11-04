@@ -14,6 +14,7 @@ import {
   restoreStatus,
   restoreToolFor,
   toolForVerb,
+  RECURRENCE_ENDED_REASON,
   UNDO_CLOSED_BY_SUFFIX,
   verbFor,
   wrongToolForRestoreRefusal,
@@ -553,6 +554,10 @@ async function reopen(
     await tx`UPDATE projects SET status=${landing.status}, forecast_started_at=NULL, baseline_estimate_minutes=NULL, version=version+1, updated_at=CURRENT_TIMESTAMP WHERE ${where}`;
   else
     await tx`UPDATE ${tx(table)} SET status=${landing.status}, version=version+1, updated_at=CURRENT_TIMESTAMP WHERE ${where}`;
+  // One date of a rule that is still ended, brought back on its own: it becomes the person's date (`custom`), which the
+  // planner's prune spares for an ended rule, so the next replan does not delete the row that was just restored.
+  if (type === "commitment" && row.closed_reason === RECURRENCE_ENDED_REASON)
+    await tx`UPDATE commitments SET schedule_source='custom' WHERE id=${id} AND EXISTS (SELECT 1 FROM commitment_recurrence_rules r WHERE r.id=commitments.recurrence_rule_id AND r.status='ended')`;
   // The parent is back; now the batch's rows that are still closed and unchanged (children only when asked).
   const cascade = await restoreBatch(
     tx,

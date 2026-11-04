@@ -1110,6 +1110,11 @@ export async function persistDerivedState(sql: postgres.Sql, userId: string, res
       WHERE s.commitment_id=commitments.id AND s.status NOT IN ('pending','cancelled')
     )
   `;
+  // A date restored on its own while its rule is still ended is the person's (`custom`): it is not pruned either.
+  const restoredDateOfEndedRule = sql`
+    NOT (schedule_source='custom' AND EXISTS (
+      SELECT 1 FROM commitment_recurrence_rules r WHERE r.id=commitments.recurrence_rule_id AND r.status='ended'))
+  `;
   // A closed (cancelled) occurrence is never pruned: ending a rule, or a person's own cancel, closes it for good and
   // restoring it needs the row (archive-removals design section 7). The delete below leaves such rows alone.
   // The delete below treats the derived list as the complete set of surviving future occurrences, so it
@@ -1152,10 +1157,10 @@ export async function persistDerivedState(sql: postgres.Sql, userId: string, res
     const deleted = commitmentOccurrenceIds.length
       ? await sql<
           { id: string }[]
-        >`DELETE FROM commitments WHERE user_id=${userId} AND recurrence_rule_id IS NOT NULL AND starts_at>${resolvedFrom} AND id NOT IN ${sql(commitmentOccurrenceIds)} AND status<>'cancelled' AND ${routineStepsActedOn} RETURNING id`
+        >`DELETE FROM commitments WHERE user_id=${userId} AND recurrence_rule_id IS NOT NULL AND starts_at>${resolvedFrom} AND id NOT IN ${sql(commitmentOccurrenceIds)} AND status<>'cancelled' AND ${restoredDateOfEndedRule} AND ${routineStepsActedOn} RETURNING id`
       : await sql<
           { id: string }[]
-        >`DELETE FROM commitments WHERE user_id=${userId} AND recurrence_rule_id IS NOT NULL AND starts_at>${resolvedFrom} AND status<>'cancelled' AND ${routineStepsActedOn} RETURNING id`;
+        >`DELETE FROM commitments WHERE user_id=${userId} AND recurrence_rule_id IS NOT NULL AND starts_at>${resolvedFrom} AND status<>'cancelled' AND ${restoredDateOfEndedRule} AND ${routineStepsActedOn} RETURNING id`;
     if (deleted.length > 0)
       console.info(
         JSON.stringify({

@@ -9,6 +9,7 @@
 //   1. Schedule > Recurring commitments > Edit > Status Ended > Save changes: the future dates are cancelled with the
 //      reason "Recurrence ended" (not deleted), the past date is untouched, the step is cancelled with its date
 //   2. Review > Closed > Cancelled lists those dates with the reason "Recurrence ended"
+//   2b. Restore on one closed date brings just that date back
 //   3. Edit > Status Active > Save changes: the dates and the step come back, and nothing is left closed
 //
 // Not part of CI (`pnpm gate` runs the production click smoke); run it by hand before a change to these screens and
@@ -179,6 +180,21 @@ async function flows(browser, sql, ids) {
   if (shown < 3) fail(`Review > Closed lists ${shown} rows of the ended rule, expected the 3 future dates.`);
   await shot(page, "closed-page");
   pass("Review > Closed > Cancelled lists the three future dates with the reason Recurrence ended");
+
+  // 2b: restore one date on its own while the rule is still ended.
+  await press(page, `Restore commitment "${TITLE}"`);
+  await see(page, `Restored ${TITLE}`);
+  const afterOne = await states(sql, ids);
+  const open = afterOne.filter((row) => row.status === "confirmed");
+  if (open.length !== 2 || afterOne.filter((row) => row.status === "cancelled").length !== 2)
+    fail(`Restoring one date left ${JSON.stringify(afterOne)}`);
+  const [kept] =
+    await sql`SELECT schedule_source FROM commitments WHERE id=${open.find((row) => row.id !== ids.past).id}`;
+  if (kept.schedule_source !== "custom")
+    fail(`The restored date is ${kept.schedule_source}, so the planner would prune it.`);
+  pass(
+    "Restore on Review > Closed brings one date back (kept as the person's, so a replan leaves it), the others stay closed"
+  );
 
   // 3: set the rule active again.
   await page.goto(`${BASE}/schedule`, { waitUntil: "networkidle0", timeout: 30_000 });

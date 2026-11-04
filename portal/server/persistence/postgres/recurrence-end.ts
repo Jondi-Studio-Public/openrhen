@@ -2,7 +2,10 @@ import { RECURRENCE_ENDED_REASON } from "@openrhen/contracts";
 import { closeBudgetApplies } from "./close-budget";
 import { recordStateChange } from "./planning-evidence";
 import type { Sql } from "./sql-pool";
-import { withClosedActor } from "./system-close";
+import { lockSystemClose, withClosedActor } from "./system-close";
+import { applyClose } from "./close-cascade";
+import { firstClosedAncestor } from "./close-ancestors";
+import { restoreStatus } from "@openrhen/contracts";
 import type { WriteSnapshot } from "./write-snapshot";
 
 /**
@@ -20,7 +23,9 @@ import type { WriteSnapshot } from "./write-snapshot";
 export const RECURRENCE_END_STEP_CAP = 2000;
 
 /** A routine step closed with an occurrence: its id, its commitment, the status it had, and the version the close left. */
-export type EndedStepTuple = [stepId: string, commitmentId: string, from: string, version: number];
+export type EndedStepTuple =
+  | [stepId: string, commitmentId: string, from: string, version: number]
+  | [actionId: string, commitmentId: string, from: string, version: number, type: "action"];
 
 export interface RecurrenceEndOptions {
   /** The shared `closed_batch` (and the ledger row's batch). */
@@ -61,22 +66,29 @@ export async function closeFutureOccurrences(
   if (occurrences.length === 0) return { rows: 0, steps: 0 };
   const ids = occurrences.map((row) => row.id);
   await options.snap?.before("commitments", ids);
+  // What closes with each date is what a source cancel closes (`lockSystemClose`): pending and blocked steps, and the
+  // prep actions that pass the safe rules (the rest stay open and are listed); a prep action with a session running is
+  // left open. Read under row locks before the dates change.
+  const plans = new Map<string, NonNullable<Awaited<ReturnType<typeof lockSystemClose>>>>();
+  for (const id of ids) {
+    const locked = await lockSystemClose(tx, userId, id);
+    if (locked) plans.set(id, locked);
+  }
+  const tuples: EndedStepTuple[] = [];
+  const skipped: { id: string; reason: string }[] = [];
   await withClosedActor(tx, options.actor, async () => {
     await tx`UPDATE commitments SET status='cancelled', closed_batch=${options.batch}, closed_reason=${RECURRENCE_ENDED_REASON}, version=version+1, updated_at=CURRENT_TIMESTAMP WHERE id IN ${tx(ids)}`;
+    for (const [commitmentId, locked] of plans) {
+      const cascaded = await applyClose(tx, locked.plan, options.batch, RECURRENCE_ENDED_REASON, options.snap);
+      for (const row of cascaded)
+        tuples.push(
+          row.type === "routine_step"
+            ? [row.id, commitmentId, row.from, row.version]
+            : [row.id, commitmentId, row.from, row.version, "action" as const]
+        );
+      for (const skip of locked.plan.skipped) skipped.push({ id: skip.id, reason: skip.reason });
+    }
   });
-  const steps = await tx<{ id: string; commitment_id: string; status: string; version: number }[]>`
-    SELECT id, commitment_id, status, version FROM routine_steps
-    WHERE commitment_id IN ${tx(ids)} AND status IN ('pending','blocked')
-    ORDER BY commitment_id, sequence, id
-    FOR NO KEY UPDATE`;
-  const tuples: EndedStepTuple[] = steps.map((step) => [step.id, step.commitment_id, step.status, step.version + 1]);
-  if (steps.length > 0) {
-    await options.snap?.before(
-      "routine_steps",
-      steps.map((step) => step.id)
-    );
-    await tx`UPDATE routine_steps SET status='cancelled', version=version+1, updated_at=CURRENT_TIMESTAMP WHERE id IN ${tx(steps.map((step) => step.id))}`;
-  }
   await recordStateChange(tx, userId, {
     entityType: "commitment_recurrence_rule",
     entityId: ruleId,
@@ -93,11 +105,12 @@ export async function closeFutureOccurrences(
       via: options.via,
       steps: tuples.slice(0, RECURRENCE_END_STEP_CAP),
       stepCount: tuples.length,
+      ...(skipped.length > 0 ? { skipped: skipped.slice(0, 200) } : {}),
       ...(tuples.length > RECURRENCE_END_STEP_CAP ? { truncated: true } : {})
     },
     at: new Date()
   });
-  return { rows: ids.length, steps: steps.length };
+  return { rows: ids.length, steps: tuples.length };
 }
 
 /** What the latest end of this rule recorded: its batch and step tuples (absent when the ledger row is gone). */
@@ -147,18 +160,35 @@ export async function restoreEndedOccurrences(
       AND closed_reason=${RECURRENCE_ENDED_REASON} AND closed_batch=${end.batch} AND starts_at>CURRENT_TIMESTAMP
     ORDER BY starts_at, id
     FOR NO KEY UPDATE`;
-  if (occurrences.length === 0) return { rows: 0, steps: 0 };
-  const ids = occurrences.map((row) => row.id);
+  // A date under a closed project (or other closed ancestor) is not reopened: it stays closed and is listed.
+  const ids: string[] = [];
+  const blocked: { id: string; reason: string }[] = [];
+  for (const occurrence of occurrences) {
+    const above = await firstClosedAncestor(tx, "commitment", occurrence.id);
+    if (above) blocked.push({ id: occurrence.id, reason: `its ${above.type} is ${above.status}` });
+    else ids.push(occurrence.id);
+  }
+  if (ids.length === 0) return { rows: 0, steps: 0 };
   const restored = new Set(ids);
   await options.snap?.before("commitments", ids);
   await tx`UPDATE commitments SET status=COALESCE(closed_from_status,'confirmed'), version=version+1, updated_at=CURRENT_TIMESTAMP WHERE id IN ${tx(ids)}`;
-  // The steps come back from the recorded tuples: only a step still cancelled at the version the end left it.
+  // The steps (and prep actions) come back from the recorded tuples: whatever of them is still cancelled returns to the
+  // status it had. (The version is not compared: an undo of the end puts rows back at fresh versions.)
   let revived = 0;
-  for (const [stepId, commitmentId, from, version] of end.steps) {
+  for (const tuple of end.steps) {
+    const [rowId, commitmentId, from] = tuple;
     if (!restored.has(commitmentId)) continue;
-    await options.snap?.before("routine_steps", [stepId]);
+    if (tuple[4] === "action") {
+      await options.snap?.before("actions", [rowId]);
+      const landing = restoreStatus("action", from).status;
+      const done =
+        await tx`UPDATE actions SET status=${landing}, version=version+1, updated_at=CURRENT_TIMESTAMP WHERE id=${rowId} AND status='cancelled'`;
+      revived += done.count;
+      continue;
+    }
+    await options.snap?.before("routine_steps", [rowId]);
     const done =
-      await tx`UPDATE routine_steps SET status=${from}, version=version+1, updated_at=CURRENT_TIMESTAMP WHERE id=${stepId} AND status='cancelled' AND version=${version}`;
+      await tx`UPDATE routine_steps SET status=${from}, version=version+1, updated_at=CURRENT_TIMESTAMP WHERE id=${rowId} AND status='cancelled'`;
     revived += done.count;
   }
   // A step the tuples do not cover (past the cap, or changed since the end) falls back to pending.
@@ -184,6 +214,7 @@ export async function restoreEndedOccurrences(
       batch: end.batch,
       rows: ids.length,
       steps: revived,
+      ...(blocked.length > 0 ? { stayedClosed: blocked } : {}),
       via: "recurrence_reactivate"
     },
     at: new Date()

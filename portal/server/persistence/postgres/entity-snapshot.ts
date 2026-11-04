@@ -72,7 +72,7 @@ export async function watchProjectWrite(snap: WriteSnapshot | null, id: string):
 /**
  * A recurring commitment's rule, and the occurrences a series save detaches (started or in progress), closes (ending
  * the rule cancels its future ones) or brings back (setting an ended rule active again). Nothing is deleted: the
- * future occurrences and their routine steps change status, so those two tables are watched. An undo puts each back
+ * future occurrences and their routine steps change status, so those tables (and the prep actions that close with a date) are watched. An undo puts each back
  * as it was; the links, dependencies, extension rows and prep that hang off an occurrence are not touched.
  */
 export async function watchCommitmentRecurrenceWrite(
@@ -89,6 +89,8 @@ export async function watchCommitmentRecurrenceWrite(
   // The occurrences the end closes or the re-activation reopens: the future ones.
   const going = "(SELECT f.id FROM commitments f WHERE f.recurrence_rule_id = $1 AND f.starts_at > now())";
   await snap.watch("routine_steps", `t.commitment_id IN ${going}`, [ruleId]);
+  // The prep actions that close with a date and come back with it.
+  await snap.watch("actions", `t.prep_for_commitment_id IN ${going}`, [ruleId]);
 }
 
 /** Ending a manual recurrence goal: the rule, the action and the occurrences still pending. */
