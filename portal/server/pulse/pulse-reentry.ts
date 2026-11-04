@@ -1,4 +1,4 @@
-import { cancelPendingLapseWakes } from "@openrhen/database";
+import { cancelPendingLapseWakes, cancelPendingUnknownWakes } from "@openrhen/database";
 import { cancelBackOnPlanPush } from "./back-on-plan-push";
 import type { Sql } from "../persistence/postgres/sql-pool";
 import type { WriteSnapshot } from "../persistence/postgres/write-snapshot";
@@ -96,6 +96,7 @@ export async function writeReentrySegment(
       entered_lapsed_at=NULL, updated_at=CURRENT_TIMESTAMP`;
   await cancelBackOnPlanPush(tx, userId);
   await cancelPendingLapseWakes(tx, userId);
+  await cancelPendingUnknownWakes(tx, userId);
   const id = created[0]!.id;
   snapshot?.inserted("pulse_segments", [id]);
   return id;

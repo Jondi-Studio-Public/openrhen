@@ -34,3 +34,15 @@ export async function cancelPendingLapseWakes(
     RETURNING id`;
   return rows.length;
 }
+
+/** The unknown segment closed (contact or re-entry): a pulse_unknown wake not yet sent is no longer true. */
+export async function cancelPendingUnknownWakes(
+  sql: postgres.Sql | postgres.TransactionSql,
+  userId: string
+): Promise<number> {
+  const rows = await sql`
+    UPDATE agent_wakes SET status='dead', last_error='cancelled'
+    WHERE user_id=${userId} AND event='pulse_unknown' AND status='pending'
+    RETURNING id`;
+  return rows.length;
+}

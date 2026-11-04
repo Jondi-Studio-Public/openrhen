@@ -37,9 +37,12 @@ const realFolder = resolve(process.cwd(), "drizzle");
 const DEPLOY_TAG = "0123456789ab";
 const BASELINE_IDX = 139;
 const baselineWhen = journal.entries.find((e) => e.idx === BASELINE_IDX)!.when;
-const exported = journal.entries.filter((e) => e.idx > BASELINE_IDX);
-/** A private-only legacy migration the image does not carry, newer than everything the image has. */
-const PRIVATE_ONLY_WHEN = Math.max(...journal.entries.map((e) => e.when)) + 60_000;
+/** The image's entries that also exist in the legacy history; later entries are OpenRhen-native and unknown to it. */
+const LAST_LEGACY_IDX = 141;
+const exported = journal.entries.filter((e) => e.idx > BASELINE_IDX && e.idx <= LAST_LEGACY_IDX);
+/** A private-only legacy migration the image does not carry, newer than every legacy entry the image has but
+    older than the OpenRhen-native migrations after 0141, which are stamped later. */
+const PRIVATE_ONLY_WHEN = Math.max(...exported.map((e) => e.when)) + 60_000;
 
 let backupDir: string;
 let toolDir: string;
@@ -71,7 +74,15 @@ function legacyEntries(): LegacyEntry[] {
   return entries;
 }
 
-const legacySql = (e: LegacyEntry) => `CREATE TABLE legacy_t${e.idx} (id integer);\n`;
+/** Legacy 0140 makes the table that OpenRhen-native 0142 alters, so a native migration has something to run on. */
+const legacySql = (e: LegacyEntry) =>
+  `CREATE TABLE legacy_t${e.idx} (id integer);\n` +
+  (e.idx === 140
+    ? `CREATE TABLE agent_wakes (event text, CONSTRAINT agent_wakes_event_check CHECK (event IN ('check_in_unanswered','pulse_lapsed')));\n`
+    : "");
+
+/** Migrations after the legacy history ends: OpenRhen-native, applied once on top of an adopted baseline. */
+const NATIVE_COUNT = journal.entries.filter((e) => e.idx > LAST_LEGACY_IDX).length;
 
 /** The image's folder with a baseline.json built from the synthetic history. */
 async function writeSyntheticBaseline(imageDir: string, entries: LegacyEntry[]) {
@@ -214,7 +225,7 @@ describe("baseline equivalence in migrate-on-deploy", () => {
     expect(result.stdout).toContain("Adopted the baseline");
     const dumps = await readdir(backupDir);
     expect(dumps).toHaveLength(1);
-    expect(await ledgerCount()).toBe(before! + 1);
+    expect(await ledgerCount()).toBe(before! + 1 + NATIVE_COUNT);
     // The baseline's SQL never ran over the existing schema; the legacy tables are untouched.
     expect(await tableExists("action_occurrences")).toBe(false);
     expect(await tableExists("legacy_t0")).toBe(true);
@@ -223,7 +234,7 @@ describe("baseline equivalence in migrate-on-deploy", () => {
     expect(again.code).toBe(0);
     expect(again.stdout).toContain("Nothing to migrate");
     expect(await readdir(backupDir)).toEqual(dumps);
-    expect(await ledgerCount()).toBe(before! + 1);
+    expect(await ledgerCount()).toBe(before! + 1 + NATIVE_COUNT);
   });
 
   it("does not refuse a ledger at the last exported legacy migration, or one with a private-only legacy row, as ahead", async () => {
@@ -238,7 +249,7 @@ describe("baseline equivalence in migrate-on-deploy", () => {
     await applyLegacy(legacyFolder);
     await withDb(
       (sql) =>
-        sql`INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ('native', ${PRIVATE_ONLY_WHEN + 1})`
+        sql`INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ('native', ${Math.max(...journal.entries.map((e) => e.when)) + 1})`
     );
     const before = await ledgerCount();
 
@@ -271,7 +282,8 @@ describe("baseline equivalence in migrate-on-deploy", () => {
 
     const check = await withDb((sql) => checkDatabaseMigrations(sql, imageFolder));
 
-    expect(check).toEqual({ pending: [], skipped: [] });
+    expect(check.skipped).toEqual([]);
+    expect(check.pending).toHaveLength(NATIVE_COUNT);
     expect(await ledgerCount()).toBe(before);
   });
 
