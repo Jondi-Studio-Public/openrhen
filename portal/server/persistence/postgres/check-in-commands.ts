@@ -152,12 +152,18 @@ async function recordVoluntaryCheckIn(
   command: VoluntaryCheckInCommand,
   snap: WriteSnapshot | null
 ): Promise<void> {
-  const open = await tx<{ id: string }[]>`
-    SELECT id FROM check_in
-    WHERE user_id=${userId} AND answered_at IS NULL AND status IN ('pending','unknown')
-    ORDER BY created_at DESC LIMIT 1 FOR UPDATE`;
-  if (open[0])
-    throw alreadyClosed("check-in", open[0].id, "waiting for an answer, so it is answered, not recorded anew", {
+  // Open means what `readCurrentCheckIn` means: the latest row by slot_at, and only when it is pending or an
+  // unanswered unknown. A timed-out unknown row behind a newer answered one is not waiting (the reader and
+  // the answer path never see it), so counting it here would refuse with "send the same call again" forever.
+  const latest = await tx<{ id: string; status: string; answered_at: Date | null }[]>`
+    SELECT id,status,answered_at FROM check_in
+    WHERE user_id=${userId} ORDER BY slot_at DESC LIMIT 1 FOR UPDATE`;
+  const open =
+    latest[0] && (latest[0].status === "pending" || (latest[0].status === "unknown" && latest[0].answered_at === null))
+      ? latest[0]
+      : undefined;
+  if (open)
+    throw alreadyClosed("check-in", open.id, "waiting for an answer, so it is answered, not recorded anew", {
       tool: "rhen_check_in",
       arguments: { status: command.status.replace("_", "-") },
       note: "send the same call again: with a check-in waiting it answers that one"

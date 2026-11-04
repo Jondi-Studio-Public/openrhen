@@ -605,4 +605,21 @@ describe("voluntary check-in", () => {
     await runCheckInCommand(sql, voluntaryCommand());
     expect(await rows()).toHaveLength(2);
   });
+
+  it("refuses while the latest slot is an unanswered unknown", async () => {
+    await storeBelief({ kind: "action", targetId: crypto.randomUUID(), title: "Write the report" });
+    await insertCheckIn({ status: "unknown" });
+    const error = await runCheckInCommand(sql, voluntaryCommand()).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(InvalidCommandError);
+    expect((error as InvalidCommandError).nextCall).toMatchObject({ tool: "rhen_check_in" });
+    expect(await rows()).toHaveLength(1);
+  });
+
+  it("records past a stale unanswered unknown that sits behind a newer answered row", async () => {
+    await storeBelief({ kind: "action", targetId: crypto.randomUUID(), title: "Write the report" });
+    await insertCheckIn({ status: "unknown", minutesAgo: 60 });
+    await insertCheckIn({ status: "on_track", minutesAgo: 30, answeredAt: new Date() });
+    await runCheckInCommand(sql, voluntaryCommand());
+    expect(await rows()).toHaveLength(3);
+  });
 });
