@@ -25,7 +25,7 @@
     "test:performance": "pnpm --filter @openrhen/engine-core test:performance",
     "test:changed": "node scripts/test/changed.mjs",
     "gate": "pnpm check && pnpm typecheck && pnpm test && pnpm test:integration && pnpm build:portal && pnpm smoke:production",
-    "test:scripts": "node --test \"scripts/backup/*.test.mjs\" \"scripts/deploy/*.test.mjs\" \"scripts/selfhost/*.test.mjs\" \"scripts/setup/*.test.mjs\" \"scripts/smoke/*.test.mjs\" \"scripts/test/*.test.mjs\"",
+    "test:scripts": "node --test \"scripts/addon/*.test.mjs\" \"scripts/backup/*.test.mjs\" \"scripts/deploy/*.test.mjs\" \"scripts/selfhost/*.test.mjs\" \"scripts/setup/*.test.mjs\" \"scripts/smoke/*.test.mjs\" \"scripts/test/*.test.mjs\"",
     "test:integration": "pnpm -r --if-present test:integration",
     "export:round-trip": "pnpm --filter @openrhen/portal export:round-trip",
     "typecheck": "pnpm -r --if-present typecheck",

@@ -1,0 +1,6 @@
+{
+  "portal/app/(addon)/hello/": {
+    "class": "helper",
+    "reason": "Example add-on page: it reads fake data and writes no plan-input table."
+  }
+}
