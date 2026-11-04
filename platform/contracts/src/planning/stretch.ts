@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { agentBasisSchema } from "../agent-proposals.js";
+import type { StretchState } from "./context-model.js";
+import { addLocalDays, dateOrdinal, localDateOf } from "./cadence-due.js";
 
 /**
  * Stretch offers: the person's answer to "work on this despite the energy cut, for a bounded time".
@@ -175,3 +177,196 @@ export const STRETCH_NEXT_CALL = {
 /** The next step when the answer was for an action other than the one on offer. */
 export const STRETCH_REASK_NEXT =
   "call rhen_status, tell the person the sentence of the offer it shows, and if they answer send openrhen_stretch again for that action with a NEW command-id.";
+
+/** The offer as Now and `status` carry it: the engine's fields, the one sentence, and what an agent does with it. */
+export interface StretchOfferAnswer extends StretchOfferView {
+  /** The exact sentence to show or relay (`stretchOfferText`); the portal and the evidence log use this same text. */
+  text: string;
+  /** When the stretch would end if accepted now. */
+  endsAt: string;
+  /** For agents: what to say, when to accept, and what never to do. */
+  next: string;
+}
+
+/** What the stretch answers say now, apart from an open offer. Every field is absent when it has nothing to say. */
+export interface StretchBlock {
+  /** The accepted stretch still running. */
+  active?: { actionId: string; title: string; until: string; minutes: number; by: "person" | "agent" };
+  /** Stretches accepted today (local day) and the clock times they began; the note appears from the second. */
+  today?: { count: number; startedAt: string[]; note: string };
+  /** The loan from an earlier day, one line, for the morning after. */
+  loan?: { line: string; actionId: string; title: string; minutes: number; endedAt: string };
+}
+
+/** Compact on purpose: it travels in every `status` read. */
+export const STRETCH_OFFER_NEXT =
+  "Tell the person the text and let them choose; both choices are reasonable. Only the person answers a stretch offer, in the portal on Now; you cannot accept or decline it for them yet, so do not try, and never raise declared energy to get around the cut. No answer means no change.";
+
+export interface StretchAnswerInput {
+  /** The published run's recommendation, opaque; only `stretchOffer` is read. */
+  recommendation: unknown;
+  stretch: StretchState | undefined;
+  energySetAt?: string | undefined;
+  /** When the plan run behind the offer was calculated; an offer older than the last energy statement is dropped. */
+  planCalculatedAt?: string | undefined;
+  /** False while the plan is stale: the server refuses an accept then, so no offer is shown. Defaults to true. */
+  planCurrent?: boolean | undefined;
+  now: Date;
+  timeZone: string;
+  locale: string;
+}
+
+const validMs = (value: unknown): number | undefined => {
+  if (typeof value !== "string") return undefined;
+  const ms = new Date(value).getTime();
+  return Number.isFinite(ms) ? ms : undefined;
+};
+
+/** The stored answers with anything malformed treated as absent: a bad entry never throws, it just does not count. */
+function usableStretch(stretch: unknown): {
+  accepted: StretchState["accepted"];
+  declined: StretchState["declined"];
+  declinedAllAt: string | undefined;
+} {
+  const value = stretch && typeof stretch === "object" ? (stretch as Record<string, unknown>) : {};
+  const list = (entries: unknown): Record<string, unknown>[] =>
+    Array.isArray(entries) ? entries.filter((e): e is Record<string, unknown> => !!e && typeof e === "object") : [];
+  return {
+    accepted: list(value.accepted).filter(
+      (r) =>
+        typeof r.actionId === "string" &&
+        typeof r.title === "string" &&
+        typeof r.minutes === "number" &&
+        (r.by === "person" || r.by === "agent") &&
+        validMs(r.acceptedAt) !== undefined &&
+        validMs(r.until) !== undefined
+    ) as unknown as StretchState["accepted"],
+    declined: list(value.declined).filter(
+      (r) => typeof r.actionId === "string" && validMs(r.at) !== undefined
+    ) as unknown as StretchState["declined"],
+    declinedAllAt: validMs(value.declinedAllAt) !== undefined ? (value.declinedAllAt as string) : undefined
+  };
+}
+
+function sameDay(a: string, b: Date, timeZone: string): boolean {
+  return localDateOf(new Date(a), timeZone) === localDateOf(b, timeZone);
+}
+
+/**
+ * The offer and the stretch block for the Now answer. The offer is the run's, minus whatever the stored answers already
+ * rule out (mirroring the server's refusal, so an answer given a moment ago hides the offer before the plan
+ * recalculates). Neutral by design: accepting and refusing are described alike.
+ */
+export function buildStretchAnswer(input: StretchAnswerInput): {
+  stretchOffer: StretchOfferAnswer | null;
+  stretch: StretchBlock | null;
+} {
+  const { now, timeZone, locale } = input;
+  const stretch = usableStretch(input.stretch);
+  const energySetMs = validMs(input.energySetAt);
+  const accepted = stretch.accepted;
+
+  // The engine's own rule (`resolveStretchState`): running, accepted since energy was last declared, and energy stamped.
+  const active = [...accepted]
+    .filter(
+      (record) =>
+        energySetMs !== undefined &&
+        now.getTime() < new Date(record.until).getTime() &&
+        new Date(record.acceptedAt).getTime() >= energySetMs
+    )
+    .sort((a, b) => b.until.localeCompare(a.until))[0];
+
+  let offer: StretchOfferView | null = null;
+  const raw =
+    input.recommendation && typeof input.recommendation === "object" && !Array.isArray(input.recommendation)
+      ? (input.recommendation as Record<string, unknown>).stretchOffer
+      : undefined;
+  if (raw !== undefined && input.planCurrent !== false) offer = parseStretchOffer(raw);
+  if (offer) {
+    const actionId = offer.actionId;
+    const declinedAll = stretch.declinedAllAt ? sameDay(stretch.declinedAllAt, now, timeZone) : false;
+    const declined = stretch.declined.some(
+      (entry) =>
+        entry.actionId === actionId &&
+        sameDay(entry.at, now, timeZone) &&
+        (energySetMs === undefined || new Date(entry.at).getTime() >= energySetMs)
+    );
+    const running = accepted.some(
+      (record) =>
+        record.actionId === actionId &&
+        new Date(record.until).getTime() > now.getTime() &&
+        energySetMs !== undefined &&
+        new Date(record.acceptedAt).getTime() >= energySetMs
+    );
+    const outdated =
+      energySetMs !== undefined &&
+      input.planCalculatedAt !== undefined &&
+      new Date(input.planCalculatedAt).getTime() < energySetMs;
+    if (declinedAll || declined || running || outdated) offer = null;
+  }
+
+  const today = accepted
+    .filter((record) => sameDay(record.acceptedAt, now, timeZone))
+    .sort((a, b) => a.acceptedAt.localeCompare(b.acceptedAt));
+  const startedAt = today.map((record) => stretchClock(new Date(record.acceptedAt), timeZone, locale));
+  const block: StretchBlock = {};
+  if (active)
+    block.active = {
+      actionId: active.actionId,
+      title: active.title,
+      until: active.until,
+      minutes: active.minutes,
+      by: active.by
+    };
+
+  if (today.length >= 1 && (offer || today.length >= 2)) {
+    const count = offer ? today.length + 1 : today.length;
+    const ordinal = count === 2 ? "second" : count === 3 ? "third" : `number ${count}`;
+    const began = startedAt.join(" and ");
+    block.today = {
+      count: today.length,
+      startedAt,
+      note: offer
+        ? `This would be your ${ordinal} stretch today; ${today.length === 1 ? "the earlier one began" : "the earlier ones began"} at ${began}.`
+        : `${today.length} stretches today, begun at ${began}.`
+    };
+  }
+
+  if (!active && today.length === 0) {
+    const todayLocal = localDateOf(now, timeZone);
+    // Keyed on the record, not its end: a stretch that ran past midnight was still last night's.
+    const earlier = accepted
+      .filter(
+        (record) =>
+          new Date(record.until).getTime() <= now.getTime() &&
+          dateOrdinal(todayLocal) - dateOrdinal(localDateOf(new Date(record.acceptedAt), timeZone)) <= 7
+      )
+      .sort((a, b) => new Date(b.until).getTime() - new Date(a.until).getTime())[0];
+    if (earlier) {
+      const ended = new Date(earlier.until);
+      const yesterday = addLocalDays(todayLocal, -1) === localDateOf(new Date(earlier.acceptedAt), timeZone);
+      const when = yesterday
+        ? "Last night"
+        : new Intl.DateTimeFormat(locale, { weekday: "long", timeZone }).format(ended);
+      block.loan = {
+        line: `${when}: ${earlier.minutes} minutes of ${earlier.title}, ended ${stretchClock(ended, timeZone, locale)}`,
+        actionId: earlier.actionId,
+        title: earlier.title,
+        minutes: earlier.minutes,
+        endedAt: earlier.until
+      };
+    }
+  }
+
+  return {
+    stretchOffer: offer
+      ? {
+          ...offer,
+          text: stretchOfferText(offer, { timeZone, locale, now }),
+          endsAt: new Date(now.getTime() + offer.minutes * 60_000).toISOString(),
+          next: STRETCH_OFFER_NEXT
+        }
+      : null,
+    stretch: Object.keys(block).length > 0 ? block : null
+  };
+}

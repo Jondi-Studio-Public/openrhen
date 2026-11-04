@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   agentStretchProblems,
+  buildStretchAnswer,
   parseStretchOffer,
   stretchCommandSchema,
   stretchNextStep,
@@ -172,5 +173,160 @@ describe("stretchNextStep", () => {
     const accepted = stretchNextStep("accepted", { ...base, title: "Unit 3", until: "2026-11-04T13:10:00Z" });
     expect(accepted).toContain("Stretch started: Unit 3 until 23:10.");
     expect(accepted).toContain("rhen_undo reverses it");
+  });
+});
+
+describe("buildStretchAnswer", () => {
+  const locale = "en-AU";
+  const recommendation = { stretchOffer: oneStep };
+  const base = { recommendation, stretch: undefined, now: NOW, timeZone: TZ, locale } as const;
+  const record = (acceptedAt: string, minutes = 40, actionId = "act-1") => ({
+    actionId,
+    title: "Unit 3 reading",
+    acceptedAt,
+    until: new Date(new Date(acceptedAt).getTime() + minutes * 60_000).toISOString(),
+    minutes,
+    by: "person" as const
+  });
+
+  it("carries the offer, its sentence and the agent instruction", () => {
+    const { stretchOffer, stretch } = buildStretchAnswer(base);
+    expect(stretchOffer).toMatchObject({ actionId: "act-1", minutes: 40, endsAt: "2026-11-04T12:40:00.000Z" });
+    expect(stretchOffer?.text).toBe(stretchOfferText(oneStep, { timeZone: TZ, locale, now: NOW }));
+    expect(stretchOffer?.next).toContain("Only the person answers");
+    expect(stretchOffer?.next).toContain("never raise declared energy");
+    expect(stretchOffer?.next).not.toMatch(/anyway/i);
+    expect(stretch).toBeNull();
+  });
+
+  it("has no offer for a missing or malformed one, or while the plan is not current", () => {
+    expect(buildStretchAnswer({ ...base, recommendation: {} }).stretchOffer).toBeNull();
+    expect(buildStretchAnswer({ ...base, recommendation: { stretchOffer: { actionId: 1 } } }).stretchOffer).toBeNull();
+    expect(buildStretchAnswer({ ...base, recommendation: null }).stretchOffer).toBeNull();
+    expect(buildStretchAnswer({ ...base, planCurrent: false }).stretchOffer).toBeNull();
+  });
+
+  it("hides the offer an answer already ruled out, before the plan recalculates", () => {
+    const at = "2026-11-04T11:00:00.000Z";
+    const declined = { accepted: [], declined: [{ actionId: "act-1", at }] };
+    expect(buildStretchAnswer({ ...base, stretch: declined }).stretchOffer).toBeNull();
+    const other = { accepted: [], declined: [{ actionId: "act-2", at }] };
+    expect(buildStretchAnswer({ ...base, stretch: other }).stretchOffer).not.toBeNull();
+    const all = { accepted: [], declined: [], declinedAllAt: at };
+    expect(buildStretchAnswer({ ...base, stretch: all }).stretchOffer).toBeNull();
+    // A no from yesterday does not count.
+    const old = { accepted: [], declined: [], declinedAllAt: "2026-11-02T11:00:00.000Z" };
+    expect(buildStretchAnswer({ ...base, stretch: old }).stretchOffer).not.toBeNull();
+    // A decline from before the energy was said again does not count either.
+    expect(
+      buildStretchAnswer({ ...base, stretch: declined, energySetAt: "2026-11-04T11:30:00.000Z" }).stretchOffer
+    ).not.toBeNull();
+    const running = { accepted: [record("2026-11-04T11:50:00.000Z")], declined: [] };
+    expect(
+      buildStretchAnswer({ ...base, stretch: running, energySetAt: "2026-11-04T10:00:00.000Z" }).stretchOffer
+    ).toBeNull();
+  });
+
+  it("drops an offer from a plan older than the energy it was made for", () => {
+    const energySetAt = "2026-11-04T11:00:00.000Z";
+    expect(
+      buildStretchAnswer({ ...base, energySetAt, planCalculatedAt: "2026-11-04T10:00:00.000Z" }).stretchOffer
+    ).toBeNull();
+    expect(
+      buildStretchAnswer({ ...base, energySetAt, planCalculatedAt: "2026-11-04T11:30:00.000Z" }).stretchOffer
+    ).not.toBeNull();
+  });
+
+  it("reports the active stretch", () => {
+    const stretch = { accepted: [record("2026-11-04T11:50:00.000Z")], declined: [] };
+    const answer = buildStretchAnswer({
+      ...base,
+      recommendation: {},
+      stretch,
+      energySetAt: "2026-11-04T10:00:00.000Z"
+    });
+    expect(answer.stretchOffer).toBeNull();
+    expect(answer.stretch?.active).toMatchObject({ title: "Unit 3 reading", until: "2026-11-04T12:30:00.000Z" });
+    expect(answer.stretch?.loan).toBeUndefined();
+  });
+
+  it("names the count and clock times from the second stretch of the day, neutrally", () => {
+    // 20:30 Brisbane, already ended; now 22:00.
+    const first = { accepted: [record("2026-11-04T10:30:00.000Z")], declined: [] };
+    const offered = buildStretchAnswer({ ...base, stretch: first });
+    expect(offered.stretch?.today?.note).toBe(
+      "This would be your second stretch today; the earlier one began at 20:30."
+    );
+    expect(offered.stretch?.today?.count).toBe(1);
+    const second = { accepted: [...first.accepted, record("2026-11-04T11:00:00.000Z")], declined: [] };
+    const again = buildStretchAnswer({ ...base, recommendation: {}, stretch: second });
+    expect(again.stretch?.today?.note).toBe("2 stretches today, begun at 20:30 and 21:00.");
+    // One stretch with no offer says nothing about a count.
+    expect(buildStretchAnswer({ ...base, recommendation: {}, stretch: first }).stretch?.today).toBeUndefined();
+  });
+
+  it("gives the morning-after loan line only for a stretch that ended before today", () => {
+    const morning = new Date("2026-11-04T22:30:00Z"); // 08:30 on 5 Nov in Brisbane
+    const stretch = { accepted: [record("2026-11-04T12:30:00.000Z")], declined: [] }; // 22:30 to 23:10 on the 4th
+    const answer = buildStretchAnswer({ ...base, recommendation: {}, stretch, now: morning });
+    expect(answer.stretch?.loan?.line).toBe("Last night: 40 minutes of Unit 3 reading, ended 23:10");
+    // Same evening: not a loan yet.
+    expect(
+      buildStretchAnswer({ ...base, recommendation: {}, stretch, now: new Date("2026-11-04T13:30:00Z") }).stretch
+    ).toBeNull();
+    // Three days on it is named by weekday, not "last night".
+    const later = buildStretchAnswer({ ...base, recommendation: {}, stretch, now: new Date("2026-11-07T22:30:00Z") });
+    expect(later.stretch?.loan?.line).toMatch(/^Wednesday: 40 minutes of Unit 3 reading, ended 23:10$/);
+    // A stretch taken again today replaces the old line.
+    const again = {
+      accepted: [...stretch.accepted, record("2026-11-04T23:00:00.000Z")],
+      declined: []
+    };
+    expect(
+      buildStretchAnswer({ ...base, recommendation: {}, stretch: again, now: morning }).stretch?.loan
+    ).toBeUndefined();
+  });
+
+  it("does not call a stretch active once energy was declared again, or when energy was never stamped", () => {
+    const stretch = { accepted: [record("2026-11-04T02:45:00.000Z")], declined: [] }; // 12:45 Brisbane
+    const at = new Date("2026-11-04T02:50:00.000Z");
+    const args = { ...base, recommendation: {}, stretch, now: at };
+    expect(buildStretchAnswer({ ...args, energySetAt: "2026-11-04T02:48:00.000Z" }).stretch?.active).toBeUndefined();
+    expect(buildStretchAnswer({ ...args, energySetAt: "2026-11-04T02:30:00.000Z" }).stretch?.active).toBeDefined();
+    expect(buildStretchAnswer(args).stretch?.active).toBeUndefined();
+  });
+
+  it("gives the loan line for a stretch that crossed midnight", () => {
+    const zone = "Australia/Sydney";
+    // Accepted 23:45 on 4 Nov local (12:45Z), until 00:30 on the 5th; now 08:00 on the 5th.
+    const stretch = {
+      accepted: [record("2026-11-04T12:45:00.000Z", 45)],
+      declined: []
+    };
+    const answer = buildStretchAnswer({
+      ...base,
+      recommendation: {},
+      stretch,
+      timeZone: zone,
+      now: new Date("2026-11-04T21:00:00.000Z")
+    });
+    expect(answer.stretch?.loan?.line).toBe("Last night: 45 minutes of Unit 3 reading, ended 00:30");
+  });
+
+  it("treats a malformed stretch as absent instead of throwing", () => {
+    const bad = { accepted: "nope", declined: [{ actionId: "act-1", at: "not a date" }] } as never;
+    expect(() => buildStretchAnswer({ ...base, stretch: bad })).not.toThrow();
+    expect(buildStretchAnswer({ ...base, stretch: bad }).stretchOffer).not.toBeNull();
+    const mixed = {
+      accepted: [{ ...record("2026-11-04T11:50:00.000Z"), until: "garbage" }, record("2026-11-04T11:55:00.000Z")],
+      declined: []
+    };
+    const answer = buildStretchAnswer({
+      ...base,
+      recommendation: {},
+      stretch: mixed,
+      energySetAt: "2026-11-04T10:00:00.000Z"
+    });
+    expect(answer.stretch?.active?.until).toBe("2026-11-04T12:35:00.000Z");
   });
 });

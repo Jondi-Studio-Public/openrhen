@@ -1416,8 +1416,10 @@ export type { ClosedTable, ClosedTableRule } from "./closed-status.js";
 export {
   STRETCH_CHOICES,
   STRETCH_NEXT_CALL,
+  STRETCH_OFFER_NEXT,
   STRETCH_REASK_NEXT,
   agentStretchProblems,
+  buildStretchAnswer,
   parseStretchOffer,
   stretchClock,
   stretchCommandSchema,
@@ -1426,8 +1428,11 @@ export {
   stretchOfferText
 } from "./planning/stretch.js";
 export type {
+  StretchAnswerInput,
+  StretchBlock,
   StretchChoice,
   StretchCommand,
+  StretchOfferAnswer,
   StretchOfferTextOptions,
   StretchOfferView,
   StretchResult

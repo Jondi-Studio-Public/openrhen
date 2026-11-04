@@ -10,6 +10,8 @@ import {
   type DirectiveSummary,
   type Need,
   type NowAnswerAnchors,
+  type StretchBlock,
+  type StretchOfferAnswer,
   type RecommendationAnswer,
   type RiskSummary,
   type PrepPace,
@@ -201,6 +203,10 @@ interface StatusSummary {
   anchors: NowAnswerAnchors;
   /** What has gone stale and has to be told again, blocking ones first; the same list Now shows. Empty when every fact is current. */
   needs: Need[];
+  /** A stretch on offer now: `text` is the sentence to tell the person, `next` what to do with it. Null when none. */
+  stretchOffer: StretchOfferAnswer | null;
+  /** The running stretch, today's count and the morning-after loan line; null when there is nothing to say. */
+  stretch: StretchBlock | null;
   upcoming: UpcomingSummary[];
   session: SessionSummary | null;
   currentCommitment: CommitmentSummary | null;
@@ -395,6 +401,11 @@ function buildSummary(
       dayPlan: planning?.result?.dayPlan,
       recommendation: planning?.result?.recommendation,
       schedule: planning?.result?.schedule,
+      planCalculatedAt: planning?.lastSuccessfulAt,
+      planCurrent:
+        planning?.status === "current" &&
+        Boolean(planning.validUntil) &&
+        new Date(planning.validUntil as string).getTime() > now.getTime(),
       now
     },
     locationNameById
@@ -526,6 +537,8 @@ function buildSummary(
     ...(allDay.length > day.length ? { dayOmitted: allDay.length - day.length } : {}),
     anchors: answer.anchors,
     needs: answer.needs,
+    stretchOffer: answer.stretchOffer,
+    stretch: answer.stretch,
     upcoming,
     session,
     currentCommitment,
@@ -854,6 +867,14 @@ function renderStatusTable(summary: StatusSummary, timezone: string, now: Date):
   // Before Now: a stale fact is why Now may be wrong, or blocked, so it is read first.
   if (summary.needs.length) rows.push(["Needs", summary.needs.map(needLine)]);
   rows.push(["Now", [directiveLine(summary.directive, timezone, now)]]);
+  if (summary.stretchOffer) rows.push(["Stretch", [summary.stretchOffer.text, summary.stretchOffer.next]]);
+  else if (summary.stretch?.active)
+    rows.push([
+      "Stretch",
+      [`${summary.stretch.active.title} until ${formatClock(summary.stretch.active.until, timezone)}`]
+    ]);
+  if (summary.stretch?.today) rows.push(["", [summary.stretch.today.note]]);
+  if (summary.stretch?.loan) rows.push(["", [summary.stretch.loan.line]]);
   if (summary.directive?.reason || summary.directive?.sleep)
     rows.push(["Why", [whyLine(summary.directive, timezone, now)]]);
   const rec = summary.recommendation;
@@ -1005,6 +1026,7 @@ function buildBrief(summary: StatusSummary, state: PortalState, now: Date) {
     answer: summary.answer,
     headline: summary.recommendation.headline,
     needs: summary.needs,
+    ...(summary.stretchOffer ? { stretchOffer: summary.stretchOffer } : {}),
     reason: summary.directive?.reason ?? null,
     plannedEnd: summary.recommendation.plannedEnd,
     next,

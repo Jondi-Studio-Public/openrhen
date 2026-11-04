@@ -759,3 +759,58 @@ describe("status pulse: the disruption in force", () => {
     expect(JSON.parse(json.stdout).pulseRecord.disruption).toMatchObject({ doing: "Hospital visit", exclusive: true });
   });
 });
+
+describe("status stretch", () => {
+  const offer = {
+    actionId: "action-draft",
+    title: "Draft chapter 3",
+    declaredEnergy: "low",
+    requiredEnergy: "high",
+    energyGap: 2,
+    minutes: 45,
+    cappedAtMinutes: 45,
+    reason: "external_within_48h",
+    externalDeadlineAt: "2026-09-04T09:00:00+10:00",
+    latestSafeStartAt: null
+  };
+  const withOffer = (raw: Record<string, unknown>) => {
+    const planning = raw.planning as { result: { recommendation: object } };
+    return {
+      ...raw,
+      planning: { ...planning, result: { ...planning.result, recommendation: { stretchOffer: offer } } }
+    };
+  };
+
+  it("carries the offer with its sentence and what an agent does with it", async () => {
+    const { stdout } = await runStatus(["status", "--json"], {}, withOffer);
+    const json = JSON.parse(stdout);
+    expect(json.stretchOffer).toMatchObject({ actionId: "action-draft", minutes: 45 });
+    expect(json.stretchOffer.text).toContain("Draft chapter 3 has an outside deadline");
+    expect(json.stretchOffer.text).toContain("Both are reasonable.");
+    expect(json.stretchOffer.next).toContain("Only the person answers");
+    expect(json.stretchOffer.next).toContain("never raise declared energy");
+    expect(json.stretch).toBeNull();
+  });
+
+  it("prints the offer in the table and in the brief, and nothing when there is none", async () => {
+    const table = await runStatus(["status"], {}, withOffer);
+    expect(table.stdout).toMatch(/^Stretch\s+Draft chapter 3 has an outside deadline/m);
+    const brief = await runStatus(["status", "--brief", "--json"], {}, withOffer);
+    expect(JSON.parse(brief.stdout).stretchOffer.actionId).toBe("action-draft");
+    const none = await runStatus(["status", "--json"], {});
+    expect(JSON.parse(none.stdout).stretchOffer).toBeNull();
+    const noneBrief = await runStatus(["status", "--brief", "--json"], {});
+    expect(JSON.parse(noneBrief.stdout)).not.toHaveProperty("stretchOffer");
+  });
+
+  it("stops offering once the person has said no to every stretch today", async () => {
+    const { stdout } = await runStatus(["status", "--json"], {}, (raw) => ({
+      ...withOffer(raw),
+      currentSituation: {
+        ...(raw.currentSituation as object),
+        stretch: { accepted: [], declined: [], declinedAllAt: new Date(fixtureNow.getTime() - 60_000).toISOString() }
+      }
+    }));
+    expect(JSON.parse(stdout).stretchOffer).toBeNull();
+  });
+});

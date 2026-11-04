@@ -1173,3 +1173,82 @@ describe("recommendedActionFinished", () => {
     expect(recommendedActionFinished({ ...state, occurrences: [occurrence] }, primary)).toBe(true);
   });
 });
+
+describe("buildNowModel stretch", () => {
+  const offer = {
+    actionId: "act-1",
+    title: "Unit 3 reading",
+    declaredEnergy: "low",
+    requiredEnergy: "high",
+    energyGap: 2,
+    minutes: 45,
+    cappedAtMinutes: 45,
+    reason: "external_within_48h",
+    externalDeadlineAt: iso(60 * 20),
+    latestSafeStartAt: null
+  };
+  const withOffer = (stretch?: PortalState["currentSituation"]["stretch"]): PortalState => {
+    const base = stateWithPlanningResult(createSeedState(now));
+    return {
+      ...base,
+      currentSituation: { ...base.currentSituation, ...(stretch ? { stretch } : {}) },
+      planning: {
+        ...base.planning!,
+        result: { ...base.planning!.result!, recommendation: { stretchOffer: offer } as unknown as JsonValue }
+      }
+    };
+  };
+
+  it("reads the offer from the stored recommendation, with the one sentence", () => {
+    const built = model(withOffer());
+    expect(built.stretchOffer).toMatchObject({ actionId: "act-1", minutes: 45 });
+    expect(built.stretchOffer?.text).toContain("Unit 3 reading");
+    expect(built.stretchOffer?.text).toContain("Both are reasonable.");
+    expect(built.stretch).toBeNull();
+  });
+
+  it("agrees with the shared answer builder that status calls", () => {
+    const state = withOffer();
+    const built = model(state);
+    const answer = buildNowAnswer(
+      {
+        state,
+        currentDirective: null,
+        recommendation: state.planning?.result?.recommendation,
+        planCalculatedAt: state.planning?.lastSuccessfulAt,
+        planCurrent: true,
+        now
+      },
+      new Map()
+    );
+    expect(built.stretchOffer).toEqual(answer.stretchOffer);
+  });
+
+  it("drops the offer once the person said no tonight, or while the plan is not current", () => {
+    const declined = withOffer({ accepted: [], declined: [], declinedAllAt: iso(-5) });
+    expect(model(declined).stretchOffer).toBeNull();
+    const stale = { ...withOffer(), planning: { ...withOffer().planning!, validUntil: iso(-1) } };
+    expect(model(stale).stretchOffer).toBeNull();
+  });
+
+  it("shows the running stretch", () => {
+    const stretch = {
+      accepted: [
+        {
+          actionId: "act-1",
+          title: "Unit 3 reading",
+          acceptedAt: iso(-5),
+          until: iso(40),
+          minutes: 45,
+          by: "person" as const
+        }
+      ],
+      declined: []
+    };
+    const state = withOffer(stretch);
+    state.currentSituation = { ...state.currentSituation, energySetAt: iso(-30) };
+    const built = model(state);
+    expect(built.stretchOffer).toBeNull();
+    expect(built.stretch?.active).toMatchObject({ title: "Unit 3 reading", until: iso(40) });
+  });
+});

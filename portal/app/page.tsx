@@ -37,6 +37,7 @@ import { BoundaryPanel } from "@/features/now/components/boundary-panel";
 import { DeliverableSessionPanel } from "@/features/now/components/deliverable-session-panel";
 import { EngagementStrip } from "@/features/now/components/engagement-strip";
 import { FactNeeds } from "@/features/now/components/fact-needs";
+import { StretchSection } from "@/features/now/components/stretch-section";
 import { LateCommitmentBanner } from "@/features/now/components/late-commitment-banner";
 import { NeedsAnswerList } from "@/features/now/components/needs-answer-list";
 import { NothingFitsPanel } from "@/features/now/components/nothing-fits-panel";
@@ -365,7 +366,9 @@ export default function NowPage() {
     prepPace,
     startByWarnings,
     canDoNow,
-    needs
+    needs,
+    stretchOffer,
+    stretch
   } = model;
   // Keyed to the specific plan rather than just "on/off" so a reload can tell a still-current early
   // start from a stale one left over from a previous night's plan, which by then has a different id.
@@ -524,6 +527,7 @@ export default function NowPage() {
               {...factNeeds}
             />
             {primary}
+            <StretchSection offer={stretchOffer} stretch={stretch} timezone={timezone} />
           </div>
           {side(
             <FactNeeds

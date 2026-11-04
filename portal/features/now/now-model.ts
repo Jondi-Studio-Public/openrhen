@@ -2,6 +2,8 @@ import { isClosedStatus } from "@openrhen/contracts";
 import {
   buildNeeds,
   buildRecommendationAnswer,
+  buildStretchAnswer,
+  resolveLocale,
   resolveNowActivity,
   type CanDoNowItem,
   type CurrentDirective,
@@ -11,7 +13,9 @@ import {
   type Pulse,
   type RecommendationAnswer,
   type StartByWarning,
-  type StayUpOffer
+  type StayUpOffer,
+  type StretchBlock,
+  type StretchOfferAnswer
 } from "@openrhen/contracts";
 import { assessDeliverable } from "@openrhen/contracts/readiness";
 import type {
@@ -263,6 +267,10 @@ export interface NowModel {
    * behind `NowAnswer.needs`, so Now and `status` list the same needs in the same words.
    */
   needs: Need[];
+  /** A stretch on offer now, shown as a calm card with equal choices. Built by `buildStretchAnswer`, the call behind `status`. */
+  stretchOffer: StretchOfferAnswer | null;
+  /** The running stretch, today's count and the morning-after loan line; null when there is nothing to say. */
+  stretch: StretchBlock | null;
 }
 
 /** Which hero Now is showing, for the needs it already asks in its own words. */
@@ -636,6 +644,19 @@ export function buildNowModel({
     new Map(state.conditionDefinitions.map((entry) => [entry.id, entry.name]))
   );
 
+  // The raw stored recommendation, not the hydrated one: hydration turns ISO instants into Dates, which the offer's
+  // schema (strings) does not take, and `status` reads it raw too.
+  const stretchAnswer = buildStretchAnswer({
+    recommendation: state.planning?.result?.recommendation,
+    stretch: state.currentSituation.stretch,
+    energySetAt: state.currentSituation.energySetAt,
+    planCalculatedAt: state.planning?.lastSuccessfulAt ?? undefined,
+    planCurrent: planningDecisionCurrent,
+    now: new Date(now.getTime() + serverClockOffsetMs),
+    timeZone: timezone,
+    locale: resolveLocale(state.settings.locale)
+  });
+
   return {
     timezone,
     planningDecisionCurrent,
@@ -694,6 +715,8 @@ export function buildNowModel({
     canDoNow,
     stayUpOffer,
     recommendationAnswer,
-    needs
+    needs,
+    stretchOffer: stretchAnswer.stretchOffer,
+    stretch: stretchAnswer.stretch
   };
 }
