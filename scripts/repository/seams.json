@@ -1,0 +1,24 @@
+{
+  "_comment": "The seam stubs: core files an add-on replaces with its own content. They are the only core paths an add-on may overwrite (rule R1 in the add-on layer). Each sits under a private/ folder and is empty or a no-op in core. Keep in step with scripts/test/seams.test.mjs.",
+  "stubs": [
+    "engine/worker/src/private/index.ts",
+    "platform/contracts/src/private/index.ts",
+    "platform/database/src/operations/demo-seed/private/index.ts",
+    "platform/database/src/operations/private/legacy-backups.ts",
+    "platform/database/src/schema/private/index.ts",
+    "platform/database/src/schema/private/push-channels.ts",
+    "portal/components/private/index.ts",
+    "portal/features/imports/private/index.ts",
+    "portal/server/persistence/postgres/imports/calendar-profiles/private/index.ts",
+    "portal/server/persistence/postgres/imports/private/index.ts",
+    "portal/server/persistence/postgres/private/index.ts",
+    "portal/server/private/env-named-places.ts",
+    "portal/server/private/index.ts",
+    "portal/server/private/mcp-route-table.ts",
+    "portal/server/private/providers.ts",
+    "portal/state/private/index.ts",
+    "scripts/ci/private/index.mjs",
+    "scripts/deploy/private/index.mjs",
+    "scripts/repository/private/index.mjs"
+  ]
+}
