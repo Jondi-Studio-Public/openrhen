@@ -44,7 +44,7 @@ export interface ImportRecordActions {
   toggleRemoved: (id: string) => void;
   /** "Apply anyway" on a held overlap clash — see `acceptRecordOverlap`. */
   acceptOverlap: (id: string) => void;
-  /** "Delete anyway" on a cancel of a commitment edited since — see `acceptRecordCancel`. */
+  /** "Cancel anyway" on a cancel of a commitment edited since — see `acceptRecordCancel`. */
   acceptCancel: (id: string) => void;
   /** "Same event" / "Keep both" on a row matched to a commitment already on the plan. */
   resolveSourceMatch: (id: string, sameEvent: boolean) => void;
@@ -63,7 +63,10 @@ const managedRelationships = () => [
   "routinePresetId",
   "routineSteps",
   "remoteCancelEdited",
-  "remoteCancelled"
+  "remoteCancelled",
+  "sourceLinkId",
+  "sourceReopen",
+  "sourceClear"
 ];
 /** The source-matching relationships are the screen's own; the card explains them instead. */
 const isSourceMatchRelationship = (name: string) => name.startsWith("sourceMatch") || name.startsWith("sourceUnlink");
@@ -200,7 +203,7 @@ export function ImportRecordCard({
       {isHeldCancel(record) && (
         <div className="overlap-actions">
           <Button type="button" variant="primary" size="sm" onClick={() => acceptCancel(record.id)}>
-            Delete anyway
+            Cancel anyway
           </Button>
           <Button type="button" variant="secondary" size="sm" onClick={() => toggleRemoved(record.id)}>
             Keep it

@@ -3,6 +3,7 @@ import { fieldValue, isAbsentColumn } from "@/features/imports/import-validation
 import { assertNoClosedTransition } from "../close-floor";
 import { ForbiddenCommandError } from "../command-errors";
 import type { Sql } from "../sql-pool";
+import { lockSystemClose, type LockedSystemClose } from "../system-close";
 
 const STORED_TABLE: Partial<Record<ImportRecord["entityType"], string>> = {
   fixed_commitment: "commitments",
@@ -37,16 +38,47 @@ export async function agentImportFloor(
 }
 
 /**
- * How many of the ready records close a commitment: a delete of one, or an update that sets a closed status. Until the
- * calendar cancel becomes a real cancel (design 7a) a delete is a hard delete, but it is counted now so the hourly brake
- * covers it from the day it changes.
+ * The ready records that cancel a commitment: a delete of one (the source removed the event), or an update that sets a
+ * closed status. Whether each one really closes anything is the stored row's to say (an already-cancelled commitment
+ * closes nothing and counts for nothing): see `closingPlans`.
  */
-export function closingRecordCount(ready: readonly ImportRecord[]): number {
+export function closingRecords(ready: readonly ImportRecord[]): ImportRecord[] {
   return ready.filter((record) => {
     if (record.entityType !== "fixed_commitment") return false;
     if (record.operation === "delete") return true;
     return writesStatus(record) && isClosedStatus(fieldValue(record, "status") as string | undefined);
-  }).length;
+  });
+}
+
+/**
+ * What the batch's cancellations take with them, read under row locks inside the commit transaction: the open
+ * commitments those records close, each with its steps and safe prep actions, and the weight the hourly brake counts for
+ * it (the commitment and everything that closes with it). The commit writes these same plans, so the weight asserted is
+ * the weight written. Hold the budget lock (`lockCloseBudget`) first.
+ */
+export async function closingPlans(
+  tx: Sql,
+  userId: string,
+  records: readonly ImportRecord[]
+): Promise<Map<string, LockedSystemClose>> {
+  const plans = new Map<string, LockedSystemClose>();
+  if (records.length === 0) return plans;
+  const keyed = new Map(
+    (
+      await tx<
+        { import_key: string; entity_id: string }[]
+      >`SELECT import_key, entity_id FROM import_entity_keys WHERE user_id=${userId} AND entity_type='fixed_commitment'`
+    ).map((row) => [row.import_key, row.entity_id])
+  );
+  for (const record of records) {
+    // The id the commit writes: a link names its commitment, any other record resolves through its import key.
+    const id =
+      record.operation === "link" ? record.matchedEntityId : (keyed.get(record.importKey) ?? record.matchedEntityId);
+    if (!id || plans.has(id)) continue;
+    const locked = await lockSystemClose(tx, userId, id);
+    if (locked) plans.set(id, locked);
+  }
+  return plans;
 }
 
 /**

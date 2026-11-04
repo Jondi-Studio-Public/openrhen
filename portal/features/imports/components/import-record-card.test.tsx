@@ -91,7 +91,7 @@ describe("ImportRecordCard", () => {
     ).toBeTruthy();
   });
 
-  it("offers Delete anyway and Keep it on a held cancel of an edited commitment", () => {
+  it("offers Cancel anyway and Keep it on a held cancel of an edited commitment", () => {
     const onCancel = vi.fn();
     const onRemove = vi.fn();
     render(
@@ -108,7 +108,7 @@ describe("ImportRecordCard", () => {
         })}
       />
     );
-    fireEvent.click(screen.getByRole("button", { name: "Delete anyway" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel anyway" }));
     expect(onCancel).toHaveBeenCalledWith("record-1");
     fireEvent.click(screen.getByRole("button", { name: "Keep it" }));
     expect(onRemove).toHaveBeenCalledWith("record-1");
@@ -170,7 +170,7 @@ describe("ImportRecordCard", () => {
     expect(screen.queryByText("sourceMatchKind")).toBeNull();
   });
 
-  it("offers Remove commitment too on an unlink, and Delete anyway on a held Example Shared removal", () => {
+  it("offers Remove commitment too on an unlink, and Cancel anyway on a held Example Shared removal", () => {
     const dropCommitment = vi.fn();
     const acceptCancel = vi.fn();
     const { rerender } = render(
@@ -201,7 +201,7 @@ describe("ImportRecordCard", () => {
         })}
       />
     );
-    fireEvent.click(screen.getByRole("button", { name: "Delete anyway" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel anyway" }));
     expect(acceptCancel).toHaveBeenCalledWith("record-1");
     expect(screen.getByRole("button", { name: "Keep it" })).toBeTruthy();
   });
@@ -241,7 +241,7 @@ describe("ImportRecordCard", () => {
     expect(resolveCalendarConflict).toHaveBeenLastCalledWith("record-1", "startsAt", false);
   });
 
-  it("offers Delete anyway and Keep it on a Google cancel of an edited commitment, never as raw fields", () => {
+  it("offers Cancel anyway and Keep it on a Google cancel of an edited commitment, never as raw fields", () => {
     const onCancel = vi.fn();
     render(
       <ImportRecordCard
@@ -252,15 +252,33 @@ describe("ImportRecordCard", () => {
           operation: "conflict",
           fields: { title: explicit("Dentist") },
           relationships: { remoteCancelled: "true", remoteCancelEdited: "title" },
-          errors: ["Cancelled in Google Calendar, but title changed in OpenRhen since. Delete it anyway or keep it."]
+          errors: ["Cancelled in Google Calendar, but title changed in OpenRhen since. Cancel it anyway or keep it."]
         })}
       />
     );
-    fireEvent.click(screen.getByRole("button", { name: "Delete anyway" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel anyway" }));
     expect(onCancel).toHaveBeenCalledWith("record-1");
     expect(screen.getByRole("button", { name: "Keep it" })).toBeTruthy();
     expect(screen.queryByText("remoteCancelled")).toBeNull();
     expect(screen.queryByText("remoteCancelEdited")).toBeNull();
+  });
+
+  it("shows a returning event's reopen as an update, with the source-return bookkeeping kept off the screen", () => {
+    render(
+      <ImportRecordCard
+        {...actions}
+        record={record({
+          entityType: "fixed_commitment",
+          operation: "update",
+          fields: { title: explicit("Dentist"), status: explicit("confirmed") },
+          relationships: { sourceReopen: "true", sourceClear: "true", sourceLinkId: "link-1" },
+          warnings: ["Still cancelled by you. Restore it from Review > Closed."]
+        })}
+      />
+    );
+    for (const name of ["sourceReopen", "sourceClear", "sourceLinkId", "link-1"])
+      expect(screen.queryByText(name)).toBeNull();
+    expect(screen.getByText("Still cancelled by you. Restore it from Review > Closed.")).toBeTruthy();
   });
 
   it("shows the calendar feed's reason on a held end and lets the owner keep it, with no raw feed fields", () => {

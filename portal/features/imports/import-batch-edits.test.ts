@@ -530,7 +530,7 @@ describe("acceptRecordCancel", () => {
     expect(validated!.errors).toEqual(held.errors);
   });
 
-  it("releases the held cancel back to a delete on Delete anyway", () => {
+  it("releases the held cancel back to a delete on Cancel anyway", () => {
     const batch = { id: "batch", version: 1, records: [held] } as unknown as ImportBatch;
     const released = acceptRecordCancel(batch, held.id).records[0]!;
     expect(released.operation).toBe("delete");
@@ -544,7 +544,7 @@ describe("acceptRecordCancel", () => {
       ...held,
       importKey: "google_calendar:event:jon@example.com:e1",
       relationships: { remoteCancelled: "true", remoteCancelEdited: "title" },
-      errors: ["Cancelled in Google Calendar, but title changed in OpenRhen since. Delete it anyway or keep it."]
+      errors: ["Cancelled in Google Calendar, but title changed in OpenRhen since. Cancel it anyway or keep it."]
     };
     expect(validateImportRecords([google])[0]!.operation).toBe("conflict");
     const batch = { id: "batch", version: 1, records: [google] } as unknown as ImportBatch;
@@ -561,7 +561,7 @@ describe("acceptRecordCancel", () => {
       importKey: "google_calendar:event:jon@example.com:e2",
       relationships: { remoteCancelEdited: "location" },
       errors: [
-        "No longer on this Google calendar for this date range, but location changed in OpenRhen since. Delete it anyway or keep it."
+        "No longer on this Google calendar for this date range, but location changed in OpenRhen since. Cancel it anyway or keep it."
       ]
     };
     const batch = { id: "batch", version: 1, records: [missing] } as unknown as ImportBatch;
@@ -634,6 +634,10 @@ describe("source matching edits", () => {
     const dropped = dropRecordCommitment(batchOf([unlink]), unlink.id).records[0]!;
     expect(dropped.operation).toBe("delete");
     expect(dropped.relationships.sourceUnlinkLinkId).toBeUndefined();
+    // the link stays named, so the commit remembers this source's removal; and the row says it cancels, not deletes
+    expect(dropped.relationships.sourceLinkId).toBe("link-1");
+    expect(dropped.warnings.join(" ")).toContain("cancels the commitment");
+    expect(dropped.warnings.join(" ")).not.toContain("permanently");
   });
 });
 

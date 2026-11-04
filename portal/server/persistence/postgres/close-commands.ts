@@ -164,7 +164,7 @@ async function readRow(
 }
 
 /** The actor the trigger stamps: the person, the agent, or the agent's close the owner confirmed (plan D7). */
-function actorName(undo = false): string {
+export function actorName(undo = false): string {
   const agent = requestAgent();
   const suffix = undo ? UNDO_CLOSED_BY_SUFFIX : "";
   if (agent === null) return `person${suffix}`;
@@ -210,7 +210,7 @@ async function openSessionOn(
 }
 
 /** Open rows that still wait on the row just cancelled, each with the read that shows what to edit (design 7). */
-async function dependentsOf(tx: Sql, type: CloseType, id: string): Promise<DependentRow[]> {
+export async function dependentsOf(tx: Sql, type: CloseType, id: string): Promise<DependentRow[]> {
   if (type !== "action" && type !== "project" && type !== "deliverable") return [];
   const found: DependentRow[] = [];
   const push = (kind: "action" | "project" | "deliverable", rows: { id: string; title: string }[]) => {

@@ -10,11 +10,13 @@ import "./private/index";
 import "./calendar-feed-import-extension";
 import { maskToApplyFields } from "./source-match-records";
 import { linkSourceToRule, recordSourceAlias, unlinkSource, type LinkSourceArgs } from "./source-links";
+import { markSourceClosed } from "./source-closed";
 import {
-  assertAndDeleteCommitment,
+  assertAndCloseCommitment,
   copyRoutineSteps,
   endCommitmentRecurrenceRule,
   fieldReader,
+  type ImportCloseContext,
   upsertAction,
   upsertArea,
   upsertCommitment,
@@ -35,7 +37,8 @@ export async function commitRecords(
   sql: Sql,
   userId: string,
   records: ImportRecord[],
-  linkSource?: GoogleCalendarSource | ExtensionLinkSource
+  linkSource?: GoogleCalendarSource | ExtensionLinkSource,
+  close: ImportCloseContext = {}
 ) {
   const entityIds = new Map<string, string>();
   const existingKeys = await sql<
@@ -86,7 +89,12 @@ export async function commitRecords(
         continue;
       }
       if (record.operation === "delete") {
-        if (type === "fixed_commitment") await assertAndDeleteCommitment(sql, id!, record);
+        if (type === "fixed_commitment") {
+          // The source removed the event: the commitment is cancelled (restorable), and its key and link stay.
+          await assertAndCloseCommitment(sql, userId, id!, record, close);
+          const linkId = record.relationships.sourceLinkId;
+          if (linkId) await markSourceClosed(sql, userId, linkId);
+        }
         if (type === "fixed_commitment_recurrence") await endCommitmentRecurrenceRule(sql, id!, record);
         continue;
       }
@@ -120,7 +128,7 @@ export async function commitRecords(
         const pickedFields = record.relationships.sourceMatchDiffFields;
         if (pickedFields && !applyFields) {
           const masked = maskToApplyFields({ ...record, operation: "update" }, pickedFields.split("|"));
-          await upsertCommitment(sql, userId, id!, masked, fieldReader(masked));
+          await upsertCommitment(sql, userId, id!, masked, fieldReader(masked), close);
         }
         if (record.relationships.sourceMatchKind === "possible" && linkSource) {
           const localTitle = record.relationships.sourceMatchTitle;
@@ -128,7 +136,7 @@ export async function commitRecords(
           if (localTitle && remoteTitle && aliasTitleNorm(localTitle) !== aliasTitleNorm(remoteTitle))
             await recordSourceAlias(sql, { userId, provider: linkSource.provider, remoteTitle, localTitle });
         }
-      } else if (type === "fixed_commitment") await upsertCommitment(sql, userId, id!, record, value);
+      } else if (type === "fixed_commitment") await upsertCommitment(sql, userId, id!, record, value, close);
       const extension = extensionOfLinkSource(linkSource);
       const hookContext = {
         sql,
@@ -138,7 +146,8 @@ export async function commitRecords(
         record,
         value,
         remoteOr,
-        linkSource
+        linkSource,
+        batchId: close.batchId
       };
       await extension?.beforeRecord?.(hookContext);
       // A remote series matched to a rule already on the plan joins it; the rule itself is not rewritten.

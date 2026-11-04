@@ -386,7 +386,7 @@ export function acceptRecordOverlap(batch: ImportBatch, recordId: string): Impor
   });
 }
 
-/** The error lines a held cancel carries, from a sender or a calendar sync, that "Delete anyway" clears. */
+/** The error lines a held cancel carries, from a sender or a calendar sync, that "Cancel anyway" clears. */
 const heldCancelPrefixes = () => [
   ...holdCancelPrefixes(),
   "Cancelled in Google Calendar, but ",
@@ -402,7 +402,7 @@ export function isHeldCancel(record: Pick<ImportRecord, "relationships">): boole
 }
 
 /**
- * "Delete anyway" on a cancel of a commitment edited in OpenRhen since, whether a
+ * "Cancel anyway" on a cancel of a commitment edited in OpenRhen since, whether a
  * a sender cancelled it or its Google event was cancelled or left the calendar: the owner has seen
  * what the cancel throws away, so the held record goes back to the delete it was. "Keep it" is the
  * ordinary Remove, which leaves the commitment (and tells a sender no).
@@ -467,12 +467,13 @@ export function resolveRecordSourceMatch(batch: ImportBatch, recordId: string, s
  */
 export function dropRecordCommitment(batch: ImportBatch, recordId: string): ImportBatch {
   return mapRecord(batch, recordId, (record) => {
-    const { sourceUnlinkLinkId: _linkId, sourceUnlinkOthers: _others, ...relationships } = record.relationships;
+    const { sourceUnlinkLinkId: linkId, sourceUnlinkOthers: _others, ...relationships } = record.relationships;
     return {
       ...record,
       operation: "delete" as const,
-      relationships,
-      warnings: ["Confirming this row permanently deletes the fixed commitment."]
+      // The link stays named so the commit can remember that this source's removal was applied.
+      relationships: { ...relationships, ...(linkId ? { sourceLinkId: linkId } : {}) },
+      warnings: ["Confirming this row cancels the commitment. You can restore it from Review > Closed."]
     };
   });
 }

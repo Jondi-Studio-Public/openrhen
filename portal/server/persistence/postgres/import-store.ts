@@ -33,8 +33,13 @@ import {
   OPEN_IMPORT_BATCH_STATUSES,
   writeRecords
 } from "./imports/batch-records";
-import { agentImportFloor, assertImportNoClosedTransition, closingRecordCount } from "./imports/agent-import-floor";
-import { assertCloseBudget, closeBudgetApplies, lockCloseBudget } from "./close-budget";
+import {
+  agentImportFloor,
+  assertImportNoClosedTransition,
+  closingPlans,
+  closingRecords
+} from "./imports/agent-import-floor";
+import { assertCloseBudget, lockCloseBudget } from "./close-budget";
 import { commitRecords } from "./imports/commit-records";
 import { importExtensions, isExtensionSourceType, type ExtensionLinkSource } from "./imports/import-extensions";
 import "./imports/private/index";
@@ -160,7 +165,7 @@ export class PostgresImportStore {
     const calendarIds = args.calendars.map((calendar) => calendar.calendarId);
     const links = calendarIds.length
       ? await this.sql<CalendarLinkRow[]>`
-          SELECT l.*, fc.title, fc.starts_at, fc.ends_at, fc.status, fc.location, fc.setup_before_minutes, fc.transition_after_minutes, fc.version
+          SELECT l.*, fc.title, fc.starts_at, fc.ends_at, fc.status, fc.closed_by, fc.closed_reason, fc.closed_from_status, fc.location, fc.setup_before_minutes, fc.transition_after_minutes, fc.version
           FROM calendar_event_links l JOIN commitments fc ON fc.id=l.commitment_id
           WHERE l.user_id=${userId} AND l.provider='google_calendar' AND l.frame_id IN ${this.sql(calendarIds)}
         `
@@ -538,25 +543,36 @@ export class PostgresImportStore {
         if (floor !== null) throw new ForbiddenCommandError(`An agent token cannot make this write: ${floor}.`);
         await assertImportNoClosedTransition(tx, userId, ready);
       }
-      // The hourly close brake covers the commitments this commit cancels (a token agent only; no proposal path exists
-      // for an import, so the refusal says to wait or ask the owner to commit it).
-      const closing = requestAgent() !== null ? closingRecordCount(ready) : 0;
-      if (closing > 0) {
+      // The receipt is the batch's own id and is taken first: every cancellation this commit makes writes its ledger row
+      // under it, so a sync that cancels fifty events is one write with fifty rows, not fifty writes. What a commit writes is
+      // that stored batch (its status and version guard a second commit), not a payload a caller sent under a reusable id,
+      // so there is nothing to hash.
+      await claimCommandReceipt(tx, { id, userId, commandType: "import_commit" });
+      // The hourly close brake covers the commitments this commit cancels, and every row that closes with each (a token
+      // agent only; no proposal path exists for an import, so the refusal says to wait or ask the owner to commit it). The
+      // plans are read under row locks and are the ones the commit writes, so the weight counted is the weight written.
+      const closing = requestAgent() !== null ? closingRecords(ready) : [];
+      let closePlans: Awaited<ReturnType<typeof closingPlans>> | undefined;
+      if (closing.length > 0) {
         await lockCloseBudget(tx, userId);
-        try {
-          await assertCloseBudget(tx, userId, closing, {
-            nextCall: {
-              tool: "rhen_status",
-              arguments: {},
-              note: "the owner commits this batch in Inbox > Calendar & imports"
-            }
-          });
-        } catch (error) {
-          if (error instanceof CommandConflictError)
-            throw new ForbiddenCommandError(
-              `An agent token cannot make this write: ${error.message.replace(/ Repeat the call and it is filed as a proposal for the owner to confirm\./, "")} The owner commits this batch in Inbox > Calendar & imports.`
-            );
-          throw error;
+        closePlans = await closingPlans(tx, userId, closing);
+        const weight = [...closePlans.values()].reduce((sum, plan) => sum + plan.weight, 0);
+        if (weight > 0) {
+          try {
+            await assertCloseBudget(tx, userId, weight, {
+              nextCall: {
+                tool: "rhen_status",
+                arguments: {},
+                note: "the owner commits this batch in Inbox > Calendar & imports"
+              }
+            });
+          } catch (error) {
+            if (error instanceof CommandConflictError)
+              throw new ForbiddenCommandError(
+                `An agent token cannot make this write: ${error.message.replace(/ Repeat the call and it is filed as a proposal for the owner to confirm\./, "")} The owner commits this batch in Inbox > Calendar & imports.`
+              );
+            throw error;
+          }
         }
       }
       const linkSource: GoogleCalendarSource | ExtensionLinkSource | undefined =
@@ -565,15 +581,7 @@ export class PostgresImportStore {
           calendarSourceConnections().some((connection) => connection.id === batch.source_type))
           ? JSON.parse(batch.source_text)
           : undefined;
-      await commitRecords(tx, userId, ready, linkSource);
-      // The ledger row the brake counts the next call from; counted only when a token agent made it.
-      if (closing > 0)
-        await recordStateChange(tx, userId, {
-          entityType: "fixed_commitment",
-          operation: "close",
-          evidence: { closed: closing, via: "import", batch: id, counted: closeBudgetApplies() },
-          at: new Date()
-        });
+      await commitRecords(tx, userId, ready, linkSource, { batchId: id, plans: closePlans });
       // An event left unselected when a calendar batch is committed was rejected: remember it so the next
       // automatic run does not propose it again (until its title or start changes).
       const profileDismissals = linkSource ? findProfile(linkSource.provider)?.dismissals : undefined;
@@ -629,10 +637,6 @@ export class PostgresImportStore {
           deferredBatchId: deferredId
         });
       }
-      // The receipt id is the batch's own id, and what a commit writes is that stored batch (its status and version
-      // guard a second commit), not a payload a caller sent under a reusable id: no different write can arrive under
-      // it, so there is nothing to hash.
-      await claimCommandReceipt(tx, { id, userId, commandType: "import_commit" });
       await recordStateChange(tx, userId, {
         entityType: "import_batch",
         entityId: id,

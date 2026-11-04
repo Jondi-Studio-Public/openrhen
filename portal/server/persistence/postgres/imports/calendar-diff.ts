@@ -1,11 +1,13 @@
 import {
   connectionManifest,
   connectionRegistry,
+  isImportRemovedClose,
   type CalendarEvent,
   type ImportField,
   type ImportRecord
 } from "@openrhen/contracts";
 import type { CalendarSeriesGroup } from "@/features/imports/calendar-series";
+import { STILL_CANCELLED_WARNING } from "@/features/imports/import-validation";
 import {
   applySeriesLocationDefaults,
   applyStoredLocationDefaults,
@@ -18,6 +20,7 @@ import {
   type LinkRow,
   type LocationRow
 } from "./calendar-diff-core";
+import { sourceClosedOf } from "./source-closed";
 import { calendarProfile } from "./calendar-profiles/calendar";
 // The other profiles register themselves from the files this lists (empty in the OpenRhen export).
 import "./calendar-profiles/private/index";
@@ -553,7 +556,8 @@ export function calendarDiffRecords(input: CalendarDiffInput, profile: CalendarD
       calendarName(profile.frameOf(event)),
       records.length,
       othersOf(input, profile, link),
-      input
+      input,
+      returnOf(link)
     );
     if (record) records.push(record);
   }
@@ -562,6 +566,10 @@ export function calendarDiffRecords(input: CalendarDiffInput, profile: CalendarD
     const present = remote.get(key);
     const gone = present !== undefined && profile.isRemoved(present);
     if (present && !gone) continue;
+    // Already cancelled (by anyone): the source's removal has nothing left to do, so it is not proposed again.
+    if (link.status === "cancelled") continue;
+    // A person restored it after the source's removal was applied: it stays open until the event comes back and goes again.
+    if (sourceClosedOf(link.last_remote_snapshot)) continue;
     const cancelled = present !== undefined && (profile.isCancelled ? profile.isCancelled(present) : gone);
     // Missing from the read is only a delete when the event sat inside the window: an event that ended
     // before it, or starts after it, was never going to be returned.
@@ -584,6 +592,31 @@ export function calendarDiffRecords(input: CalendarDiffInput, profile: CalendarD
   return records;
 }
 
+/** What confirming a removal does (the review shows it on the row). */
+export const REMOVAL_WARNING = "Confirming this row cancels the commitment. You can restore it from Review > Closed.";
+
+/**
+ * What a linked event that is present and live means for a commitment the source's earlier removal closed: a commitment
+ * the import cancelled reopens (to the status it had before, not a guess); one the person or an agent cancelled stays
+ * cancelled and any update says so; an open one whose link still remembers the removal (a person restored it) has the
+ * memory cleared. None of these is a change to a field the diff can see, so each makes a record even when nothing else
+ * changed.
+ */
+interface SourceReturn {
+  reopenTo?: string;
+  clear?: boolean;
+  stillClosed?: boolean;
+}
+
+function returnOf(row: CalendarLinkRow): SourceReturn | undefined {
+  if (row.status === "cancelled") {
+    if (!isImportRemovedClose(row)) return { stillClosed: true };
+    const before = row.closed_from_status;
+    return { reopenTo: before && before !== "cancelled" ? before : "confirmed" };
+  }
+  return sourceClosedOf(row.last_remote_snapshot) ? { clear: true } : undefined;
+}
+
 function updateRecord(
   profile: CalendarDiffProfile,
   event: CalendarEvent,
@@ -591,7 +624,8 @@ function updateRecord(
   calendarName: string,
   sortOrder: number,
   others: readonly CommitmentLink[],
-  input: Pick<CalendarDiffInput, "mapping" | "locations">
+  input: Pick<CalendarDiffInput, "mapping" | "locations">,
+  back?: SourceReturn
 ): ImportRecord | null {
   const prior = profile.priorView(row.last_remote_snapshot);
   const current = currentSnapshot(row as unknown as LinkRow) as Record<string, unknown>;
@@ -641,7 +675,19 @@ function updateRecord(
     ]);
   }
   const extended = profile.extendUpdate?.(event, row, { fields, relationships }, input) ?? false;
-  if (!changed && !extended) return null;
+  const warnings: string[] = [];
+  if (back?.reopenTo) {
+    // The event is back: the status the import closed it from, whatever else did or did not change.
+    fields.status = importField(back.reopenTo, [`Back in ${profile.sourceLabel} · ${calendarName}`]);
+    relationships.sourceReopen = "true";
+  } else if (back?.clear) {
+    fields.status = importField(current.status, [`Back in ${profile.sourceLabel} · ${calendarName}`]);
+    relationships.sourceClear = "true";
+  }
+  if (back && (back.reopenTo || back.clear) && row.id) relationships.sourceLinkId = row.id;
+  const forced = Boolean(back?.reopenTo || back?.clear);
+  if (!changed && !extended && !forced) return null;
+  if (back?.stillClosed) warnings.push(STILL_CANCELLED_WARNING);
   if (conflicts.length) relationships[`${profile.relationshipPrefix}ConflictFields`] = conflicts.join("|");
   return makeRecord(
     `${keyPrefixOf(profile)}${profile.eventKey(event)}`,
@@ -653,6 +699,7 @@ function updateRecord(
     sortOrder,
     {
       relationships,
+      warnings,
       errors: conflicts.map(
         (name) =>
           `${name} changed in both ${profile.sourceLabel} and ${againstByField[name]}. Choose which value to keep.`
@@ -728,12 +775,14 @@ function deleteRecord(
     {
       relationships: {
         ...(cancelled ? { remoteCancelled: "true" } : {}),
-        ...(editedHere.length ? { remoteCancelEdited: editedHere.join("|") } : {})
+        ...(editedHere.length ? { remoteCancelEdited: editedHere.join("|") } : {}),
+        // The link that remembers the source's removal once it is applied (see `source-closed.ts`).
+        ...(row.id ? { sourceLinkId: row.id } : {})
       },
       errors: editedHere.length
-        ? [`${whyConflict}, but ${editedHere.join(", ")} changed in OpenRhen since. Delete it anyway or keep it.`]
+        ? [`${whyConflict}, but ${editedHere.join(", ")} changed in OpenRhen since. Cancel it anyway or keep it.`]
         : [],
-      warnings: ["Confirming this row permanently deletes the fixed commitment."]
+      warnings: [REMOVAL_WARNING]
     }
   );
 }

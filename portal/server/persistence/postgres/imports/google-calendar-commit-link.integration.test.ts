@@ -139,7 +139,7 @@ describe("Google Calendar commit-and-link", () => {
     expect(await previewGoogle({ ...window, events: [e], calendars })).toBeNull();
   });
 
-  it("previews a later change to the linked event as an update, and a cancellation as a delete", async () => {
+  it("previews a later change to the linked event as an update, and a cancellation as a delete that cancels the commitment", async () => {
     const e = event({ externalEventId: "abc123" });
     const created = await previewGoogle({ ...window, events: [e], calendars });
     await importStore.commit(created!.id, created!.version);
@@ -167,8 +167,11 @@ describe("Google Calendar commit-and-link", () => {
     });
     expect(cancelled!.records[0]).toMatchObject({ operation: "delete" });
     await importStore.commit(cancelled!.id, cancelled!.version);
-    expect(await sql`SELECT 1 FROM commitments WHERE id=${commitmentId}`).toHaveLength(0);
-    expect(await sql`SELECT 1 FROM calendar_event_links WHERE provider='google_calendar'`).toHaveLength(0);
+    // The source cancelled it, so the commitment is cancelled (restorable), not deleted; its link stays.
+    expect(
+      await sql`SELECT 1 FROM commitments WHERE id=${commitmentId} AND status='cancelled' AND closed_by='system' AND closed_reason LIKE 'Removed at source: %'`
+    ).toHaveLength(1);
+    expect(await sql`SELECT 1 FROM calendar_event_links WHERE provider='google_calendar'`).toHaveLength(1);
   });
 
   it("keeps a two-sided Google change as a blocking conflict through validation", async () => {
@@ -215,7 +218,7 @@ describe("Google Calendar commit-and-link", () => {
     expect(await sql`SELECT 1 FROM commitments WHERE title='Dentist (my edit)'`).toHaveLength(1);
   });
 
-  it("deletes a held Google cancel of an edited commitment once the owner chooses Delete anyway", async () => {
+  it("cancels a held Google cancel of an edited commitment once the owner chooses Cancel anyway", async () => {
     const e = event({ externalEventId: "abc123" });
     const created = await previewGoogle({ ...window, events: [e], calendars });
     await importStore.commit(created!.id, created!.version);
@@ -230,8 +233,8 @@ describe("Google Calendar commit-and-link", () => {
     const saved = await importStore.update(held!.id, held!.version, released.records);
     expect(saved.records[0]).toMatchObject({ operation: "delete", errors: [] });
     await importStore.commit(saved.id, saved.version);
-    expect(await sql`SELECT 1 FROM commitments WHERE title='Dentist (my edit)'`).toHaveLength(0);
-    expect(await sql`SELECT 1 FROM calendar_event_links WHERE provider='google_calendar'`).toHaveLength(0);
+    expect(await sql`SELECT 1 FROM commitments WHERE title='Dentist (my edit)' AND status='cancelled'`).toHaveLength(1);
+    expect(await sql`SELECT 1 FROM calendar_event_links WHERE provider='google_calendar'`).toHaveLength(1);
   });
 
   it("drops the link when the owner keeps an edited commitment Google cancelled, so it is not asked again", async () => {

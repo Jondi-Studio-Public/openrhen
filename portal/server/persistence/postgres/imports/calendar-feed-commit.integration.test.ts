@@ -178,10 +178,45 @@ describe("a feed read through the adapter, persisted", () => {
       relationships: { remoteCancelled: "true" }
     });
     await commit(changed);
-    expect(await commitmentTitles()).toEqual(["Standup"]);
-    expect((await feedLinks()).map((l) => l.external_event_id)).toEqual(["a"]);
+    // The cancelled event's commitment is cancelled, not deleted, and its link stays.
+    expect(await commitmentTitles()).toEqual(["Review", "Standup"]);
+    expect(
+      await sql`SELECT 1 FROM commitments WHERE title='Review' AND status='cancelled' AND closed_by='system'`
+    ).toHaveLength(1);
+    expect((await feedLinks()).map((l) => l.external_event_id).sort()).toEqual(["a", "b"]);
     const row = await sql<{ starts_at: Date }[]>`SELECT starts_at FROM commitments WHERE title='Standup'`;
     expect(row[0]!.starts_at.toISOString()).toBe("2026-11-10T02:00:00.000Z");
+  });
+
+  it("reopens the commitment a feed cancel closed when the event is back unchanged, and a person's cancel stays", async () => {
+    await commit(
+      await diffOf(preparedFeed([feedEvent("a", { title: "Standup" }), feedEvent("b", { title: "Review" })]))
+    );
+    await commit(
+      await diffOf(
+        preparedFeed([feedEvent("a", { title: "Standup" }), feedEvent("b", { title: "Review", status: "cancelled" })])
+      )
+    );
+    expect(await sql`SELECT 1 FROM commitments WHERE title='Review' AND status='cancelled'`).toHaveLength(1);
+    // the event comes back exactly as it was: a record exists though no field changed, and the commit reopens
+    const back = await diffOf(
+      preparedFeed([feedEvent("a", { title: "Standup" }), feedEvent("b", { title: "Review" })])
+    );
+    const record = back.records.find((r) => r.importKey === `${FEED_EVENT_PREFIX}b`);
+    expect(record).toMatchObject({ operation: "update", relationships: { sourceReopen: "true" } });
+    await commit(back);
+    expect(
+      await sql`SELECT 1 FROM commitments WHERE title='Review' AND status='confirmed' AND closed_by IS NULL`
+    ).toHaveLength(1);
+    // a commitment the person cancelled is not reopened by the event staying live
+    await sql.begin(async (tx) => {
+      await tx`SELECT set_config('priorities.actor', 'person', true)`;
+      await tx`UPDATE commitments SET status='cancelled', closed_reason='Not going', version=version+1 WHERE title='Standup'`;
+    });
+    const stays = await diffOf(
+      preparedFeed([feedEvent("a", { title: "Standup" }), feedEvent("b", { title: "Review" })])
+    );
+    expect(stays.records).toEqual([]);
   });
 
   it("proposes removal of a linked event that is absent from a complete read, and never from an incomplete one", async () => {

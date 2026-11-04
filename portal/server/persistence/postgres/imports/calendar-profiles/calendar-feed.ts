@@ -261,6 +261,8 @@ export function prepareFeedRead(response: Pick<CalendarReadEventsResponse, "even
 export interface FeedLinkInfo {
   external_event_id: string;
   last_remote_snapshot: Record<string, unknown> | null;
+  /** The linked commitment's status, when the loader read it. */
+  status?: string | undefined;
 }
 
 /**
@@ -316,9 +318,12 @@ export function splitSeriesOwnedLinks<T extends FeedLinkInfo>(
     if (typeof movedFrom === "string") {
       // The replacement of a date the series moved: a one-off event the per-instance diff keeps reading, paired with its date.
       kept.push(link);
-      const dates = moveDates.get(stem) ?? new Set<string>();
-      dates.add(movedFrom);
-      moveDates.set(stem, dates);
+      // A replacement that was cancelled (its removal keeps the link, so it can come back) no longer holds its date moved.
+      if (link.status !== "cancelled") {
+        const dates = moveDates.get(stem) ?? new Set<string>();
+        dates.add(movedFrom);
+        moveDates.set(stem, dates);
+      }
     } else if (seriesStems.has(stem)) {
       ownedStems.add(stem);
       const starts = link.last_remote_snapshot?.startsAt;

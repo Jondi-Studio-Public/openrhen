@@ -107,7 +107,7 @@ async function feedDiffContext(store: PostgresImportStore, userId: string, args:
   >`SELECT d.step_id,d.depends_on_step_id FROM routine_preset_step_dependencies d JOIN routine_preset_steps s ON s.id=d.step_id JOIN routine_presets p ON p.id=s.preset_id WHERE p.user_id=${userId}`;
   // Only one-off links: a link to a rule (the series pass) has no commitment to join and is never read as absent here.
   const links = await sql<CalendarLinkRow[]>`
-    SELECT l.*, fc.title, fc.starts_at, fc.ends_at, fc.status, fc.location, fc.setup_before_minutes, fc.transition_after_minutes, fc.version
+    SELECT l.*, fc.title, fc.starts_at, fc.ends_at, fc.status, fc.closed_by, fc.closed_reason, fc.closed_from_status, fc.location, fc.setup_before_minutes, fc.transition_after_minutes, fc.version
     FROM calendar_event_links l JOIN commitments fc ON fc.id=l.commitment_id
     WHERE l.user_id=${userId} AND l.provider=${CALENDAR_FEED_PROVIDER} AND l.frame_id=${FEED_FRAME}
   `;
@@ -344,7 +344,8 @@ async function insertCreatedExceptions(
   sql: ImportRecordContext["sql"],
   userId: string,
   ruleId: string,
-  series: CalendarFeedSeries
+  series: CalendarFeedSeries,
+  batchId?: string
 ): Promise<void> {
   if (!series.exceptions.length) return;
   const rules = await sql<Array<FeedRuleLinkRow & { recurrence_rule_id: string }>>`
@@ -362,7 +363,9 @@ async function insertCreatedExceptions(
     const generated = generatedSnapshot(rule, date);
     if (new Date(generated.startsAt).getTime() <= now.getTime()) continue;
     const asked = askedSnapshot(exception, generated, rule.timezone)!;
-    await insertFeedDate(sql, userId, ruleId, date, asked, asked.location === rule.location ? rule.location_id : null);
+    await insertFeedDate(sql, userId, ruleId, date, asked, asked.location === rule.location ? rule.location_id : null, {
+      batchId
+    });
     set[date] = asked as unknown as Record<string, unknown>;
   }
   await touchFeedDates(sql, userId, ruleId, { set });
@@ -398,7 +401,8 @@ async function afterFeedDate(context: ImportRecordContext): Promise<void> {
         setupBeforeMinutes: Number(value("setupBeforeMinutes") ?? 0),
         transitionAfterMinutes: Number(value("transitionAfterMinutes") ?? 0)
       },
-      typeof locationId === "string" && locationId ? locationId : null
+      typeof locationId === "string" && locationId ? locationId : null,
+      { batchId: context.batchId }
     );
   }
   if (rel.feedRevert === "true") {
@@ -444,7 +448,7 @@ registerImportExtension({
       if (!series || generation === null)
         throw new Error("The repeating event's description is missing from its import batch.");
       await linkCalendarFeedRule(sql, userId, id, { stem, series, generation });
-      if (record.operation === "create") await insertCreatedExceptions(sql, userId, id, series);
+      if (record.operation === "create") await insertCreatedExceptions(sql, userId, id, series, context.batchId);
       return;
     }
     if (type === "fixed_commitment" && record.importKey.startsWith(FEED_OCC_PREFIX)) {

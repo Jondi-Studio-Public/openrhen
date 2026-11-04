@@ -124,6 +124,11 @@ const CORE_WRITERS = {
       "Writes the children, steps and prep actions of a close or restore only inside closeEntity's transaction, which calls recordStateChange once.",
     owners: ["portal/server/persistence/postgres/close-commands.ts"]
   },
+  "portal/server/persistence/postgres/system-close.ts": {
+    class: "owner",
+    reason:
+      "closeCommitmentAsSystem cancels one commitment the source removed (with its steps and prep) and calls recordStateChange for it in the same transaction."
+  },
   "portal/server/persistence/postgres/write-revert.ts": {
     class: "owner",
     reason:

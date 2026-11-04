@@ -1,11 +1,20 @@
-import { DEFAULT_TIMEZONE, normalizeRepeatWeekdays, type ImportRecord } from "@openrhen/contracts";
+import {
+  DEFAULT_TIMEZONE,
+  IMPORT_REMOVED_REASON_PREFIX,
+  isImportRemovedClose,
+  normalizeRepeatWeekdays,
+  type ImportRecord
+} from "@openrhen/contracts";
 import { replaceCommitmentRoutineSteps, type CommitmentRoutineStepInput } from "@openrhen/database";
 import { fieldValue, isAbsentColumn } from "@/features/imports/import-validation";
 import { createManualLink } from "../plan-map-store";
 import { planLinkInput } from "./key-resolution";
 import { localDayIn } from "../cadence-completion";
 import { stableUuid } from "../command-values";
+import { actorName } from "../close-commands";
 import type { Sql } from "../sql-pool";
+import { restoreBatch } from "../close-cascade";
+import { closeCommitmentAsSystem, type LockedSystemClose } from "../system-close";
 import { ImportConflictError } from "./import-conflict-error";
 import { isPrimarySourceCreate } from "./primary-source";
 
@@ -24,11 +33,61 @@ export function fieldReader(record: ImportRecord): FieldReader {
   return (name: string) => fieldValue(record, name) as any;
 }
 
-/** Deleting a fixed commitment: the version must still match, and its key mapping goes with it. */
-export async function assertAndDeleteCommitment(sql: Sql, id: string, record: ImportRecord) {
+/**
+ * A fixed commitment the source removed (a cancelled event, or one gone from the read): the version must still match,
+ * then it is cancelled, not deleted (archive-removals design section 7). Its import key and its calendar links stay, so
+ * an event that comes back finds the row. See `closeCommitmentAsSystem`.
+ */
+export async function assertAndCloseCommitment(
+  sql: Sql,
+  userId: string,
+  id: string,
+  record: ImportRecord,
+  close: ImportCloseContext
+) {
   await assertVersion(sql, "commitments", id, { ...record, operation: "update" });
-  await sql`DELETE FROM commitments WHERE id=${id}`;
-  await sql`DELETE FROM import_entity_keys WHERE entity_type='fixed_commitment' AND entity_id=${id}`;
+  await closeCommitmentAsSystem(sql, {
+    userId,
+    id,
+    why: sourceRemovalWhy(record),
+    batchId: close.batchId,
+    planned: close.plans?.get(id)
+  });
+}
+
+/** What the commit knows of the batch that a source removal is part of. */
+export interface ImportCloseContext {
+  /** The import batch id: the close batch and the ledger rows' command id. */
+  batchId?: string | undefined;
+  /** The close plans the brake counted, by commitment id. */
+  plans?: ReadonlyMap<string, LockedSystemClose> | undefined;
+}
+
+/** A record the calendar feed derived from its own read (a date's change, a moved date, a series): the source's say, not a reviewer's edit. */
+const isFeedRecord = (record: ImportRecord) => Object.keys(record.relationships).some((key) => key.startsWith("feed"));
+
+/** The reason a record gives for the source's removal (`Cancelled in Google Calendar`), else a generic one. */
+export function sourceRemovalWhy(record: ImportRecord): string {
+  for (const field of Object.values(record.fields)) {
+    const first = field.evidence?.[0];
+    if (first) return first;
+  }
+  return "No longer in the source";
+}
+
+/**
+ * The SQL value of a commitment's `status` when an import writes it. A cancelled row is never reopened by an import
+ * unless its close carries the import-removed marker (`closed_by = 'system'` and a reason starting with
+ * {@link IMPORT_REMOVED_REASON_PREFIX}, tested with `starts_with`, never `LIKE` on text). An incoming `cancelled` leaves the
+ * status as it is: the cancellation is the close helper's, which stamps it, cascades it and records it. Both the commitment
+ * upsert and the feed's date insert use this one fragment, so no import path can write over a closed row.
+ */
+export function guardedStatus(sql: Sql, incoming: string | null | ReturnType<Sql>) {
+  return sql`CASE
+    WHEN ${incoming}::text = 'cancelled' THEN commitments.status
+    WHEN commitments.status = 'cancelled' AND NOT (commitments.closed_by = 'system' AND starts_with(COALESCE(commitments.closed_reason, ''), ${IMPORT_REMOVED_REASON_PREFIX})) THEN commitments.status
+    ELSE ${incoming}::text
+  END`;
 }
 
 async function assertVersion(sql: Sql, table: string, id: string, record: ImportRecord) {
@@ -221,9 +280,27 @@ export async function upsertConditionDefinition(
   `;
 }
 
-export async function upsertCommitment(sql: Sql, userId: string, id: string, r: ImportRecord, v: (n: string) => any) {
+export async function upsertCommitment(
+  sql: Sql,
+  userId: string,
+  id: string,
+  r: ImportRecord,
+  v: (n: string) => any,
+  close: ImportCloseContext = {}
+) {
   await assertVersion(sql, "commitments", id, r);
   const set = columnSetter(sql, r);
+  // A commitment the import cancelled (the source's removal) that this write reopens: remember the batch it was closed in,
+  // because the reopen clears it and the steps and prep that closed with it come back with it, as a restore would.
+  let reopensBatch: string | null = null;
+  if (r.operation !== "create" && !isAbsentColumn(r, "status") && v("status") !== "cancelled") {
+    const was = (
+      await sql<
+        { status: string; closed_by: string | null; closed_reason: string | null; closed_batch: string | null }[]
+      >`SELECT status, closed_by, closed_reason, closed_batch FROM commitments WHERE id=${id}`
+    )[0];
+    if (was?.status === "cancelled" && isImportRemovedClose(was)) reopensBatch = was.closed_batch;
+  }
   if (r.operation === "create") {
     // Every other creator (a secondary source, workbook) defaults to unshared/inherit
     // unless the batch item already says otherwise. Shifts arrive automatically, so their sharing is
@@ -242,7 +319,29 @@ export async function upsertCommitment(sql: Sql, userId: string, id: string, r: 
     const shareSourceToWrite = isPrimarySourceCreate(r) ? "inherit" : shareSource;
     await sql`INSERT INTO commitments(id,user_id,title,starts_at,ends_at,status,location,location_id,setup_before_minutes,transition_after_minutes,share_to_calendar,share_source,project_id) VALUES(${id},${userId},${v("title")},${new Date(v("startsAt"))},${new Date(v("endsAt"))},${v("status")},${v("location")},${v("locationId")},${v("setupBeforeMinutes")},${v("transitionAfterMinutes")},${shareToCalendar},${shareSourceToWrite},${r.relationships.commitmentProjectId ?? null})`;
   } else
-    await sql`UPDATE commitments SET ${set("title", "title", v("title"))},${set("starts_at", "startsAt", timestampOrNull(v("startsAt")))},${set("ends_at", "endsAt", timestampOrNull(v("endsAt")))},${set("status", "status", v("status"))},${set("location", "location", v("location"))},${set("location_id", "locationId", v("locationId"))},${set("setup_before_minutes", "setupBeforeMinutes", v("setupBeforeMinutes"))},${set("transition_after_minutes", "transitionAfterMinutes", v("transitionAfterMinutes"))},${set("share_to_calendar", "shareToCalendar", v("shareToCalendar"))},${set("share_source", "shareSource", v("shareSource"))},${set("schedule_source", "scheduleSource", v("scheduleSource"))},project_id=COALESCE(project_id,${r.relationships.commitmentProjectId ?? null}),version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=${id}`;
+    await sql`UPDATE commitments SET ${set("title", "title", v("title"))},${set("starts_at", "startsAt", timestampOrNull(v("startsAt")))},${set("ends_at", "endsAt", timestampOrNull(v("endsAt")))},${isAbsentColumn(r, "status") ? sql`status=status` : sql`status=${guardedStatus(sql, v("status"))}`},${set("location", "location", v("location"))},${set("location_id", "locationId", v("locationId"))},${set("setup_before_minutes", "setupBeforeMinutes", v("setupBeforeMinutes"))},${set("transition_after_minutes", "transitionAfterMinutes", v("transitionAfterMinutes"))},${set("share_to_calendar", "shareToCalendar", v("shareToCalendar"))},${set("share_source", "shareSource", v("shareSource"))},${set("schedule_source", "scheduleSource", v("scheduleSource"))},project_id=COALESCE(project_id,${r.relationships.commitmentProjectId ?? null}),version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=${id}`;
+  if (reopensBatch) {
+    const now = (await sql<{ status: string }[]>`SELECT status FROM commitments WHERE id=${id}`)[0];
+    if (now && now.status !== "cancelled")
+      await restoreBatch(
+        sql,
+        { userId, type: "commitment", id, shownId: id, verb: "cancel", version: 0, includeChildren: false },
+        reopensBatch,
+        null
+      );
+  }
+  // The source says it is cancelled: cancel it properly (steps, prep, ledger) unless it already is.
+  if (r.operation !== "create" && !isAbsentColumn(r, "status") && v("status") === "cancelled")
+    await closeCommitmentAsSystem(sql, {
+      userId,
+      id,
+      why: sourceRemovalWhy({ ...r, fields: { status: r.fields.status! } }),
+      // A record edited to cancelled is the person's or agent's choice, not the source's removal (those are `delete`
+      // records, or the feed's own date records): stamped with who chose it, with no marker, so no later sync reopens it.
+      actor: isFeedRecord(r) ? undefined : actorName(),
+      batchId: close.batchId,
+      planned: close.plans?.get(id)
+    });
 }
 export async function upsertCommitmentRecurrenceRule(
   sql: Sql,

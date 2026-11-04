@@ -136,6 +136,22 @@ export const UNDO_WINDOW_HOURS = 24;
 export const CLOSE_BUDGET_LIMIT = 20;
 export const CLOSE_BUDGET_WINDOW_MINUTES = 60;
 
+/**
+ * The start of the `closed_reason` of a commitment an import cancelled because its source did ("Removed at source:
+ * Cancelled in Google Calendar"). With `closed_by = 'system'` it is the one marker that lets the same source reopen the
+ * row when the event comes back; a person's or an agent's close never carries it, because `closed_by` is only ever
+ * `system` when no actor was set, and no tool lets a caller choose that.
+ */
+export const IMPORT_REMOVED_REASON_PREFIX = "Removed at source: ";
+
+/** Whether a commitment's close stamps say "the source removed it" (see {@link IMPORT_REMOVED_REASON_PREFIX}). */
+export function isImportRemovedClose(row: {
+  closed_by?: string | null | undefined;
+  closed_reason?: string | null | undefined;
+}): boolean {
+  return row.closed_by === "system" && (row.closed_reason ?? "").startsWith(IMPORT_REMOVED_REASON_PREFIX);
+}
+
 /** The `closed_by` suffix of a close that took back a create; the Closed page hides such rows. */
 export const UNDO_CLOSED_BY_SUFFIX = ":undo";
 
