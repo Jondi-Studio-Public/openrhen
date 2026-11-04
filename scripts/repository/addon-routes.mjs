@@ -66,6 +66,26 @@ export function urlsOverlap(a, b) {
   }
 }
 
+/**
+ * Whether the router settles two overlapping patterns by specificity: at the first segment where one is a fixed name
+ * and the other a `[param]`, the fixed name wins (`/items/new` beats `/items/[id]`), so both can ship. Used between an
+ * add-on's own routes only; against a core route any overlap is still refused, because it would change what core serves.
+ */
+export function staticBeatsDynamic(a, b) {
+  const left = a.split("/").slice(1).filter(Boolean);
+  const right = b.split("/").slice(1).filter(Boolean);
+  for (let index = 0; index < Math.min(left.length, right.length); index += 1) {
+    const x = left[index];
+    const y = right[index];
+    if (catchAll(x) || catchAll(y)) return false;
+    // Two different param names at one position are what a router rejects outright, so no later segment can excuse them.
+    if (dynamic(x) && dynamic(y) && x !== y) return false;
+    if (dynamic(x) !== dynamic(y)) return true;
+    if (!dynamic(x) && x !== y) return false;
+  }
+  return false;
+}
+
 /** Error lines for each add-on route that can answer a URL a core route (or another add-on's route) also answers. */
 export function findCollisions(routes) {
   const errors = [];
@@ -77,7 +97,7 @@ export function findCollisions(routes) {
         errors.push(`${route.file} serves ${route.url}, which core route ${other.file} (${other.url}) also serves`);
   for (const [index, route] of addon.entries())
     for (const other of addon.slice(index + 1))
-      if (route.file !== other.file && urlsOverlap(route.url, other.url))
+      if (route.file !== other.file && urlsOverlap(route.url, other.url) && !staticBeatsDynamic(route.url, other.url))
         errors.push(`${route.file} and ${other.file} both serve ${route.url}`);
   return errors;
 }
