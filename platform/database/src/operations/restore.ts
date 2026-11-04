@@ -15,6 +15,7 @@ import {
   tablesWithDifferentContent,
   validateBackup
 } from "./backup-format.js";
+import { loadMigrationSets, migratorOptions } from "./migration-sets.js";
 import { fillLegacyRows, upgradeLegacyBackup } from "./private/legacy-backups.js";
 import { latestValidBackup } from "./backup-files.js";
 import { missingBlobHashes, referencedBlobHashes } from "./photo-blobs.js";
@@ -62,7 +63,9 @@ try {
 
 const migrationSql = postgres(restoreUrl.toString(), { max: 1, connect_timeout: 10 });
 try {
-  await migrate(drizzle(migrationSql), { migrationsFolder: resolve(process.cwd(), "drizzle") });
+  // A restore target is empty, so both sets simply run in full (core first); adoption is migrate-on-deploy's job.
+  const { all } = loadMigrationSets({ coreFolder: resolve(process.cwd(), "drizzle") });
+  for (const set of all) await migrate(drizzle(migrationSql), migratorOptions(set));
 } finally {
   await migrationSql.end();
 }

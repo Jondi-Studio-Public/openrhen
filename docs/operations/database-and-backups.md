@@ -27,6 +27,8 @@ Apply the schema from the repository root with `corepack pnpm db:migrate` (the `
 
 The first migration is a baseline that replaces the history before the public release (`drizzle/meta/baseline.json` lists it). A database that already holds all of that history is adopted: the deploy takes a dump, writes one ledger row for the baseline and runs nothing from it; later deploys are no-ops until a new migration arrives. A database holding only part of that history is refused with the count that is missing; bring it up to the last release before the baseline first. `MIGRATE_ON_DEPLOY=skip` bypasses the migrator for a restore.
 
+A deployment can add a second, add-on migration set: drizzle migrations in `platform/database/addon-drizzle/` (or `ADDON_MIGRATIONS_FOLDER`), baked into the migrate image, with their own ledger `drizzle.__drizzle_migrations_addon` so their timestamps never order against core's. With no `meta/_journal.json` there, nothing changes. The deploy checks both sets before writing anything (each refusal names its set), takes one dump, then adopts and migrates core, then the add-on, each step committed by itself; a failure names the failed set and the dump, and a rerun finishes the rest. An add-on baseline may declare `"legacyLedger": "core"` in its `meta/baseline.json` to be adopted from the core ledger's history. A ledger with rows but no add-on folder is refused unless `ADDON_MIGRATIONS_OPTOUT=1`. `drizzle.addon.config.ts` generates the set from `src/schema/private/` alone.
+
 The Plan screen shows `PostgreSQL connected`, the server version and latency when the connection works, and `Connection unavailable` (without the connection string) when it does not.
 
 ## Backup
