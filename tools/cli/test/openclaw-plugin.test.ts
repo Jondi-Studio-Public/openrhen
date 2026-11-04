@@ -23,7 +23,8 @@ describe("the OpenClaw plugin", () => {
     // A served tool lists the scope that lets it propose; these broader ones make its writes apply directly and
     // reach the plan-map Inbox actions (portal/server/mcp-oauth.ts SCOPES_SUPPORTED), which a driving agent needs.
     const apply = [...AGENT_DRIVE_WRITE_SCOPES];
-    const needed = [...new Set([...MCP_TOOL_MANIFEST.flatMap((tool) => tool.scopes), ...apply])].sort();
+    // Core's own tools only: the plugin manifest is a core file, and an add-on's tools add their scopes elsewhere.
+    const needed = [...new Set([...MCP_TOOL_MANIFEST_DATA.flatMap((tool) => tool.scopes), ...apply])].sort();
     const requested = server.oauth.scope.split(" ").sort();
     expect(requested, "update oauth.scope in integrations/openclaw-plugin/openclaw.plugin.json").toEqual(needed);
   });
