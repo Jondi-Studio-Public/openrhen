@@ -174,15 +174,11 @@ export async function writeDeliverableAggregate(
     // it is accepted only when it is the status the step already has: a save never archives a step. `cancelled`
     // stays on the list for the owner, whose save may cancel a step; an agent's is held by the floor above.
     const storedStep = await lockedStatusOf(tx, userId, "action", stepId);
-    const allowedStepStatus: readonly string[] = [
-      "planned",
-      "doing",
-      "waiting",
-      "blocked",
-      "done",
-      "cancelled",
-      ...(storedStep?.status === "archived" ? ["archived"] : [])
-    ];
+    let allowedStepStatus: readonly string[] = ["planned", "doing", "waiting", "blocked", "done", "cancelled"];
+    // An archived step stays archived under a save, for the owner too: it comes back through the close route's
+    // restore. A step that is not archived can never be saved into it.
+    const archivedStep = storedStep?.status === "archived";
+    if (archivedStep) allowedStepStatus = ["archived"];
     if (!allowedStepStatus.includes(stepStatus))
       throw invalidChoice("steps[].status", stepStatus, allowedStepStatus, { label: "Step status" });
     const reblock = step.reblockOnComplete as Record<string, unknown> | undefined;

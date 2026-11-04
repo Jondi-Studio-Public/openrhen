@@ -83,4 +83,22 @@ describe("WorkspaceActions", () => {
     fireEvent.click(screen.getByRole("button", { name: "Mark deliverable complete" }));
     expect(handlers.onMarkComplete).toHaveBeenCalled();
   });
+
+  it.each(["archived", "cancelled"] as const)("does not let a %s required step disable Begin Review", (closed) => {
+    const plan = deliverable({
+      steps: [step("a", { status: "done" }), step("b", { status: closed })],
+      criteria: [criterion("c", { stepIds: ["a"] })]
+    });
+    render(
+      <WorkspaceActions
+        deliverable={plan}
+        readiness={assess(plan)}
+        phase="Carry out"
+        dirty={false}
+        saving={false}
+        {...handlers}
+      />
+    );
+    expect((screen.getByRole("button", { name: "Begin Review" }) as HTMLButtonElement).disabled).toBe(false);
+  });
 });

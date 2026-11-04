@@ -35,6 +35,13 @@ describe("workspace chat tools", () => {
     expect(replay.changed).toBe(false);
   });
 
+  it.each(["archived", "cancelled"] as const)("never matches a %s step", (closed) => {
+    const original = deliverable({ steps: [step("old", { title: "Old step", status: closed, remainingMinutes: 0 })] });
+    const result = markStepsComplete(original, { stepTitles: ["Old step"], evidenceNote: "Done." });
+    expect(result).toMatchObject({ matchedTitles: [], changed: false });
+    expect(result.deliverable.steps[0]?.status).toBe(closed);
+  });
+
   it("structurally re-records a blocker when a resubmit step carrying reblockOnComplete completes", () => {
     const resubmit = step("resubmit", {
       title: "Resubmit the drawing package",

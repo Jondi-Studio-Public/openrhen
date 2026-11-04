@@ -1,4 +1,5 @@
 import { createClientId } from "@/shared/client-id";
+import { isClosedStatus } from "@openrhen/contracts";
 import type {
   BlockerCategory,
   CriterionState,
@@ -209,6 +210,8 @@ export function markStepsComplete(
   const newlyCompleted: StoredDeliverable["steps"] = [];
   const steps = deliverable.steps.map((step) => {
     if (!requested.has(normalized(step.title))) return step;
+    // A closed step is restored through the close route, never reopened to done by a chat completion.
+    if (isClosedStatus(step.status)) return step;
     matchedTitles.push(step.title);
     const details =
       evidenceLine && !step.details?.split("\n").includes(evidenceLine)

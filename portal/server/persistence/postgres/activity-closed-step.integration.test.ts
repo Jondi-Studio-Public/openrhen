@@ -69,8 +69,6 @@ describe.each(["archived", "cancelled"])("a %s deliverable step", (closed) => {
         plannedMinutes: directive.recommendedMinutes,
         ...(stepId ? { stepId } : {})
       } as never);
-    // The state schema does not yet list an archived step, so a plan built over one fails before this guard is reached:
-    // an archived step is closed after the session starts, a cancelled one is also tried at start.
     const started = await start(a!.id);
     await sql`UPDATE actions SET status=${closed}::action_status WHERE id=${b!.id}`;
     await expect(
@@ -87,6 +85,24 @@ describe.each(["archived", "cancelled"])("a %s deliverable step", (closed) => {
     expect(await statusOf(b!.id)).toBe(closed);
     void state;
   });
+});
+
+it("is refused at start when the named step is archived", async () => {
+  const { deliverable, directive, id } = await setup();
+  const [, b] = deliverable.steps;
+  await sql`UPDATE actions SET status='archived'::action_status WHERE id=${b!.id}`;
+  await expect(
+    store.runActivityCommand({
+      commandId: crypto.randomUUID(),
+      expectedVersion: deliverable.version ?? null,
+      type: "start_activity",
+      targetType: "deliverable",
+      targetId: id,
+      plannedMinutes: directive.recommendedMinutes,
+      stepId: b!.id
+    } as never)
+  ).rejects.toMatchObject({ nextCall: { arguments: { type: "action", do: "restore" } } });
+  expect(await statusOf(b!.id)).toBe("archived");
 });
 
 it("is refused at start when the named step is cancelled", async () => {
@@ -120,15 +136,12 @@ it("does not put a step archived mid-session back to planned or done when the se
     stepId: a!.id
   } as never);
   await sql`UPDATE actions SET status='archived'::action_status WHERE id=${a!.id}`;
-  // the answer's state read may reject the archived step; the write itself has been committed either way
-  await store
-    .runActivityCommand({
-      commandId: crypto.randomUUID(),
-      expectedVersion: started.activeSession?.version ?? null,
-      type: "finish_activity",
-      sessionId: started.activeSession!.id,
-      outcome: "completed"
-    } as never)
-    .catch(() => undefined);
+  await store.runActivityCommand({
+    commandId: crypto.randomUUID(),
+    expectedVersion: started.activeSession?.version ?? null,
+    type: "finish_activity",
+    sessionId: started.activeSession!.id,
+    outcome: "completed"
+  } as never);
   expect(await statusOf(a!.id)).toBe("archived");
 });

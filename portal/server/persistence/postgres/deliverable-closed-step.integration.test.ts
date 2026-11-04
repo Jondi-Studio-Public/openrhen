@@ -121,6 +121,19 @@ describe("a closed deliverable step", () => {
     expect(await statusOf(stepB)).toBe("planned");
   });
 
+  it.each(["planned", "cancelled"])("a person's save cannot move an archived step to %s", async (target) => {
+    const { id, stepA } = await setup();
+    await sql`UPDATE actions SET status='archived'::action_status WHERE id=${stepA}`;
+    const { entity } = await resend(id);
+    await expect(
+      save(
+        { ...entity, steps: entity.steps.map((item) => (item.id === stepA ? { ...item, status: target } : item)) },
+        entity.version ?? null
+      )
+    ).rejects.toThrow(/status/i);
+    expect(await statusOf(stepA)).toBe("archived");
+  });
+
   it("an agent's save cannot move a step to archived or cancelled, and the floor still holds", async () => {
     const { id, stepB } = await setup();
     const { entity } = await resend(id);
