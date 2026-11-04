@@ -29,7 +29,10 @@ test("findFragments is sorted and ignores folders without env.example", () => {
   fragment(cwd, "zeta", "A=1\n");
   fragment(cwd, "alpha", "B=1\n");
   mkdirSync(join(cwd, "addons", "empty"));
-  assert.deepEqual(findFragments(cwd).map((f) => f.id), ["alpha", "zeta"]);
+  assert.deepEqual(
+    findFragments(cwd).map((f) => f.id),
+    ["alpha", "zeta"]
+  );
   assert.deepEqual(findFragments(join(cwd, "nowhere")), []);
 });
 
