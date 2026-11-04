@@ -22,7 +22,7 @@ services:
   postgres:
     profiles: ["bundled-db"]
     logging: *logging
-    image: postgres:17.10-alpine
+    image: postgres:17.11-alpine
     restart: unless-stopped
     deploy:
       resources:
@@ -50,7 +50,7 @@ services:
   # never activates the `setup` profile, and its directory has no scripts/.
   setup:
     profiles: ["setup"]
-    image: node:24.22.1-alpine
+    image: node:24.22.2-alpine
     working_dir: /workspace
     volumes:
       - ./:/workspace

@@ -74,7 +74,8 @@ const specificationDocuments = publicLayout
       // one invariant (calendar publish, session reconciliation, CLI deliverables, mail extraction,
       // external coordination). Seven words of headroom would have failed the first of them at its
       // documentation step. The aggregate ceiling below is unchanged and still binds first.
-      { path: "docs/product/behaviour-contract.md", limit: 2_000 },
+      // Raised from 2,000 by 70 on 2026-11-04: the stretch exception to the energy cut (`AT-C`) and the energy cost note.
+      { path: "docs/product/behaviour-contract.md", limit: 2_070 },
       /**
        * Raised from 3,500 on 2026-09-04. The planning logic hit this ceiling exactly, and the next two
        * engine features — adherence health for maintenance projects, and prep pace — were each squeezed
@@ -252,7 +253,8 @@ const formerRootNames = [
 // allows — this raise is exactly that document's own raise, carried through, not a second increase.
 // Raised from 16,760 by 100 on 2026-10-19, the owner's yes: the behaviour contract owed one invariant for catch-up.
 // Raised from 16,860 by 40 on 2026-10-29, owner decision: pulse-on-plan archived its note and left its rules in the contract and schema.
-const aggregateWordLimit = 17_000;
+// Raised from 17,000 by 90 on 2026-11-04: the stretch invariants above, with the restored contract prose.
+const aggregateWordLimit = 17_090;
 const errors = [];
 
 function posix(path) {
