@@ -9,14 +9,19 @@
  * 1. Connect (with lock_timeout 30s, statement_timeout 15min, idle_in_transaction_session_timeout 5min; retried for about 30 s) and take a session advisory lock, so a second migrator waits and then
  *    finds nothing pending. The lock is held on the one connection through steps 2 to 5.
  * 2. Ask the database which journal migrations are pending (the same check the portal's health route uses).
+ *    First classify the ledger against `meta/baseline.json` (`baseline-equivalence.ts`): a database holding
+ *    only part of the history the baseline replaced is refused before anything is written; one holding all of
+ *    it but not the baseline's own row is adopted (step 4b). Rows of that history never count as "ahead".
  *    A database whose newest applied migration is newer than this image's journal is refused (a rollback by
  *    tag past a migration; `schemaAheadProblem`); only MIGRATE_ON_DEPLOY=skip, step 0, lets that deploy through.
  *    Then fail, touching nothing, if any migration was skipped: not applied, yet older than one that was, so
  *    drizzle would never run it (`skipped-migrations.ts`; CI's scripts/ci/migration-journal.mjs stops new ones).
- * 3. Nothing pending: exit 0.
+ * 3. Nothing pending and nothing to adopt: exit 0.
  * 4. Otherwise check the backup folder has room, delete abandoned `.partial` dumps over six hours old, take a
  *    `pg_dump --format=custom` into /backups, keep the newest five (a failed prune only warns), and exit
  *    non-zero without migrating if the dump fails.
+ * 4b. If the baseline is to be adopted, insert its ledger row in its own small transaction, guarded by the row
+ *    being absent (so a rerun is a no-op), before drizzle runs.
  * 5. Run drizzle's migrator exactly as `migrate.ts` does.
  *
  * One JSON line per step on stdout/stderr. The database URL and password are never logged or put in pg_dump's
@@ -47,7 +52,19 @@ import {
   schemaAheadProblem
 } from "./pending-migrations.js";
 import { preMigrateDumpName, preMigrateDumpsToPrune, stalePartialDumps } from "./pre-migrate-dump.js";
-import { checkDatabaseMigrations, skippedMigrationsMessage } from "./skipped-migrations.js";
+import {
+  baselineMigration,
+  decideAdoption,
+  loadBaseline,
+  unknownLedgerTimestamp,
+  type AdoptionDecision
+} from "./baseline-equivalence.js";
+import {
+  checkDatabaseMigrations,
+  journalMigrations,
+  readLedgerRows,
+  skippedMigrationsMessage
+} from "./skipped-migrations.js";
 import { dbWaitMs, waitForDatabase } from "./wait-for-database.js";
 
 const run = promisify(execFile);
@@ -212,15 +229,33 @@ async function main(): Promise<void> {
           )
       }
     );
-    const aheadProblem = schemaAheadProblem(applied, imageNewestMigration());
+    const baseline = loadBaseline(migrationsFolder);
+    const rows = await readLedgerRows(sql);
+    let adoption: AdoptionDecision | null = null;
+    if (baseline) {
+      adoption = decideAdoption(baseline, baselineMigration(baseline, journalMigrations(migrationsFolder)), rows);
+      log("info", "Classified the database against the baseline's replaced history", {
+        decision: adoption.action,
+        state: adoption.classification.state,
+        matched: adoption.classification.matched,
+        total: adoption.classification.total
+      });
+      if (adoption.action === "refuse") throw new Error(adoption.message);
+    }
+    // Rows of the replaced history (and legacy migrations after the baseline) are not "ahead" of this image.
+    const aheadProblem = schemaAheadProblem(
+      baseline ? unknownLedgerTimestamp(baseline, rows) : applied,
+      imageNewestMigration()
+    );
     if (aheadProblem) throw new Error(aheadProblem);
+    const adopt = adoption?.action === "adopt" ? adoption : null;
     const pending = pendingTagsAfter(applied);
     // A first run on an empty database lists the whole journal; the newest few say enough.
     const newest = pending.slice(-10);
     log("info", "Checked for pending migrations", { imageTag, pending: pending.length, newest });
     const { skipped } = await checkDatabaseMigrations(sql, migrationsFolder);
     if (skipped.length > 0) throw new Error(skippedMigrationsMessage(skipped));
-    if (pending.length === 0) {
+    if (pending.length === 0 && !adopt) {
       log("info", "Nothing to migrate");
       return;
     }
@@ -237,8 +272,24 @@ async function main(): Promise<void> {
     }
     log("info", "Took pre-migration dump", { file: dump, pruned });
 
+    if (adopt) {
+      // Drizzle's own ledger shape (0.45): id serial, hash text, created_at bigint. Guarded by the hash being
+      // absent, so a rerun, or a second migrator that got past the lock, inserts nothing.
+      const inserted = await sql.begin(
+        (tx) =>
+          tx`INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
+             SELECT ${adopt.hash}, ${adopt.createdAt}
+             WHERE NOT EXISTS (SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash = ${adopt.hash})
+             RETURNING id`
+      );
+      log("info", "Adopted the baseline: the database already holds the history it replaces; no SQL run", {
+        tag: adopt.baselineTag,
+        inserted: inserted.length,
+        restoreFrom: dump
+      });
+    }
     await migrate(drizzle(sql), { migrationsFolder });
-    log("info", "Applied migrations", { applied: pending.length, newest, restoreFrom: dump });
+    log("info", "Applied migrations", { applied: pending.length, adopted: Boolean(adopt), newest, restoreFrom: dump });
   } finally {
     // Ending the session releases the lock too; the explicit unlock only matters if end() were to be slow.
     await sql`SELECT pg_advisory_unlock(${MIGRATE_LOCK_KEY}::bigint)`.catch(() => undefined);

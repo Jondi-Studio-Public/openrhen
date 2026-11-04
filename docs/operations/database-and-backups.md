@@ -25,6 +25,8 @@ Use `sslmode=disable` only on a trusted local network. Special characters in the
 
 Apply the schema from the repository root with `corepack pnpm db:migrate` (the `migrate` service does this on `docker compose up`). Migrations are append-only: a correction is a new migration. Drizzle applies a migration only when its journal timestamp is newer than every one already applied, so an entry stamped older than a deployed one is skipped silently; CI checks the journal order to catch this when two branches generate migrations.
 
+The first migration is a baseline that replaces the history before the public release (`drizzle/meta/baseline.json` lists it). A database that already holds all of that history is adopted: the deploy takes a dump, writes one ledger row for the baseline and runs nothing from it; later deploys are no-ops until a new migration arrives. A database holding only part of that history is refused with the count that is missing; bring it up to the last release before the baseline first. `MIGRATE_ON_DEPLOY=skip` bypasses the migrator for a restore.
+
 The Plan screen shows `PostgreSQL connected`, the server version and latency when the connection works, and `Connection unavailable` (without the connection string) when it does not.
 
 ## Backup

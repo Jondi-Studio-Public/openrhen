@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { baselineMigration, decideAdoption, loadBaseline } from "./baseline-equivalence.js";
 
 /**
  * One journal migration as drizzle records it: the journal's `when`, and the sha256 drizzle stores for the
@@ -57,7 +58,12 @@ export function checkAppliedMigrations(migrations: JournalMigration[], rows: App
 
 type Query = (strings: TemplateStringsArray) => PromiseLike<{ hash: string; created_at: string }[]>;
 
-const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
+export const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
+
+/** The hashes of a migration file's text: as drizzle stores it (as read), and with LF line endings. */
+export function migrationHashes(text: string): string[] {
+  return [...new Set([sha256(text), sha256(text.replace(/\r\n/g, "\n"))])];
+}
 
 /** The folder's journal with each file's hashes: as drizzle's migrator computes it, and with LF line endings. */
 export function journalMigrations(migrationsFolder: string): JournalMigration[] {
@@ -66,25 +72,36 @@ export function journalMigrations(migrationsFolder: string): JournalMigration[] 
   };
   return journal.entries.map((entry) => {
     const text = readFileSync(join(migrationsFolder, `${entry.tag}.sql`)).toString();
-    return {
-      tag: entry.tag,
-      when: entry.when,
-      hashes: [...new Set([sha256(text), sha256(text.replace(/\r\n/g, "\n"))])]
-    };
+    return { tag: entry.tag, when: entry.when, hashes: migrationHashes(text) };
   });
 }
 
-/** Read-only: what `migrationsFolder` holds that this database has not applied. */
-export async function checkDatabaseMigrations(sql: Query, migrationsFolder: string): Promise<MigrationCheck> {
-  let rows: AppliedRow[] = [];
+/** Every row of `drizzle.__drizzle_migrations` (none when the table does not exist yet). Read-only. */
+export async function readLedgerRows(sql: Query): Promise<AppliedRow[]> {
   try {
     const result = await sql`SELECT hash, created_at::text AS created_at FROM drizzle.__drizzle_migrations`;
-    rows = result.map((row) => ({ hash: row.hash, createdAt: Number(row.created_at) }));
+    return result.map((row) => ({ hash: row.hash, createdAt: Number(row.created_at) }));
   } catch (error) {
     // 42P01: the migrations table does not exist yet, so nothing has been applied.
     if (!(typeof error === "object" && error !== null && "code" in error && error.code === "42P01")) throw error;
+    return [];
   }
-  return checkAppliedMigrations(journalMigrations(migrationsFolder), rows);
+}
+
+/**
+ * Read-only: what `migrationsFolder` holds that this database has not applied. A database that holds the whole
+ * pre-baseline history but not the baseline's own row counts the baseline as applied (`baseline-equivalence.ts`);
+ * only `migrate-on-deploy` writes the adoption row.
+ */
+export async function checkDatabaseMigrations(sql: Query, migrationsFolder: string): Promise<MigrationCheck> {
+  const rows = await readLedgerRows(sql);
+  const migrations = journalMigrations(migrationsFolder);
+  const baseline = loadBaseline(migrationsFolder);
+  const decision = baseline ? decideAdoption(baseline, baselineMigration(baseline, migrations), rows) : null;
+  const check = checkAppliedMigrations(migrations, rows);
+  if (decision?.action !== "adopt") return check;
+  const tag = decision.baselineTag;
+  return { pending: check.pending.filter((t) => t !== tag), skipped: check.skipped.filter((t) => t !== tag) };
 }
 
 /** The error a deploy fails with when a migration was skipped. */
