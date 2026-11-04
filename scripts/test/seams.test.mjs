@@ -25,6 +25,12 @@ test("the list is sorted and has no duplicates", () => {
 test("every tracked file under a private folder is listed", () => {
   const tracked = execFileSync("git", ["ls-files"], { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
     .split("\n")
-    .filter((file) => /(?:^|\/)private\//.test(file) && existsSync(resolve(root, file)));
+    // The example add-on's overlay mirrors core's layout, so its stub copies are not core stubs.
+    .filter(
+      (file) =>
+        /(?:^|\/)private\//.test(file) &&
+        !file.startsWith("integrations/addon-example/overlay/") &&
+        existsSync(resolve(root, file))
+    );
   assert.deepEqual(tracked.sort(), [...listed]);
 });

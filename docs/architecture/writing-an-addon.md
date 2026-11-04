@@ -22,7 +22,7 @@ Only the contracts stub is used by the example; the others work the same way and
 2. Pick an id in lowercase kebab-case, such as `notes`. Your env fragment and files live under `addons/notes/`, and your routes under `portal/app/(addon)/`.
 3. Write `compose.addon.yaml`, `addons/notes/env.example`, and your pages and routes.
 4. Lay the overlay over a checkout of OpenRhen (copy it on top; a build script or `rsync` does this), then set `COMPOSE_FILE` in `.env`.
-5. Run `node scripts/addon/conformance.mjs --addon <path to a folder holding overlay/>` from the checkout. It must pass before you deploy.
+5. Run `node scripts/addon/conformance.mjs --addon <path to a folder holding overlay/>` from the checkout, with the add-on folder outside the checkout (inside it, `structure:check` and the stub list would see your overlay as core files; only the bundled example is exempt). It must pass before you deploy.
 6. Run `node scripts/setup/init-env.mjs` to fold your env fragment into `.env`, then bring the stack up as usual.
 
 ## Compose
