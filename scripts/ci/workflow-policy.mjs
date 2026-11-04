@@ -77,6 +77,9 @@ export function policyViolations(text) {
     if (!uses || uses[1].startsWith("./")) return;
     if (!/^[\w.-]+\/[\w./-]+@[0-9a-f]{40}$/.test(uses[1]) || !/^\s*#\s*v\d+\.\d+\.\d+\s*$/.test(uses[2]))
       out.push(`${index + 1}: action not pinned to a sha with a version comment: ${line.trim()}`);
+    // The organisation only runs actions owned by GitHub or by Jondi-Studio-Public; anything else fails at startup.
+    else if (!/^(?:actions|github|Jondi-Studio-Public)\//i.test(uses[1]))
+      out.push(`${index + 1}: action not owned by GitHub or Jondi-Studio-Public: ${line.trim()}`);
   });
   if (!/^permissions:\n {2}contents: read\n/m.test(text)) out.push("missing top-level permissions: contents: read");
   return out;

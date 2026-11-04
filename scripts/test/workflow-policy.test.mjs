@@ -113,6 +113,7 @@ test("secrets other than GITHUB_TOKEN fail", () => {
 test("an unpinned action fails", () => {
   failsWith(ok.replace(PIN, "actions/checkout@v7"), /not pinned/);
   failsWith(ok.replace("# v7.0.1", ""), /not pinned/);
+  failsWith(ok.replace("actions/checkout@", "pnpm/action-setup@"), /not owned by GitHub/);
 });
 
 test("a workflow without read-only top-level permissions fails", () => {
