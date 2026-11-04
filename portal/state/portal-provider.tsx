@@ -6,7 +6,10 @@ import { isAnonymousRefusal, wasSignedInBefore } from "@/features/owner-auth/sig
 import { Activity, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type {
   ActivityCommand,
+  AgentCall,
   BlockingReason,
+  CloseEntityCommand,
+  CloseEntityResult,
   ConditionMatch,
   ConfirmProjectWantedCommand,
   EndRecurrenceGoalCommand,
@@ -44,6 +47,7 @@ import { StatusBanner } from "@/features/planning/components/status-banner";
 import { HeroSkeleton } from "@/components/hero-skeleton";
 import { swapHero } from "@/features/now/hero-transition";
 import { createClientId } from "@/shared/client-id";
+import { CommandRefusal } from "@/shared/command-refusal";
 import { storedActionPayload } from "@/shared/stored-action-payload";
 import { canSnooze, snoozeRefusal, snoozeSubject } from "@/features/now/snooze";
 import { freezeClock, readNow } from "@/shared/clock";
@@ -105,6 +109,12 @@ export interface ReplaySession {
   observedAt: string;
   source: "server" | "client";
   warnings: string[];
+}
+
+/** What a caller can say about one command beyond its body. */
+export interface CommandOptions {
+  /** True for a refusal the caller shows itself, so the shared save banner stays quiet. */
+  handles?: (refusal: CommandRefusal) => boolean;
 }
 
 const REPLAY_READ_ONLY = "This is a read-only replay of a captured snapshot. Nothing can be changed here.";
@@ -201,6 +211,11 @@ export interface PortalContextValue {
   /** **Not the same event**: takes one secondary source off a commitment as a commitment of its own. */
   splitCommitmentSourceCommand: (command: SplitCommitmentSourceCommand) => Promise<void>;
   endRecurrenceGoalCommand: (command: EndRecurrenceGoalCommand) => Promise<void>;
+  /**
+   * Archives or cancels one row, or restores it (`POST /api/commands/close`), and resolves with the server's result
+   * (what cascaded, what was skipped, the version to restore at). Rejects with a `CommandRefusal`.
+   */
+  closeEntityCommand: (command: CloseEntityCommand, options?: CommandOptions) => Promise<CloseEntityResult>;
   recordCadenceCompletionCommand: (command: RecordCadenceCompletionCommand) => Promise<void>;
   acceptServerState: (state: PortalState) => void;
   /**
@@ -1039,8 +1054,17 @@ export function PortalProvider({ children }: { children: React.ReactNode }) {
     [readPlanningStatus, reloadState]
   );
 
-  const runCommand = useCallback(
-    async (path: string, command: unknown) => {
+  /**
+   * Posts one command and answers with its parsed body. A refusal is thrown as a `CommandRefusal` (an `Error` with the
+   * server's sentence), so a caller that can act on it reads `nextCall` and `status`; `options.handles` names the
+   * refusals the caller shows itself, which then do not light the global save banner.
+   */
+  const runCommandJson = useCallback(
+    async <Body extends { state?: PortalState }>(
+      path: string,
+      command: unknown,
+      options: CommandOptions = {}
+    ): Promise<Body> => {
       // Every mutation in the portal funnels through here, so refusing here is what makes a replay
       // structurally incapable of writing rather than merely discouraged from it.
       if (replayRequest()) {
@@ -1079,7 +1103,12 @@ export function PortalProvider({ children }: { children: React.ReactNode }) {
           signal: controller.signal
         });
         // A proxy 502/504 answers with HTML; never let the parse error become the banner text.
-        const result = (await response.json().catch(() => ({}))) as { state?: PortalState; error?: string };
+        const result = (await response.json().catch(() => ({}))) as Body & {
+          error?: string;
+          currentVersion?: number;
+          nextCall?: AgentCall;
+          validValues?: Record<string, string[]>;
+        };
         if (!response.ok || !result.state) {
           if (response.status === 400 || response.status === 409) {
             const refreshed = await fetch("/api/state")
@@ -1090,12 +1119,19 @@ export function PortalProvider({ children }: { children: React.ReactNode }) {
             // Through `showState`, so the ETag of what was on screen is forgotten along with it.
             if (refreshed?.state) showState(normalizePortalState(refreshed.state));
           }
-          throw new Error(
+          const message =
             result.error ??
-              (response.ok
-                ? "The change was not saved."
-                : "The server could not be reached just now. The change may not have been saved; check and try again.")
-          );
+            (response.ok
+              ? "The change was not saved."
+              : "The server could not be reached just now. The change may not have been saved; check and try again.");
+          throw response.ok
+            ? new Error(message)
+            : new CommandRefusal(message, {
+                status: response.status,
+                currentVersion: result.currentVersion,
+                nextCall: result.nextCall,
+                validValues: result.validValues
+              });
         }
         adoptCommandState(result.state);
         // The response carries the run that existed *before* this command, because the recalculation
@@ -1103,6 +1139,7 @@ export function PortalProvider({ children }: { children: React.ReactNode }) {
         const baseline = result.state.planning?.lastSuccessfulAt ?? null;
         settle();
         void followPlanRefresh(baseline);
+        return result;
       } catch (error) {
         const message =
           (error as { name?: string } | null)?.name === "AbortError"
@@ -1110,7 +1147,7 @@ export function PortalProvider({ children }: { children: React.ReactNode }) {
             : error instanceof Error
               ? error.message
               : "The change was not saved.";
-        setSaveError(message);
+        if (!(error instanceof CommandRefusal && options.handles?.(error))) setSaveError(message);
         // Callers that show the rejection themselves get the same plain text as the banner.
         throw error instanceof Error && error.message === message ? error : new Error(message);
       } finally {
@@ -1119,6 +1156,18 @@ export function PortalProvider({ children }: { children: React.ReactNode }) {
       }
     },
     [adoptCommandState, followPlanRefresh, reloadState, showState]
+  );
+  const runCommand = useCallback(
+    async (path: string, command: unknown) => {
+      await runCommandJson(path, command);
+    },
+    [runCommandJson]
+  );
+  const closeEntityCommand = useCallback(
+    async (command: CloseEntityCommand, options?: CommandOptions) =>
+      (await runCommandJson<{ state: PortalState; closed: CloseEntityResult }>("/api/commands/close", command, options))
+        .closed,
+    [runCommandJson]
   );
   const recalculate = useCallback(
     () =>
@@ -1906,6 +1955,7 @@ export function PortalProvider({ children }: { children: React.ReactNode }) {
       saveCommitmentRecurrenceRuleCommand,
       splitCommitmentSourceCommand,
       endRecurrenceGoalCommand,
+      closeEntityCommand,
       recordCadenceCompletionCommand,
       acceptServerState,
       recalculate,
@@ -1963,6 +2013,7 @@ export function PortalProvider({ children }: { children: React.ReactNode }) {
       saveCommitmentRecurrenceRuleCommand,
       splitCommitmentSourceCommand,
       endRecurrenceGoalCommand,
+      closeEntityCommand,
       recordCadenceCompletionCommand,
       acceptServerState,
       recalculate,
