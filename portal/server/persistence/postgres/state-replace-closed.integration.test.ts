@@ -17,7 +17,7 @@ describe("whole-state put and closed stamps", () => {
     const userId = await ensureUser(sql);
     const closedAt = new Date("2026-01-02T03:04:05.000Z");
     await sql.begin(async (tx) => {
-      await tx`SELECT set_config('openrhen.actor', 'person', true)`;
+      await tx`SELECT set_config('priorities.actor', 'person', true)`;
       await tx`UPDATE areas SET status = 'archived', closed_at = ${closedAt}, closed_reason = 'tidying'
         WHERE id = (SELECT id FROM areas WHERE user_id = ${userId} ORDER BY sort_order LIMIT 1)`;
     });

@@ -34,7 +34,7 @@ export const timestamps = {
 /**
  * Closed-record columns (archive-removals design, section 5), on the eight tables in CLOSED_TABLES. Stamped by the
  * `stamp_closed_columns` BEFORE INSERT/UPDATE trigger (migration 0140) on a status transition into or out of a closed
- * status, never by application code; all nullable. `closed_by` is the `openrhen.actor` setting at the time, `system`
+ * status, never by application code; all nullable. `closed_by` is the `priorities.actor` setting at the time, `system`
  * when unset, and NULL on rows that were already closed when the columns were added.
  */
 export const closedColumns = {

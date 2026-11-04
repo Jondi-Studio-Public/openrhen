@@ -137,8 +137,8 @@ const TYPED_SAVE_KINDS: { kind: SaveEntityKind; what: string; required: string; 
 
 function typedSaveDescription(kind: SaveEntityKind, what: string, required: string, defaults: string): string {
   return (
-    `Creates or updates ${what}: rhen_save with entityType ${kind}, every field checked (same id, create, ` +
-    `expected-version and removal rules). Required on create: ${required}. Defaults: ${defaults}. ` +
+    `Creates or updates ${what}: rhen_save with entityType ${kind}, every field checked (same id, create ` +
+    `and expected-version rules). Required on create: ${required}. Defaults: ${defaults}. ` +
     "Returns and undoes as rhen_save."
   );
 }
@@ -338,6 +338,10 @@ export const REMOTE_TOOLS: RemoteTool[] = [
     rewrite: [["under --read-only use `list spans` instead", "on a read-only run use `list spans` instead"]]
   },
   { command: "review", scopes: ["write:entity:project", "read:plan"] },
+  // Closes or restores one row; the portal holds each call to the row's own type scope (`write:entity:<type>`), so the
+  // listing scope is the one `save` and `bulk` use. `restore` is CLI sugar for `do restore`.
+  { command: "archive", scopes: ["propose:entity", "read:plan"], omit: ["restore"] },
+  { command: "cancel", scopes: ["propose:entity", "read:plan"], omit: ["restore"] },
   { command: "activity", scopes: ["write:activity", "read:plan"] },
   { command: "check-in", scopes: ["write:check-in", "read:plan"] },
   { command: "disruption", scopes: ["write:disruption", "write:entity:commitment", "write:activity", "read:plan"] },
@@ -472,6 +476,12 @@ export function remoteTools(): RemoteTool[] {
   return tools;
 }
 
+/** The hints a remote client needs; the title is left out, because it repeated the tool's summary in every entry. */
+function remoteAnnotations(spec: CommandSpec): McpToolManifestEntry["annotations"] {
+  const { title: _title, ...hints } = toolAnnotations(spec);
+  return hints;
+}
+
 export function buildRemoteManifest(
   commands: readonly CommandSpec[],
   tools: readonly RemoteTool[] = remoteTools()
@@ -529,7 +539,7 @@ export function buildRemoteManifest(
         additionalProperties: false,
         ...(required.length > 0 ? { required } : {})
       },
-      annotations: toolAnnotations(spec),
+      annotations: remoteAnnotations(spec),
       scopes: remote.scopes,
       ...(remote.readableWithAnyOf ? { readableWithAnyOf: remote.readableWithAnyOf } : {}),
       ...(remote.fixed ? { fixedArguments: remote.fixed } : {}),

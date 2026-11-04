@@ -430,12 +430,17 @@ describe("shadow proposals and batches", () => {
       command: "save_project",
       body: { expectedVersion: null, project: project(id, `Project ${id}`) }
     }));
-    const { proposal: stored } = await proposeAgentChange(sql, "scribe", {
-      kind: "entity_command_batch",
-      summary: "Create 3 projects",
-      payload: { commands: rows },
-      basis: "inferred"
-    });
+    const { proposal: stored } = await proposeAgentChange(
+      sql,
+      "scribe",
+      {
+        kind: "entity_command_batch",
+        summary: "Create 3 projects",
+        payload: { commands: rows },
+        basis: "inferred"
+      },
+      { origin: "server" }
+    );
     expect(stored.targetVersions).toEqual({ "project:p1": null, "project:p2": null, "project:p3": null });
     expect((await owner(stored.id)).status).toBe("confirmed");
     const titles = await sql<
@@ -449,14 +454,31 @@ describe("shadow proposals and batches", () => {
 
   it("refuses a batch with a row that has no expectedVersion", async () => {
     const error = await refusal(
-      proposeAgentChange(sql, "scribe", {
-        kind: "entity_command_batch",
-        summary: "x",
-        payload: { commands: [{ command: "save_project", body: { project: project("p1", "One") } }] },
-        basis: "inferred"
-      })
+      proposeAgentChange(
+        sql,
+        "scribe",
+        {
+          kind: "entity_command_batch",
+          summary: "x",
+          payload: { commands: [{ command: "save_project", body: { project: project("p1", "One") } }] },
+          basis: "inferred"
+        },
+        { origin: "server" }
+      )
     );
     expect(error.status).toBe(400);
     expect(error.message).toContain("commands[0]");
+  });
+
+  it("refuses an agent filing a kind only the portal files, and lists the kinds it may file", async () => {
+    for (const kind of ["close_entity", "entity_command_batch", "settle_catch_up"]) {
+      const error = await refusal(
+        proposeAgentChange(sql, "scribe", { kind, summary: "x", payload: {}, basis: "inferred" })
+      );
+      expect(error.status, kind).toBe(400);
+      expect(error.message, kind).toContain("cannot be filed directly");
+      expect(error.extra, kind).toMatchObject({ validValues: { kind: expect.not.arrayContaining([kind]) } });
+    }
+    expect(await sql`SELECT 1 FROM agent_proposals`).toHaveLength(0);
   });
 });

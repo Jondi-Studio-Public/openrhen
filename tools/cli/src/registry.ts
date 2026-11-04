@@ -40,6 +40,7 @@ import { saveCommand } from "./commands/save.js";
 import { searchCommand } from "./commands/search.js";
 import { selfUpdateCommand } from "./commands/self-update.js";
 import { schemaCommand } from "./commands/schema.js";
+import { archiveCommand, cancelCommand } from "./commands/close.js";
 import { reviewCommand } from "./commands/review.js";
 import { spanCommand } from "./commands/span.js";
 import { sessionCommand } from "./commands/session.js";
@@ -81,6 +82,8 @@ const coreCommands: CommandSpec[] = [
   sessionCommand,
   spanCommand,
   reviewCommand,
+  archiveCommand,
+  cancelCommand,
   historyCommand,
   activityCommand,
   deliverableCommand,

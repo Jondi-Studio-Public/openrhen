@@ -1,6 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const writes = vi.hoisted(() => ({ saveEntity: vi.fn(), saveProject: vi.fn(), saveAction: vi.fn() }));
+const writes = vi.hoisted(() => ({
+  saveEntity: vi.fn(),
+  saveProject: vi.fn(),
+  saveAction: vi.fn(),
+  closeEntity: vi.fn()
+}));
+vi.mock("@/server/persistence/postgres/close-commands", () => ({
+  closeEntity: writes.closeEntity,
+  closeRowVersion: vi.fn(async () => 5)
+}));
 vi.mock("@/server/persistence/postgres/entity-commands", () => ({ saveEntity: writes.saveEntity }));
 vi.mock("@/server/persistence/postgres/project-commands", () => ({
   saveProject: writes.saveProject,
@@ -8,7 +17,8 @@ vi.mock("@/server/persistence/postgres/project-commands", () => ({
 }));
 
 const { CommandConflictError } = await import("@/server/persistence/postgres/command-errors");
-const { proposalApplier, registerProposalApplier, versionConflicts } = await import("./appliers");
+const { proposalApplier, proposalKinds, receiptId, registerProposalApplier, versionConflicts } =
+  await import("./appliers");
 
 beforeEach(() => {
   for (const mock of Object.values(writes)) mock.mockReset();
@@ -272,5 +282,86 @@ describe("registerProposalApplier", () => {
     registerProposalApplier("settle_catch_up_test", async () => "done");
     expect(proposalApplier("settle_catch_up_test")).toBeDefined();
     expect(proposalApplier("never_registered")).toBeUndefined();
+  });
+});
+
+describe("close_entity applier", () => {
+  const hooks = proposalApplier("close_entity")!.hooks;
+  const payload = {
+    type: "project",
+    verb: "archive",
+    id: "p1",
+    do: "close",
+    expectedVersion: 4,
+    reason: "done",
+    includeChildren: true,
+    children: [{ type: "action", id: "a1", version: 2 }]
+  };
+  const stored = {
+    id: "11111111-1111-4111-8111-111111111111",
+    agent: "scribe",
+    kind: "close_entity",
+    payload,
+    targetVersions: {}
+  };
+
+  it("is filed by the server only, so rhen_propose does not list it", () => {
+    expect(proposalKinds()).not.toContain("close_entity");
+    expect(proposalKinds()).not.toContain("entity_command_batch");
+    expect(proposalKinds()).not.toContain("settle_catch_up");
+    expect(proposalKinds()).toContain("entity_command");
+  });
+
+  it("pins the target at the version the call was decided against", () => {
+    expect(hooks.validate!(payload)).toEqual({ ok: true, targetVersions: { "project:p1": 4 } });
+    const { expectedVersion: _version, ...unpinned } = payload;
+    expect(hooks.validate!(unpinned)).toEqual({ ok: true, targetVersions: {} });
+    expect(hooks.validate!({ ...payload, do: "restore", expectedVersion: undefined }).ok).toBe(false);
+    expect(hooks.validate!({ ...payload, type: "spaceship" }).ok).toBe(false);
+  });
+
+  it("reads the live version of the target, so a moved row is stale", async () => {
+    const current = await hooks.currentVersions!(
+      { sql: {} as never, userId: "u1" },
+      { ...stored, targetVersions: { "deliverable:d1": 4 } }
+    );
+    expect(current).toEqual({ "deliverable:d1": 5 });
+  });
+
+  it("summarises from the payload", async () => {
+    expect(await hooks.summarize!({ sql: {} as never, userId: "u1" }, payload)).toBe(
+      'Archive project "p1" and 1 item under it: done'
+    );
+    expect(
+      await hooks.summarize!(
+        { sql: {} as never, userId: "u1" },
+        { ...payload, do: "restore", children: [], reason: undefined }
+      )
+    ).toBe('Restore project "p1"');
+  });
+
+  it("replays the close under the proposal's receipt and requires the pinned children to be the live set", async () => {
+    writes.closeEntity.mockResolvedValue({ closed: { ok: true }, state: {} });
+    await proposalApplier("close_entity")!.apply({ sql: {} as never, userId: "u1" }, stored);
+    const [, command, options] = writes.closeEntity.mock.calls[0]!;
+    expect(command).toMatchObject({ type: "project", id: "p1", do: "close", commandId: receiptId(stored) });
+    expect(command).not.toHaveProperty("children");
+    expect(options).toEqual({ expectedChildren: [{ type: "action", id: "a1", version: 2 }] });
+  });
+
+  it("passes no child check for a restore", async () => {
+    writes.closeEntity.mockResolvedValue({ closed: { ok: true }, state: {} });
+    await proposalApplier("close_entity")!.apply(
+      { sql: {} as never, userId: "u1" },
+      { ...stored, payload: { ...payload, do: "restore" } }
+    );
+    expect(writes.closeEntity.mock.calls[0]![2]).toEqual({});
+  });
+
+  it("lets a stale child set surface as a conflict", async () => {
+    writes.closeEntity.mockRejectedValue(new CommandConflictError("different items"));
+    await expect(
+      proposalApplier("close_entity")!.apply({ sql: {} as never, userId: "u1" }, stored)
+    ).rejects.toBeInstanceOf(CommandConflictError);
   });
 });

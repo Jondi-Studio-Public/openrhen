@@ -44,14 +44,19 @@ export const POST = withRoute("/api/commands/catch-up-settle", async (request, _
   if (!connectionString) return Response.json({ error: "Catch-up requires PostgreSQL." }, { status: 503 });
   const { commandId, basis, evidence, ...payload } = parsed.data;
   try {
-    const { proposal, outcome } = await proposeAgentChange(sqlPool(connectionString), agent, {
-      kind: "settle_catch_up",
-      summary: catchUpSettleSummary(parsed.data.verdicts.length, parsed.data.closeWindow),
-      payload: { ...payload, basis, ...(evidence ? { evidence } : {}) },
-      basis,
-      evidence,
-      commandId
-    });
+    const { proposal, outcome } = await proposeAgentChange(
+      sqlPool(connectionString),
+      agent,
+      {
+        kind: "settle_catch_up",
+        summary: catchUpSettleSummary(parsed.data.verdicts.length, parsed.data.closeWindow),
+        payload: { ...payload, basis, ...(evidence ? { evidence } : {}) },
+        basis,
+        evidence,
+        commandId
+      },
+      { origin: "server" }
+    );
     return Response.json({ proposal, outcome }, { status: outcome === "created" ? 202 : 200 });
   } catch (error) {
     return proposalErrorResponse(error);

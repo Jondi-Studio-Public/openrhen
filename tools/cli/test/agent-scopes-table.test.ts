@@ -20,9 +20,25 @@ describe("the contracts scope table covers the CLI", () => {
 
   it("resolves a scope for every write tool", () => {
     for (const tool of writeTools) {
-      if (tool === "save" || tool === "bulk") continue;
+      if (tool === "save" || tool === "bulk" || tool === "archive" || tool === "cancel") continue;
       expect(requiredScopes({ tool }).length, tool).toBeGreaterThan(0);
     }
+  });
+
+  it("resolves the scope of a close by the type it names, for the eight closable types only", () => {
+    for (const tool of ["archive", "cancel"])
+      for (const entityType of [
+        "area",
+        "outcome",
+        "project",
+        "action",
+        "deliverable",
+        "commitment",
+        "routine_preset",
+        "condition_definition"
+      ])
+        expect(requiredScopes({ tool, entityType }), `${tool} ${entityType}`).toHaveLength(1);
+    expect(requiredScopes({ tool: "archive", entityType: "capture" })).toEqual([]);
   });
 
   it("resolves a scope for every entity type `save` and `bulk` accept", () => {

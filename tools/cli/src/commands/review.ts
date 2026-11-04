@@ -22,7 +22,7 @@ export const reviewCommand: CommandSpec = {
     "it, so the review stops counting it as overdue for the current review week. " +
     "<project> is an id or exact title. It changes only one review time (lastReviewed, or overdueSeen for " +
     "kind=overdue_seen) and bumps the version; it never changes its status, deadlines or anything else. Use it only when the person has said the project " +
-    "stays; to pause or drop one, use `save project --set status=paused|cancelled`. Applies at once and is " +
+    "stays; to pause one, use `save project --set status=paused`; to drop one, use `cancel project`. Applies at once and is " +
     "reversed with `rhen undo`.",
   positionals: [
     { name: "subcommand", required: true, description: `One of: ${SUBCOMMANDS.join(", ")}` },

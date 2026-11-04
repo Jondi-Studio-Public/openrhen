@@ -82,6 +82,7 @@ import { completeStepActionOccurrence } from "./routine-step-window";
 import type { PoolSql, Sql } from "./sql-pool";
 import { watchContractReviewWrite, watchDeliverableWrite, watchEntityWrite } from "./entity-snapshot";
 import { WriteSnapshot } from "./write-snapshot";
+import { assertNotHomeLocation } from "./close-rules";
 
 /** The four disruption kinds `commitments`'s disruption_source CHECK constraint allows; only
  * their labels are ever user-editable, never the set itself. */
@@ -892,18 +893,7 @@ export async function saveEntity(sql: PoolSql, command: EntityCommandWithHash): 
       const allowedContextStatus: readonly string[] = ["active", "archived"];
       if (!allowedContextStatus.includes(status))
         throw invalidChoice("status", status, allowedContextStatus, { label: "Context status" });
-      if (status === "archived") {
-        // Sleep and every return leg point at home, so it cannot quietly stop existing: choose
-        // another home in Settings first, then archive this one.
-        const home = await tx<
-          Row<typeof userPreferencesTable, "home_location_id">[]
-        >`SELECT home_location_id FROM user_preferences WHERE user_id=${userId}`;
-        if (home[0]?.home_location_id === id)
-          throw new InvalidCommandError(
-            `Context "${rawId}" is the owner's home location, and sleep and every return leg point at it, so it cannot be archived. ` +
-              "Only the owner can choose another home (in Settings, under Places); tell the person, then archive this one once they have."
-          );
-      }
+      if (status === "archived") await assertNotHomeLocation(tx, userId, id, rawId);
       const portability = optionalText(entity.portability) ?? "fixed";
       const allowedContextPortability: readonly string[] = ["fixed", "portable"];
       if (!allowedContextPortability.includes(portability))

@@ -10,6 +10,7 @@ import {
   type HardFloorCall,
   type WriteCall
 } from "./agent-scopes.js";
+import { CLOSE_TYPES, isCloseType } from "./closed-entity.js";
 import { removedFieldMessage } from "./removed-field-names.js";
 import { contractsExtensions, mergedList, mergedRecord } from "./extensions.js";
 import "./private/index.js";
@@ -39,7 +40,14 @@ export type RouteDecision =
       /** For a downgradable write: the entity class `directWrites` is keyed by. */
       entityClass?: string;
       /** For a downgradable write: `save_entity`, `save_project` or `save_action`, the command an `entity_command` proposal replays. */
-      command?: "save_entity" | "save_project" | "save_action";
+      command?: "save_entity" | "save_project" | "save_action" | "close_entity";
+      /**
+       * For a close: why it is filed as a proposal whatever the token holds (something under it is the owner's call, it is
+       * shared, the row was not closed by this agent, or the facts could not be read).
+       */
+      mustPropose?: string;
+      /** For a close: every type the call touches (the target's and what it takes with it); the token needs a direct write for each. */
+      closeTypes?: string[];
     }
   /** Not a surface for agents at all: owner and device routes, and confirming. */
   | { kind: "refused"; reason: "owner-only"; message: string }
@@ -150,6 +158,21 @@ export interface StoredFacts {
    * default place), which relabels shared shift text on the family calendar.
    */
   envNamedPlace?: boolean;
+  /**
+   * What a close or restore touches, read from the stored rows (`POST /api/commands/close`). Absent means the rows were
+   * not read (or the read failed), and the call is then filed for the owner rather than trusted.
+   */
+  closeTypes?: string[];
+  /** Something the call closes is the owner's call: a deadline, a requirement route, prep for a shared commitment. */
+  needsOwner?: boolean;
+  /** Rows the call changes, the target included. */
+  rowCount?: number;
+  /** A restore only: the row was closed by this very agent, directly (`closed_by` is exactly `agent:<name>`). */
+  restorableByAgent?: boolean;
+  /** The target's version when read, pinned by a proposal that carries no `expected-version`. */
+  closeVersion?: number;
+  /** The rows besides the target that the call changes, with their versions, for a proposal to pin. */
+  closeChildren?: { type: string; id: string; version: number }[];
 }
 
 /**
@@ -202,6 +225,68 @@ export function sharingTarget(
     return id === undefined ? undefined : { kind: "commitment-rule", id };
   }
   return undefined;
+}
+
+/**
+ * The row a close or restore names, for the portal to look up before deciding (what is under it, whether it is shared,
+ * who closed it). Undefined for any other route or a body that does not name a target.
+ */
+export function closeTarget(
+  method: string,
+  route: string,
+  body: unknown
+): { type: string; id: string; verb: "archive" | "cancel"; do: "close" | "restore" } | undefined {
+  if (method.toUpperCase() !== "POST" || route !== "/api/commands/close") return undefined;
+  const fields = record(body);
+  const type = str(fields?.type);
+  const id = str(fields?.id);
+  const verb = fields?.verb;
+  const action = fields?.do;
+  if (type === undefined || id === undefined) return undefined;
+  if (verb !== "archive" && verb !== "cancel") return undefined;
+  if (action !== "close" && action !== "restore") return undefined;
+  return { type, id, verb, do: action };
+}
+
+/**
+ * Archive and cancel (`POST /api/commands/close`): a downgradable write under the target's own scope. The stored facts
+ * decide whether it may apply: anything the owner must decide, a call past 20 rows, a token without a direct write for
+ * every type the call reaches, or an agent restoring a row it did not close itself files ONE proposal instead.
+ */
+function closeWrite(body: Body, stored: StoredFacts): RouteDecision {
+  const type = str(body?.type);
+  const verb = body?.verb;
+  if (type === undefined || !isCloseType(type) || (verb !== "archive" && verb !== "cancel"))
+    return {
+      kind: "refused",
+      reason: "unknown-entity",
+      message:
+        `A close names a type and a verb. Types: ${CLOSE_TYPES.join(", ")}; verb: archive or cancel. ` +
+        "An area, preset or place is archived; an appointment is cancelled."
+    };
+  const call: WriteCall = { tool: verb, entityType: type };
+  const restoring = body?.do === "restore";
+  const mustPropose =
+    stored.closeTypes === undefined
+      ? "the stored rows could not be read, so the close waits for the owner"
+      : stored.needsOwner === true
+        ? "something it closes is the owner's call (a deadline, a requirement route, or prep for a shared commitment), so the whole call waits for the owner"
+        : stored.shared === true
+          ? "it is shared with other people, so closing it is the owner's call"
+          : restoring && stored.restorableByAgent !== true
+            ? "this row was not closed by this agent directly (the owner, another agent or an import closed it, or the owner confirmed it), so restoring it is the owner's call"
+            : undefined;
+  return {
+    kind: "scopes",
+    scopes: [entityScope(type) as string],
+    call,
+    floor: { ...call, ...(stored.rowCount === undefined ? {} : { rowCount: stored.rowCount }) },
+    downgradable: true,
+    entityClass: type,
+    command: "close_entity",
+    closeTypes: stored.closeTypes ?? [type],
+    ...(mustPropose === undefined ? {} : { mustPropose })
+  };
 }
 
 /** `save_entity`: the entity type comes from the body and decides the scope, the class and the floor. */
@@ -462,6 +547,7 @@ const WRITE_RULES: Record<string, Rule> = {
   // Keeping a project in the weekly review: an explicit confirmation, applied directly (never a proposal), with undo.
   // Deliberately its own `review` tool rather than the project trust level: an agent held to propose-only on
   // projects can still Keep one, because a Keep changes nothing in the plan but when the project next asks.
+  "POST /api/commands/close": closeWrite,
   "POST /api/commands/project-review": fixed({ tool: "review" }),
   "POST /api/commands/session": fixed({ tool: "session" }),
   // Settles last night around when the person woke (`rhen wake`): finishes a running sleep, or completes last
@@ -705,7 +791,8 @@ const BODY_ROUTES = new Set([
   "POST /api/commands/action",
   "POST /api/commands/commitment-recurrence",
   "POST /api/commands/recurrence-goal",
-  "POST /api/agent-proposals"
+  "POST /api/agent-proposals",
+  "POST /api/commands/close"
 ]);
 
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);

@@ -606,4 +606,36 @@ describe("proposalChanges in plain language", () => {
     );
     expect(groups![0]!.caution).toBeUndefined();
   });
+
+  it("describes a held close with its reason and what goes with it", () => {
+    const groups = proposalChanges(
+      make("close_entity", {
+        type: "project",
+        verb: "cancel",
+        id: "p1",
+        do: "close",
+        reason: "dropped",
+        children: [
+          { type: "action", id: "a1", version: 2 },
+          { type: "action", id: "a2", version: 1 }
+        ]
+      }),
+      undefined,
+      NY
+    );
+    expect(groups).toEqual([
+      {
+        title: "Cancel project",
+        rows: [
+          { field: "project", value: "p1" },
+          { field: "reason", value: "dropped" },
+          { field: "action with it", value: "2" }
+        ]
+      }
+    ]);
+  });
+
+  it("returns nothing for a close whose payload is no longer valid", () => {
+    expect(proposalChanges(make("close_entity", { type: "nope" }), undefined, NY)).toBeNull();
+  });
 });

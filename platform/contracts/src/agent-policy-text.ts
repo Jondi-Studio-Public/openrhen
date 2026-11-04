@@ -128,12 +128,12 @@ export function agentPolicyLines(owner = "the person"): AgentPolicyLine[] {
       full:
         `Filed as proposals for ${owner} to confirm: removing a span or sleep log entry, a bulk over ${BULK_PROPOSAL_THRESHOLD} rows, ` +
         "and a save that touches another person. Refused, with the way forward in the answer: ending a recurrence (set its " +
-        `end date instead), deleting an import batch and dropping a kept item. Ending a record by ` +
-        "status (cancelled, archived, done) is an ordinary write, " +
-        "and undo covers it.",
+        `end date instead), deleting an import batch and dropping a kept item. Closing a record is rhen_archive or ` +
+        "rhen_cancel, never a status written through rhen_save; marking work done is an ordinary write, " +
+        "and undo covers both.",
       brief:
         `Span or sleep-log removals, bulks over ${BULK_PROPOSAL_THRESHOLD} rows and saves touching others are proposals; ` +
-        "recurrence ends, import deletes and kept-item drops are refused; status endings are ordinary writes."
+        "recurrence ends, import deletes and kept-item drops are refused."
     },
     {
       id: "untrusted",
