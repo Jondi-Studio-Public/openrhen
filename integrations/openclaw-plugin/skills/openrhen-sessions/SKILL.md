@@ -45,6 +45,10 @@ When `rhen_status` carries a pending check-in, ask them in plain words and recor
 id of the action actually worked on; nothing is started). `category`, `note` and `target` are refused on the
 other two. Ask which category fits; do not guess their answer.
 
+With no check-in pending (the pulse went unknown and nobody was asked, and they tell you they are on it), the same
+call records a voluntary check-in for what the plan believes now; it counts as contact. If the plan believes
+nothing, it refuses and names `rhen_status`.
+
 ## "Doing something else"
 
 A deviated answer stays on plan only if you then call `rhen_disrupt` with all five: `doing` (or `target` as

@@ -5,6 +5,8 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { fileURLToPath } from "node:url";
 import { integrationDatabaseName } from "@openrhen/database";
+import { runCheckInCommand } from "../persistence/postgres/check-in-commands";
+import { runWithActor } from "@/server/agent-actor";
 import { ensureUser } from "../persistence/postgres/ensure-user";
 import { resolveEffectivePrivacy, runPulseRecorderTick } from "./pulse-recorder";
 import { readPulseState } from "./pulse-read";
@@ -650,6 +652,36 @@ describe("state machine: unknown, lapsed and the allowance", () => {
     const segments = await allSegments();
     expect(segments.filter((s) => s.state === "unknown")).toHaveLength(0);
     expect(segments.some((s) => s.repainted_at !== null)).toBe(true);
+  });
+});
+
+describe("state machine: voluntary check-in", () => {
+  it("a voluntary on-track answer with no prompt waiting confirms an unknown pulse", async () => {
+    const t0 = new Date("2026-10-28T02:00:00.000Z");
+    const stepId = await createInForceStep(t0, "Prep", 600, 120);
+    await runPulseRecorderTick(sql, t0);
+    await tickThrough(t0, at(t0, 20));
+    const now = new Date();
+    await sql`
+      INSERT INTO planning_runs (user_id,request_id,input_version,contract_version,engine_version,calculated_at,valid_until,result)
+      VALUES (${userId},${crypto.randomUUID()},'v1','1','v1',${now},${new Date(now.getTime() + 3_600_000)},
+        ${sql.json({ currentDirective: { kind: "routine_step", targetId: stepId, title: "Prep" } } as never)})`;
+    await runWithActor("claude", () =>
+      runCheckInCommand(sql, {
+        commandId: crypto.randomUUID(),
+        type: "voluntary_check_in",
+        expectedVersion: null,
+        status: "on_track",
+        answerSource: "sheet"
+      })
+    );
+    // The command stamps the real clock; move the row and its ledger entry into the test's clock.
+    const answeredAt = at(t0, 21);
+    await sql`UPDATE check_in SET slot_at=${answeredAt}, answered_at=${answeredAt} WHERE user_id=${userId}`;
+    await sql`UPDATE writes SET created_at=${answeredAt} WHERE user_id=${userId} AND command_type='voluntary_check_in'`;
+    await runPulseRecorderTick(sql, at(t0, 22));
+    expect((await openSegment())?.state).toBe("on");
+    expect((await stateRow()).last_contact_source).toBe("agent");
   });
 });
 

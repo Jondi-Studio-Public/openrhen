@@ -7,11 +7,13 @@ import { resolve } from "node:path";
 import { enqueuePlanForecastJob, integrationDatabaseName } from "@openrhen/database";
 import type { CheckInCommand, PlanForecastRequest } from "@openrhen/contracts";
 import { CommandConflictError, InvalidCommandError } from "./command-errors";
+import { runWithActor } from "@/server/agent-actor";
 import { runCheckInCommand } from "./check-in-commands";
 import { readCheckInSummary, readCheckInTrail, readCurrentCheckIn } from "./readers/check-in-read";
 import { ensureUser } from "./ensure-user";
 
 type SingleAnswerCommand = Extract<CheckInCommand, { type: "answer_check_in" }>;
+type VoluntaryCommand = Extract<CheckInCommand, { type: "voluntary_check_in" }>;
 type BatchAnswerCommand = Extract<CheckInCommand, { type: "answer_check_ins" }>;
 
 config({ path: resolve(process.cwd(), "../.env"), quiet: true });
@@ -111,7 +113,9 @@ beforeAll(async () => {
 }, 30_000);
 
 beforeEach(async () => {
-  await sql.unsafe("TRUNCATE TABLE check_in, writes, write_rows, sessions, session_segments, sleep_plans CASCADE");
+  await sql.unsafe(
+    "TRUNCATE TABLE check_in, writes, write_rows, sessions, session_segments, sleep_plans, planning_runs CASCADE"
+  );
 });
 
 afterAll(async () => {
@@ -511,5 +515,111 @@ describe("readCheckInSummary", () => {
     await insertCheckIn({ status: "pending" });
     const summary = await readCheckInSummary(sql, userId);
     expect(summary).toEqual({ answered: 3, onTrack: 2, deviated: 1, unknown: 1 });
+  });
+});
+
+describe("voluntary check-in", () => {
+  function voluntaryCommand(overrides: Partial<VoluntaryCommand> = {}): VoluntaryCommand {
+    return {
+      commandId: crypto.randomUUID(),
+      type: "voluntary_check_in",
+      expectedVersion: null,
+      status: "on_track",
+      answerSource: "sheet",
+      ...overrides
+    };
+  }
+
+  async function storeBelief(directive: Record<string, unknown>): Promise<void> {
+    const now = new Date();
+    await sql`
+      INSERT INTO planning_runs (user_id,request_id,input_version,contract_version,engine_version,calculated_at,valid_until,result)
+      VALUES (${userId},${crypto.randomUUID()},'v1','1','v1',${now},${new Date(now.getTime() + 3_600_000)},
+        ${sql.json({ currentDirective: directive } as never)})`;
+  }
+
+  const rows = () =>
+    sql<
+      {
+        status: string;
+        answered_at: Date | null;
+        prompted_at: Date | null;
+        directive_kind: string;
+        directive_target_id: string | null;
+        directive_title: string;
+        answer_source: string | null;
+        answered_by: string | null;
+      }[]
+    >`SELECT status, answered_at, prompted_at, directive_kind, directive_target_id, directive_title, answer_source, answered_by FROM check_in WHERE user_id=${userId}`;
+
+  it("records one already-answered row for the engine's current belief when none is waiting", async () => {
+    const targetId = crypto.randomUUID();
+    await storeBelief({ kind: "action", targetId, title: "Write the report" });
+    await runWithActor("claude", () => runCheckInCommand(sql, voluntaryCommand()));
+    const stored = await rows();
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatchObject({
+      status: "on_track",
+      directive_kind: "action",
+      directive_target_id: targetId,
+      directive_title: "Write the report",
+      answer_source: "sheet",
+      answered_by: "claude",
+      prompted_at: null
+    });
+    expect(stored[0]!.answered_at).not.toBeNull();
+  });
+
+  it("records a deviated voluntary answer with its category and note", async () => {
+    await storeBelief({ kind: "action", targetId: crypto.randomUUID(), title: "Write the report" });
+    await runCheckInCommand(
+      sql,
+      voluntaryCommand({ status: "deviated", deviationCategory: "family", deviationNote: "School call" })
+    );
+    expect((await rows())[0]).toMatchObject({ status: "deviated" });
+  });
+
+  it("refuses with no current belief and names the next call", async () => {
+    const error = await runCheckInCommand(sql, voluntaryCommand()).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(InvalidCommandError);
+    expect((error as InvalidCommandError).nextCall).toMatchObject({ tool: "rhen_status" });
+    expect((error as Error).message).toContain("rhen_status");
+    expect(await rows()).toHaveLength(0);
+  });
+
+  it("refuses while a check-in is waiting, and answering that one adds no row", async () => {
+    await storeBelief({ kind: "action", targetId: crypto.randomUUID(), title: "Write the report" });
+    const pending = await insertCheckIn({});
+    const error = await runCheckInCommand(sql, voluntaryCommand()).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(InvalidCommandError);
+    expect((error as InvalidCommandError).nextCall).toMatchObject({ tool: "rhen_check_in" });
+    await runCheckInCommand(sql, answerCommand({ checkInId: pending.id, expectedVersion: pending.version }));
+    const stored = await rows();
+    expect(stored).toHaveLength(1);
+    expect(stored[0]!.status).toBe("on_track");
+  });
+
+  it("treats a timed-out unanswered unknown as waiting, but an answered one as closed", async () => {
+    await storeBelief({ kind: "action", targetId: crypto.randomUUID(), title: "Write the report" });
+    await insertCheckIn({ status: "unknown", answeredAt: new Date() });
+    await runCheckInCommand(sql, voluntaryCommand());
+    expect(await rows()).toHaveLength(2);
+  });
+
+  it("refuses while the latest slot is an unanswered unknown", async () => {
+    await storeBelief({ kind: "action", targetId: crypto.randomUUID(), title: "Write the report" });
+    await insertCheckIn({ status: "unknown" });
+    const error = await runCheckInCommand(sql, voluntaryCommand()).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(InvalidCommandError);
+    expect((error as InvalidCommandError).nextCall).toMatchObject({ tool: "rhen_check_in" });
+    expect(await rows()).toHaveLength(1);
+  });
+
+  it("records past a stale unanswered unknown that sits behind a newer answered row", async () => {
+    await storeBelief({ kind: "action", targetId: crypto.randomUUID(), title: "Write the report" });
+    await insertCheckIn({ status: "unknown", minutesAgo: 60 });
+    await insertCheckIn({ status: "on_track", minutesAgo: 30, answeredAt: new Date() });
+    await runCheckInCommand(sql, voluntaryCommand());
+    expect(await rows()).toHaveLength(3);
   });
 });
