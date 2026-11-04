@@ -17,7 +17,7 @@
 // Exports: isAddonOwned, SINGLE_SLOT_STUBS, changedPaths, ownershipViolations, composeViolations, envViolations,
 // routeViolations, conformance.
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
