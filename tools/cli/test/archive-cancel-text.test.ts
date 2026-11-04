@@ -73,14 +73,23 @@ describe("every served home says which verb takes which kind", () => {
       expect(text).toContain("rhen_archive");
       expect(text).toContain("rhen_cancel");
       expect(text).toMatch(/restore/i);
-      expect(text).toMatch(/Never set status archived or cancelled|Do not set status archived or cancelled/);
+      // The save floor is shipped: a save that closes a row is refused, and the text says so (never "do not").
+      expect(text).toMatch(/A save that sets status archived or cancelled(, or reopens a closed row,)? is refused/);
+      expect(text).toMatch(/reopens a closed row/);
+      expect(text).not.toMatch(/Never set status archived or cancelled|Do not set status archived or cancelled/);
+      // The brake, worded as the stateless rolling hour it is (design section 4).
+      expect(text).toMatch(/rolling hour/);
+      expect(text).toMatch(/counting (this|the) call/);
     });
   }
 
-  it("the prose homes (not the byte-capped instructions) also say reason, 20 rows and one proposal", () => {
+  it("the prose homes (not the byte-capped instructions) also say reason, 20 rows, the hour, a day and one proposal", () => {
     for (const { name, text } of homes.filter((home) => home.name !== "server instructions")) {
       expect(text, name).toMatch(/reason/i);
-      expect(text, name).toMatch(/more than 20 rows/);
+      expect(text, name).toMatch(/more than 20 rows in one call/);
+      expect(text, name).toMatch(/20 closures in a rolling hour/);
+      expect(text, name).toMatch(/small calls that still fit/);
+      expect(text, name).toMatch(/rhen_undo.*within a day/);
       expect(text, name).toMatch(/ONE proposal/);
       expect(text, name).toMatch(/include-children/);
     }
@@ -111,6 +120,8 @@ describe("each tool's description repeats its half and names the other tool", ()
     const entry = tool("rhen_archive");
     expect(entry.description).toContain("rhen_cancel");
     expect(entry.description).toContain("rhen_save");
+    expect(entry.description).toMatch(/is refused/);
+    expect(entry.description).toMatch(/rolling hour/);
     for (const word of [
       "area",
       "routine_preset",
@@ -130,6 +141,8 @@ describe("each tool's description repeats its half and names the other tool", ()
     const entry = tool("rhen_cancel");
     expect(entry.description).toContain("rhen_archive");
     expect(entry.description).toContain("rhen_save");
+    expect(entry.description).toMatch(/is refused/);
+    expect(entry.description).toMatch(/rolling hour/);
     for (const word of ["commitment", "appointment", "outcome", "project", "action", "deliverable"])
       expect(entry.description, word).toContain(word);
     const type = (entry.inputSchema.properties.type as { enum?: string[] }).enum;
@@ -139,6 +152,16 @@ describe("each tool's description repeats its half and names the other tool", ()
   it("both require do, id and type, on the tool as served", () => {
     for (const name of ["rhen_archive", "rhen_cancel"])
       expect([...(tool(name).inputSchema.required ?? [])].sort(), name).toEqual(["do", "id", "type"]);
+  });
+});
+
+describe("the write tools say a closed status is refused", () => {
+  it("rhen_save, rhen_bulk and rhen_changeset point to the close tools", () => {
+    for (const name of ["rhen_save", "rhen_bulk", "rhen_changeset"]) {
+      const entry = MCP_TOOL_MANIFEST.find((tool) => tool.name === name)!;
+      expect(entry.description, name).toMatch(/status archived or cancelled is refused/);
+      expect(entry.description, name).toContain("rhen_archive");
+    }
   });
 });
 

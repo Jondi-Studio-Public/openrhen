@@ -493,7 +493,7 @@ function hardFloorOf(call: HardFloorCall): HardFloor | null {
       type === "capture"
         ? "rhen inbox-act captured ignore <id>"
         : status !== undefined
-          ? `rhen save ${type} --id <id> --set status=${status}`
+          ? `rhen ${status === "archived" ? "archive" : "cancel"} ${type} <id> close --reason "<why>"`
           : undefined;
     return path !== undefined
       ? floor(

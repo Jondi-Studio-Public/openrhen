@@ -14,6 +14,7 @@ import {
   restoreStatus,
   restoreToolFor,
   toolForVerb,
+  UNDO_CLOSED_BY_SUFFIX,
   verbFor,
   wrongToolForRestoreRefusal,
   wrongVerbRefusal,
@@ -22,6 +23,7 @@ import {
   type CloseEntityCommand,
   type CloseEntityResult,
   type CloseType,
+  type CloseVerb,
   type DependentRow,
   type SkippedRow
 } from "@openrhen/contracts";
@@ -30,6 +32,8 @@ import type { PortalState } from "@/state/portal-state";
 import { assertNotHomeLocation } from "./close-rules";
 import { firstClosedAncestor } from "./close-ancestors";
 import { applyClose, batchEntries, planClose, restoreBatch, type CascadeContext } from "./close-cascade";
+import { assertCloseBudget, closeBudgetApplies, lockCloseBudget } from "./close-budget";
+import { cascadeIsOwnCreate, verifyUndoOfCreate } from "./close-undo";
 import { claimCommandReceipt, commandRequestHash, hasCommandReceipt } from "./command-receipt";
 import { CommandConflictError, notFound, refused, versionConflict } from "./command-errors";
 import { stableUuid } from "./command-values";
@@ -94,6 +98,17 @@ export async function storedIdFor(type: CloseType, userId: string, rawId: string
   }
 }
 
+/** The status and version of a closable row (locked `FOR NO KEY UPDATE`), undefined when it is missing; the save floor reads it. */
+export async function lockedStatusOf(
+  tx: Sql,
+  userId: string,
+  type: CloseType,
+  rawId: string
+): Promise<{ status: string; version: number } | undefined> {
+  const row = await readRow(tx, userId, type, await storedIdFor(type, userId, rawId), true);
+  return row === undefined ? undefined : { status: row.status, version: row.version };
+}
+
 /** The row with the closed columns, locked `FOR NO KEY UPDATE` when `lock`; undefined when it is missing or another user's. */
 async function readRow(
   tx: Sql,
@@ -149,11 +164,15 @@ async function readRow(
 }
 
 /** The actor the trigger stamps: the person, the agent, or the agent's close the owner confirmed (plan D7). */
-function actorName(): string {
+function actorName(undo = false): string {
   const agent = requestAgent();
-  if (agent === null) return "person";
-  return changeLogConfirmedBy() === "owner" ? `agent:${agent}:confirmed` : `agent:${agent}`;
+  const suffix = undo ? UNDO_CLOSED_BY_SUFFIX : "";
+  if (agent === null) return `person${suffix}`;
+  return changeLogConfirmedBy() === "owner" ? `agent:${agent}:confirmed` : `agent:${agent}${suffix}`;
 }
+
+/** The label a close that took back a create carries (the Closed page hides it; its `closed_by` ends `:undo`). */
+const UNDO_LABEL = "undo of create";
 
 /** A restore needs every ancestor open (read top down with `FOR SHARE`, so a concurrent close of one waits for this restore). */
 async function assertAncestorsOpen(tx: Sql, type: CloseType, shownId: string, id: string): Promise<void> {
@@ -254,6 +273,9 @@ interface LedgerEvidence {
   skipped: SkippedRow[];
   restoredTo?: string;
   assumed?: boolean;
+  closed?: number;
+  counted?: boolean;
+  undoOfCreate?: string;
 }
 
 const beforeImage = (id: string, row: Locked) => ({
@@ -296,6 +318,8 @@ export async function closeEntity(
     // An agent's close keeps the rows it touches so it can be undone (write-snapshot.ts). Opened before any row lock:
     // it takes the plan publication lock first.
     const snap = await WriteSnapshot.open(tx, userId, commandId, "save");
+    // The brake's lock comes after the plan publication lock and before any row lock (a restore is never counted).
+    if (command.do === "close" && closeBudgetApplies()) await lockCloseBudget(tx, userId);
     closed =
       command.do === "close"
         ? await close(tx, userId, command, commandId, snap, options)
@@ -314,20 +338,41 @@ async function close(
   snap: WriteSnapshot | null,
   options: CloseEntityOptions
 ): Promise<CloseEntityResult> {
-  const { type, verb } = command;
+  const { type } = command;
   const id = await storedIdFor(type, userId, command.id);
   const row = await readRow(tx, userId, type, id, true);
   if (!row) throw notFound(REFUSAL_KIND[type], command.id);
-  if (command.expectedVersion !== undefined && command.expectedVersion !== row.version)
+  if (command.expectedVersion != null && command.expectedVersion !== row.version)
     throw versionConflict(labelOf(type), command.id, command.expectedVersion, row.version);
   if (isClosedStatus(row.status))
     throw refused(alreadyClosedRefusal({ type, id: command.id, status: row.status, version: row.version }));
   const allowed = verbFor(type, row.status);
   if (allowed === null) throw refused(notClosableRefusal({ type, id: command.id, status: row.status }));
-  if (allowed !== "either" && allowed !== verb)
+  // An undo of the actor's own create, proved in the write ledger and sent with the version it left (plan B2). It takes
+  // the verb the row's state allows, needs no reason, is not counted by the brake and is stamped `:undo`.
+  // The exemption also needs everything the close takes with it to be the actor's own create: a prep action the owner
+  // made, linked to the agent's commitment, is not the agent's to close past the brake without a reason.
+  const undo =
+    command.undoOfCommandId !== undefined &&
+    typeof command.expectedVersion === "number" &&
+    command.includeChildren !== true &&
+    (await verifyUndoOfCreate(tx, userId, type, id, command.undoOfCommandId, row.version)) &&
+    (await cascadeIsOwnCreate(
+      tx,
+      userId,
+      (
+        await planClose(tx, cascadeContext(userId, type, id, command, row.version, command.reason), {
+          lock: false,
+          refuse: false
+        })
+      ).rows
+    ));
+  const verb: CloseVerb = undo && allowed !== "either" ? allowed : command.verb;
+  if (!undo && allowed !== "either" && allowed !== verb)
     throw refused(wrongVerbRefusal({ type, id: command.id, status: row.status, version: row.version, asked: verb }));
+  if (undo) await tx`SELECT set_config('priorities.actor', ${actorName(true)}, true)`;
   // The owner (and an owner-confirmed replay, which carries the stored reason) needs no reason; an agent gives one.
-  const reason = command.reason?.trim() || undefined;
+  const reason = command.reason?.trim() || (undo ? UNDO_LABEL : undefined);
   if (requestAgent() !== null && changeLogConfirmedBy() !== "owner" && reason === undefined)
     throw refused(
       reasonRequiredRefusal({
@@ -348,6 +393,18 @@ async function close(
   const ctx = cascadeContext(userId, type, id, command, row.version, reason);
   const plan = await planClose(tx, ctx, { lock: true, refuse: true });
   const confirmed = changeLogConfirmedBy() === "owner";
+  // The hourly brake: this call's rows (the target and everything that closes with it) against the last hour's closures.
+  await assertCloseBudget(tx, userId, 1 + plan.rows.length, {
+    exempt: undo,
+    nextCall: closeCall({
+      verb,
+      type,
+      id: command.id,
+      version: row.version,
+      ...(command.includeChildren ? { includeChildren: true } : {}),
+      ...(reason === undefined ? {} : { reason })
+    })
+  });
   if (requestAgent() !== null && !confirmed && (plan.needsOwner || plan.shared)) {
     // The route sends such a call to the owner as one proposal; reaching here means it changed since that decision.
     throw new CommandConflictError(
@@ -411,7 +468,17 @@ async function close(
           (await tx<{ n: string }[]>`SELECT count(*) AS n FROM actions WHERE deliverable_id IN ${tx(deliverables)}`)[0]!
             .n
         );
-  const evidence: LedgerEvidence = { do: "close", verb, batch, cascade: cascade.cascaded, skipped: cascade.skipped };
+  const evidence: LedgerEvidence = {
+    do: "close",
+    verb,
+    batch,
+    cascade: cascade.cascaded,
+    skipped: cascade.skipped,
+    // What the brake counts: this row and everything that closed with it, by a token-held agent.
+    closed: 1 + cascade.cascaded.length,
+    counted: closeBudgetApplies(),
+    ...(undo ? { undoOfCreate: command.undoOfCommandId as string } : {})
+  };
   await recordStateChange(tx, userId, {
     entityType: type,
     entityId: id,
@@ -447,7 +514,7 @@ async function reopen(
 ): Promise<CloseEntityResult> {
   const { type, verb } = command;
   const id = await storedIdFor(type, userId, command.id);
-  if (command.expectedVersion === undefined) throw refused(requiredRefusal("The expected version of the closed row"));
+  if (command.expectedVersion == null) throw refused(requiredRefusal("The expected version of the closed row"));
   // Ancestors first (top down, shared), then the row itself, the order the plan's lock rule gives.
   const peek = await readRow(tx, userId, type, id, false);
   if (!peek) throw notFound(REFUSAL_KIND[type], command.id);
@@ -467,7 +534,10 @@ async function reopen(
         nextCall: { tool: "rhen_show", arguments: { entity: type, id: command.id }, note: "shows its state" }
       })
     );
-  if (tool !== toolForVerb(verb))
+  // A close that took back a create (its `closed_by` ends `:undo`) is restored with either tool: the journal names the
+  // verb it guessed when the row was made, the server chose the one the row's state took.
+  const undone = row.closed_by?.endsWith(UNDO_CLOSED_BY_SUFFIX) === true;
+  if (tool !== toolForVerb(verb) && !undone)
     throw refused(
       wrongToolForRestoreRefusal({ type, id: command.id, status: row.status, version: row.version, asked: verb })
     );

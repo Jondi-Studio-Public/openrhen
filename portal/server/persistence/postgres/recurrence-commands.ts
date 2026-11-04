@@ -260,7 +260,8 @@ export async function endRecurrenceGoal(sql: PoolSql, command: EndRecurrenceGoal
     const at = new Date();
     await watchEndRecurrenceGoal(snap, actionId);
     await tx`UPDATE action_recurrence_rules SET completed_at=${at}, version=version+1, updated_at=${at} WHERE id=${rule[0].id}`;
-    await tx`UPDATE actions SET status='done', version=version+1, updated_at=${at} WHERE id=${actionId}`;
+    // A closed action is not completed over: that would reopen it without the restore rules.
+    await tx`UPDATE actions SET status='done', version=version+1, updated_at=${at} WHERE id=${actionId} AND status NOT IN ('cancelled','archived')`;
     await tx`UPDATE action_occurrences SET status='cancelled', version=version+1, updated_at=${at} WHERE rule_id=${rule[0].id} AND status='pending'`;
     await snap?.save();
     await recordStateChange(tx, userId, {

@@ -5,6 +5,11 @@ import {
   CANCEL_TYPES,
   CLOSE_TABLE_OF,
   CLOSE_TYPES,
+  UNDO_VERB,
+  closeBudgetRefusal,
+  closedBySaveRefusal,
+  closeCall,
+  closedCount,
   alreadyClosedRefusal,
   ancestorClosedRefusal,
   childrenOpenRefusal,
@@ -167,7 +172,21 @@ describe("the command schema", () => {
     expect(closeEntityCommandSchema.safeParse({ ...base, reason: "x".repeat(500) }).success).toBe(true);
     expect(closeEntityCommandSchema.safeParse({ ...base, type: "span" }).success).toBe(false);
     expect(closeEntityCommandSchema.safeParse({ ...base, verb: "delete" }).success).toBe(false);
-    expect(closeEntityCommandSchema.safeParse({ ...base, undoOfCommandId: crypto.randomUUID() }).success).toBe(false);
+    const create = crypto.randomUUID();
+    expect(closeEntityCommandSchema.safeParse({ ...base, undoOfCommandId: create }).success).toBe(true);
+    expect(closeEntityCommandSchema.safeParse({ ...base, undoOfCommandId: "nope" }).success).toBe(false);
+    // null means "no version" and is only for an undo of a create (a forced undo from the journal)
+    expect(closeEntityCommandSchema.safeParse({ ...base, expectedVersion: null }).success).toBe(false);
+    expect(
+      closeEntityCommandSchema.safeParse({ ...base, expectedVersion: null, undoOfCommandId: create }).success
+    ).toBe(true);
+    expect(
+      closeEntityCommandSchema.safeParse({ ...base, undoOfCommandId: create, includeChildren: true }).success
+    ).toBe(false);
+    expect(
+      closeEntityCommandSchema.safeParse({ ...base, do: "restore", expectedVersion: 2, undoOfCommandId: create })
+        .success
+    ).toBe(false);
   });
 });
 
@@ -308,5 +327,82 @@ describe("scopes for the two tools", () => {
     expect(requiredScopes({ tool: "archive", entityType: "span" })).toEqual([]);
     expect(requiredScopes({ tool: "archive", entityType: "plan_subject" })).toEqual([]);
     expect(requiredScopes({ tool: "cancel" })).toEqual([]);
+  });
+});
+
+describe("the close budget vocabulary", () => {
+  it("counts a ledger row as its closed figure, else the target plus its cascade", () => {
+    expect(closedCount({ closed: 7 })).toBe(7);
+    expect(closedCount({ cascade: [{}, {}] })).toBe(3);
+    expect(closedCount({})).toBe(1);
+  });
+
+  it("refuses with what counted and a call the route then files", () => {
+    const refusal = closeBudgetRefusal({
+      used: 19,
+      rows: 2,
+      nextCall: closeCall({ verb: "cancel", type: "action", id: "a1", version: 3, reason: "x" })
+    });
+    expect(refusal.message).toMatch(/21 closures by agents in the last hour, over the 20 allowed/);
+    expect(refusal.message).toMatch(/filed as a proposal/);
+    expect(refusal.nextCall?.tool).toBe("rhen_cancel");
+  });
+
+  it("names a verb for every undoable create and leaves the deliverable out", () => {
+    expect(UNDO_VERB.area).toBe("archive");
+    expect(UNDO_VERB.action).toBe("cancel");
+    expect(UNDO_VERB.deliverable).toBeUndefined();
+  });
+});
+
+describe("the save floor refusals", () => {
+  it("names the restore call for a reopen by save, by the row's own status", () => {
+    const reopen = closedBySaveRefusal({
+      type: "action",
+      id: "a1",
+      incoming: "planned",
+      stored: { status: "cancelled", version: 5 }
+    });
+    expect(reopen.message).toMatch(/refused/);
+    expect(reopen.nextCall).toMatchObject({
+      tool: "rhen_cancel",
+      arguments: { type: "action", id: "a1", do: "restore", "expected-version": 5 }
+    });
+    expect(
+      closedBySaveRefusal({ type: "area", id: "x", incoming: "active", stored: { status: "archived", version: 2 } })
+        .nextCall?.tool
+    ).toBe("rhen_archive");
+  });
+
+  it("names the close call with the real id and version for an open row", () => {
+    const refusal = closedBySaveRefusal({
+      type: "action",
+      id: "a1",
+      incoming: "cancelled",
+      stored: { status: "planned", version: 4 }
+    });
+    expect(refusal.message).toMatch(/refused/);
+    expect(refusal.nextCall).toMatchObject({
+      tool: "rhen_cancel",
+      arguments: { type: "action", id: "a1", do: "close", "expected-version": 4 }
+    });
+    // an outcome that is done takes archive only, whatever status the save named
+    expect(
+      closedBySaveRefusal({ type: "outcome", id: "o1", incoming: "cancelled", stored: { status: "done", version: 2 } })
+        .nextCall?.tool
+    ).toBe("rhen_archive");
+  });
+
+  it("sends a closed row to its restore and a born-closed create to a plain instruction", () => {
+    const moved = closedBySaveRefusal({
+      type: "area",
+      id: "x",
+      incoming: "cancelled",
+      stored: { status: "archived", version: 3 }
+    });
+    expect(moved.nextCall).toMatchObject({ tool: "rhen_archive", arguments: { do: "restore", "expected-version": 3 } });
+    const born = closedBySaveRefusal({ type: "project", id: "p", incoming: "cancelled" });
+    expect(born.nextCall).toBeUndefined();
+    expect(born.message).toMatch(/Create it open/);
   });
 });

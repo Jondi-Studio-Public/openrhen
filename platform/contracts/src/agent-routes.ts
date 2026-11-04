@@ -10,7 +10,7 @@ import {
   type HardFloorCall,
   type WriteCall
 } from "./agent-scopes.js";
-import { CLOSE_TYPES, isCloseType } from "./closed-entity.js";
+import { CLOSE_BUDGET_LIMIT, CLOSE_TYPES, isCloseType } from "./closed-entity.js";
 import { removedFieldMessage } from "./removed-field-names.js";
 import { contractsExtensions, mergedList, mergedRecord } from "./extensions.js";
 import "./private/index.js";
@@ -173,6 +173,12 @@ export interface StoredFacts {
   closeVersion?: number;
   /** The rows besides the target that the call changes, with their versions, for a proposal to pin. */
   closeChildren?: { type: string; id: string; version: number }[];
+  /** Closures by token agents in the last hour, from the write ledger (not the closed columns). */
+  closedInHour?: number;
+  /** The command id was already applied: the handler answers the retry from its receipt, so the budget is not asked. */
+  closeCommandLanded?: boolean;
+  /** `undoOfCommandId` names an agent create of this row that the ledger verifies and the window allows. */
+  undoOfCreate?: boolean;
 }
 
 /**
@@ -250,7 +256,7 @@ export function closeTarget(
 
 /**
  * Archive and cancel (`POST /api/commands/close`): a downgradable write under the target's own scope. The stored facts
- * decide whether it may apply: anything the owner must decide, a call past 20 rows, a token without a direct write for
+ * decide whether it may apply: anything the owner must decide, a call past 20 rows or 20 closures in the rolling hour, a token without a direct write for
  * every type the call reaches, or an agent restoring a row it did not close itself files ONE proposal instead.
  */
 function closeWrite(body: Body, stored: StoredFacts): RouteDecision {
@@ -275,7 +281,13 @@ function closeWrite(body: Body, stored: StoredFacts): RouteDecision {
           ? "it is shared with other people, so closing it is the owner's call"
           : restoring && stored.restorableByAgent !== true
             ? "this row was not closed by this agent directly (the owner, another agent or an import closed it, or the owner confirmed it), so restoring it is the owner's call"
-            : undefined;
+            : !restoring &&
+                stored.closeCommandLanded !== true &&
+                stored.undoOfCreate !== true &&
+                stored.closedInHour !== undefined &&
+                stored.closedInHour + (stored.rowCount ?? 1) > CLOSE_BUDGET_LIMIT
+              ? `closing ${stored.rowCount ?? 1} would make ${stored.closedInHour + (stored.rowCount ?? 1)} closures by agents in the last hour, over the ${CLOSE_BUDGET_LIMIT} allowed (counting this call), so the call waits for the owner`
+              : undefined;
   return {
     kind: "scopes",
     scopes: [entityScope(type) as string],

@@ -73,6 +73,7 @@ import { claimCommandReceipt, commandRequestHash, hasCommandReceipt } from "./co
 import type { LeftJoined, Row } from "./db-row";
 import { applyProposalAnswers, captureQuestions } from "./proposal-questions";
 import { hasCycle, validateRoutineEntityGraph } from "./graph-checks";
+import { assertNoClosedTransition } from "./close-floor";
 import { recordStateChange } from "./planning-evidence";
 import { readStateAfterCommit } from "./read-after-commit";
 import { skipMootRoutineSteps } from "./routine-step-arrival";
@@ -235,10 +236,21 @@ export async function saveEntity(sql: PoolSql, command: EntityCommandWithHash): 
         ? await WriteSnapshot.open(tx, userId, command.commandId, "confirm")
         : null;
     await watchEntityWrite(saveSnap, userId, command);
+    // An agent's save may not close a row; the refusal names the close call (close-floor.ts).
+    await assertNoClosedTransition(
+      tx,
+      userId,
+      command.entityType,
+      rawId,
+      (command.entity as { status?: unknown }).status
+    );
     // The id the record is stored under, for kinds that hash the one sent; the change feed names this one.
     let storedId: string | undefined;
     let proposalEvidence: Record<string, unknown> | undefined;
+    // Set when this save made the row (no stored row): the ledger marks it, so an agent's undo of the create can be verified.
+    let created = false;
     const verifyVersion = (actual: number | undefined) => {
+      created = actual === undefined;
       if (actual !== undefined && actual !== command.expectedVersion)
         throw versionConflict(command.entityType.replace(/_/g, " "), rawId, command.expectedVersion, actual);
       if (actual === undefined && command.expectedVersion !== null) throw notFoundConflict(command.entityType, rawId);
@@ -878,6 +890,7 @@ export async function saveEntity(sql: PoolSql, command: EntityCommandWithHash): 
       // Keyed by its own slug rather than a generated uuid, because every requirement, grant and
       // pathway refers to a context by that slug and none of them are foreign keys.
       const id = requiredText(entity.id, "Context id").trim().toLocaleLowerCase();
+      storedId = id;
       if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id))
         throw new InvalidCommandError("A context id may use only lowercase letters, numbers and single hyphens.");
       const rows = await tx<
@@ -2006,19 +2019,18 @@ export async function saveEntity(sql: PoolSql, command: EntityCommandWithHash): 
         entityType: command.entityType,
         entityId: storedId ?? rawId,
         operation: "save",
-        ...(command.entityType === "current_availability"
-          ? {
-              evidence: {
+        evidence: {
+          ...(command.entityType === "current_availability"
+            ? {
                 currentEnergy: entity.currentEnergy,
                 assertedConditions: stringList(entity.assertedConditions)
               }
-            }
-          : command.entityType === "settings" && Object.prototype.hasOwnProperty.call(entity, "lastWokeAt")
-            ? // The wake is a state fact the pulse counts as contact; other settings edits are not.
-              { evidence: { wake: true } }
-            : proposalEvidence
-              ? { evidence: proposalEvidence }
-              : {}),
+            : command.entityType === "settings" && Object.prototype.hasOwnProperty.call(entity, "lastWokeAt")
+              ? // The wake is a state fact the pulse counts as contact; other settings edits are not.
+                { wake: true }
+              : (proposalEvidence ?? {})),
+          ...(created ? { created: true, createdVersion: 1 } : {})
+        },
         // Captures and their reviews can carry mail-derived text, and `write_rows` is not purged, so an
         // agent's write of one never keeps a before-image. The other entity kinds are not yet supplied
         // with one, so they are recorded as `beforeMissing`.

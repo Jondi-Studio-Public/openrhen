@@ -90,7 +90,7 @@ export const MCP_TOOL_MANIFEST: readonly McpToolManifestEntry[] = withExtensionT
 
 /**
  * What the remote server tells a client at `initialize`. The policy sentences come from `agent-policy-text.ts`, the
- * one owner of that prose; keep it under 4.6 KB (a test holds it).
+ * one owner of that prose; keep it under 4.7 KB (a test holds it).
  */
 export const MCP_SERVER_INSTRUCTIONS =
   "OpenRhen is the owner's household planning system. Start every session with rhen_status. " +

@@ -1,4 +1,5 @@
-import { requestAgent } from "@/server/agent-actor";
+import { isClosedStatus } from "@openrhen/contracts";
+import { changeLogConfirmedBy, requestAgent } from "@/server/agent-actor";
 import { REENTERED_REASON } from "@/server/pulse/pulse-reentry";
 import type { RevertCommand } from "@openrhen/contracts";
 import type { PortalState } from "@/state/portal-state";
@@ -11,6 +12,7 @@ import {
   openSessionConflict,
   revertConflict
 } from "./command-errors";
+import { assertCloseBudget, lockCloseBudget } from "./close-budget";
 import { refuseDeletingReferencedRows } from "./delete-guard";
 import { hasCycle } from "./graph-checks";
 import { assertNoPrerequisiteCycle } from "./prerequisites";
@@ -62,6 +64,33 @@ const KIND_LABEL: Record<SnapshotKind, string> = {
   stretch: "This stretch answer",
   disruption: "This disruption"
 };
+
+/** The tables whose `status` a close writes (the eight closeable kinds). */
+const CLOSEABLE_TABLES: ReadonlySet<string> = new Set([
+  "areas",
+  "outcomes",
+  "projects",
+  "actions",
+  "deliverables",
+  "commitments",
+  "routine_presets",
+  "condition_definitions"
+]);
+
+/** How many of the rows go from open to closed when each is put at its target image. */
+function closingRows(
+  rows: readonly StoredRow[],
+  expectedOf: (row: StoredRow) => Image,
+  targetOf: (row: StoredRow) => Image
+): number {
+  const statusOf = (image: Image) => (typeof image?.status === "string" ? image.status : null);
+  return rows.filter((row) => {
+    if (!CLOSEABLE_TABLES.has(row.table)) return false;
+    const to = statusOf(targetOf(row));
+    const from = statusOf(expectedOf(row));
+    return to !== null && from !== null && isClosedStatus(to) && !isClosedStatus(from);
+  }).length;
+}
 
 const quote = (identifier: string) => `"${identifier.replaceAll('"', '""')}"`;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -332,6 +361,32 @@ async function revertOne(tx: TxSql, userId: string, command: RevertCommand, walk
   ];
   const restoredSkipOf = (row: StoredRow) => systemColumnsFor(row.table, expectedOf(row), targetOf(row));
 
+  // An agent's redo of a close, or undo of a restore, puts rows back closed: the hourly brake counts them like the close
+  // they repeat (taken first, ahead of the row locks, in the order every closer uses).
+  const closing = caller !== null && changeLogConfirmedBy() !== "owner" ? closingRows(rows, expectedOf, targetOf) : 0;
+  if (closing > 0) {
+    await lockCloseBudget(tx, userId);
+    try {
+      await assertCloseBudget(tx, userId, closing, {
+        nextCall: {
+          tool: "rhen_undo",
+          arguments: { id: command.target, ...(undoing ? {} : { redo: true }) },
+          note: "repeat once closures have aged out of the hour, or ask the owner to do it from Review > Agent changes"
+        }
+      });
+    } catch (error) {
+      if (error instanceof CommandConflictError)
+        throw new CommandConflictError(
+          error.message.replace(
+            / Repeat the call and it is filed as a proposal for the owner to confirm\./,
+            " Wait until it ages out, or ask the owner to do it from Review > Agent changes."
+          ),
+          error.nextCall === undefined ? {} : { nextCall: error.nextCall }
+        );
+      throw error;
+    }
+  }
+
   if (undoing && snapshot.kind === "reenter") await reopenReenteredSegment(tx, userId, rows);
 
   if (command.force !== true) {
@@ -398,6 +453,17 @@ async function revertOne(tx: TxSql, userId: string, command: RevertCommand, walk
   await tx`
     UPDATE writes SET images=${tx.json(updated as never)}, state=${undoing ? "undone" : "applied"}, updated_at=now()
     WHERE user_id=${userId} AND id=${command.target}`;
+
+  // The ledger row the brake counts from: the rows this revert closed.
+  if (closing > 0)
+    await recordStateChange(tx, userId, {
+      entityType: snapshot.kind,
+      entityId: command.target,
+      operation: "close",
+      commandId: command.commandId,
+      evidence: { closed: closing, via: "revert", target: command.target, counted: true },
+      at: new Date()
+    });
 
   // Through the one write path so the plan recalculates and the change log names the revert.
   await recordStateChange(tx, userId, {

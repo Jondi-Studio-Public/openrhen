@@ -737,10 +737,11 @@ export async function settleDeadline(
     if (at.getTime() > now.getTime())
       return { outcome: "invalid", message: "A completion time cannot be in the future." };
     await snap?.before("projects", [projectId]);
-    await tx`UPDATE projects SET status='done', completed_at=${at}, version=version+1, updated_at=CURRENT_TIMESTAMP WHERE id=${projectId}`;
+    // A closed project is not settled over: that would reopen it without the restore rules.
+    await tx`UPDATE projects SET status='done', completed_at=${at}, version=version+1, updated_at=CURRENT_TIMESTAMP WHERE id=${projectId} AND status NOT IN ('cancelled','archived')`;
   } else {
     await snap?.before("projects", [projectId]);
-    await tx`UPDATE projects SET status='paused', version=version+1, updated_at=CURRENT_TIMESTAMP WHERE id=${projectId}`;
+    await tx`UPDATE projects SET status='paused', version=version+1, updated_at=CURRENT_TIMESTAMP WHERE id=${projectId} AND status NOT IN ('cancelled','archived')`;
   }
   const after = await tx<
     { after: Record<string, unknown> }[]

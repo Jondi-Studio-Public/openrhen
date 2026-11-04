@@ -18,6 +18,7 @@ import {
   replacePrerequisites,
   resolvePrerequisiteRefs
 } from "./prerequisites";
+import { assertNoClosedTransition } from "./close-floor";
 import type { Sql } from "./sql-pool";
 
 /**
@@ -166,6 +167,8 @@ export async function writeDeliverableAggregate(
     const maximum = positiveInt(step.maximumSessionMinutes, "Maximum session");
     if (minimum > maximum) throw new InvalidCommandError("Minimum session exceeds maximum session.");
     const stepStatus = optionalText(step.status) ?? "planned";
+    // A step is an action row: an agent's save may not close it or reopen it any more than a direct action save may.
+    await assertNoClosedTransition(tx, userId, "action", stepId, stepStatus);
     const allowedStepStatus: readonly string[] = ["planned", "doing", "waiting", "blocked", "done", "cancelled"];
     if (!allowedStepStatus.includes(stepStatus))
       throw invalidChoice("steps[].status", stepStatus, allowedStepStatus, { label: "Step status" });

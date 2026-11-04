@@ -48,7 +48,7 @@ export async function accumulateRecurrenceMinutes(
   await tx`UPDATE action_recurrence_rules SET accumulated_minutes=${total},completed_at=${reached ? at : null},version=version+1,updated_at=${at} WHERE id=${rule.id}`;
   if (reached) {
     await snap?.before("actions", [actionId]);
-    await tx`UPDATE actions SET status='done',completed_at=${at},version=version+1,updated_at=${at} WHERE id=${actionId}`;
+    await tx`UPDATE actions SET status='done',completed_at=${at},version=version+1,updated_at=${at} WHERE id=${actionId} AND status NOT IN ('cancelled','archived')`;
     // Set-based, so the snapshot takes the pending occurrences' ids first.
     const pending = await tx<
       { id: string }[]

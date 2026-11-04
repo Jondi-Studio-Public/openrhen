@@ -531,7 +531,7 @@ export function runDoctor(snapshot: DoctorSnapshot): DoctorReport {
           tool: "rhen_save_project",
           action: "save",
           fields: ["id", "status"],
-          cli: `rhen save project --id ${p.id} --set status=<completed|paused|cancelled>`
+          cli: `rhen save project --id ${p.id} --set status=<completed|paused>`
         }
       });
     const worked = ms(p.lastWorkedAt);
@@ -547,11 +547,11 @@ export function runDoctor(snapshot: DoctorSnapshot): DoctorReport {
         since: p.lastWorkedAt!,
         fix: {
           who: "person",
-          question: `Keep, pause or drop ${p.title}?`,
+          question: `Keep, pause or drop ${p.title} (dropping it is rhen_cancel)?`,
           tool: "rhen_save_project",
           action: "save",
           fields: ["id", "status"],
-          cli: `rhen save project --id ${p.id} --set status=<active|paused|cancelled>`
+          cli: `rhen save project --id ${p.id} --set status=<active|paused>`
         }
       });
   }
@@ -572,10 +572,10 @@ export function runDoctor(snapshot: DoctorSnapshot): DoctorReport {
         since: r.endDate!,
         fix: {
           who: "agent",
-          tool: "rhen_save_action",
-          action: "save",
-          fields: ["id", "status"],
-          cli: `rhen save action --id ${r.id} --set status=archived`
+          tool: "rhen_cancel",
+          action: "close",
+          fields: ["type", "id", "do", "reason"],
+          cli: `rhen cancel action ${r.id} close --reason "<why>"`
         }
       });
     const last = ms(r.lastCompletedAt) ?? ms(r.startedAt);

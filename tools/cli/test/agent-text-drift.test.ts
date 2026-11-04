@@ -282,7 +282,7 @@ describe("agent policy lines", () => {
 
   it("keep the instructions short", () => {
     // Raised from 4600 to 4700 on 2026-11-04 for the Archive or cancel clause (about 450 bytes: the verb table must name every
-    // kind, and the plan allows a higher cap rather than dropping it).
+    // kind, and the plan allows a higher cap rather than dropping it). The close brake wording (with the reopen-by-save clause) measured 4,345 on 2026-11-04; the cap is unchanged.
     expect(Buffer.byteLength(MCP_SERVER_INSTRUCTIONS)).toBeLessThan(4700);
   });
 

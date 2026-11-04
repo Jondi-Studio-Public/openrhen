@@ -410,7 +410,7 @@ export const bulkCommand: CommandSpec = {
     'bulk action --where "status=pending" --where "scheduledEnd<2026-09-04" --set status=skipped --dry-run',
     "bulk action --status planned --project Thesis --set energy=high --yes",
     "bulk capture --ids capture-a,capture-b --set status=ignored --yes",
-    "bulk action --targets targets.json --set status=cancelled --yes"
+    "bulk action --targets targets.json --set importance=2 --yes"
   ],
   async run(context, args) {
     const entityArg = requirePositional(bulkCommand, args, 0);

@@ -7,6 +7,7 @@ import { claimCommandReceipt, commandRequestHash, hasCommandReceipt } from "./co
 import { hasCycle } from "./graph-checks";
 import { assumableValuesOfRow, nextAssumedFields, pgNameArray } from "./assumed-fields";
 import { assertNoPrerequisiteCycle, replacePrerequisites, resolvePrerequisiteRefs } from "./prerequisites";
+import { assertNoClosedTransition } from "./close-floor";
 import { changedFieldsBefore, recordStateChange } from "./planning-evidence";
 import { pathwaysToStore } from "./requirement-pathways";
 import { readStateAfterCommit } from "./read-after-commit";
@@ -25,6 +26,7 @@ export async function saveProject(sql: PoolSql, command: SaveProjectCommand): Pr
     // An agent's save keeps the rows it touches so it can be undone afterwards (write-snapshot.ts). Opened first:
     // it takes the plan publication lock, which must precede every row lock.
     const snap = await WriteSnapshot.open(tx, userId, commandId, "save");
+    await assertNoClosedTransition(tx, userId, "project", command.project.id, command.project.status);
     const id = await stableUuid(`project:${userId}`, command.project.id);
     const outcomeId = await stableUuid(`outcome:${userId}`, command.project.outcomeId);
     const ownedOutcome = await tx<
@@ -66,6 +68,7 @@ export async function saveProject(sql: PoolSql, command: SaveProjectCommand): Pr
       entityType: "project",
       entityId: id,
       operation: "save",
+      evidence: existing[0] === undefined ? { created: true, createdVersion: 1 } : {},
       commandId,
       before: changedFieldsBefore(existing[0]?.before, afterProject[0]?.after),
       at: new Date()
@@ -135,6 +138,7 @@ export async function saveAction(sql: PoolSql, command: SaveActionCommand): Prom
     // it takes the plan publication lock, which must precede every row lock.
     const snap = await WriteSnapshot.open(tx, userId, commandId, "save");
     const action = command.action;
+    await assertNoClosedTransition(tx, userId, "action", action.id, action.status);
     const id = await stableUuid(`action:${userId}`, action.id);
     const projectId = await stableUuid(`project:${userId}`, action.projectId);
     const ownedProject = await tx<
@@ -340,7 +344,8 @@ export async function saveAction(sql: PoolSql, command: SaveActionCommand): Prom
       operation: "save",
       evidence: {
         ...(command.blockingReason ? { blockingReason: command.blockingReason } : {}),
-        ...(command.note ? { note: command.note } : {})
+        ...(command.note ? { note: command.note } : {}),
+        ...(existing[0] === undefined ? { created: true, createdVersion: 1 } : {})
       },
       commandId,
       // `notes` is dropped from the before-image (see the select): free text can be mail-derived and

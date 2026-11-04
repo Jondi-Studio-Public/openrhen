@@ -128,6 +128,21 @@ function createPortal() {
     }
     return { body: { state: raw } };
   };
+  /** The close route: archive or cancel one row (remembering where it came from), or put it back; versions as the portal bumps them. */
+  const close = (call: { body: unknown }) => {
+    const body = call.body as Record<string, unknown>;
+    const keys: Record<string, string> = { area: "areas", outcome: "outcomes", project: "projects", action: "actions" };
+    const found = rows(keys[String(body.type)] ?? "none").find((row) => row.id === hash(String(body.id)));
+    if (!found) return { status: 404, body: { error: "No such row." } };
+    if (body.expectedVersion !== null && body.expectedVersion !== found.version)
+      return { status: 409, body: { error: "This record changed elsewhere. Reload before saving." } };
+    if (body.do === "close") {
+      found.closedFrom = found.status;
+      found.status = body.verb === "archive" ? "archived" : "cancelled";
+    } else found.status = found.closedFrom ?? "active";
+    found.version = (found.version as number) + 1;
+    return { body: { state: raw, closed: { version: found.version, status: found.status } } };
+  };
   const stateKeys: Record<string, string> = {
     capture: "captures",
     area: "areas",
@@ -142,7 +157,8 @@ function createPortal() {
       "/api/commands/entity": (call: { body: unknown }) =>
         command(stateKeys[(call.body as { entityType: string }).entityType] ?? "planningFocus", "entity")(call),
       "/api/commands/project": command("projects", "project"),
-      "/api/commands/action": command("actions", "action")
+      "/api/commands/action": command("actions", "action"),
+      "/api/commands/close": close
     }
   };
 }
@@ -1168,6 +1184,27 @@ describe("reverseOfCreate finds the record a create made only by proof", () => {
   const reverse = (type: string, before: PortalState, after: PortalState, sent: Record<string, unknown>) =>
     reverseOfCreate(findEntityType(type)!, before, fixtureNow)!(after, sent);
 
+  it("never falls back to a save that sets a closed status: a record the portal answered without a version is closed by version-less undo, one without a command id is not journaled", () => {
+    const sent = { commandId: COMMAND, entityType: "area", entity: { id: "area-gym", name: "Gym", status: "active" } };
+    const noVersion = reverse("area", stateWith("areas", []), stateWith("areas", [{ id: "area-gym" }]), sent)!;
+    expect(noVersion.undo).toMatchObject({
+      path: "/api/commands/close",
+      payload: {
+        type: "area",
+        id: "area-gym",
+        verb: "archive",
+        do: "close",
+        expectedVersion: null,
+        undoOfCommandId: COMMAND
+      }
+    });
+    expect(noVersion.redo).toBeUndefined();
+    const { commandId: _drop, ...noCommand } = sent;
+    expect(
+      reverse("area", stateWith("areas", []), stateWith("areas", [{ id: "area-gym", version: 1 }]), noCommand)
+    ).toBeUndefined();
+  });
+
   it("takes the fresh record whose id is the command id when the create sent no id", () => {
     const sent = { commandId: COMMAND, entityType: "area", entity: { name: "Gym", status: "active" } };
     const found = reverse(
@@ -1349,23 +1386,52 @@ describe("undoing a create takes the record out of the plan and redo puts it bac
 
     const undone = await go(["undo"]);
     expect(undone.exitCode).toBe(EXIT.ok);
-    const undoBody = posts(undone.calls)[0]!.body as { expectedVersion: number; action: Record<string, unknown> };
-    expect(undoBody.expectedVersion).toBe(1);
-    expect(undoBody.action).toMatchObject({ id: "action-wrong", title: "Wrong action", status: "cancelled" });
+    const undoCall = posts(undone.calls)[0]!;
+    expect(undoCall.path).toBe("/api/commands/close");
+    // The close tool takes it back; the portal proves in its ledger that this agent made it (undoOfCommandId).
+    expect(undoCall.body).toMatchObject({
+      type: "action",
+      id: stateId,
+      verb: "cancel",
+      do: "close",
+      expectedVersion: 1,
+      undoOfCommandId: sentBody(created.calls).commandId
+    });
+    expect((undoCall.body as { reason?: string }).reason).toBeUndefined();
     expect(row()).toMatchObject({ status: "cancelled", version: 2 });
     expect(journal.read()[0]).toMatchObject({ status: "undone", version: 2 });
 
     const redone = await go(["undo", "--redo"]);
     expect(redone.exitCode).toBe(EXIT.ok);
-    const redoBody = posts(redone.calls)[0]!.body as { expectedVersion: number; action: Record<string, unknown> };
-    expect(redoBody.expectedVersion).toBe(2);
-    expect(redoBody.action.status).toBe("planned");
+    const redoCall = posts(redone.calls)[0]!;
+    expect(redoCall.path).toBe("/api/commands/close");
+    expect(redoCall.body).toMatchObject({ type: "action", id: stateId, do: "restore", expectedVersion: 2 });
     expect(row()).toMatchObject({ status: "planned", version: 3 });
     expect(journal.read()[0]).toMatchObject({ status: "applied", version: 3 });
 
     // The cycle repeats: undo again takes it out at the version the redo left.
     expect((await go(["undo"])).exitCode).toBe(EXIT.ok);
     expect(row()?.status).toBe("cancelled");
+  });
+
+  it("says the exact retry call, with a reason, when the portal wants a reason for an undo it could not prove", async () => {
+    const journal = memoryJournal();
+    const portal = createPortal();
+    const go = (argv: string[]) => run(argv, journal, portal.raw, { routes: portal.routes });
+    expect((await go(newAction)).exitCode).toBe(EXIT.ok);
+    const entry = journal.read()[0]!;
+    const stateId = entry.target.id!;
+    const reasonRoutes = {
+      ...portal.routes,
+      "/api/commands/close": () => ({
+        status: 400,
+        body: { error: 'A reason is required. Say why, for example "finished the quarter".' }
+      })
+    };
+    const undone = await run(["undo"], journal, portal.raw, { routes: reasonRoutes });
+    expect(undone.exitCode).not.toBe(EXIT.ok);
+    expect(undone.stderr).toContain(`rhen cancel action ${stateId} close --reason "undo of create"`);
+    expect(journal.read()[0]).toMatchObject({ status: "applied" });
   });
 
   it("refuses to undo a create that was edited since, and changes nothing", async () => {
@@ -1381,6 +1447,22 @@ describe("undoing a create takes the record out of the plan and redo puts it bac
     expect(row.status).toBe("planned");
   });
 
+  it("forces the undo of an edited create at the version it finds, still naming the create", async () => {
+    const journal = memoryJournal();
+    const portal = createPortal();
+    const go = (argv: string[]) => run(argv, journal, portal.raw, { routes: portal.routes });
+    const created = await go(newAction);
+    const row = portal.rows("actions").find((item) => item.id === journal.read()[0]!.target.id)!;
+    row.version = 2;
+    const forced = await go(["undo", "--force"]);
+    expect(forced.exitCode).toBe(EXIT.ok);
+    expect(posts(forced.calls)[0]!.body).toMatchObject({
+      do: "close",
+      expectedVersion: 2,
+      undoOfCommandId: sentBody(created.calls).commandId
+    });
+  });
+
   it("finds a new record the portal keyed itself: no id given, a non-uuid id hashed", async () => {
     const journal = memoryJournal();
     const portal = createPortal();
@@ -1389,7 +1471,7 @@ describe("undoing a create takes the record out of the plan and redo puts it bac
     await go(["save", "area", "--set", "name=Wrong area", "--set", "status=active", "--set", "sortOrder=4"]);
     const area = journal.read()[0]!;
     expect(area.target.id).toMatch(/^[0-9a-f]{8}-/);
-    expect((area.redo.payload.entity as { id?: string }).id).toBe(area.target.id);
+    expect(area.redo.payload).toMatchObject({ type: "area", id: area.target.id, do: "restore" });
     expect((await go(["undo"])).exitCode).toBe(EXIT.ok);
     const areaRow = () => portal.rows("areas").find((row) => row.id === area.target.id);
     expect(areaRow()).toMatchObject({ status: "archived", version: 2 });
@@ -1410,7 +1492,13 @@ describe("undoing a create takes the record out of the plan and redo puts it bac
     ]);
     const project = journal.read().at(-1)!;
     expect(project.target.id).toMatch(/^00000000-/);
-    expect((project.undo.payload.project as { id: string }).id).toBe("project-wrong");
+    expect(project.undo.payload).toMatchObject({
+      type: "project",
+      id: project.target.id,
+      verb: "cancel",
+      do: "close",
+      undoOfCommandId: expect.any(String)
+    });
     // The entry is named by the stored id (what the change feed and every list show), not the one sent.
     expect(project.label).toBe(`create project "Wrong project" (${project.target.id})`);
     expect((await go(["undo"])).exitCode).toBe(EXIT.ok);
@@ -1441,8 +1529,8 @@ describe("undoing a create takes the record out of the plan and redo puts it bac
     expect(action.target).toEqual({ stateKey: "actions", id: commandId });
     expect(action.label).toBe(`create action "Call mum" (${commandId})`);
     expect(portal.rows("actions").find((row) => row.id === commandId)).toMatchObject({ status: "planned", version: 1 });
-    expect((action.undo.payload.action as { id: string }).id).toBe(commandId);
-    expect((action.redo.payload.action as { id: string }).id).toBe(commandId);
+    expect(action.undo.payload).toMatchObject({ type: "action", id: commandId, undoOfCommandId: commandId });
+    expect(action.redo.payload).toMatchObject({ type: "action", id: commandId, do: "restore" });
 
     expect((await go(["undo"])).exitCode).toBe(EXIT.ok);
     expect(portal.rows("actions").find((row) => row.id === commandId)).toMatchObject({

@@ -115,6 +115,61 @@ export function restoreToolFor(status: string): "rhen_archive" | "rhen_cancel" |
   return status === "archived" ? "rhen_archive" : status === "cancelled" ? "rhen_cancel" : null;
 }
 
+/**
+ * The verb the CLI journals to take a record it created out of the plan (the status `HIDING_STATUS` names, as a verb).
+ * A deliverable is left out: closing one does not close its step actions, so its create stays non-undoable.
+ */
+export const UNDO_VERB: Readonly<Partial<Record<CloseType, CloseVerb>>> = {
+  area: "archive",
+  outcome: "cancel",
+  project: "cancel",
+  action: "cancel",
+  commitment: "cancel",
+  routine_preset: "archive",
+  condition_definition: "archive"
+};
+
+/** An undo of a create is only honoured this long after the create (never longer than the before-image retention). */
+export const UNDO_WINDOW_HOURS = 24;
+
+/** The most closures token agents may make in a rolling hour (counting the call), the same figure as the per-call cap. */
+export const CLOSE_BUDGET_LIMIT = 20;
+export const CLOSE_BUDGET_WINDOW_MINUTES = 60;
+
+/** The `closed_by` suffix of a close that took back a create; the Closed page hides such rows. */
+export const UNDO_CLOSED_BY_SUFFIX = ":undo";
+
+/**
+ * How many rows one `close` ledger row closed: its `closed` count, else (PR 3 rows) the target plus the cascade.
+ * The SQL in `close-budget.ts` computes the same.
+ */
+export function closedCount(evidence: { closed?: unknown; cascade?: unknown }): number {
+  if (typeof evidence.closed === "number") return evidence.closed;
+  return 1 + (Array.isArray(evidence.cascade) ? evidence.cascade.length : 0);
+}
+
+/**
+ * Refusal for a close that would take token agents past the hourly budget. The stateless rolling-hour rule: a call
+ * applies only when the closures in the last hour plus its own rows stay within the limit; a call over it is filed for
+ * the owner. `nextCall` is the same call, which the route then files.
+ */
+export function closeBudgetRefusal(input: {
+  used: number;
+  rows: number;
+  nextCall: AgentCall;
+  oldestAgesOutAt?: Date | null;
+}): Refusal {
+  const when = input.oldestAgesOutAt
+    ? ` The oldest counted closure ages out at ${input.oldestAgesOutAt.toISOString()}.`
+    : "";
+  return {
+    message:
+      `Closing ${input.rows} more would make ${input.used + input.rows} closures by agents in the last hour, over the ${CLOSE_BUDGET_LIMIT} allowed, ` +
+      `so nothing was closed.${when} Repeat the call and it is filed as a proposal for the owner to confirm.`,
+    nextCall: input.nextCall
+  };
+}
+
 export const toolForVerb = (verb: CloseVerb): "rhen_archive" | "rhen_cancel" =>
   verb === "archive" ? "rhen_archive" : "rhen_cancel";
 
@@ -185,15 +240,33 @@ export const closeEntityCommandSchema = z
     id: z.string().min(1),
     verb: z.enum(["archive", "cancel"]),
     do: z.enum(["close", "restore"]),
-    expectedVersion: z.number().int().positive().optional(),
+    // null means "no version" and is accepted only together with `undoOfCommandId` (an undo from the CLI journal that never
+    // learned the version): it skips the version check and, because the undo exemption needs the version, makes the close an
+    // ordinary one (an agent gives a reason and the brake counts it). Without `undoOfCommandId` a null is refused below.
+    expectedVersion: z.number().int().positive().nullable().optional(),
     reason: z.string().max(500).optional(),
     includeChildren: z.boolean().optional(),
-    // Reserved for the undo-of-create path (PR 4); refused until it exists.
-    undoOfCommandId: z.never().optional()
+    // The command id of the agent's own create this close takes back (the server verifies it in the write ledger).
+    undoOfCommandId: z.string().uuid().optional()
   })
-  .refine((command) => command.do !== "restore" || command.expectedVersion !== undefined, {
-    message: "A restore needs the expected version of the closed row.",
+  .refine((command) => command.expectedVersion !== null || command.undoOfCommandId !== undefined, {
+    message: "expectedVersion may be null only for an undo of a create.",
     path: ["expectedVersion"]
+  })
+  .refine(
+    (command) => command.do !== "restore" || command.expectedVersion != null || command.undoOfCommandId !== undefined,
+    {
+      message: "A restore needs the expected version of the closed row.",
+      path: ["expectedVersion"]
+    }
+  )
+  .refine((command) => command.undoOfCommandId === undefined || command.includeChildren !== true, {
+    message: "An undo of a create takes back one row; it cannot include children.",
+    path: ["includeChildren"]
+  })
+  .refine((command) => command.undoOfCommandId === undefined || command.do === "close", {
+    message: "undoOfCommandId goes with do close.",
+    path: ["undoOfCommandId"]
   });
 export type CloseEntityCommand = z.infer<typeof closeEntityCommandSchema>;
 
@@ -362,6 +435,65 @@ export function reasonRequiredRefusal(input: {
   return {
     ...requiredRefusal("A reason", '"finished the quarter"'),
     nextCall: note("repeat with the reason filled in", call)
+  };
+}
+
+/**
+ * A save that would put a row into a closed status, or move it between closed statuses, or create it closed
+ * (archive-removals design section 3, the save floor). Closing is its own call, so the refusal names it with the real
+ * id and version; a close from one closed status to the other goes through a restore first.
+ */
+export function closedBySaveRefusal(input: {
+  type: string;
+  id: string;
+  incoming: string;
+  stored?: { status: string; version: number } | undefined;
+}): Refusal {
+  const who = `${cap(labelOf(input.type))} ${quoted(input.id)}`;
+  if (!isClosedStatus(input.incoming)) {
+    // A reopen by save: it would skip the restore rules (version, closed ancestor, a person's close, a batch).
+    const stored = input.stored;
+    if (stored === undefined || !isClosedStatus(stored.status))
+      return { message: `${who} is not closed, so there is nothing to reopen.` };
+    return {
+      message:
+        `Setting status ${input.incoming} through a save is refused: ${labelOf(input.type)} ${quoted(input.id)} is ${stored.status}, ` +
+        `and reopening it is its own call, ${toolForVerb(stored.status === "archived" ? "archive" : "cancel")} with do restore.`,
+      nextCall: note("reopens it", restoreCall(input.type, input.id, stored.version, stored.status))
+    };
+  }
+  const word = input.incoming === "archived" ? "archive" : "cancel";
+  if (input.stored === undefined)
+    return {
+      message:
+        `${who} cannot be created already ${input.incoming}: setting status ${input.incoming} through a save is refused. ` +
+        `Create it open, then close it with ${toolForVerb(word)} (do close, with a reason).`
+    };
+  if (isClosedStatus(input.stored.status)) {
+    const call = restoreCall(input.type, input.id, input.stored.version, input.stored.status);
+    return {
+      message:
+        `${who} is already ${input.stored.status}, and setting status ${input.incoming} through a save is refused. ` +
+        `Restore it first if it should be closed the other way.`,
+      nextCall: note("reopens it", call)
+    };
+  }
+  const allowed = verbFor(input.type, input.stored.status);
+  const verb: CloseVerb = allowed === "archive" || allowed === "cancel" ? allowed : word;
+  return {
+    message:
+      `Setting status ${input.incoming} through a save is refused: ${labelOf(input.type)} ${quoted(input.id)} is ${input.stored.status}, ` +
+      `and closing it is its own call, ${toolForVerb(verb)} with do close and a reason.`,
+    nextCall: note(
+      `${verb} it`,
+      closeCall({
+        verb,
+        type: input.type,
+        id: input.id,
+        version: input.stored.version,
+        reason: "<why it is being closed>"
+      })
+    )
   };
 }
 

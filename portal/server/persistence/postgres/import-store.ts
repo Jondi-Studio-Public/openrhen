@@ -19,7 +19,7 @@ import { databaseUrl } from "@/server/runtime-env";
 import type { Row } from "./db-row";
 import { ensureUser } from "./state-store";
 import { claimCommandReceipt } from "./command-receipt";
-import { ForbiddenCommandError } from "./command-errors";
+import { CommandConflictError, ForbiddenCommandError } from "./command-errors";
 import { recordStateChange } from "./planning-evidence";
 import { sqlPool, type PoolSql, type Sql } from "./sql-pool";
 import {
@@ -33,7 +33,8 @@ import {
   OPEN_IMPORT_BATCH_STATUSES,
   writeRecords
 } from "./imports/batch-records";
-import { agentImportFloor } from "./imports/agent-import-floor";
+import { agentImportFloor, assertImportNoClosedTransition, closingRecordCount } from "./imports/agent-import-floor";
+import { assertCloseBudget, closeBudgetApplies, lockCloseBudget } from "./close-budget";
 import { commitRecords } from "./imports/commit-records";
 import { importExtensions, isExtensionSourceType, type ExtensionLinkSource } from "./imports/import-extensions";
 import "./imports/private/index";
@@ -535,6 +536,28 @@ export class PostgresImportStore {
       if (requestAgent() !== null) {
         const floor = await agentImportFloor(tx, userId, ready);
         if (floor !== null) throw new ForbiddenCommandError(`An agent token cannot make this write: ${floor}.`);
+        await assertImportNoClosedTransition(tx, userId, ready);
+      }
+      // The hourly close brake covers the commitments this commit cancels (a token agent only; no proposal path exists
+      // for an import, so the refusal says to wait or ask the owner to commit it).
+      const closing = requestAgent() !== null ? closingRecordCount(ready) : 0;
+      if (closing > 0) {
+        await lockCloseBudget(tx, userId);
+        try {
+          await assertCloseBudget(tx, userId, closing, {
+            nextCall: {
+              tool: "rhen_status",
+              arguments: {},
+              note: "the owner commits this batch in Inbox > Calendar & imports"
+            }
+          });
+        } catch (error) {
+          if (error instanceof CommandConflictError)
+            throw new ForbiddenCommandError(
+              `An agent token cannot make this write: ${error.message.replace(/ Repeat the call and it is filed as a proposal for the owner to confirm\./, "")} The owner commits this batch in Inbox > Calendar & imports.`
+            );
+          throw error;
+        }
       }
       const linkSource: GoogleCalendarSource | ExtensionLinkSource | undefined =
         batch.source_text &&
@@ -543,6 +566,14 @@ export class PostgresImportStore {
           ? JSON.parse(batch.source_text)
           : undefined;
       await commitRecords(tx, userId, ready, linkSource);
+      // The ledger row the brake counts the next call from; counted only when a token agent made it.
+      if (closing > 0)
+        await recordStateChange(tx, userId, {
+          entityType: "fixed_commitment",
+          operation: "close",
+          evidence: { closed: closing, via: "import", batch: id, counted: closeBudgetApplies() },
+          at: new Date()
+        });
       // An event left unselected when a calendar batch is committed was rejected: remember it so the next
       // automatic run does not propose it again (until its title or start changes).
       const profileDismissals = linkSource ? findProfile(linkSource.provider)?.dismissals : undefined;
