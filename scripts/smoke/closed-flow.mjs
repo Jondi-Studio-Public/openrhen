@@ -347,8 +347,17 @@ async function flows(browser, sql, ids, server, restartServer) {
   await see(page, "Restored Dentist visit");
   await second.bringToFront();
   await press(second, 'Restore commitment "Dentist visit"');
-  await see(second, "the list was refreshed");
-  await gone(second, "Dentist visit").catch(() => {});
+  // The stable start of the stale-version sentence (failureText in portal/features/closed/close-commands.ts).
+  await see(second, "Changed since the list was loaded");
+  await second
+    .waitForFunction(
+      () =>
+        ![...document.querySelectorAll("button")].some((b) =>
+          (b.getAttribute("aria-label") ?? "").includes('Restore commitment "Dentist visit"')
+        ),
+      { timeout: 15_000 }
+    )
+    .catch(() => fail("The restored row never left the stale tab's list."));
   if ((await second.evaluate(() => document.body.innerText)).includes("version"))
     fail("A server sentence about versions was shown.");
   await second.close();
@@ -360,7 +369,6 @@ async function flows(browser, sql, ids, server, restartServer) {
   await see(page, "Action under a retired project");
   stopDetached(server);
   await sleep(500);
-  await press(page, "Cancelled", { timeout: 5_000 }).catch(() => {});
   await press(page, /^Archived/);
   await see(page, "The closed list could not be read.");
   await shot(page, "closed-offline");

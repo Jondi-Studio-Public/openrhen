@@ -54,7 +54,7 @@ export default function ClosedPageRoute() {
   const [page, setPage] = useState<ClosedPage | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [older, setOlder] = useState(false);
-  const [rowMessage, setRowMessage] = useState<{ key: string; text: string } | null>(null);
+  const [rowMessage, setRowMessage] = useState<{ key: string; title: string; text: string } | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
   // Bumped to read the list again: after any restore, and for Try again.
   const [reads, setReads] = useState(0);
@@ -135,7 +135,7 @@ export default function ClosedPageRoute() {
     if (!outcome.ok && !("busy" in outcome)) {
       // The hook's own words (a stale version, an unreachable server, a closed parent), and the list is read again
       // either way since it is the truth.
-      setRowMessage({ key: `${row.type}:${row.id}`, text: outcome.message });
+      setRowMessage({ key: `${row.type}:${row.id}`, title: row.title, text: outcome.message });
     }
     reload();
   }
@@ -160,6 +160,9 @@ export default function ClosedPageRoute() {
     if (focusId) document.getElementById(focusId)?.focus();
   }, [focusId]);
 
+  // A failure whose row is gone from the re-read list has nowhere inline to show, so it goes up here instead.
+  const orphanMessage =
+    rowMessage && page && !page.rows.some((row) => `${row.type}:${row.id}` === rowMessage.key) ? rowMessage : null;
   const counts = page?.counts;
   const total = counts ? counts.archived + counts.cancelled : 0;
 
@@ -171,6 +174,11 @@ export default function ClosedPageRoute() {
         actions={<Link href="/review">Weekly review</Link>}
       />
       <PlaceTabs />
+      {orphanMessage && (
+        <Banner tone="warn">
+          {orphanMessage.title}: {orphanMessage.text}
+        </Banner>
+      )}
       {loadFailed && (
         <Banner
           tone="danger"

@@ -174,6 +174,18 @@ describe("Closed page", () => {
     );
   });
 
+  it("still says why a restore failed when the re-read list no longer has the row", async () => {
+    answers = [ok(page([row()])), ok(page([], { counts: { archived: 1, cancelled: 0 } }))];
+    closeEntityCommand.mockRejectedValue(
+      new CommandRefusal("Version 3 is stale; the current version is 5.", { status: 409, currentVersion: 5 })
+    );
+    render(<ClosedPageRoute />);
+    fireEvent.click(await screen.findByRole("button", { name: 'Restore action "Write the intro"' }));
+    await screen.findByText("Nothing is archived.");
+    expect(screen.getByText(/Write the intro/)).toBeTruthy();
+    expect(screen.getByText(/Changed since the list was loaded/)).toBeTruthy();
+  });
+
   it("says the server could not be reached, not that the item changed, after a network error", async () => {
     await failRestore(
       new TypeError("Failed to fetch"),
