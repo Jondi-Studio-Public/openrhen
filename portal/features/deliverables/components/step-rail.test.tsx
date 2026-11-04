@@ -179,6 +179,35 @@ describe("StepRail", () => {
     });
   });
 
+  describe("closed steps", () => {
+    const closedPlan = deliverable({
+      steps: [
+        step("open", { title: "Open one", sortOrder: 0 }),
+        step("old", { title: "Old one", status: "archived", sortOrder: 1 }),
+        step("dropped", { title: "Dropped one", status: "cancelled", sortOrder: 2 })
+      ]
+    });
+
+    it("shows an archived step as Archived with its checkbox disabled, and a cancelled one disabled too", () => {
+      renderRail({ deliverable: closedPlan, readiness: assess(closedPlan), currentStepId: undefined });
+      expect(screen.getByText("Archived")).toBeTruthy();
+      const old = screen.getByRole("checkbox", { name: "Old one complete" }) as HTMLInputElement;
+      const dropped = screen.getByRole("checkbox", { name: "Dropped one complete" }) as HTMLInputElement;
+      const open = screen.getByRole("checkbox", { name: "Open one complete" }) as HTMLInputElement;
+      expect(old.disabled).toBe(true);
+      expect(dropped.disabled).toBe(true);
+      expect(open.disabled).toBe(false);
+    });
+
+    it("leaves archived and cancelled steps out of the compact list and the done count", () => {
+      renderRail({ deliverable: closedPlan, readiness: assess(closedPlan), currentStepId: undefined, compact: true });
+      expect(screen.queryByText("Old one")).toBeNull();
+      expect(screen.queryByText("Dropped one")).toBeNull();
+      expect(screen.getByText("Open one")).toBeTruthy();
+      expect(screen.getByText("0 of 1 done")).toBeTruthy();
+    });
+  });
+
   describe("compact", () => {
     it("shows the current step and up to three others, with neither the editor disclosure nor Energy", () => {
       renderRail({ compact: true });

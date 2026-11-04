@@ -15,6 +15,10 @@ First public release (0.1.0). The release PR gives this section its date and ver
 - **Archive, cancel and restore**: one Archive or Cancel button per plan item with a ten-second Undo, a Review > Closed page that shows who closed each item and why and restores it, and a Now and Day line for what an agent closed in the last 24 hours.
 - **Self-hosting**: PostgreSQL persistence with one baseline migration, a bundled database, verified daily backups (off until you turn them on), and Docker images for linux/amd64 and linux/arm64 that `docker compose up` builds from source (published images are planned). Start with `docker compose run --rm setup` and `docker compose up -d`.
 
+### Fixed
+
+- **Closing a finished step**: archiving a done deliverable step no longer breaks the state read with a validation error. The step comes back as archived, is left out of the deliverable's progress count and never holds up completion, and re-saving the deliverable keeps a closed step as it is without letting a save close one.
+
 ### Known limits
 
 - Pre-1.0: screens, commands and schemas can change between minor versions, and this file says when.

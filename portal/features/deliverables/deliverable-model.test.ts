@@ -116,6 +116,13 @@ describe("deliverable model", () => {
     expect(stepProgress(plan)).toEqual({ done: 1, total: 2, remaining: 12 });
   });
 
+  it("leaves an archived step out of progress, neither done nor remaining", () => {
+    const plan = deliverable({
+      steps: [step("a", { status: "done" }), step("b", { status: "archived" }), step("c", { remainingMinutes: 12 })]
+    });
+    expect(stepProgress(plan)).toEqual({ done: 1, total: 2, remaining: 12 });
+  });
+
   it("names the offending record in a coverage failure", () => {
     expect(coverageFailureText({ kind: "uncovered_criterion", criterionId: "c", title: "Connectivity" })).toContain(
       "“Connectivity”"

@@ -1510,7 +1510,8 @@
                         "waiting",
                         "blocked",
                         "done",
-                        "cancelled"
+                        "cancelled",
+                        "archived"
                       ]
                     },
                     "optimisticMinutes": {

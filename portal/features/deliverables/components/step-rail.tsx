@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { DeliverableReadiness, RequirementPathway } from "@openrhen/contracts";
+import { isClosedStatus, type DeliverableReadiness, type RequirementPathway } from "@openrhen/contracts";
 import type { PortalState, StoredDeliverable, StoredDeliverableStep } from "@/state/portal-state";
 import {
   formatElapsed,
@@ -75,7 +75,7 @@ export function StepRail({
       steps: replaceAt(current.steps, index, { ...current.steps[index]!, ...patch })
     }));
   const progress = stepProgress(deliverable);
-  const live = deliverable.steps.filter((step) => step.status !== "cancelled");
+  const live = deliverable.steps.filter((step) => step.status !== "cancelled" && step.status !== "archived");
   const sorted = [...live].sort((a, b) => a.sortOrder - b.sortOrder);
   const current = currentStepId ? live.find((step) => step.id === currentStepId) : undefined;
   const rest = sorted.filter((step) => step.status !== "done" && step.id !== current?.id).slice(0, 3);
@@ -198,7 +198,7 @@ function StepRow({
           aria-label={`${step.title || "Untitled action"} complete`}
           type="checkbox"
           checked={step.status === "done"}
-          disabled={!editable}
+          disabled={!editable || isClosedStatus(step.status)}
           onChange={(event) => onToggleDone(event.target.checked)}
         />
         <span>
@@ -210,7 +210,11 @@ function StepRow({
       </div>
       <div className="workspace-step-meta">
         <small>
-          {stepReadiness ? stepReadinessText(stepReadiness, deliverable, conditionNames, timezone) : label(step.status)}
+          {step.status === "archived"
+            ? "Archived"
+            : stepReadiness
+              ? stepReadinessText(stepReadiness, deliverable, conditionNames, timezone)
+              : label(step.status)}
         </small>
         {spent !== undefined && <small>· {formatElapsed(spent)} this session</small>}
         {step.estimateNeedsReview && (

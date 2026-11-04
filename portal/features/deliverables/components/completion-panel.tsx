@@ -1,5 +1,6 @@
 "use client";
 
+import { isClosedStatus } from "@openrhen/contracts";
 import { dateTimeFormat, displayLocale } from "@/shared/locale";
 import { useRef } from "react";
 import type { StoredDeliverable } from "@/state/portal-state";
@@ -37,7 +38,8 @@ export function CompletionPanel({
   const { onKeyDown } = useModalFocus({ active: overlay, trapRef: overlayRef, onClose: onDismiss ?? onBack });
   const format = dateTimeFormat(displayLocale(), { timeZone: timezone, dateStyle: "long", timeStyle: "short" });
   const satisfied = deliverable.criteria.filter((item) => item.state === "satisfied").length;
-  const stepsDone = deliverable.steps.filter((item) => item.status === "done").length;
+  const countedSteps = deliverable.steps.filter((item) => !isClosedStatus(item.status));
+  const stepsDone = countedSteps.filter((item) => item.status === "done").length;
   const cancelled = deliverable.status !== "completed";
   const body = (
     <section className={`completion-panel${overlay ? " celebrating" : ""}`} aria-label="Deliverable completed">
@@ -51,7 +53,7 @@ export function CompletionPanel({
       {!cancelled && (
         <p className="completion-facts">
           {satisfied}/{deliverable.criteria.length} criteria satisfied
-          {deliverable.steps.length ? ` · ${stepsDone}/${deliverable.steps.length} steps done` : ""}
+          {countedSteps.length ? ` · ${stepsDone}/${countedSteps.length} steps done` : ""}
         </p>
       )}
       {unlocked.length > 0 && (

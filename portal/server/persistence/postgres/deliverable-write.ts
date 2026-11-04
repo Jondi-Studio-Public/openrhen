@@ -19,6 +19,7 @@ import {
   resolvePrerequisiteRefs
 } from "./prerequisites";
 import { assertNoClosedTransition } from "./close-floor";
+import { lockedStatusOf } from "./close-commands";
 import type { Sql } from "./sql-pool";
 
 /**
@@ -169,7 +170,15 @@ export async function writeDeliverableAggregate(
     const stepStatus = optionalText(step.status) ?? "planned";
     // A step is an action row: an agent's save may not close it or reopen it any more than a direct action save may.
     await assertNoClosedTransition(tx, userId, "action", stepId, stepStatus);
-    const allowedStepStatus: readonly string[] = ["planned", "doing", "waiting", "blocked", "done", "cancelled"];
+    // `archived` comes back from the state read (closing a done step leaves it so) and the editor re-sends it, so
+    // it is accepted only when it is the status the step already has: a save never archives a step. `cancelled`
+    // stays on the list for the owner, whose save may cancel a step; an agent's is held by the floor above.
+    const storedStep = await lockedStatusOf(tx, userId, "action", stepId);
+    let allowedStepStatus: readonly string[] = ["planned", "doing", "waiting", "blocked", "done", "cancelled"];
+    // An archived step stays archived under a save, for the owner too: it comes back through the close route's
+    // restore. A step that is not archived can never be saved into it.
+    const archivedStep = storedStep?.status === "archived";
+    if (archivedStep) allowedStepStatus = ["archived"];
     if (!allowedStepStatus.includes(stepStatus))
       throw invalidChoice("steps[].status", stepStatus, allowedStepStatus, { label: "Step status" });
     const reblock = step.reblockOnComplete as Record<string, unknown> | undefined;

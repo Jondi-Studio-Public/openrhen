@@ -20,7 +20,6 @@ const ALLOWED: Record<string, string> = {
   "features/deliverables/components/requirement-pathways.tsx":
     "context definitions: archived is their only closed status",
   "features/deliverables/components/step-rail.tsx": "deliverable steps",
-  "features/deliverables/components/workspace-actions.tsx": "deliverable steps",
   "features/deliverables/deliverable-model.ts": "deliverable steps",
   "features/now/components/availability-panel.tsx": "context definitions: archived is their only closed status",
   "features/now/components/travel-panel.tsx": "context definitions: archived is their only closed status",

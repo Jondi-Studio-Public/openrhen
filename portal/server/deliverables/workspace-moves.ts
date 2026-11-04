@@ -262,7 +262,7 @@ export async function applyWorkspaceTool(
 
   if (call.name === "begin_review") {
     const open = deliverable.steps.filter(
-      (step) => step.required && step.status !== "done" && step.status !== "cancelled"
+      (step) => step.required && step.status !== "done" && step.status !== "cancelled" && step.status !== "archived"
     );
     if (open.length) throw new Error(`required steps are still open: ${open.map((step) => step.title).join(", ")}.`);
     const state = await saveDeliverable(options, deliverable, { ...deliverable, status: "under_review" });
@@ -275,7 +275,7 @@ export async function applyWorkspaceTool(
 
   if (call.name === "submit_for_result") {
     const open = deliverable.steps.filter(
-      (step) => step.required && step.status !== "done" && step.status !== "cancelled"
+      (step) => step.required && step.status !== "done" && step.status !== "cancelled" && step.status !== "archived"
     );
     if (open.length) throw new Error(`required steps are still open: ${open.map((step) => step.title).join(", ")}.`);
     const updated = submitForResult(deliverable, call.submission);

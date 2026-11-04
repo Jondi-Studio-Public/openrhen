@@ -518,6 +518,35 @@ describe("deliverable chat workspace transitions", () => {
     ).rejects.toThrow("required steps are still open");
   });
 
+  it.each(["archived", "cancelled"])(
+    "does not let a %s required step hold up begin_review or submit_for_result",
+    async (closed) => {
+      const seeded = () => ({
+        ...createSeedState(new Date("2026-08-25T00:00:00.000Z")),
+        deliverables: [
+          deliverable({
+            status: "in_progress",
+            steps: [
+              step("model", { title: "Create three part models", status: "done" }),
+              step("gone", { title: "Dropped step", status: closed as never })
+            ]
+          })
+        ],
+        activeSession: null
+      });
+      holder.current = seeded();
+      await applyWorkspaceTool("assessment-2", { name: "begin_review" }, { requireSession: false });
+      expect(holder.current!.deliverables[0]?.status).toBe("under_review");
+      holder.current = seeded();
+      await applyWorkspaceTool(
+        "assessment-2",
+        { name: "submit_for_result", submission: { waitingFor: "the client", category: "other" } },
+        { requireSession: false }
+      );
+      expect(holder.current!.deliverables[0]?.status).toBe("awaiting_result");
+    }
+  );
+
   describe("submit_for_result and the waiting arc", () => {
     it("submits for result from Carry out, recording a stepless open blocker and setting submittedAt", async () => {
       const doneStep = step("model", { title: "Create three part models", status: "done" });

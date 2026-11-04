@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@/test/render";
 import { CompletionPanel } from "./completion-panel";
-import { deliverable } from "@/features/deliverables/test-fixtures";
+import { deliverable, step } from "@/features/deliverables/test-fixtures";
 
 const completed = () =>
   deliverable({
@@ -88,5 +88,22 @@ describe("CompletionPanel", () => {
     );
     fireEvent.keyDown(screen.getByRole("dialog", { name: "Deliverable completed" }), { key: "Escape" });
     expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves archived and cancelled steps out of the steps-done denominator", () => {
+    render(
+      <CompletionPanel
+        deliverable={{
+          ...completed(),
+          steps: [step("a", { status: "done" }), step("b", { status: "archived" }), step("c", { status: "cancelled" })]
+        }}
+        projectTitle="Complete ABC10003"
+        unlocked={[]}
+        timezone="Australia/Sydney"
+        overlay={false}
+        onBack={() => {}}
+      />
+    );
+    expect(screen.getByText(/1\/1 steps done/)).toBeTruthy();
   });
 });
