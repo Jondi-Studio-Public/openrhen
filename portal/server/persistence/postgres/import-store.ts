@@ -50,7 +50,7 @@ import {
 } from "./imports/calendar-diff";
 import { googleCalendarSourceText, type GoogleCalendarSource } from "./imports/calendar-profiles/calendar";
 import { ImportConflictError } from "./imports/import-conflict-error";
-import { splitFeedMovePair } from "./imports/feed-move-pairs";
+import { deferPairPartners, splitFeedMovePair } from "./imports/feed-move-pairs";
 import { resolveOperations } from "./imports/key-resolution";
 import {
   recordCalendarDismissals,
@@ -524,7 +524,8 @@ export class PostgresImportStore {
           >`SELECT entity_type, import_key FROM import_entity_keys WHERE user_id=${userId}`
         ).map((row) => `${row.entity_type}:${row.import_key}`)
       );
-      const deferred = deferWithBlockedTargets(records, blockers, mappedKeys);
+      // A blocked half of a moved meeting takes its partner with it (never a lone half: `splitFeedMovePair` below).
+      const deferred = deferPairPartners(records, deferWithBlockedTargets(records, blockers, mappedKeys));
       const deferredIds = new Set(deferred.map((record) => record.id));
       const ready = records.filter((record) => !record.removed && !deferredIds.has(record.id));
       const split = splitFeedMovePair(records, (record) => !record.removed && !deferredIds.has(record.id));

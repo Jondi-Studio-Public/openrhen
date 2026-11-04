@@ -144,6 +144,18 @@ export function ImportRecordCard({
           {plain(item)}
         </p>
       ))}
+      {/* Only unticking this row and committing the batch makes the feed remember Keep; discarding the whole batch does not. */}
+      {record.relationships.feedReason && (
+        <div className="import-record-feed-reason">
+          <p className="record-warning">{record.relationships.feedReason}</p>
+          <div className="overlap-actions">
+            <Button type="button" variant="secondary" size="sm" onClick={() => toggleRemoved(record.id)}>
+              {record.removed ? "End it instead" : "Keep it"}
+            </Button>
+          </div>
+        </div>
+      )}
+      {record.relationships.feedNote && <p className="record-warning">{record.relationships.feedNote}</p>}
       {extensionRecordNotices().map((Notice, index) => (
         <Notice
           key={index}

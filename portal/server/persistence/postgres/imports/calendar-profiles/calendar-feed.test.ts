@@ -8,6 +8,8 @@ import {
   applyFeedDemotions,
   feedCommitmentCollisions,
   feedReadComplete,
+  feedGenerationName,
+  feedGenerationOfKey,
   feedStemOf,
   splitSeriesOwnedLinks,
   FEED_SERIES_KEY_MAX,
@@ -53,6 +55,68 @@ const extras = (over: Record<string, unknown> = {}) => ({
 });
 
 const window = { timeMin: "2026-11-04T00:00:00.000Z", timeMax: "2027-02-02T00:00:00.000Z" };
+
+describe("a UID that would share a name with the portal's own rows", () => {
+  it("leaves out an event whose id still begins `series:` or `delete:` (a proxy that does not escape it), counted unreadable", () => {
+    const prepared = prepareFeedRead({
+      events: [
+        event("series:abc#20261110"),
+        event("delete:abc"),
+        event("occ:r:2026-11-10"),
+        event("%73eries:abc#20261110"),
+        event("fine")
+      ],
+      extras: extras()
+    });
+    expect(prepared.events.map((e) => e.externalEventId)).toEqual(["%73eries:abc#20261110", "fine"]);
+    expect(prepared.notImported.unreadable).toBe(3);
+    expect(prepared.unreadableStems).toEqual(["series:abc", "delete:abc", "occ:r:2026-11-10"]);
+  });
+
+  it("does not use a descriptor whose stem begins `series:`", () => {
+    const series = feedSeries("series:abc");
+    const prepared = prepareFeedRead({
+      events: [event("series:abc#20261110", { attributes: { series } })],
+      extras: extras()
+    });
+    expect(prepared.series.size).toBe(0);
+  });
+});
+
+describe("generation names", () => {
+  it("names generation 1 by the bare stem and later ones with a suffix, and reads a key back only for a known stem", () => {
+    expect(feedGenerationName("abc")).toBe("abc");
+    expect(feedGenerationName("abc", 2)).toBe("abc.2");
+    expect(feedGenerationOfKey(`${FEED_SERIES_PREFIX}abc`, "abc")).toBe(1);
+    expect(feedGenerationOfKey(`${FEED_SERIES_PREFIX}abc.12`, "abc")).toBe(12);
+    expect(feedGenerationOfKey(`${FEED_SERIES_PREFIX}abc.1`, "abc")).toBeNull();
+    expect(feedGenerationOfKey(`${FEED_SERIES_PREFIX}abc.2`, "abd")).toBeNull();
+    expect(feedGenerationOfKey(`${FEED_SERIES_PREFIX}abc.x`, "abc")).toBeNull();
+    expect(feedGenerationOfKey(`${FEED_SERIES_PREFIX}abc.1000`, "abc")).toBeNull();
+    expect(feedGenerationOfKey("calendar_feed:event:abc", "abc")).toBeNull();
+  });
+
+  it("never gives two different stems the same name, even when a stem ends in .<digits>", () => {
+    // "a.2" generation 1 must not be "a" generation 2.
+    expect(feedGenerationName("a.2")).toBe("a.2.1");
+    expect(feedGenerationName("a", 2)).toBe("a.2");
+    expect(feedGenerationOfKey(`${FEED_SERIES_PREFIX}a.2`, "a.2")).toBeNull();
+    expect(feedGenerationOfKey(`${FEED_SERIES_PREFIX}a.2.1`, "a.2")).toBe(1);
+    expect(feedGenerationOfKey(`${FEED_SERIES_PREFIX}a.2`, "a")).toBe(2);
+    const names = new Set<string>();
+    for (const stem of ["a", "a.2", "a.2.1", "b.10"])
+      for (let generation = 1; generation <= 4; generation += 1) names.add(feedGenerationName(stem, generation));
+    expect(names.size).toBe(16);
+  });
+
+  it("keeps the longest key, with a three-digit generation, inside the import key limit", () => {
+    const longest = `${FEED_SERIES_PREFIX}${feedGenerationName("x".repeat(FEED_SERIES_MAX_STEM), 999)}`;
+    expect(longest.length).toBe(FEED_SERIES_KEY_MAX);
+    expect(longest.length).toBeLessThanOrEqual(FEED_MAX_KEY);
+    const ambiguous = `${FEED_SERIES_PREFIX}${feedGenerationName(`${"x".repeat(FEED_SERIES_MAX_STEM - 2)}.5`, 999)}`;
+    expect(ambiguous.length).toBeLessThanOrEqual(FEED_MAX_KEY);
+  });
+});
 
 describe("prepareFeedRead", () => {
   it("keeps non-recurring events and master-less overrides, which are per-instance", () => {
@@ -245,6 +309,17 @@ describe("feedReadComplete", () => {
     expect(feedReadComplete(base, split.links, window)).toBe(true);
   });
 
+  it("reports the latest start of the one-off links a series now owns, for the rule that adopts them", () => {
+    const links = [
+      link("s#20261112", "2026-11-12T01:00:00.000Z"),
+      link("s#20261119", "2026-11-19T01:00:00.000Z"),
+      link("s#20261105", "2026-11-05T01:00:00.000Z"),
+      link("t", "2026-11-30T01:00:00.000Z")
+    ];
+    const split = splitSeriesOwnedLinks(links, new Set(["s"]));
+    expect([...split.ownedLatestStart]).toEqual([["s", "2026-11-19T01:00:00.000Z"]]);
+  });
+
   it("is not complete when the read is empty while links sit in the window", () => {
     expect(feedReadComplete({ ...base, rawEventCount: 0 }, [link("a")], window)).toBe(false);
     expect(feedReadComplete({ ...base, rawEventCount: 0 }, [link("a", "2025-01-01T00:00:00.000Z")], window)).toBe(true);
@@ -331,6 +406,59 @@ describe("feedSyncSourceText and limitFeedRecords", () => {
     const stray = record("calendar_feed:event:zzz-unknown", "delete");
     const { kept } = limitFeedRecords([stray, ...records], startOf, textFor, { records: 5, chars: 1_000_000 });
     expect(kept.map((r) => r.importKey)).not.toContain(stray.importKey);
+  });
+});
+
+describe("limitFeedRecords and a moved meeting's pair", () => {
+  const start: Record<string, string> = {};
+  const pairHalf = (key: string, at: string, pair: string) => {
+    start[key] = at;
+    return record(key, "update", { relationships: { feedMove: pair, feedMoveSize: "2" } });
+  };
+  const plain = (key: string, at: string) => {
+    start[key] = at;
+    return record(key, "update");
+  };
+  const startOf = (r: ImportRecord) => start[r.importKey] ?? "";
+  const textFor = (subset: readonly ImportRecord[]) => `x`.repeat(subset.length);
+  const keys = (records: readonly ImportRecord[]) => records.map((r) => r.importKey).sort();
+
+  it("drops a pair cut in half whole: the half that fit goes with the half that did not", () => {
+    // Ordered by start the ceiling of three keeps date, p1, p2 and leaves the replacement out; the date goes too.
+    const date = pairHalf("calendar_feed:occ:r:2026-11-10", "2026-11-10", "mv:a:1");
+    const replacement = pairHalf("calendar_feed:event:a#move1", "2026-12-01", "mv:a:1");
+    const p1 = plain("calendar_feed:event:p1", "2026-11-11");
+    const p2 = plain("calendar_feed:event:p2", "2026-11-12");
+    const { kept, dropped } = limitFeedRecords([replacement, date, p1, p2], startOf, textFor, {
+      records: 3,
+      chars: 100
+    });
+    expect(keys(kept)).toEqual(["calendar_feed:event:p1", "calendar_feed:event:p2"]);
+    expect(dropped).toBe(2);
+  });
+
+  it("drops it whole when the replacement is the half that fits, too", () => {
+    const date = pairHalf("calendar_feed:occ:r:2026-12-20", "2026-12-20", "mv:b:1");
+    const replacement = pairHalf("calendar_feed:event:b#move1", "2026-11-10", "mv:b:1");
+    const p1 = plain("calendar_feed:event:p1", "2026-11-11");
+    const p2 = plain("calendar_feed:event:p2", "2026-11-12");
+    const { kept, dropped } = limitFeedRecords([date, replacement, p1, p2], startOf, textFor, {
+      records: 3,
+      chars: 100
+    });
+    expect(keys(kept)).toEqual(["calendar_feed:event:p1", "calendar_feed:event:p2"]);
+    expect(dropped).toBe(2);
+  });
+
+  it("keeps a pair that fits whole, and judges each pair on its own", () => {
+    const a1 = pairHalf("calendar_feed:occ:r:2026-11-10", "2026-11-10", "mv:a:1");
+    const a2 = pairHalf("calendar_feed:event:a#move1", "2026-11-10", "mv:a:1");
+    const b1 = pairHalf("calendar_feed:occ:r:2026-11-17", "2026-11-17", "mv:b:1");
+    const b2 = pairHalf("calendar_feed:event:b#move1", "2026-12-30", "mv:b:1");
+    const { kept, dropped } = limitFeedRecords([a1, a2, b1, b2], startOf, textFor, { records: 3, chars: 100 });
+    expect(keys(kept)).toEqual(["calendar_feed:event:a#move1", "calendar_feed:occ:r:2026-11-10"]);
+    expect(dropped).toBe(2);
+    expect(limitFeedRecords([a1, a2, b1, b2], startOf, textFor, { records: 4, chars: 100 }).dropped).toBe(0);
   });
 });
 

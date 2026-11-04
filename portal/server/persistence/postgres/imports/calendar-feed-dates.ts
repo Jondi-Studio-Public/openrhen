@@ -247,6 +247,16 @@ export function feedHolds(record: Pick<ImportRecord, "relationships">): boolean 
   return !(rel.feedCancel === "true" && rel.feedMove === undefined);
 }
 
+/**
+ * What the feed asked of one date, as the fingerprint a kept (unticked) date is remembered by: the same ask is not made
+ * again, a changed one is. A revert (the feed asks nothing of the date now) has the fixed fingerprint `revert`.
+ */
+export const feedDateFingerprint = (exception: CalendarFeedSeriesException | undefined): string =>
+  exception ? JSON.stringify(exception) : "revert";
+
+/** The dismissal id a kept date of a rule is remembered under (`calendar_event_dismissals`; the title holds the fingerprint). */
+export const feedDateDismissalId = (ruleId: string, date: string): string => `occ:${ruleId}:${date}`;
+
 export interface FeedDateInput {
   stem: string;
   series: CalendarFeedSeries;
@@ -260,6 +270,8 @@ export interface FeedDateInput {
   locations: readonly LocationRow[];
   /** Dates whose moved meeting already exists as a one-off event on the plan: a record for one is a half of a move pair. */
   moveDates?: ReadonlySet<string>;
+  /** Dates the owner kept as they are (unticked in a committed review), by date to the fingerprint of what was asked then. */
+  kept?: ReadonlyMap<string, string>;
 }
 
 /** The id a moved date's two records share, so the review and the commit keep them together. */
@@ -320,6 +332,8 @@ export function feedDateRecords(input: FeedDateInput): { records: ImportRecord[]
     const prior = priors.get(date);
     const row = rows.get(date);
     if (row && row.starts_at.getTime() <= now.getTime()) continue;
+    // The owner kept this date as it is: the same ask is not made again until the feed asks something else of it.
+    if (input.kept?.get(date) === feedDateFingerprint(exception)) continue;
     if (exception) {
       if (!row && date > horizonEnd) continue;
       if (!isRuleDate(rule, date)) continue;
@@ -449,12 +463,12 @@ export async function insertFeedDate(
 /**
  * Writes the link's `occurrences` in one statement: entries for `set`, none for `drop`, and every entry before the rule's
  * local today removed (a past exception is pruned on any touch, including a rule-only change). The cut-off is read in the
- * rule's own zone. Without a link nothing is written.
+ * rule's own zone. The link is the rule's (whatever generation it is). Without a link nothing is written.
  */
 export async function touchFeedDates(
   sql: Sql,
   userId: string,
-  linkId: string,
+  ruleId: string,
   change: { set?: Record<string, Record<string, unknown>>; drop?: readonly string[] } = {}
 ): Promise<void> {
   const set = change.set ?? {};
@@ -469,6 +483,6 @@ export async function touchFeedDates(
         ), '{}'::jsonb) || ${sql.json(set as never)}::jsonb),
       updated_at = CURRENT_TIMESTAMP
     FROM commitment_recurrence_rules r
-    WHERE r.id = l.recurrence_rule_id AND l.user_id=${userId} AND l.provider=${CALENDAR_FEED_PROVIDER} AND l.frame_id=${FEED_FRAME} AND l.external_event_id=${linkId}
+    WHERE r.id = l.recurrence_rule_id AND l.user_id=${userId} AND l.provider=${CALENDAR_FEED_PROVIDER} AND l.frame_id=${FEED_FRAME} AND l.recurrence_rule_id=${ruleId}
   `;
 }

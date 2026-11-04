@@ -9,6 +9,7 @@ import {
   feedSeriesDismissalId,
   feedSeriesKey,
   feedSeriesPass,
+  ruleLinkIdentity,
   stemOfRuleLink,
   type FeedRuleLinkRow,
   type FeedSeriesPassInput
@@ -17,6 +18,7 @@ import { validateImportRecords } from "@/features/imports/import-validation";
 import { conflictedFields } from "@/features/imports/calendar-conflict";
 import { resolveRecordSharedCalendarConflict } from "@/features/imports/import-batch-edits";
 import { feedMoveEventId, parseFeedMoveEventId } from "./calendar-feed-moves";
+import { feedDateDismissalId, feedDateFingerprint } from "./calendar-feed-dates";
 import { feedSeries } from "./calendar-feed-test-support";
 import { FEED_MAX_KEY, FEED_SERIES_MAX_STEM, feedSyncSourceText } from "./calendar-profiles/calendar-feed";
 import { fixedBlocksProfileFor } from "./calendar-profiles/fixed-blocks";
@@ -149,7 +151,7 @@ describe("a series with no changed dates", () => {
       series: [feedSeries("a", { title: "Renamed since" })],
       dismissals: [{ external_event_id: feedSeriesDismissalId("a") }]
     });
-    expect(out).toEqual({ records: [], pending: 0, changed: 0, moveEvents: [] });
+    expect(out).toEqual({ records: [], pending: 0, changed: 0, moveEvents: [], clearKeep: [] });
   });
 
   it("proposes nothing for a cancelled master that was never imported, or a series that has already ended", () => {
@@ -180,7 +182,8 @@ describe("a series already linked to a rule", () => {
       records: [],
       pending: 0,
       changed: 0,
-      moveEvents: []
+      moveEvents: [],
+      clearKeep: []
     });
   });
 
@@ -190,7 +193,8 @@ describe("a series already linked to a rule", () => {
       records: [],
       pending: 0,
       changed: 0,
-      moveEvents: []
+      moveEvents: [],
+      clearKeep: []
     });
   });
 
@@ -315,7 +319,8 @@ describe("a series already linked to a rule", () => {
       records: [],
       pending: 0,
       changed: 0,
-      moveEvents: []
+      moveEvents: [],
+      clearKeep: []
     });
   });
 
@@ -382,23 +387,291 @@ describe("a series already linked to a rule", () => {
     });
   });
 
-  it("counts a one-off link whose UID became a series once, together with a changed rule of the same UID", () => {
+  it("counts a one-off link whose UID became a series the pass cannot adopt, not one whose UID already has a rule", () => {
     const out = pass({
       series: [feedSeries("w", { title: "Other" })],
       ruleLinks: [linkFor(base)],
       ownedLinkStems: new Set(["w", "x"])
     });
-    expect(out.changed).toBe(2);
+    // "w" has its rule (its one-off links are that rule's business); "x" is a set-aside UID with no rule to adopt it.
+    expect(out.changed).toBe(1);
   });
 
-  it("does not propose a series create for a UID that already has one-off links on the plan, and counts it", () => {
-    const out = pass({ series: [feedSeries("w")], ownedLinkStems: new Set(["w"]) });
-    expect(out).toEqual({ records: [], pending: 0, changed: 1, moveEvents: [] });
+  describe("adoption of a UID that already has one-off events on the plan", () => {
+    it("proposes the rule starting after the last one-off event, with a note, and does not count the UID as changed", () => {
+      const out = pass({
+        series: [feedSeries("w")],
+        ownedLinkStems: new Set(["w"]),
+        ownedLatestStart: new Map([["w", "2026-11-23T22:00:00.000Z"]])
+      });
+      // The last event is Tuesday 2026-11-24 in the feed zone; the rule begins on the next Tuesday.
+      expect(out.changed).toBe(0);
+      expect(out.records).toHaveLength(1);
+      expect(out.records[0]!.fields.startDate!.value).toBe("2026-12-01");
+      expect(out.records[0]!.relationships.feedNote).toContain(
+        "already has single events on your plan (the last on 2026-11-24)"
+      );
+      expect(out.records[0]!.importKey).toBe("calendar_feed:series:w");
+    });
+
+    it("starts at the first real instance from today when the events are all in the past", () => {
+      const out = pass({
+        series: [feedSeries("w")],
+        ownedLinkStems: new Set(["w"]),
+        ownedLatestStart: new Map([["w", "2026-10-26T22:00:00.000Z"]])
+      });
+      expect(out.records[0]!.fields.startDate!.value).toBe("2026-11-10");
+    });
+
+    it("skips a date the feed cancels when choosing the start", () => {
+      const out = pass({
+        series: [feedSeries("w", { exceptions: [{ kind: "cancelled", date: "2026-11-10" }] })],
+        ownedLinkStems: new Set(["w"])
+      });
+      expect(out.records[0]!.fields.startDate!.value).toBe("2026-11-17");
+    });
+
+    it("proposes nothing, and counts it, when a bounded series has no instance left after the events", () => {
+      const out = pass({
+        series: [feedSeries("w", { endDate: "2026-11-17" })],
+        ownedLinkStems: new Set(["w"]),
+        ownedLatestStart: new Map([["w", "2026-11-23T22:00:00.000Z"]])
+      });
+      expect(out).toMatchObject({ records: [], changed: 1 });
+    });
+
+    it("respects a decline", () => {
+      const out = pass({
+        series: [feedSeries("w")],
+        ownedLinkStems: new Set(["w"]),
+        dismissals: [{ external_event_id: feedSeriesDismissalId("w") }]
+      });
+      expect(out.records).toEqual([]);
+    });
   });
 
   it("ignores a link that is not a series link", () => {
-    expect(stemOfRuleLink({ external_event_id: "series:abc" })).toBe("abc");
-    expect(stemOfRuleLink({ external_event_id: "abc#20261110" })).toBeNull();
+    expect(stemOfRuleLink({ external_event_id: "series:abc", last_remote_snapshot: null })).toBe("abc");
+    expect(stemOfRuleLink({ external_event_id: "abc#20261110", last_remote_snapshot: null })).toBeNull();
+  });
+
+  it("reads a later generation's stem from its snapshot, never out of its id", () => {
+    expect(
+      stemOfRuleLink({
+        external_event_id: "series:abc.2",
+        last_remote_snapshot: { feedStem: "abc", feedGeneration: 2 }
+      })
+    ).toBe("abc");
+    expect(ruleLinkIdentity({ external_event_id: "series:abc.2", last_remote_snapshot: null })).toEqual({
+      stem: "abc.2",
+      generation: 1
+    });
+  });
+});
+
+describe("generations, revival and kept ends", () => {
+  const base = feedSeries("w");
+  /** A rule link of a given generation of "w", ended by whom the test says. */
+  const gen = (generation: number, over: Partial<FeedRuleLinkRow> = {}, snapshot: Record<string, unknown> = {}) =>
+    linkFor(base, {
+      external_event_id: generation > 1 ? `series:w.${generation}` : "series:w",
+      recurrence_rule_id: `rule-${generation}`,
+      last_remote_snapshot: { ...feedLinkSnapshot(base, generation, "w"), ...snapshot },
+      ...over
+    });
+  const ended = (generation: number, endedBy?: string) =>
+    gen(generation, { status: "ended" }, endedBy ? { endedBy } : {});
+
+  it("keys a later generation's update and end by its own generation, and follows only the newest", () => {
+    const links = [ended(1, "feed"), gen(2)];
+    const update = pass({ series: [feedSeries("w", { title: "New name" })], ruleLinks: links }).records;
+    expect(update).toHaveLength(1);
+    expect(update[0]).toMatchObject({
+      importKey: "calendar_feed:series:w.2",
+      matchedEntityId: "rule-2",
+      operation: "update"
+    });
+    const end = pass({ series: [feedSeries("w", { status: "cancelled" })], ruleLinks: links }).records;
+    expect(end[0]).toMatchObject({
+      importKey: "calendar_feed:series:w.2",
+      matchedEntityId: "rule-2",
+      operation: "delete"
+    });
+  });
+
+  it("proposes the next generation for a rule the feed ended, from its first real instance, with the feed's own bound", () => {
+    const out = pass({ series: [feedSeries("w", { endDate: "2026-12-29" })], ruleLinks: [ended(1, "feed")] });
+    expect(out.records).toHaveLength(1);
+    expect(out.records[0]).toMatchObject({
+      operation: "create",
+      importKey: "calendar_feed:series:w.2",
+      relationships: { feedSeries: "w", feedGeneration: "2" }
+    });
+    expect(out.records[0]!.fields.startDate!.value).toBe("2026-11-10");
+    expect(out.records[0]!.fields.endDate!.value).toBe("2026-12-29");
+    expect(
+      pass({ series: [feedSeries("w")], ruleLinks: [ended(1, "feed"), ended(2, "feed")] }).records[0]!.importKey
+    ).toBe("calendar_feed:series:w.3");
+  });
+
+  it("does not revive a rule the owner or a shape change ended, one with no recorded end, or a declined UID", () => {
+    for (const endedBy of ["owner", "shape", undefined])
+      expect(pass({ series: [feedSeries("w")], ruleLinks: [ended(1, endedBy)] }).records).toEqual([]);
+    expect(
+      pass({
+        series: [feedSeries("w")],
+        ruleLinks: [ended(1, "feed")],
+        dismissals: [{ external_event_id: feedSeriesDismissalId("w") }]
+      }).records
+    ).toEqual([]);
+  });
+
+  it("does not revive into a cancelled master, an unrepresentable shape, or a series with nothing left to hold", () => {
+    expect(pass({ series: [feedSeries("w", { status: "cancelled" })], ruleLinks: [ended(1, "feed")] }).records).toEqual(
+      []
+    );
+    expect(pass({ series: [], seriesStems: new Set(["w"]), ruleLinks: [ended(1, "feed")] }).records).toEqual([]);
+    expect(
+      pass({ series: [feedSeries("w", { endDate: "2026-11-03" })], ruleLinks: [ended(1, "feed")] }).records
+    ).toEqual([]);
+  });
+
+  it("starts a revival or an adoption at the next real instance when today's has already started", () => {
+    // 2026-11-10 is the series' Tuesday, 09:00 in the series zone (22:00 UTC the day before).
+    const early = new Date("2026-11-09T12:00:00Z");
+    const late = new Date("2026-11-10T05:00:00Z");
+    const revive = (now: Date) =>
+      pass({ series: [feedSeries("w")], ruleLinks: [ended(1, "feed")], today: "2026-11-10", now }).records[0]!;
+    expect(revive(early).fields.startDate!.value).toBe("2026-11-10");
+    expect(revive(late).fields.startDate!.value).toBe("2026-11-17");
+    const adopt = (now: Date) =>
+      pass({ series: [feedSeries("w")], ownedLinkStems: new Set(["w"]), today: "2026-11-10", now }).records[0]!;
+    expect(adopt(early).fields.startDate!.value).toBe("2026-11-10");
+    expect(adopt(late).fields.startDate!.value).toBe("2026-11-17");
+  });
+
+  it("says a shape end removes the dates still to come, because the new shape is not imported, and Keep leaves them", () => {
+    const reason = pass({ series: [], seriesStems: new Set(["w"]), ruleLinks: [gen(1)] }).records[0]!.relationships
+      .feedReason!;
+    expect(reason).toContain("removes the dates still to come");
+    expect(reason).toContain("new shape is not imported");
+    expect(reason).toContain("Keeping it leaves those meetings on your plan");
+  });
+
+  it("stops at generation 999", () => {
+    expect(pass({ series: [feedSeries("w")], ruleLinks: [ended(999, "feed")] }).records).toEqual([]);
+  });
+
+  it("words the shape-change card with the title and the proxy's reason, and names the calls for an agent", () => {
+    const out = pass({
+      series: [],
+      seriesStems: new Set(["w"]),
+      ruleLinks: [gen(1)],
+      unrepresentableReasons: new Map([["w", "its rule has BYSETPOS"]])
+    });
+    const rel = out.records[0]!.relationships;
+    expect(rel.feedReasonKind).toBe("shape");
+    expect(rel.feedReason).toContain('"Series w"');
+    expect(rel.feedReason).toContain("its rule has BYSETPOS");
+    expect(rel.feedReason).toContain("Keep it");
+    expect(rel.feedNextCall).toContain("PUT /api/imports/{batchId}");
+    expect(rel.feedNextCall).toContain("POST /api/imports/{batchId}/commit-ready");
+    expect(importRecordSchema.parse(out.records[0]).fields.title!.evidence.every((line) => line.length <= 500)).toBe(
+      true
+    );
+  });
+
+  it("keeps the evidence of a long title within the schema", () => {
+    const long = feedSeries("w", { title: "t".repeat(300) });
+    const out = pass({
+      series: [],
+      seriesStems: new Set(["w"]),
+      ruleLinks: [linkFor(long)],
+      unrepresentableReasons: new Map([["w", "r".repeat(120)]])
+    });
+    expect(() => importRecordSchema.parse(out.records[0])).not.toThrow();
+  });
+
+  describe("a kept end", () => {
+    const kept = (kind: string) => gen(1, {}, { feedKeep: kind });
+    it("is not proposed again while its condition holds, for each kind", () => {
+      expect(pass({ series: [], seriesStems: new Set(["w"]), ruleLinks: [kept("shape")] })).toMatchObject({
+        records: [],
+        clearKeep: []
+      });
+      expect(
+        pass({ series: [feedSeries("w", { status: "cancelled" })], ruleLinks: [kept("cancelled")] })
+      ).toMatchObject({ records: [], clearKeep: [] });
+      const window = { startDate: "2026-11-04", endDate: "2027-02-02" };
+      expect(
+        pass({ series: [], ruleLinks: [kept("gone")], window, absenceKnown: () => true, presentStems: new Set() })
+      ).toMatchObject({ records: [], clearKeep: [] });
+    });
+
+    it("is proposed for a different condition, and forgotten once the condition has gone", () => {
+      // Kept as a shape change, but now the master is cancelled: a new question, and the old keep is forgotten.
+      const out = pass({ series: [feedSeries("w", { status: "cancelled" })], ruleLinks: [kept("shape")] });
+      expect(out.records[0]!.relationships.feedReasonKind).toBe("cancelled");
+      expect(out.clearKeep).toEqual(["series:w"]);
+      // The shape is representable again.
+      expect(pass({ series: [feedSeries("w")], ruleLinks: [kept("shape")] }).clearKeep).toEqual(["series:w"]);
+      // The UID is back in the read.
+      expect(pass({ series: [], ruleLinks: [kept("gone")], presentStems: new Set(["w"]) }).clearKeep).toEqual([
+        "series:w"
+      ]);
+    });
+
+    it("is not forgotten by a read that cannot speak for absence", () => {
+      const window = { startDate: "2026-11-04", endDate: "2027-02-02" };
+      expect(
+        pass({ series: [], ruleLinks: [kept("gone")], window, absenceKnown: () => false, presentStems: new Set() })
+      ).toMatchObject({ records: [], clearKeep: [] });
+    });
+  });
+
+  describe("a kept date", () => {
+    const row = {
+      id: "row-1",
+      recurrence_rule_id: "rule-1",
+      local_date: "2026-11-17",
+      title: "Series w",
+      starts_at: new Date("2026-11-16T22:00:00.000Z"),
+      ends_at: new Date("2026-11-16T23:00:00.000Z"),
+      status: "confirmed",
+      location: null,
+      location_id: null,
+      setup_before_minutes: 0,
+      transition_after_minutes: 0,
+      schedule_source: "inherit",
+      version: 1
+    };
+    const change = {
+      kind: "changed" as const,
+      date: "2026-11-17",
+      title: "Retimed",
+      location: "",
+      startDate: "2026-11-17",
+      localStartTime: "14:00",
+      endDate: "2026-11-17",
+      localEndTime: "15:00"
+    };
+    const run = (dismissals: FeedSeriesPassInput["dismissals"]) =>
+      pass({
+        series: [feedSeries("w", { exceptions: [change] })],
+        ruleLinks: [linkFor(base)],
+        occurrences: [row],
+        dismissals,
+        now: new Date("2026-11-04T00:00:00Z")
+      });
+
+    it("is not asked again for the same ask, and is for another", () => {
+      expect(run([]).records).toHaveLength(1);
+      const id = feedDateDismissalId("rule-1", "2026-11-17");
+      expect(run([{ external_event_id: id, title: feedDateFingerprint(change) }]).records).toEqual([]);
+      expect(
+        run([{ external_event_id: id, title: feedDateFingerprint({ ...change, localStartTime: "09:30" }) }]).records
+      ).toHaveLength(1);
+    });
   });
 });
 
@@ -418,6 +691,8 @@ describe("the snapshot", () => {
       localStartTime: "09:00",
       localEndTime: "10:00",
       location: "Room 4",
+      feedStem: "w",
+      feedGeneration: 1,
       timezone: "Australia/Sydney",
       occurrences: {}
     });

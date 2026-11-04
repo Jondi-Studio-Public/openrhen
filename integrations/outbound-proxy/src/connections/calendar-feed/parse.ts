@@ -71,9 +71,15 @@ export interface ParseResult {
  * Encode a UID into the id stem. Only `%` (the escape itself), `#` (the instance separator) and `!` (the hash marker) are
  * percent-encoded, so ordinary UIDs such as `abc@google.com` stay readable. Over 80 characters it becomes `!` plus 32 hex
  * of the SHA-256 of the UID; a literal `!` is always escaped, so a hashed stem can never equal an encoded one.
+ *
+ * A stem never starts with `series:`, `delete:` or `occ:`: the portal names a repeating entry's link `series:<stem>` and a declined
+ * removal `delete:<id>` in the same tables as the events' own ids, so a UID that began that way would share a name with
+ * them. The first letter of such a UID is percent-encoded (`series:x` becomes `%73eries:x`), which no other UID produces.
  */
 export function encodeUid(uid: string): string {
-  const encoded = uid.replace(/[%#!]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`);
+  const hex = (c: string) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`;
+  let encoded = uid.replace(/[%#!]/g, hex);
+  if (/^(series|delete|occ):/.test(encoded)) encoded = hex(encoded[0]!) + encoded.slice(1);
   if (encoded.length <= 80) return encoded;
   return `!${createHash("sha256").update(uid).digest("hex").slice(0, 32)}`;
 }

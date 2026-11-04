@@ -42,6 +42,32 @@ export const FEED_SERIES_PREFIX = `${CALENDAR_FEED_PROVIDER}:series:`;
 export const FEED_SERIES_MAX_STEM = 80;
 /** The longest series key: the stem limit plus a `.NNN` generation. Must stay within `FEED_MAX_KEY` (tested). */
 export const FEED_SERIES_KEY_MAX = FEED_SERIES_PREFIX.length + FEED_SERIES_MAX_STEM + 4;
+/** The highest generation a key can carry (`.999`); a rule revived more often than this is left ended. */
+export const FEED_MAX_GENERATION = 999;
+/** A stem that ends in `.<digits>` could be read as another stem plus a generation, so its generation 1 is written out. */
+const endsInNumber = (stem: string): boolean => /\.\d+$/.test(stem);
+/**
+ * The name a UID's rule is stored under, for a series key or a link: generation 1 is the bare stem, generation N is
+ * `<stem>.N`, and a stem that itself ends in `.<digits>` always carries its generation (`<stem>.1`), so two different
+ * stems never share a name. Only ever built from a stem, never read back into one; the stem travels in
+ * `relationships.feedSeries` and in a later generation's link snapshot.
+ */
+export const feedGenerationName = (stem: string, generation = 1): string =>
+  generation > 1 || endsInNumber(stem) ? `${stem}.${generation}` : stem;
+/**
+ * The generation a series key names for a known stem, or null when the key is not that stem's. Used where a record
+ * names its stem (`relationships.feedSeries`) and the key says which generation of it.
+ */
+export function feedGenerationOfKey(key: string, stem: string): number | null {
+  if (!key.startsWith(FEED_SERIES_PREFIX)) return null;
+  const rest = key.slice(FEED_SERIES_PREFIX.length);
+  if (rest === stem) return endsInNumber(stem) ? null : 1;
+  const tail = rest.startsWith(`${stem}.`) ? rest.slice(stem.length + 1) : "";
+  if (!/^[1-9]\d{0,2}$/.test(tail)) return null;
+  const generation = Number(tail);
+  return generation >= (endsInNumber(stem) ? 1 : 2) && generation <= FEED_MAX_GENERATION ? generation : null;
+}
+
 /**
  * `importBatchSchema` allows 2,000 records and 100,000 source characters, and `insertBatch` checks neither, so an
  * overrun would be written and then be unreadable. The feed keeps well inside both.
@@ -89,6 +115,8 @@ export interface PreparedFeedRead {
   seriesStems: ReadonlySet<string>;
   /** The usable rule descriptor of each represented series, by stem (the series pass takes these). */
   series: ReadonlyMap<string, CalendarFeedSeries>;
+  /** Why the proxy could not describe an unrepresentable series, by stem (the proxy's fixed reason text). */
+  unrepresentableReasons: ReadonlyMap<string, string>;
   host: string | null;
   notImported: FeedNotImported;
 }
@@ -127,6 +155,9 @@ export function seriesStemsOf(
   return { represented, unrepresentable: unrepresentableStems };
 }
 
+/** Names the portal keeps for its own rows beside an event's id (`series:<stem>` rule links, `delete:<id>` declined removals, `occ:<rule>:<date>` kept dates). */
+const RESERVED_ID = /^(series|delete|occ):/;
+
 const clip = (value: string, max: number) => (value.length > max ? value.slice(0, max) : value);
 
 /** A feed title as the plan keeps it: bounded, an empty one worded. */
@@ -159,6 +190,10 @@ export function prepareFeedRead(response: Pick<CalendarReadEventsResponse, "even
     (extras.data.unrepresentableSeries ?? []).flatMap((entry) => (entry.idPrefix ? [{ idPrefix: entry.idPrefix }] : []))
   );
   const seriesStems = new Set([...stems.represented, ...stems.unrepresentable]);
+  const unrepresentableReasons = new Map<string, string>();
+  for (const entry of extras.data.unrepresentableSeries ?? [])
+    if (entry.idPrefix && !unrepresentableReasons.has(entry.idPrefix))
+      unrepresentableReasons.set(entry.idPrefix, entry.reason);
   // A represented series is usable only with a descriptor this build reads, for the UID it sits on, and a stem that
   // fits a series key. Otherwise it is set aside and counted unreadable (a linked rule behind it is "changed").
   const series = new Map<string, CalendarFeedSeries>();
@@ -166,7 +201,12 @@ export function prepareFeedRead(response: Pick<CalendarReadEventsResponse, "even
     const stem = feedStemOf(event.externalEventId);
     if (!stems.represented.has(stem) || series.has(stem)) continue;
     const parsed = calendarFeedSeriesSchema.safeParse(event.attributes?.series);
-    if (parsed.success && parsed.data.idPrefix === stem && stem.length <= FEED_SERIES_MAX_STEM)
+    if (
+      parsed.success &&
+      parsed.data.idPrefix === stem &&
+      stem.length <= FEED_SERIES_MAX_STEM &&
+      !RESERVED_ID.test(stem)
+    )
       series.set(stem, parsed.data);
   }
   const unusableSeries = stems.represented.size - series.size;
@@ -182,7 +222,9 @@ export function prepareFeedRead(response: Pick<CalendarReadEventsResponse, "even
   const readIncomplete = nullPrefixSeries > 0;
   for (const event of response.events) {
     if (seriesStems.has(feedStemOf(event.externalEventId))) continue;
-    if (event.externalEventId.length > FEED_MAX_ID) {
+    // The proxy escapes a UID that begins `series:` or `delete:` (its id would share a name with a rule link or a declined
+    // removal). An id that still begins so is from a proxy that does not, and is left out rather than risk the collision.
+    if (event.externalEventId.length > FEED_MAX_ID || RESERVED_ID.test(event.externalEventId)) {
       unreadable += 1;
       unreadableStems.push(feedStemOf(event.externalEventId));
       continue;
@@ -203,6 +245,7 @@ export function prepareFeedRead(response: Pick<CalendarReadEventsResponse, "even
     unreadableStems,
     seriesStems,
     series,
+    unrepresentableReasons,
     host: extras.data.host,
     notImported: {
       unrepresentableSeries: stems.unrepresentable.size + nullPrefixSeries,
@@ -256,10 +299,17 @@ export function feedReadComplete(
 export function splitSeriesOwnedLinks<T extends FeedLinkInfo>(
   links: readonly T[],
   seriesStems: ReadonlySet<string>
-): { links: T[]; ownedStems: Set<string>; moveDates: Map<string, Set<string>> } {
+): {
+  links: T[];
+  ownedStems: Set<string>;
+  moveDates: Map<string, Set<string>>;
+  /** The latest start (ISO instant) any owned one-off link of a stem last recorded: where a series adopting them must begin after. */
+  ownedLatestStart: Map<string, string>;
+} {
   const kept: T[] = [];
   const ownedStems = new Set<string>();
   const moveDates = new Map<string, Set<string>>();
+  const ownedLatestStart = new Map<string, string>();
   for (const link of links) {
     const stem = feedStemOf(link.external_event_id);
     const movedFrom = link.last_remote_snapshot?.feedMoveOf;
@@ -269,10 +319,17 @@ export function splitSeriesOwnedLinks<T extends FeedLinkInfo>(
       const dates = moveDates.get(stem) ?? new Set<string>();
       dates.add(movedFrom);
       moveDates.set(stem, dates);
-    } else if (seriesStems.has(stem)) ownedStems.add(stem);
-    else kept.push(link);
+    } else if (seriesStems.has(stem)) {
+      ownedStems.add(stem);
+      const starts = link.last_remote_snapshot?.startsAt;
+      const time = typeof starts === "string" ? new Date(starts) : null;
+      if (time && !Number.isNaN(time.getTime())) {
+        const latest = ownedLatestStart.get(stem);
+        if (!latest || time.toISOString() > latest) ownedLatestStart.set(stem, time.toISOString());
+      }
+    } else kept.push(link);
   }
-  return { links: kept, ownedStems, moveDates };
+  return { links: kept, ownedStems, moveDates, ownedLatestStart };
 }
 
 function linkInWindow(link: FeedLinkInfo, window: { timeMin: string; timeMax: string }): boolean {
@@ -310,11 +367,12 @@ export function feedSyncSourceText(args: {
   const stems: string[] = [];
   for (const record of args.records) {
     if (record.importKey.startsWith(FEED_EVENT_PREFIX)) ids.add(record.importKey.slice(FEED_EVENT_PREFIX.length));
-    else if (record.importKey.startsWith(FEED_SERIES_PREFIX))
-      stems.push(record.importKey.slice(FEED_SERIES_PREFIX.length));
-    // A date of a rule (and a move's one-off) names its series so the commit reads the descriptor, not the record.
     const named = record.relationships?.feedSeries;
     if (named) stems.push(named);
+    else if (record.importKey.startsWith(FEED_SERIES_PREFIX))
+      stems.push(record.importKey.slice(FEED_SERIES_PREFIX.length));
+    // A date of a rule (and a move's one-off) names its series so the commit reads the descriptor, not the record. A
+    // rule record's key carries a generation after the stem, so the stem is the name the record gives, not the key.
   }
   const events = args.events
     .filter((event) => ids.has(event.externalEventId))

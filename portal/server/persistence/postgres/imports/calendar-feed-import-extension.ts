@@ -19,6 +19,7 @@ import {
   FEED_SERIES_PREFIX,
   applyFeedDemotions,
   feedCommitmentCollisions,
+  feedGenerationOfKey,
   feedReadComplete,
   feedStemOf,
   feedSyncSourceText,
@@ -43,12 +44,13 @@ import {
   type FeedDateRow
 } from "./calendar-feed-dates";
 import {
-  feedSeriesLinkId,
   feedSeriesPass,
   linkCalendarFeedRule,
   loadFeedSeries,
+  ruleLinkIdentity,
   type FeedRuleLinkRow
 } from "./calendar-feed-series";
+import { forgetKeptEnds, recordFeedChoices, repairStaleFeedKeys, settleRuleEnds } from "./calendar-feed-lifecycle";
 import { keepWholeMovePairs, linkMoveDate, tagMoveRecord } from "./calendar-feed-moves";
 import { detachStartedOccurrences } from "../recurrence-commands";
 import { registerImportExtension, type ImportRecordContext } from "./import-extensions";
@@ -142,12 +144,20 @@ async function feedDiffContext(store: PostgresImportStore, userId: string, args:
 registerStoreMethods({
   async diffCalendarFeed(this: PostgresImportStore, args: DiffFeedArgs) {
     const userId = await ensureUser(this.sql);
+    const { prepared } = args;
+    // Rows an owner's deletion left behind (a rule, a moved meeting's replacement) are cleared first, so the proposals
+    // below resolve against what exists; a deleted rule also declines its UID.
+    await repairStaleFeedKeys(this.sql, userId, [...prepared.series.keys(), ...prepared.seriesStems]);
     const loaded = await feedDiffContext(this, userId, args);
     const profile = profileFor(CALENDAR_FEED_PROVIDER);
-    const { prepared } = args;
     // A one-off link whose UID is now a set-aside series is the series pass's: out of the per-instance diff, so it is
     // neither read as absent nor holds the read incomplete.
-    const { links: oneOffLinks, ownedStems, moveDates } = splitSeriesOwnedLinks(loaded.links, prepared.seriesStems);
+    const {
+      links: oneOffLinks,
+      ownedStems,
+      moveDates,
+      ownedLatestStart
+    } = splitSeriesOwnedLinks(loaded.links, prepared.seriesStems);
     const context = { ...loaded, links: oneOffLinks };
     const host = prepared.host ?? "";
     const base = {
@@ -161,7 +171,13 @@ registerStoreMethods({
       },
       ...context
     };
-    const { ruleLinks, occurrences } = await loadFeedSeries(this.sql, userId);
+    const loadedSeries = await loadFeedSeries(this.sql, userId);
+    const { occurrences } = loadedSeries;
+    // A rule found ended with no record of who ended it was the owner's: written down, and its UID declined.
+    const ruleLinks = await settleRuleEnds(this.sql, userId, loadedSeries.ruleLinks);
+    const seriesDismissals = await this.sql<
+      CalendarDismissalRow[]
+    >`SELECT external_event_id,title,starts_at FROM calendar_event_dismissals WHERE user_id=${userId} AND provider=${CALENDAR_FEED_PROVIDER}`;
     // The UID of every event of any kind in this read, and whether the read can speak for a UID being absent: the whole
     // transport complete and nothing left unreadable that could be it (a series rule ends only on that evidence).
     const presentStems = new Set([
@@ -178,7 +194,7 @@ registerStoreMethods({
       seriesStems: prepared.seriesStems,
       ownedLinkStems: ownedStems,
       ruleLinks,
-      dismissals: context.dismissals,
+      dismissals: seriesDismissals,
       today: localDateIn(new Date(), args.timezone),
       host: prepared.host,
       locations: context.locations,
@@ -192,9 +208,13 @@ registerStoreMethods({
       presentStems,
       absenceKnown,
       moveDates,
+      ownedLatestStart,
+      unrepresentableReasons: prepared.unrepresentableReasons,
       trusted: (stem: string) =>
         prepared.transportComplete && !prepared.readIncomplete && !hidden.has(null) && !hidden.has(stem)
     });
+    // A kept end whose condition has gone (the feed changed it back) is forgotten, so a later change asks again.
+    await forgetKeptEnds(this.sql, userId, seriesOut.clearKeep);
     // The meetings of dates the feed moved to another day are one-off events beside the read's own.
     const events = [...prepared.events, ...seriesOut.moveEvents.map((move) => move.event)];
     const eventsById = new Map(events.map((event) => [event.externalEventId, event]));
@@ -208,12 +228,35 @@ registerStoreMethods({
     }
     const tagged = (records: ImportRecord[]) =>
       records.map((record) => tagMoveRecord(record, replacements, FEED_EVENT_PREFIX));
+    // A moved meeting whose date was cancelled in the feed, or whose repeating event ended or vanished, has its
+    // replacement removed with no revert of the date to pair with: the removal stays a held record with this note
+    // instead of vanishing, so the meeting is never dropped from the plan without the owner seeing it.
+    const orphanNote = (record: ImportRecord): string | null => {
+      const id = record.importKey.slice(FEED_EVENT_PREFIX.length);
+      const date = replacements.get(id);
+      if (!date) return null;
+      const stem = feedStemOf(id);
+      const series = prepared.series.get(stem);
+      const link = ruleLinks.find((row) => ruleLinkIdentity(row)?.stem === stem);
+      let cause: string | null = null;
+      if (series?.status === "cancelled") cause = "The calendar feed cancelled this whole repeating event.";
+      else if (series?.exceptions.some((e) => e.date === date && e.kind === "cancelled"))
+        cause = "The calendar feed cancelled this date after moving it.";
+      else if (!series && !prepared.seriesStems.has(stem) && link && link.status !== "active")
+        cause = "The repeating entry it belongs to has ended and the feed no longer has it.";
+      else if (!series && !prepared.seriesStems.has(stem) && !presentStems.has(stem))
+        cause = "The repeating event it belongs to is no longer in the calendar feed.";
+      return cause
+        ? `${cause} The original day (${date}) was cancelled when this meeting was moved and stays cancelled, so removing the moved meeting leaves nothing on your plan for it. Leave this row ticked to delete the moved meeting, or remove this row to keep it.`
+        : null;
+    };
     const build = (complete: boolean): ImportRecord[] => {
       const input: CalendarDiffInput = { ...base, events, complete };
       const records = calendarDiffRecords(input, profile);
       // Two feed events matching one plan commitment would both link and abort the commit: only one keeps the match.
       const demote = feedCommitmentCollisions(records);
-      if (!demote.size) return keepWholeMovePairs([...tagged(records), ...seriesOut.records], FEED_EVENT_PREFIX);
+      if (!demote.size)
+        return keepWholeMovePairs([...tagged(records), ...seriesOut.records], FEED_EVENT_PREFIX, orphanNote);
       const plain = calendarDiffRecords(
         {
           ...input,
@@ -226,13 +269,17 @@ registerStoreMethods({
       const byKey = new Map(plain.map((record) => [record.importKey, record]));
       return keepWholeMovePairs(
         [...tagged(applyFeedDemotions(records, demote, byKey)), ...seriesOut.records],
-        FEED_EVENT_PREFIX
+        FEED_EVENT_PREFIX,
+        orphanNote
       );
     };
     const startOf = (record: ImportRecord): string => {
       if (record.importKey.startsWith(FEED_OCC_PREFIX)) return record.relationships.feedDate ?? "";
       if (record.importKey.startsWith(FEED_SERIES_PREFIX))
-        return prepared.series.get(record.importKey.slice(FEED_SERIES_PREFIX.length))?.startDate ?? "";
+        return (
+          prepared.series.get(record.relationships.feedSeries ?? record.importKey.slice(FEED_SERIES_PREFIX.length))
+            ?.startDate ?? ""
+        );
       if (!record.importKey.startsWith(FEED_EVENT_PREFIX)) return "";
       const id = record.importKey.slice(FEED_EVENT_PREFIX.length);
       const own = eventsById.get(id)?.startsAt;
@@ -297,7 +344,6 @@ async function insertCreatedExceptions(
   sql: ImportRecordContext["sql"],
   userId: string,
   ruleId: string,
-  stem: string,
   series: CalendarFeedSeries
 ): Promise<void> {
   if (!series.exceptions.length) return;
@@ -319,7 +365,7 @@ async function insertCreatedExceptions(
     await insertFeedDate(sql, userId, ruleId, date, asked, asked.location === rule.location ? rule.location_id : null);
     set[date] = asked as unknown as Record<string, unknown>;
   }
-  await touchFeedDates(sql, userId, feedSeriesLinkId(stem), { set });
+  await touchFeedDates(sql, userId, ruleId, { set });
 }
 
 /**
@@ -355,9 +401,8 @@ async function afterFeedDate(context: ImportRecordContext): Promise<void> {
       typeof locationId === "string" && locationId ? locationId : null
     );
   }
-  const linkId = feedSeriesLinkId(stem);
   if (rel.feedRevert === "true") {
-    await touchFeedDates(sql, userId, linkId, { drop: [date] });
+    await touchFeedDates(sql, userId, ruleId, { drop: [date] });
     return;
   }
   const series = (context.linkSource as FeedSource).series?.[stem];
@@ -369,7 +414,7 @@ async function afterFeedDate(context: ImportRecordContext): Promise<void> {
   if (!rows[0]) return;
   const committed = rowSnapshot(rows[0]);
   const entry = (series && exception ? askedSnapshot(exception, committed, series.timezone) : null) ?? committed;
-  await touchFeedDates(sql, userId, linkId, { set: { [date]: entry as unknown as Record<string, unknown> } });
+  await touchFeedDates(sql, userId, ruleId, { set: { [date]: entry as unknown as Record<string, unknown> } });
 }
 
 registerImportExtension({
@@ -391,12 +436,15 @@ registerImportExtension({
     const source = context.linkSource as FeedSource;
     // A series create or update: the rule is linked from the descriptor the batch kept, by the stem its key carries.
     if (type === "fixed_commitment_recurrence" && record.importKey.startsWith(FEED_SERIES_PREFIX)) {
-      const stem = record.importKey.slice(FEED_SERIES_PREFIX.length);
+      // The record names its stem; its key says which generation of that UID's rule it is (a stem is never read out of a key).
+      const stem = record.relationships.feedSeries ?? record.importKey.slice(FEED_SERIES_PREFIX.length);
+      const generation = feedGenerationOfKey(record.importKey, stem);
       const series = source.series?.[stem];
       // Without the descriptor the rule would be written unlinked, and the next run would propose it again.
-      if (!series) throw new Error("The repeating event's description is missing from its import batch.");
-      await linkCalendarFeedRule(sql, userId, id, { stem, series });
-      if (record.operation === "create") await insertCreatedExceptions(sql, userId, id, stem, series);
+      if (!series || generation === null)
+        throw new Error("The repeating event's description is missing from its import batch.");
+      await linkCalendarFeedRule(sql, userId, id, { stem, series, generation });
+      if (record.operation === "create") await insertCreatedExceptions(sql, userId, id, series);
       return;
     }
     if (type === "fixed_commitment" && record.importKey.startsWith(FEED_OCC_PREFIX)) {
@@ -418,7 +466,9 @@ registerImportExtension({
   // A link the commitment guard skipped must not leave the commit's key map pointing the event at that commitment: a
   // later create of the same event would then resolve as an update of it. A date inserted by the commit has no key of
   // its own either (the generic commit mapped it to a row it replaced; the diff maps it again once the row exists).
-  async afterCommit(tx, { userId, ready }) {
+  async afterCommit(tx, { userId, ready, records, linkSource }) {
+    // Who ended a rule, which end the owner kept, which dates the owner kept as they are.
+    await recordFeedChoices(tx, userId, { records, ready, linkSource });
     const keys = ready
       .filter(
         (record) =>

@@ -263,6 +263,45 @@ describe("ImportRecordCard", () => {
     expect(screen.queryByText("remoteCancelEdited")).toBeNull();
   });
 
+  it("shows the calendar feed's reason on a held end and lets the owner keep it, with no raw feed fields", () => {
+    const toggle = vi.fn();
+    render(
+      <ImportRecordCard
+        {...actions}
+        toggleRemoved={toggle}
+        record={record({
+          entityType: "fixed_commitment_recurrence",
+          operation: "delete",
+          fields: { title: explicit("Team sync") },
+          relationships: {
+            feedSeries: "uid-1",
+            feedReasonKind: "shape",
+            feedNextCall: "PUT /api/imports/{batchId} ...",
+            feedReason: 'The calendar feed changed how "Team sync" repeats, in a way OpenRhen cannot follow.'
+          }
+        })}
+      />
+    );
+    expect(screen.getByText(/in a way OpenRhen cannot follow/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Keep it" }));
+    expect(toggle).toHaveBeenCalledWith("record-1");
+    expect(screen.queryByText("feedNextCall")).toBeNull();
+    expect(screen.queryByText("feedReason")).toBeNull();
+  });
+
+  it("shows a calendar feed note on a rule it proposes, without the raw field", () => {
+    render(
+      <ImportRecordCard
+        {...actions}
+        record={record({
+          relationships: { feedSeries: "uid-1", feedNote: "This repeating event is back in the feed." }
+        })}
+      />
+    );
+    expect(screen.getByText("This repeating event is back in the feed.").className).toBe("record-warning");
+    expect(screen.queryByText("feedNote")).toBeNull();
+  });
+
   it("marks a record with errors as ignored rather than confirmed", () => {
     render(<ImportRecordCard {...actions} record={record({ errors: ["title is required"] })} />);
     const chip = screen.getByText("create");

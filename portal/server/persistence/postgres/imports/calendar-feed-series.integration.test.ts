@@ -417,15 +417,29 @@ describe("a read that is complete only when it can be", () => {
     expect(unidentifiable.records).toEqual([]);
   });
 
-  it("leaves the one-off links behind a UID that became a series alone, and no longer lets them hold the read incomplete", async () => {
+  it("adopts a UID that became a series: the rule starts after its one-off events, which stay and no longer hold the read incomplete", async () => {
     await commit(await diffOf(feedOf([feedEvent("a"), feedEvent("gone", { title: "Gone" })])));
-    // 'a' now repeats: a rule would materialise on top of its one-off commitment, so no series create is proposed;
-    // the one-off link stays, and the run counts it.
+    // 'a' now repeats: a rule from its first date would materialise on top of its one-off commitment, so the rule is
+    // proposed to begin on the next Tuesday after that event (2026-11-10), and the one-off link stays.
     const diff = await diffOf(feedOf(feedSeriesEvents("a")));
-    expect(diff.records.map((r) => [r.importKey, r.operation])).toEqual([[`${FEED_EVENT_PREFIX}gone`, "delete"]]);
-    expect(diff.notImported.seriesChanged).toBe(1);
+    expect(diff.records.map((r) => [r.importKey, r.operation]).sort()).toEqual([
+      [`${FEED_EVENT_PREFIX}gone`, "delete"],
+      [feedSeriesKey("a"), "create"]
+    ]);
+    const create = diff.records.find((r) => r.importKey === feedSeriesKey("a"))!;
+    expect(create.fields.startDate!.value).toBe("2026-11-17");
+    expect(create.relationships.feedNote).toContain("already has single events on your plan");
+    expect(diff.notImported.seriesChanged).toBe(0);
     expect((await oneOffLinks()).map((l) => l.external_event_id)).toEqual(["a", "gone"]);
-    expect(await rules()).toEqual([]);
+    await commit(diff, [create]);
+    const [rule] = await rules();
+    expect(rule).toMatchObject({ start_date: "2026-11-17", status: "active" });
+    // The one-off event is untouched, the rule is linked with the feed's own first date as its prior, and the next read is steady.
+    expect((await oneOffLinks()).map((l) => l.external_event_id)).toEqual(["a", "gone"]);
+    expect((await ruleLinks())[0]!.last_remote_snapshot).toMatchObject({ startDate: "2026-11-10", feedStem: "a" });
+    const again = await diffOf(feedOf(feedSeriesEvents("a")));
+    expect(again.records.filter((r) => r.importKey === feedSeriesKey("a"))).toEqual([]);
+    expect(again.notImported.seriesChanged).toBe(0);
   });
 });
 

@@ -24,6 +24,29 @@ export function splitFeedMovePair<T extends Pick<ImportRecord, "relationships">>
     // A pair that names its size (`feedMoveSize`) and is short of a record in the batch is a lone half: its partner was
     // never proposed, or was dropped, and writing the half alone loses the meeting or doubles it.
     if ((tally.in > 0 && tally.out > 0) || (tally.in + tally.out < tally.size && tally.in > 0))
-      return "A moved meeting is two changes that go together. Select or unselect both, then commit again.";
+      return "A moved meeting is two changes that go together: the original day is cancelled and the meeting is added on its new day. Committing only one loses the meeting (cancelled, nothing added) or doubles it (added, original kept). Select both of its records or unselect both (Remove or Restore on each), then commit again. Without the screen: PUT /api/imports/{batchId} with the same removed value on both records that share relationships.feedMove, then POST /api/imports/{batchId}/commit-ready.";
   return null;
+}
+
+/**
+ * The records to move aside along with `deferred` (the blocked ones): the other half of every moved-meeting pair that has
+ * a half deferred. A conflict, an error or a stale version on one half would otherwise leave its partner the only half
+ * ready, and `splitFeedMovePair` would refuse the whole commit (a sync run would fail every hour on a race between
+ * preview and commit). Both halves wait together for the person instead. A half the person unselected stays as it is.
+ */
+export function deferPairPartners<T extends Pick<ImportRecord, "id" | "removed" | "relationships">>(
+  records: readonly T[],
+  deferred: readonly T[]
+): T[] {
+  const pairs = new Set(
+    deferred.flatMap((record) => (record.relationships?.feedMove ? [record.relationships.feedMove] : []))
+  );
+  if (!pairs.size) return [...deferred];
+  const have = new Set(deferred.map((record) => record.id));
+  return [
+    ...deferred,
+    ...records.filter(
+      (record) => !record.removed && !have.has(record.id) && pairs.has(record.relationships?.feedMove ?? "")
+    )
+  ];
 }

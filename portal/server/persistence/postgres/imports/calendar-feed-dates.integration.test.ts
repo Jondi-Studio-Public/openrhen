@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { resolve } from "node:path";
-import type { CalendarEvent, CalendarSyncResult } from "@openrhen/contracts";
+import type { CalendarEvent, CalendarSyncResult, ImportRecord } from "@openrhen/contracts";
 import { commitmentOccurrenceRowId, commitmentRepeatFallsOn, zonedDateTime } from "@openrhen/contracts";
 import type { CalendarFeedSeries } from "@openrhen/contracts/integrations/calendar-feed";
 import { integrationDatabaseName, persistDerivedState } from "@openrhen/database";
@@ -866,5 +866,401 @@ describe("a moved meeting is never left half done", () => {
     expect(await replacementLink()).toBeDefined();
     expect(await movedMeetings()).toBe(1);
     expect(ruleId).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// PR 9: shape change, keep, generations, owner deletions, adoption, and the moved-meeting minors.
+
+const dismissalIds = async () =>
+  (
+    await sql<
+      { external_event_id: string }[]
+    >`SELECT external_event_id FROM calendar_event_dismissals WHERE provider='calendar_feed' ORDER BY external_event_id`
+  ).map((row) => row.external_event_id);
+const importKeys = async () =>
+  (
+    await sql<
+      { import_key: string }[]
+    >`SELECT import_key FROM import_entity_keys WHERE import_key LIKE 'calendar_feed:%' ORDER BY import_key`
+  ).map((row) => row.import_key);
+const linkFor = async (externalEventId: string) =>
+  (
+    await sql<
+      { recurrence_rule_id: string; last_remote_snapshot: Record<string, any> }[]
+    >`SELECT recurrence_rule_id, last_remote_snapshot FROM calendar_event_links WHERE provider='calendar_feed' AND external_event_id=${externalEventId}`
+  )[0];
+/** A read in which the UID is listed as a repeating event the proxy could not describe. */
+const unrepresentable = (reason = "its rule has a shape the portal cannot follow") =>
+  preparedFeed([feedEvent(`${STEM}#${compact(week(0))}`, { recurring: true, seriesId: STEM })], {
+    unrepresentableSeries: [{ idPrefix: STEM, reason }]
+  });
+/** A non-empty complete read that does not have the UID at all (another repeating event, which is not imported, is in it). */
+const withoutTheSeries = () =>
+  preparedFeed([feedEvent(`zzz#${compact(week(0))}`, { recurring: true, seriesId: "zzz" })], {
+    unrepresentableSeries: [{ idPrefix: "zzz", reason: "another shape" }]
+  });
+const unticked = async (predicate: (record: ImportRecord) => boolean = () => true) => {
+  const batch = (await openBatch())!;
+  const edited = await store.update(
+    batch.id,
+    batch.version,
+    batch.records.map((record) => ({ ...record, removed: predicate(record) }))
+  );
+  return store.commitReady(edited.id, edited.version).catch(async () => store.commit(edited.id, edited.version));
+};
+
+describe("the shape-change card", () => {
+  it("holds one end with the card text, the proxy's reason and the exact next calls, and does nothing before it is approved", async () => {
+    const ruleId = await createSeries();
+    const result = await sync(unrepresentable("a rule with BYSETPOS"));
+    expect(result).toMatchObject({ status: "needs_review", heldForReview: 1, committedBatchId: null });
+    const [record] = (await openBatch())!.records;
+    expect(record).toMatchObject({
+      entityType: "fixed_commitment_recurrence",
+      operation: "delete",
+      importKey: `calendar_feed:series:${STEM}`,
+      relationships: { feedSeries: STEM, feedReasonKind: "shape" }
+    });
+    const rel = record!.relationships;
+    expect(rel.feedReason).toContain(`"Series ${STEM}"`);
+    expect(rel.feedReason).toContain("a rule with BYSETPOS");
+    expect(rel.feedReason).toContain("Keep it");
+    expect(rel.feedNextCall).toContain("PUT /api/imports/{batchId}");
+    expect(rel.feedNextCall).toContain("/commit-ready");
+    expect((await rules())[0]!.status).toBe("active");
+    expect(ruleId).toBeTruthy();
+  });
+
+  it("persists Keep: an unticked end survives the committed batch and is not proposed again", async () => {
+    await createSeries();
+    await sync(unrepresentable());
+    await unticked();
+    expect((await linkFor(`series:${STEM}`))!.last_remote_snapshot.feedKeep).toBe("shape");
+    expect((await rules())[0]!.status).toBe("active");
+    // Hourly syncs of the same unfollowable shape stay quiet.
+    expect(await sync(unrepresentable())).toMatchObject({ status: "synced", heldForReview: 0 });
+    expect(await sync(unrepresentable())).toMatchObject({ status: "synced", heldForReview: 0 });
+    expect(await openBatch()).toBeNull();
+  });
+
+  it("clears a kept end when the shape is representable again, and asks again if it changes back", async () => {
+    await createSeries();
+    await sync(unrepresentable());
+    await unticked();
+    expect(await sync(readOf(seriesOf()))).toMatchObject({ status: "synced", heldForReview: 0 });
+    expect((await linkFor(`series:${STEM}`))!.last_remote_snapshot.feedKeep).toBeUndefined();
+    expect(await sync(unrepresentable())).toMatchObject({ status: "needs_review", heldForReview: 1 });
+  });
+
+  it("ends the rule on approval: the link records the shape end, the UID is declined, and it is never revived", async () => {
+    const ruleId = await createSeries();
+    await sync(unrepresentable());
+    await approveReview();
+    expect((await rules())[0]!.status).toBe("ended");
+    expect((await linkFor(`series:${STEM}`))!.last_remote_snapshot.endedBy).toBe("shape");
+    expect(await dismissalIds()).toContain(`series:${STEM}`);
+    // The shape becomes followable again: no new generation and nothing proposed, because the owner approved the end.
+    expect(await sync(readOf(seriesOf()))).toMatchObject({ status: "synced", heldForReview: 0 });
+    expect(await openBatch()).toBeNull();
+    expect(await ruleLinks()).toHaveLength(1);
+    expect(ruleId).toBeTruthy();
+  });
+
+  it("keeps a cancelled master and a vanished UID the same way", async () => {
+    await createSeries();
+    await sync(readOf(seriesOf({ status: "cancelled" })));
+    expect((await openBatch())!.records[0]!.relationships.feedReasonKind).toBe("cancelled");
+    await unticked();
+    expect(await sync(readOf(seriesOf({ status: "cancelled" })))).toMatchObject({ heldForReview: 0 });
+    // The feed un-cancels it: the kept end is forgotten.
+    expect(await sync(readOf(seriesOf()))).toMatchObject({ heldForReview: 0 });
+    expect((await linkFor(`series:${STEM}`))!.last_remote_snapshot.feedKeep).toBeUndefined();
+    await sync(withoutTheSeries());
+    expect((await openBatch())!.records[0]!.relationships.feedReasonKind).toBe("gone");
+    await unticked();
+    expect(await sync(withoutTheSeries())).toMatchObject({ heldForReview: 0 });
+    expect((await linkFor(`series:${STEM}`))!.last_remote_snapshot.feedKeep).toBe("gone");
+  });
+});
+
+describe("a kept date", () => {
+  it("is not proposed again while the feed asks the same, and is when it asks something else", async () => {
+    const ruleId = await createSeries();
+    const change = changeOn(week(2));
+    await sync(readOf(seriesOf({ exceptions: [change] })));
+    expect((await openBatch())!.records).toHaveLength(1);
+    await unticked();
+    expect(await dateRow(ruleId, week(2))).toMatchObject({ title: "Series wk", schedule_source: "inherit" });
+    expect((await dismissalIds()).some((id) => id === `occ:${ruleId}:${week(2)}`)).toBe(true);
+    expect(await sync(readOf(seriesOf({ exceptions: [change] })))).toMatchObject({
+      status: "synced",
+      heldForReview: 0
+    });
+    // A different ask for the same date comes back.
+    expect(
+      await sync(readOf(seriesOf({ exceptions: [changeOn(week(2), { localStartTime: "15:00" })] })))
+    ).toMatchObject({
+      status: "needs_review",
+      heldForReview: 1
+    });
+  });
+
+  it("keeps a revert the owner declined, and forgets dates whose day has passed", async () => {
+    const ruleId = await createSeries();
+    await sync(readOf(seriesOf({ exceptions: [changeOn(week(2))] })));
+    await approveReview();
+    // The feed drops the change: a revert is proposed, and kept.
+    expect(await sync(readOf(seriesOf()))).toMatchObject({ status: "needs_review", heldForReview: 1 });
+    await unticked();
+    expect(await sync(readOf(seriesOf()))).toMatchObject({ status: "synced", heldForReview: 0 });
+    expect(await dateRow(ruleId, week(2))).toMatchObject({ title: "Retimed" });
+    await sql`UPDATE calendar_event_dismissals SET starts_at = starts_at - INTERVAL '30 days' WHERE provider='calendar_feed'`;
+    await sync(readOf(seriesOf()));
+    expect(await dismissalIds()).toEqual([]);
+  });
+});
+
+describe("generations", () => {
+  /** The feed itself ends the rule (the UID vanishes from a complete read) and the owner approves. */
+  async function feedEnds() {
+    await sync(withoutTheSeries());
+    await approveReview();
+  }
+
+  it("revives a rule the feed ended as generation 2, from its first real instance, and is steady afterwards", async () => {
+    const first = await createSeries();
+    await feedEnds();
+    expect((await rules())[0]!.status).toBe("ended");
+    expect((await linkFor(`series:${STEM}`))!.last_remote_snapshot.endedBy).toBe("feed");
+    // The UID returns, bounded by a COUNT that leaves five dates (the proxy states a bound as the last instance).
+    const bounded = seriesOf({ endDate: week(6) });
+    const result = await sync(readOf(bounded));
+    expect(result).toMatchObject({ status: "needs_review", heldForReview: 1 });
+    const [create] = (await openBatch())!.records;
+    expect(create).toMatchObject({
+      operation: "create",
+      importKey: `calendar_feed:series:${STEM}.2`,
+      relationships: { feedSeries: STEM, feedGeneration: "2" }
+    });
+    expect(create!.fields.startDate!.value).toBe(week(0));
+    expect(create!.fields.endDate!.value).toBe(week(6));
+    expect(create!.relationships.feedNote).toContain("is back");
+    await approveReview();
+    const all = await rules();
+    expect(all).toHaveLength(2);
+    const second = (await linkFor(`series:${STEM}.2`))!;
+    expect(second.last_remote_snapshot).toMatchObject({ feedStem: STEM, feedGeneration: 2, startDate: week(0) });
+    expect(second.recurrence_rule_id).not.toBe(first);
+    // The old generation stays ended, and the new rule is steady against the same read.
+    expect((await rules()).find((r) => r.id === first)!.status).toBe("ended");
+    expect(await sync(readOf(bounded))).toMatchObject({ status: "synced", heldForReview: 0 });
+    // The new generation follows the feed as any rule does: a cancelled date is applied under its own rule.
+    const dated = seriesOf({ endDate: week(6), exceptions: [cancelOn(week(3))] });
+    await replan(second.recurrence_rule_id, 90);
+    expect(await sync(readOf(dated))).toMatchObject({ status: "synced", updated: 1 });
+    expect(await dateRow(second.recurrence_rule_id, week(3))).toMatchObject({ status: "cancelled" });
+    expect(await dateRow(first, week(3))).toBeUndefined();
+  });
+
+  it("starts the revival at the first date from today that is not cancelled or moved", async () => {
+    await createSeries();
+    await feedEnds();
+    await sync(readOf(seriesOf({ exceptions: [cancelOn(week(0))] })));
+    expect((await openBatch())!.records[0]!.fields.startDate!.value).toBe(week(1));
+  });
+
+  it("revives again as generation 3 when the feed ends the second generation too", async () => {
+    await createSeries();
+    await feedEnds();
+    await sync(readOf(seriesOf()));
+    await approveReview();
+    await feedEnds();
+    expect((await linkFor(`series:${STEM}.2`))!.last_remote_snapshot.endedBy).toBe("feed");
+    await sync(readOf(seriesOf()));
+    expect((await openBatch())!.records[0]!.importKey).toBe(`calendar_feed:series:${STEM}.3`);
+  });
+
+  it("proposes no revival when the revived series has no instance left", async () => {
+    await createSeries();
+    await feedEnds();
+    expect(await sync(readOf(seriesOf({ endDate: addDays(week(0), 1) })))).toMatchObject({ heldForReview: 1 });
+    expect(await sync(readOf(seriesOf({ startDate: week(-3), endDate: addDays(today(), -1) })))).toMatchObject({
+      heldForReview: 0
+    });
+    expect(await openBatch()).toBeNull();
+  });
+
+  it("never revives a rule the owner ended, even after the rule is deleted; the decline covers every generation", async () => {
+    const ruleId = await createSeries();
+    await sql`UPDATE commitment_recurrence_rules SET status='ended', version=version+1 WHERE id=${ruleId}`;
+    expect(await sync(readOf(seriesOf()))).toMatchObject({ status: "synced", heldForReview: 0 });
+    expect((await linkFor(`series:${STEM}`))!.last_remote_snapshot.endedBy).toBe("owner");
+    expect(await dismissalIds()).toContain(`series:${STEM}`);
+    await sql`DELETE FROM commitment_recurrence_rules WHERE id=${ruleId}`;
+    expect(await sync(readOf(seriesOf()))).toMatchObject({ status: "synced", heldForReview: 0 });
+    expect(await openBatch()).toBeNull();
+    expect(await rules()).toEqual([]);
+  });
+
+  it("does not revive a rule the feed ended when the owner has declined the UID", async () => {
+    await createSeries();
+    await feedEnds();
+    await sql`INSERT INTO calendar_event_dismissals(user_id,provider,external_event_id,title,starts_at) VALUES(${userId},'calendar_feed',${`series:${STEM}`},'x',now())`;
+    expect(await sync(readOf(seriesOf()))).toMatchObject({ status: "synced", heldForReview: 0 });
+  });
+
+  it("withdraws the owner's decline when the owner reopens the rule, so a later end by the feed can be revived", async () => {
+    const ruleId = await createSeries();
+    await sql`UPDATE commitment_recurrence_rules SET status='ended', version=version+1 WHERE id=${ruleId}`;
+    await sync(readOf(seriesOf()));
+    expect(await dismissalIds()).toContain(`series:${STEM}`);
+    await sql`UPDATE commitment_recurrence_rules SET status='active', version=version+1 WHERE id=${ruleId}`;
+    await sync(readOf(seriesOf()));
+    expect(await dismissalIds()).not.toContain(`series:${STEM}`);
+    await feedEnds();
+    await sync(readOf(seriesOf()));
+    expect((await openBatch())!.records[0]!.importKey).toBe(`calendar_feed:series:${STEM}.2`);
+  });
+
+  it("forgets who ended a rule the owner reopened", async () => {
+    const ruleId = await createSeries();
+    await feedEnds();
+    await sql`UPDATE commitment_recurrence_rules SET status='active', version=version+1 WHERE id=${ruleId}`;
+    await sync(readOf(seriesOf()));
+    expect((await linkFor(`series:${STEM}`))!.last_remote_snapshot.endedBy).toBeUndefined();
+    expect(await openBatch()).toBeNull();
+  });
+});
+
+describe("what an owner's deletion leaves behind", () => {
+  it("clears the stale key of a rule deleted outright, declines the UID, and does not propose it again", async () => {
+    const ruleId = await createSeries();
+    expect(await importKeys()).toContain(`calendar_feed:series:${STEM}`);
+    await sql`DELETE FROM commitment_recurrence_rules WHERE id=${ruleId}`;
+    expect(await sync(readOf(seriesOf()))).toMatchObject({ status: "synced", heldForReview: 0 });
+    expect(await importKeys()).not.toContain(`calendar_feed:series:${STEM}`);
+    expect(await dismissalIds()).toContain(`series:${STEM}`);
+    expect(await sync(readOf(seriesOf()))).toMatchObject({ status: "synced", heldForReview: 0 });
+    expect(await rules()).toEqual([]);
+  });
+
+  it("clears the stale key of a moved meeting's replacement the owner deleted, so it is proposed as a create and not a conflict", async () => {
+    const ruleId = await createSeries();
+    const original = week(1);
+    const newDay = addDays(original, 2);
+    const move = changeOn(original, { title: "Moved meeting", startDate: newDay, endDate: newDay });
+    await sync(readOf(seriesOf({ exceptions: [move] })));
+    await approveReview();
+    const key = `calendar_feed:event:${STEM}#move${compact(original)}`;
+    expect(await importKeys()).toContain(key);
+    await sql`DELETE FROM commitments WHERE title='Moved meeting' AND recurrence_rule_id IS NULL`;
+    const result = await sync(readOf(seriesOf({ exceptions: [move] })));
+    expect(result.status).not.toBe("failed");
+    expect(await importKeys()).not.toContain(key);
+    const records = (await openBatch())?.records ?? [];
+    expect(records.map((r) => r.operation)).toEqual(["create"]);
+    expect(records[0]!.errors).toEqual([]);
+    // Unticking it is remembered like any declined event.
+    await unticked();
+    expect(await sync(readOf(seriesOf({ exceptions: [move] })))).toMatchObject({ status: "synced", heldForReview: 0 });
+    expect(await dateRow(ruleId, original)).toMatchObject({ status: "cancelled" });
+  });
+});
+
+describe("a moved meeting that the feed cancels or drops", () => {
+  const originalDate = () => week(1);
+  const newDay = () => addDays(week(1), 2);
+  const moveEx = (over: Record<string, unknown> = {}) =>
+    changeOn(originalDate(), { title: "Moved meeting", startDate: newDay(), endDate: newDay(), ...over });
+  const movedCount = async () =>
+    Number(
+      (
+        await sql<
+          { n: string }[]
+        >`SELECT count(*) AS n FROM commitments WHERE title='Moved meeting' AND recurrence_rule_id IS NULL`
+      )[0]!.n
+    );
+  async function approvedMove() {
+    const ruleId = await createSeries();
+    await sync(readOf(seriesOf({ exceptions: [moveEx()] })));
+    await approveReview();
+    expect(await movedCount()).toBe(1);
+    return ruleId;
+  }
+
+  it("keeps the replacement's removal as a held record with a note when the feed cancels the date (no silent ghost)", async () => {
+    await approvedMove();
+    const result = await sync(readOf(seriesOf({ exceptions: [cancelOn(originalDate())] })));
+    expect(result).toMatchObject({ status: "needs_review", heldForReview: 1 });
+    const [record] = (await openBatch())!.records;
+    expect(record).toMatchObject({ operation: "delete" });
+    expect(record!.relationships.feedMove).toBeUndefined();
+    expect(record!.warnings.join(" ")).toContain("cancelled this date");
+    expect(await movedCount()).toBe(1);
+    await approveReview();
+    expect(await movedCount()).toBe(0);
+  });
+
+  it("does the same when the whole master is cancelled, and when the UID is gone from the feed", async () => {
+    await approvedMove();
+    await sync(readOf(seriesOf({ status: "cancelled", exceptions: [moveEx()] })));
+    const cancelled = (await openBatch())!.records;
+    expect(cancelled.map((r) => `${r.entityType}/${r.operation}`).sort()).toEqual([
+      "fixed_commitment/delete",
+      "fixed_commitment_recurrence/delete"
+    ]);
+    expect(cancelled.find((r) => r.entityType === "fixed_commitment")!.warnings.join(" ")).toContain("cancelled");
+    await sync(withoutTheSeries());
+    const gone = (await openBatch())!.records;
+    expect(gone.map((r) => r.entityType).sort()).toEqual(["fixed_commitment", "fixed_commitment_recurrence"]);
+    expect(gone.find((r) => r.entityType === "fixed_commitment")!.warnings.join(" ")).toContain(
+      "no longer in the calendar feed"
+    );
+    expect(await movedCount()).toBe(1);
+  });
+
+  it("does not propose the replacement's removal at all from a read that cannot speak for it", async () => {
+    await approvedMove();
+    expect(
+      await sync(readOf(seriesOf({ exceptions: [cancelOn(originalDate())] }), { transportComplete: false }))
+    ).toMatchObject({
+      heldForReview: 0
+    });
+    expect(await movedCount()).toBe(1);
+  });
+
+  it("moves both halves aside together when one becomes a conflict after the preview, and commits the rest without throwing", async () => {
+    const ruleId = await createSeries();
+    await sync(readOf(seriesOf({ exceptions: [moveEx(), changeOn(week(3))] })));
+    const batch = (await openBatch())!;
+    expect(batch.records).toHaveLength(3);
+    // The owner edits the original date after the preview was made: its update is now stale, a conflict at commit.
+    await sql`UPDATE commitments SET version=version+1 WHERE recurrence_rule_id=${ruleId} AND local_date=${originalDate()}::date`;
+    const { batch: committed, deferred } = await store.commitReady(batch.id, batch.version);
+    const written = committed.records.filter((record) => !record.removed).map((record) => record.importKey);
+    expect(written).toEqual([expect.stringContaining(`calendar_feed:occ:${ruleId}:${week(3)}`)]);
+    expect(deferred!.records.map((record) => record.relationships.feedMove).sort()).toEqual([
+      `mv:${STEM}:${originalDate()}`,
+      `mv:${STEM}:${originalDate()}`
+    ]);
+    // Neither half was written: the original is not cancelled and there is no moved meeting.
+    expect(await dateRow(ruleId, originalDate())).toMatchObject({ status: "confirmed" });
+    expect(await movedCount()).toBe(0);
+  });
+
+  it("holds the owner's edit of the replacement as a conflict when the feed moves the date back, and loses nothing", async () => {
+    const ruleId = await approvedMove();
+    await sql`UPDATE commitments SET title='Moved meeting (mine)', version=version+1 WHERE title='Moved meeting' AND recurrence_rule_id IS NULL`;
+    const result = await sync(readOf(seriesOf()));
+    expect(result.status).toBe("needs_review");
+    const records = (await openBatch())!.records;
+    // Only the conflict is held: the date's revert is not offered on its own, because the original must not come back
+    // while the replacement is still the owner's meeting, and it cannot be committed alone.
+    expect(records.map((r) => `${r.importKey.split(":")[1]}/${r.operation}`)).toEqual(["event/conflict"]);
+    const batch = (await openBatch())!;
+    await expect(store.commitReady(batch.id, batch.version)).rejects.toThrow();
+    expect(await dateRow(ruleId, originalDate())).toMatchObject({ status: "cancelled" });
+    expect(await sql`SELECT 1 FROM commitments WHERE title='Moved meeting (mine)'`).toHaveLength(1);
   });
 });

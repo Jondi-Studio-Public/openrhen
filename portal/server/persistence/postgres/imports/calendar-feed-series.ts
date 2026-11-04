@@ -1,5 +1,6 @@
 import {
   commitmentRepeatFallsOn,
+  zonedDateTime,
   type CalendarEvent,
   type CommitmentRepeat,
   type ImportRecord
@@ -16,7 +17,9 @@ import {
 import {
   CALENDAR_FEED_PROVIDER,
   FEED_FRAME,
+  FEED_MAX_GENERATION,
   FEED_SERIES_PREFIX,
+  feedGenerationName,
   feedLocation,
   feedTitle
 } from "./calendar-profiles/calendar-feed";
@@ -25,12 +28,14 @@ import {
   conflictRelationships,
   feedConflictText,
   feedDateRecords,
+  isMove,
   ruleRepeat,
   storedDates,
   touchFeedDates,
   type FeedDateRow
 } from "./calendar-feed-dates";
 import { feedMoveEvents } from "./calendar-feed-moves";
+import { localDateIn } from "./source-match-records";
 
 /** A feed rule link joined onto its rule. Dates and times are read as text. */
 export interface FeedRuleLinkRow {
@@ -115,21 +120,54 @@ function flatFeedRule(rule: FeedRuleSnapshot) {
  * and a rule date expected well inside the window; the window alone never ends a rule.
  */
 
-export const feedSeriesKey = (stem: string): string => `${FEED_SERIES_PREFIX}${stem}`;
-/** The link's `external_event_id` for a rule (a series never collides with one of the UID's own events). */
-export const feedSeriesLinkId = (stem: string): string => `series:${stem}`;
-// Known limit (not fixed): a one-off event whose UID is literally `series:<stem>` would share this link id (the unique
-// key is provider, frame and external id), so linking one over the other would replace it. Real UIDs do not look like
-// this; a later change can prefix one-off link ids if it ever matters.
+/**
+ * The import key of a rule: `calendar_feed:series:<stem>` for the first generation of a UID's rule, `<stem>.N` for the
+ * Nth (a rule the feed ended and later brought back is a new rule, never the old one reopened).
+ */
+export const feedSeriesKey = (stem: string, generation = 1): string =>
+  `${FEED_SERIES_PREFIX}${feedGenerationName(stem, generation)}`;
+/**
+ * The link's `external_event_id` for a rule. It never collides with one of the UID's own events: the proxy escapes a UID
+ * that begins `series:` (`encodeUid`), and the portal leaves out one that still does (`prepareFeedRead`).
+ */
+export const feedSeriesLinkId = (stem: string, generation = 1): string =>
+  `series:${feedGenerationName(stem, generation)}`;
 /**
  * The dismissal a declined series is remembered under: the encoded UID, so it covers every generation of the rule and
  * is not compared to a title (a rename in the feed does not bring a declined series back).
  */
 export const feedSeriesDismissalId = (stem: string): string => `series:${stem}`;
 
+/** Who ended a rule: the feed's own end (a cancelled or vanished UID), the owner, or a shape change the owner approved. */
+export type FeedEndedBy = "feed" | "owner" | "shape";
+
+/** The stem and generation a rule link stands for, or null for a link that is not a series link. */
+export function ruleLinkIdentity(
+  link: Pick<FeedRuleLinkRow, "external_event_id" | "last_remote_snapshot">
+): { stem: string; generation: number } | null {
+  const snapshot = link.last_remote_snapshot;
+  // A later generation (and any rule written since) names its stem; an older link is generation 1 of the id's own stem.
+  if (typeof snapshot?.feedStem === "string" && snapshot.feedStem)
+    return { stem: snapshot.feedStem, generation: Math.max(1, Number(snapshot.feedGeneration) || 1) };
+  return link.external_event_id.startsWith("series:")
+    ? { stem: link.external_event_id.slice("series:".length), generation: 1 }
+    : null;
+}
+
 /** The stem a rule link names, or null for a link that is not a series link. */
-export function stemOfRuleLink(link: Pick<FeedRuleLinkRow, "external_event_id">): string | null {
-  return link.external_event_id.startsWith("series:") ? link.external_event_id.slice("series:".length) : null;
+export const stemOfRuleLink = (link: Pick<FeedRuleLinkRow, "external_event_id" | "last_remote_snapshot">) =>
+  ruleLinkIdentity(link)?.stem ?? null;
+
+/** Who ended the rule, as the link remembers it; null when it was never recorded (an ended rule with none was the owner's). */
+export function ruleLinkEndedBy(link: Pick<FeedRuleLinkRow, "last_remote_snapshot">): FeedEndedBy | null {
+  const value = link.last_remote_snapshot?.endedBy;
+  return value === "feed" || value === "owner" || value === "shape" ? value : null;
+}
+
+/** The kind of held end the owner chose to keep ("Keep" on the card), or null. */
+export function ruleLinkKeep(link: Pick<FeedRuleLinkRow, "last_remote_snapshot">): FeedRuleEndKind | null {
+  const value = link.last_remote_snapshot?.feedKeep;
+  return value === "cancelled" || value === "gone" || value === "shape" ? value : null;
 }
 
 /** What the descriptor says of the rule, bounded the way the plan keeps feed titles and places. */
@@ -150,9 +188,13 @@ export function feedRuleSnapshot(series: CalendarFeedSeries): FeedRuleSnapshot {
  * `occurrences` always an object (empty until PR 8 records dates). The feed's snapshot reader reads `timezone`, so a
  * zone change is a change to the rule.
  */
-export function feedLinkSnapshot(series: CalendarFeedSeries): Record<string, unknown> {
+export function feedLinkSnapshot(
+  series: CalendarFeedSeries,
+  generation = 1,
+  stem: string = series.idPrefix
+): Record<string, unknown> {
   const flat = flatFeedRule(feedRuleSnapshot(series));
-  return { ...flat, timezone: series.timezone, occurrences: {} };
+  return { ...flat, timezone: series.timezone, feedStem: stem, feedGeneration: generation, occurrences: {} };
 }
 
 const repeatFieldNames = [
@@ -287,6 +329,7 @@ export function feedRuleUpdateRecord(
       : `Updated in the calendar feed${args.host ? ` · ${args.host}` : ""}`
   ];
   const fields = ruleRecordFields(chosen as unknown as RuleView, evidence);
+  const generation = ruleLinkIdentity(link)?.generation ?? 1;
   // The buffers are the rule's own, unchanged (the review checks a rule record for them).
   fields.setupBeforeMinutes = importField(link.setup_before_minutes, evidence);
   fields.transitionAfterMinutes = importField(link.transition_after_minutes, evidence);
@@ -300,7 +343,7 @@ export function feedRuleUpdateRecord(
     fields.locationId = savedPlaceMatching.field(next.location, args.locations);
   return {
     id: crypto.randomUUID(),
-    importKey: feedSeriesKey(stem),
+    importKey: feedSeriesKey(stem, generation),
     entityType: "fixed_commitment_recurrence",
     operation: conflicts.length ? "conflict" : "update",
     expectedVersion: link.version,
@@ -318,26 +361,57 @@ export function feedRuleUpdateRecord(
   };
 }
 
-/** Why a held rule end is proposed: the card text travels in `relationships.feedReason` (PR 9 words and labels it). */
+/**
+ * Why a held rule end is proposed. The card text travels in `relationships.feedReason`, and the review shows it as the
+ * record's label (`import-record-card.tsx`).
+ */
 export type FeedRuleEndKind = "cancelled" | "gone" | "shape";
-const endReasons: Record<FeedRuleEndKind, string> = {
-  cancelled: "The calendar feed cancelled this repeating event.",
-  gone: "This repeating event is no longer in the calendar feed.",
-  shape:
-    "This repeating entry changed in a way OpenRhen cannot follow. End it and it stops following the feed, or keep it as it is."
-};
+
+/**
+ * The words of a held end. `reason` is for the person reading the review: what the feed did, what leaving the row ticked
+ * does and what removing it does. `nextCall` is for an agent working through the batch: the exact calls that do either
+ * (`PUT /api/imports/{batchId}` with the same records and `removed: true` on this one to keep it, then
+ * `POST /api/imports/{batchId}/commit-ready`). `summary` is the short line the field evidence carries.
+ */
+function endReason(
+  kind: FeedRuleEndKind,
+  title: string,
+  detail: string | undefined
+): { reason: string; summary: string; nextCall: string } {
+  const what: Record<FeedRuleEndKind, string> = {
+    cancelled: `The calendar feed cancelled the repeating event "${title}".`,
+    gone: `The repeating event "${title}" is no longer in the calendar feed.`,
+    shape: `The calendar feed changed how "${title}" repeats, in a way OpenRhen cannot follow${detail ? ` (${detail})` : ""}.`
+  };
+  const ends =
+    kind === "shape"
+      ? "Ending it removes the dates still to come, because the feed's new shape is not imported, so those meetings leave your plan; the dates before today stay. Keeping it leaves those meetings on your plan as they are, no longer following the feed."
+      : "Ending it removes the dates still to come; the dates before today stay.";
+  return {
+    summary: what[kind].slice(0, 480),
+    reason: `${what[kind]} ${ends} Leave this row ticked and commit to end it. To keep it as it is on your plan instead, remove this row (Keep it) and commit: OpenRhen remembers that and does not ask again until the feed changes it back.`,
+    nextCall:
+      "To end it: leave this record's removed false and POST /api/imports/{batchId}/commit-ready with { expectedVersion: <the batch version> }. To keep it: PUT /api/imports/{batchId} with the same records and this one's removed set to true (and expectedVersion), then POST /api/imports/{batchId}/commit-ready. {batchId} is the id of the open import batch for source type calendar_feed (GET /api/imports lists it)."
+  };
+}
 
 /** A held end of the rule. Never applied on its own; approving it is the existing rule-end delete (past dates stay). */
-export function feedRuleEndRecord(stem: string, link: FeedRuleLinkRow, kind: FeedRuleEndKind): ImportRecord {
+export function feedRuleEndRecord(
+  stem: string,
+  link: FeedRuleLinkRow,
+  kind: FeedRuleEndKind,
+  detail?: string
+): ImportRecord {
+  const { reason, summary, nextCall } = endReason(kind, link.title, detail);
   return {
     id: crypto.randomUUID(),
-    importKey: feedSeriesKey(stem),
+    importKey: feedSeriesKey(stem, ruleLinkIdentity(link)?.generation ?? 1),
     entityType: "fixed_commitment_recurrence",
     operation: "delete",
     expectedVersion: link.version,
     matchedEntityId: link.recurrence_rule_id,
-    fields: ruleRecordFields(ruleView(link), [endReasons[kind]]),
-    relationships: { feedSeries: stem, feedReason: endReasons[kind], feedReasonKind: kind },
+    fields: ruleRecordFields(ruleView(link), [summary]),
+    relationships: { feedSeries: stem, feedReason: reason, feedReasonKind: kind, feedNextCall: nextCall },
     errors: [],
     warnings: ["Confirming this row ends the repeating entry. Past dates stay."],
     removed: false,
@@ -376,8 +450,8 @@ export interface FeedSeriesPassInput {
   /** Stems of one-off links whose UID is now a set-aside series (`splitSeriesOwnedLinks`). */
   ownedLinkStems: ReadonlySet<string>;
   ruleLinks: readonly FeedRuleLinkRow[];
-  /** `calendar_event_dismissals` rows of the feed. */
-  dismissals: readonly { external_event_id: string }[];
+  /** `calendar_event_dismissals` rows of the feed (`title` is a kept date's fingerprint). */
+  dismissals: readonly { external_event_id: string; title?: string }[];
   /** The owner's local date today (a series that ended before it is not proposed). */
   today: string;
   host: string | null;
@@ -401,6 +475,10 @@ export interface FeedSeriesPassInput {
   trusted?: boolean | ((stem: string) => boolean) | undefined;
   /** Original dates whose moved meeting is already a one-off event on the plan, by stem (`splitSeriesOwnedLinks`). */
   moveDates?: ReadonlyMap<string, ReadonlySet<string>> | undefined;
+  /** The latest start of the one-off links a set-aside series has, by stem (`splitSeriesOwnedLinks`): an adopting rule begins after it. */
+  ownedLatestStart?: ReadonlyMap<string, string> | undefined;
+  /** Why the proxy could not describe an unrepresentable series, by stem (words the shape-change card). */
+  unrepresentableReasons?: ReadonlyMap<string, string> | undefined;
 }
 
 export interface FeedSeriesPassResult {
@@ -411,21 +489,31 @@ export interface FeedSeriesPassResult {
   changed: number;
   /** The one-off events that stand for dates the feed moved to another day; the per-instance diff reads them with the read's own events. */
   moveEvents: Array<{ stem: string; date: string; event: CalendarEvent }>;
+  /** Links (by `external_event_id`) whose kept end no longer applies: the caller clears their `feedKeep`. */
+  clearKeep: string[];
 }
 
 /** One series create: the rule's columns from the descriptor, the place matched, the buffers defaulted. */
 function seriesCreateRecord(
   stem: string,
   series: CalendarFeedSeries,
-  args: Pick<FeedSeriesPassInput, "host" | "locations" | "defaults">
+  args: Pick<FeedSeriesPassInput, "host" | "locations" | "defaults">,
+  /** A later generation, or a rule that begins later than the feed's own first date (a revival or an adoption). */
+  begin: { generation?: number; startDate?: string; note?: string; warning?: string } = {}
 ): ImportRecord {
+  const generation = begin.generation ?? 1;
   const snapshot = feedRuleSnapshot(series);
-  const flat = flatFeedRule(snapshot);
-  const evidence = [`Calendar feed${args.host ? ` · ${args.host}` : ""} · repeating event`];
+  const flat = { ...flatFeedRule(snapshot), ...(begin.startDate ? { startDate: begin.startDate } : {}) };
+  const evidence = [
+    `Calendar feed${args.host ? ` · ${args.host}` : ""} · repeating event${begin.note ? ` · ${begin.note}` : ""}`.slice(
+      0,
+      480
+    )
+  ];
   const place = snapshot.location;
   const record: ImportRecord = {
     id: crypto.randomUUID(),
-    importKey: feedSeriesKey(stem),
+    importKey: feedSeriesKey(stem, generation),
     entityType: "fixed_commitment_recurrence",
     operation: "create",
     expectedVersion: null,
@@ -445,7 +533,12 @@ function seriesCreateRecord(
       localEndTime: importField(flat.localEndTime, evidence),
       location: importField(place, evidence)
     },
-    relationships: { feedSeries: stem },
+    // The note travels in a relationship: validation rebuilds a create's `warnings`, which would drop it.
+    relationships: {
+      feedSeries: stem,
+      ...(generation > 1 ? { feedGeneration: String(generation) } : {}),
+      ...(begin.warning ? { feedNote: begin.warning } : {})
+    },
     errors: [],
     warnings: [],
     removed: false,
@@ -480,21 +573,54 @@ function expectedInWindow(link: FeedRuleLinkRow, window: { startDate: string; en
 }
 
 /**
+ * The first date on or after `from` the series really holds a meeting on: a date of its repeat, inside its bounds, that the
+ * feed neither cancels nor moves to another day. Null when there is none (a bounded series that has run out).
+ */
+export function firstRealInstance(series: CalendarFeedSeries, from: string, after?: Date): string | null {
+  const off = new Set(series.exceptions.filter((e) => e.kind === "cancelled" || isMove(e)).map((e) => e.date));
+  let date = from < series.startDate ? series.startDate : from;
+  for (let step = 0; step < 1100; step += 1, date = addDays(date, 1)) {
+    if (series.endDate !== null && date > series.endDate) return null;
+    if (off.has(date) || !commitmentRepeatFallsOn(series.repeat, series.startDate, date)) continue;
+    // A date whose meeting has already started is not a start: the old generation's row for it is still on the plan, and a
+    // new rule starting there would put a second row beside it.
+    if (after && zonedDateTime(date, series.localStartTime, series.timezone).getTime() <= after.getTime()) continue;
+    return date;
+  }
+  return null;
+}
+
+/**
  * The series pass over one read, pure: the held series creates, and for a rule already on the plan its held update, its
  * date records (cancels the sync may apply on its own, every other change held) and its held end. Never reads or writes
  * the database; the caller loads `ruleLinks` and `occurrences` (`loadFeedSeries`) and stores the records.
  *
  * A rule ends only as a held proposal: the master cancelled, or the UID absent from a read that can speak for absence and
- * from which the rule should have produced an instance, or a shape the feed no longer describes (PR 9 words and keeps that
- * one). Absence is never read from the window alone.
+ * from which the rule should have produced an instance, or a shape the feed no longer describes (the shape-change card).
+ * Absence is never read from the window alone. An end the owner kept (`feedKeep`) is not proposed again until the
+ * condition goes away. A rule the feed itself ended and that returns is a new generation (`.N+1`) starting at its first
+ * real instance from today; one the owner or a shape change ended is never recreated (their decline covers every
+ * generation). A UID that already has one-off events on the plan is adopted by a rule that begins after the last of them.
  */
 export function feedSeriesPass(input: FeedSeriesPassInput): FeedSeriesPassResult {
+  // The newest generation of each UID's rule is the one that is followed (or, when ended, judged for a revival).
   const byStem = new Map<string, FeedRuleLinkRow>();
+  const generationOf = new Map<string, number>();
   for (const link of input.ruleLinks) {
-    const stem = stemOfRuleLink(link);
-    if (stem !== null) byStem.set(stem, link);
+    const identity = ruleLinkIdentity(link);
+    if (!identity || identity.generation < (generationOf.get(identity.stem) ?? 0)) continue;
+    byStem.set(identity.stem, link);
+    generationOf.set(identity.stem, identity.generation);
   }
   const declined = new Set(input.dismissals.map((row) => row.external_event_id));
+  const keptDates = new Map<string, Map<string, string>>();
+  for (const row of input.dismissals) {
+    const match = /^occ:([^:]+):(\d{4}-\d{2}-\d{2})$/.exec(row.external_event_id);
+    if (!match || row.title === undefined) continue;
+    const dates = keptDates.get(match[1]!) ?? new Map<string, string>();
+    dates.set(match[2]!, row.title);
+    keptDates.set(match[1]!, dates);
+  }
   const rowsByRule = new Map<string, Map<string, FeedOccurrenceRow>>();
   for (const row of input.occurrences ?? []) {
     const byDate = rowsByRule.get(row.recurrence_rule_id) ?? new Map<string, FeedOccurrenceRow>();
@@ -505,19 +631,53 @@ export function feedSeriesPass(input: FeedSeriesPassInput): FeedSeriesPassResult
   const records: ImportRecord[] = [];
   const changed = new Set<string>(input.ownedLinkStems);
   const moveEvents: FeedSeriesPassResult["moveEvents"] = [];
+  const clearKeep: string[] = [];
   let pending = 0;
   for (const stem of [...new Set([...input.series.keys(), ...byStem.keys()])].sort()) {
     const series = input.series.get(stem);
     const link = byStem.get(stem);
     if (link) {
-      // An ended rule is the owner's (or a later change's) and is never recreated or followed here.
-      if (link.status !== "active") continue;
+      // The UID has a rule, so its one-off events are the rule's business and are no longer an unadopted series.
+      changed.delete(stem);
+      const generation = generationOf.get(stem) ?? 1;
+      if (link.status !== "active") {
+        // An ended rule is never reopened. Only one the feed itself ended is replaced, by the next generation, and only
+        // while the owner has not declined the UID (a rule the owner or a shape change ended writes that decline).
+        if (
+          ruleLinkEndedBy(link) === "feed" &&
+          series &&
+          series.status !== "cancelled" &&
+          generation < FEED_MAX_GENERATION &&
+          !declined.has(feedSeriesDismissalId(stem))
+        ) {
+          const start = firstRealInstance(series, input.today, now);
+          if (start)
+            records.push(
+              seriesCreateRecord(stem, series, input, {
+                generation: generation + 1,
+                startDate: start,
+                note: "back in the feed",
+                warning: `This repeating event was ended because the calendar feed dropped it, and it is back. It starts again on ${start}; the dates before then are not recreated.`
+              })
+            );
+        }
+        continue;
+      }
+      // What the owner chose to keep stays kept only while the condition that raised it holds.
+      const keep = ruleLinkKeep(link);
+      const clearUnless = (kind: FeedRuleEndKind | null) => {
+        if (keep && keep !== kind) clearKeep.push(link.external_event_id);
+      };
+      const endUnlessKept = (kind: FeedRuleEndKind, detail?: string) => {
+        if (keep !== kind) records.push(feedRuleEndRecord(stem, link, kind, detail));
+      };
       if (series) {
         if (series.status === "cancelled") {
-          if (link.end_date === null || link.end_date >= input.today)
-            records.push(feedRuleEndRecord(stem, link, "cancelled"));
+          clearUnless("cancelled");
+          if (link.end_date === null || link.end_date >= input.today) endUnlessKept("cancelled");
           continue;
         }
+        clearUnless(null);
         const trusted = typeof input.trusted === "function" ? input.trusted(stem) : input.trusted !== false;
         const existingMoves = input.moveDates?.get(stem) ?? new Set<string>();
         const update = trusted ? feedRuleUpdateRecord(stem, series, link, input) : null;
@@ -531,6 +691,7 @@ export function feedSeriesPass(input: FeedSeriesPassInput): FeedSeriesPassResult
           today: input.today,
           now,
           locations: input.locations,
+          kept: keptDates.get(link.recurrence_rule_id) ?? new Map(),
           ...(existingMoves.size ? { moveDates: existingMoves } : {})
         });
         for (const { event, date } of feedMoveEvents({
@@ -555,37 +716,57 @@ export function feedSeriesPass(input: FeedSeriesPassInput): FeedSeriesPassResult
         continue;
       }
       // The UID is still in the read as a series the feed no longer describes (became unrepresentable, or its
-      // descriptor could not be read): a held end with its reason, which PR 9 turns into the shape-change card.
+      // descriptor could not be read): the shape-change card, a held end with the proxy's reason.
       if (input.seriesStems.has(stem)) {
-        records.push(feedRuleEndRecord(stem, link, "shape"));
+        clearUnless("shape");
+        endUnlessKept("shape", input.unrepresentableReasons?.get(stem));
         continue;
       }
       // Gone from the feed: only when the read can say so, nothing of the UID is in it, and the rule has not simply ended.
+      if (input.presentStems?.has(stem)) {
+        clearUnless(null);
+        continue;
+      }
       if (
         input.window &&
         input.absenceKnown?.(stem) === true &&
-        !input.presentStems?.has(stem) &&
         (link.end_date === null || link.end_date >= input.today) &&
         expectedInWindow(link, input.window)
-      )
-        records.push(feedRuleEndRecord(stem, link, "gone"));
+      ) {
+        clearUnless("gone");
+        endUnlessKept("gone");
+      }
       continue;
     }
     if (!series) continue;
-    // Known limit (not fixed): when the owner deletes a rule outright, its link goes with it (cascade) but its
-    // `import_entity_keys` row stays, so the UID reaches here as "no link" and the proposed create resolves as an update
-    // of a rule that no longer exists, which the review shows as a confusing conflict. Ending the rule (status
-    // `ended`) is the supported way and is handled above; a later change should clear the stale key on delete.
+    // A rule the owner deleted outright leaves no link, but the decline written when its stale key was found (and the one
+    // an owner-ended or shape-ended rule writes) covers it, every generation.
     if (declined.has(feedSeriesDismissalId(stem))) continue;
-    // The UID has one-off commitments on the plan: a rule would materialise on top of them, so it is not proposed.
-    // Counted as changed (the series is not followed) until a later change decides how to adopt it.
-    if (input.ownedLinkStems.has(stem)) continue;
     // A cancelled master that was never imported, or a series that has already ended, is nothing to add.
     if (series.status === "cancelled") continue;
     if (series.endDate !== null && series.endDate < input.today) continue;
+    // The UID has one-off events on the plan: a rule from the feed's own first date would materialise on top of them.
+    // Adoption: the rule begins on the first real instance after the last of them (and not before today), so the events
+    // already there stay as the history they are and nothing is doubled. They are not followed afterwards.
+    if (input.ownedLinkStems.has(stem)) {
+      const latest = input.ownedLatestStart?.get(stem);
+      const lastDay = latest ? localDateIn(new Date(latest), series.timezone) : null;
+      const from = lastDay !== null && lastDay >= input.today ? addDays(lastDay, 1) : input.today;
+      const start = firstRealInstance(series, from, now);
+      if (!start) continue;
+      changed.delete(stem);
+      records.push(
+        seriesCreateRecord(stem, series, input, {
+          startDate: start,
+          note: "adopting events already on your plan",
+          warning: `This repeating event already has single events on your plan${lastDay ? ` (the last on ${lastDay})` : ""}. The repeating entry starts on ${start}, after them, so nothing is doubled; the single events stay as they are and are not followed any more.`
+        })
+      );
+      continue;
+    }
     records.push(seriesCreateRecord(stem, series, input));
   }
-  return { records, pending, changed: changed.size, moveEvents };
+  return { records, pending, changed: changed.size, moveEvents, clearKeep };
 }
 
 /**
@@ -598,17 +779,18 @@ export async function linkCalendarFeedRule(
   sql: Sql,
   userId: string,
   ruleId: string,
-  args: { stem: string; series: CalendarFeedSeries }
+  args: { stem: string; series: CalendarFeedSeries; generation?: number }
 ): Promise<void> {
-  const snapshot = feedLinkSnapshot(args.series);
+  const generation = args.generation ?? 1;
+  const snapshot = feedLinkSnapshot(args.series, generation, args.stem);
   const { occurrences: _dates, ...compared } = snapshot;
-  const linkId = feedSeriesLinkId(args.stem);
+  const linkId = feedSeriesLinkId(args.stem, generation);
   const hash = JSON.stringify(compared);
   await sql`
     INSERT INTO calendar_event_links(user_id,provider,role,frame_id,external_event_id,recurrence_rule_id,profile_label,last_remote_snapshot,last_remote_hash,last_seen_at)
-    VALUES(${userId},${CALENDAR_FEED_PROVIDER},'secondary',${FEED_FRAME},${feedSeriesLinkId(args.stem)},${ruleId},'Calendar feed',${sql.json(snapshot as never)},${hash},CURRENT_TIMESTAMP)
+    VALUES(${userId},${CALENDAR_FEED_PROVIDER},'secondary',${FEED_FRAME},${linkId},${ruleId},'Calendar feed',${sql.json(snapshot as never)},${hash},CURRENT_TIMESTAMP)
     ON CONFLICT(user_id,provider,frame_id,external_event_id) DO UPDATE SET recurrence_rule_id=EXCLUDED.recurrence_rule_id,commitment_id=NULL,profile_label=EXCLUDED.profile_label,last_remote_snapshot=EXCLUDED.last_remote_snapshot || jsonb_build_object('occurrences', COALESCE(calendar_event_links.last_remote_snapshot->'occurrences', '{}'::jsonb)),last_remote_hash=EXCLUDED.last_remote_hash,last_seen_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
   `;
   // Any touch of the link drops the exceptions that are now in the past (own SQL: the upsert above carries them forward).
-  await touchFeedDates(sql, userId, linkId);
+  await touchFeedDates(sql, userId, ruleId);
 }
