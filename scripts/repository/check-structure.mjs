@@ -111,6 +111,9 @@ const maintainedFiles = [...entries.filter((absolute) => !readdirSafe(absolute))
 for (const absolute of entries) {
   const source = posix(relative(root, absolute));
   if (source.startsWith("platform/database/drizzle/") || source.startsWith("portal/app/")) continue;
+  // The example add-on's overlay mirrors core's layout, `(addon)` route group included. It is checked after it is
+  // copied over core (scripts/addon/conformance.mjs runs this check on the merged tree), not where it is stored.
+  if (source.startsWith("integrations/addon-example/overlay/")) continue;
   const statIsDirectory = readdirSafe(absolute);
   const name = source.split("/").at(-1);
   if (statIsDirectory) {

@@ -284,9 +284,25 @@ jobs:
       # The org only allows GitHub-owned actions, so the reuse tool is installed from PyPI at a pinned version.
       - run: pipx run reuse==6.2.0 lint
 
+  # An example add-on, copied over a clean checkout, must work with core without editing a core file:
+  # scripts/addon/conformance.mjs checks ownership, structure, the compose merge, env fragments and routes.
+  # Node and the runner's Docker (compose config only; nothing is built or started) are all it needs.
+  addon-conformance:
+    name: Add-on conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - run: node scripts/addon/conformance.mjs
+
   ci-ok:
     name: ci-ok
-    needs: [check, typecheck, unit, benchmark, integration, build, smoke, selfhost-smoke, hygiene, reuse]
+    needs: [check, typecheck, unit, benchmark, integration, build, smoke, selfhost-smoke, hygiene, reuse, addon-conformance]
     # Runs even when a job above failed or was cancelled, so the required check is red, never missing.
     if: always()
     runs-on: ubuntu-latest

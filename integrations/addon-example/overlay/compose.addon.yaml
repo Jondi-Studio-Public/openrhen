@@ -1,0 +1,27 @@
+# Merged with compose.yaml through COMPOSE_FILE=compose.yaml:compose.addon.yaml (set in .env).
+services:
+  example-addon:
+    # Every add-on service names its profiles, so it starts only in a stack that asked for it.
+    profiles: ["planning", "app"]
+    image: ${IMAGE_PREFIX:-ghcr.io/example/openrhen}-example-addon:${IMAGE_TAG:-latest}
+    # The add-on's own Dockerfile and context, not a core one.
+    build:
+      context: .
+      dockerfile: addons/example/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      engine-service:
+        condition: service_healthy
+    environment:
+      EXAMPLE_ADDON_TOKEN: ${EXAMPLE_ADDON_TOKEN:-}
+      EXAMPLE_ADDON_INTERVAL_SECONDS: ${EXAMPLE_ADDON_INTERVAL_SECONDS:-60}
+    # The deploy guard refuses to start the stack while this is blank or a placeholder.
+    x-openrhen:
+      secrets: [EXAMPLE_ADDON_TOKEN]
+
+  # A core service the add-on adds to: environment is appended, and the secret is guarded for it too.
+  portal:
+    environment:
+      EXAMPLE_ADDON_TOKEN: ${EXAMPLE_ADDON_TOKEN:-}
+    x-openrhen:
+      secrets: [EXAMPLE_ADDON_TOKEN]

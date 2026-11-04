@@ -11,6 +11,7 @@ Start with the guide that matches what you want to do. Open only what you need.
 | Understand how a plan is calculated | [Engine logic](engine/logic.md) |
 | Understand how the parts fit together | [Architecture overview](architecture/overview.md) |
 | Connect an outside service | [Writing a connection](architecture/writing-a-connection.md) |
+| Extend it with your own pages, services and settings | [Writing an add-on](architecture/writing-an-addon.md) |
 | Build against the agent surface or the seams | [Protocol](protocol/README.md): [versions](protocol/versions.md), [auth](protocol/auth.md), [proposing changes](protocol/changes.md) |
 | Run it safely beyond one machine | [Locking down the API](operations/locking-down.md) |
 | Back up, restore, upgrade | [Database and backups](operations/database-and-backups.md) |
