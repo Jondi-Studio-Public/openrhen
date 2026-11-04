@@ -125,9 +125,7 @@ describe("recurrence rule check-in allowance", () => {
       id: ruleId,
       title: "Class",
       timezone: "Australia/Sydney",
-      // Far ahead, so no date of the rule can be in progress at the wall clock the suite runs at (a series save asks
-      // about a date under way, and the replan materialises dates from the real clock).
-      startDate: "2099-01-01",
+      startDate: "2026-10-01",
       repeat: { unit: "days" as const, intervalDays: 7 },
       localStartTime: "09:00",
       localEndTime: "10:00",
