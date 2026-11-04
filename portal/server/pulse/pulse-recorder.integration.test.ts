@@ -1185,10 +1185,58 @@ describe("the pulse_lapsed agent wake", () => {
     await sql.begin((tx) => writeReentrySegment(tx, userId, { at: at(t0, 61), confirmedBy: "person", snapshot: null }));
     const after = await sql<
       { target_id: string; status: string; last_error: string | null }[]
-    >`SELECT target_id, status, last_error FROM agent_wakes WHERE user_id=${userId} ORDER BY target_id`;
+    >`SELECT target_id, status, last_error FROM agent_wakes WHERE user_id=${userId} AND event='pulse_lapsed' ORDER BY target_id`;
     expect(after.find((w) => w.target_id === "earlier")).toMatchObject({ status: "sent", last_error: null });
     expect(after.filter((w) => w.target_id !== "earlier")).toEqual([
       expect.objectContaining({ status: "dead", last_error: "cancelled" })
     ]);
+  });
+});
+
+describe("the pulse_unknown agent wake", () => {
+  beforeEach(async () => {
+    await sql`DELETE FROM agent_wakes WHERE user_id=${userId}`;
+  });
+
+  const wakes = () =>
+    sql<
+      { target_id: string; status: string; last_error: string | null; expires_at: Date }[]
+    >`SELECT target_id, status, last_error, expires_at FROM agent_wakes WHERE user_id=${userId} AND event='pulse_unknown'`;
+
+  it("queues exactly one wake when an unknown segment opens, not on later ticks", async () => {
+    const t0 = new Date("2026-10-28T02:00:00.000Z");
+    await seedHistory(t0);
+    await createInForceStep(t0, "Prep", 600, 120);
+    await runPulseRecorderTick(sql, t0);
+    expect((await openSegment())?.state).toBe("unknown");
+    const queued = await wakes();
+    expect(queued).toHaveLength(1);
+    expect(queued[0]).toMatchObject({ status: "pending", target_id: t0.toISOString() });
+    expect(queued[0]!.expires_at.getTime() - t0.getTime()).toBe(30 * 60_000);
+
+    await tickThrough(t0, at(t0, 25));
+    expect(await wakes()).toHaveLength(1);
+  });
+
+  it("queues none when any wake was created for the user in the last 30 minutes", async () => {
+    const t0 = new Date("2026-10-28T02:00:00.000Z");
+    await seedHistory(t0);
+    await createInForceStep(t0, "Prep", 600, 120);
+    await sql`INSERT INTO agent_wakes (user_id,event,target_id,dedupe_key,expires_at,status,created_at)
+      VALUES (${userId},'check_in_unanswered','c1','check_in_unanswered:c1',${at(t0, 10).toISOString()}::timestamptz,'sent',${at(t0, -10).toISOString()}::timestamptz)`;
+    await runPulseRecorderTick(sql, t0);
+    expect((await openSegment())?.state).toBe("unknown");
+    expect(await wakes()).toHaveLength(0);
+  });
+
+  it("marks a pending wake dead as cancelled when the unknown segment closes", async () => {
+    const t0 = new Date("2026-10-28T02:00:00.000Z");
+    await seedHistory(t0);
+    await createInForceStep(t0, "Prep", 600, 120);
+    await runPulseRecorderTick(sql, t0);
+    expect((await wakes())[0]).toMatchObject({ status: "pending", last_error: null });
+    await tickThrough(t0, at(t0, 60));
+    expect((await openSegment())?.state).toBe("off");
+    expect((await wakes())[0]).toMatchObject({ status: "dead", last_error: "cancelled" });
   });
 });

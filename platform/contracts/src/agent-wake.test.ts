@@ -49,6 +49,23 @@ describe("agent wake messages", () => {
     }
   });
 
+  it("write the unknown-pulse arguments the tools take", () => {
+    const text = agentWakeMessage("pulse_unknown", "x");
+    for (const arg of ["status", "basis", "evidence", "command-id"]) {
+      expect(properties("rhen_check_in")).toContain(arg);
+      expect(text).toContain(arg);
+    }
+    expect(text).toContain("rhen_status");
+    expect(text).toContain("rhen_disrupt ");
+    expect(text).not.toContain("rhen_disruption");
+    expect(text).toContain("reentry_required");
+  });
+
+  it("covers every event and throws for an unknown one", () => {
+    expect([...AGENT_WAKE_EVENTS]).toEqual(["check_in_unanswered", "pulse_lapsed", "pulse_unknown"]);
+    expect(() => agentWakeMessage("nope" as never, "x")).toThrow(/Unknown agent wake event/);
+  });
+
   it("never include record text and always say what not to do", () => {
     for (const event of AGENT_WAKE_EVENTS) {
       const text = agentWakeMessage(event, "x");

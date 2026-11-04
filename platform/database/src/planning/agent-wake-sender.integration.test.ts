@@ -156,6 +156,26 @@ describe("sendNextAgentWake", () => {
     expect(await wake()).toMatchObject({ status: "dead", last_error: "stale" });
   });
 
+  it("sends a pulse_unknown wake while the pulse is still unknown, but drops one once the segment closed", async () => {
+    await sql`INSERT INTO pulse_segments (user_id, started_at, state, reason)
+      VALUES (${userId}, ${now.toISOString()}::timestamptz, 'unknown', 'unconfirmed')`;
+    await enqueueAgentWake(sql, { userId, event: "pulse_unknown", targetId: now.toISOString(), now });
+    const first = okFetch();
+    expect((await sendNextAgentWake(sql, { url: URL_BASE, token: TOKEN, fetchImpl: first.impl, now })).outcome).toBe(
+      "sent"
+    );
+    expect(first.calls).toHaveLength(1);
+
+    await sql`TRUNCATE agent_wakes`;
+    await sql`UPDATE pulse_segments SET ended_at = ${now.toISOString()}::timestamptz`;
+    await enqueueAgentWake(sql, { userId, event: "pulse_unknown", targetId: now.toISOString(), now });
+    const second = okFetch();
+    const result = await sendNextAgentWake(sql, { url: URL_BASE, token: TOKEN, fetchImpl: second.impl, now });
+    expect(result).toEqual({ outcome: "none", dropped: 1 });
+    expect(second.calls).toHaveLength(0);
+    expect(await wake()).toMatchObject({ status: "dead", last_error: "stale" });
+  });
+
   it("marks an expired pending row dead without sending", async () => {
     const id = await makeCheckIn("unknown");
     await enqueueAgentWake(sql, { userId, event: "check_in_unanswered", targetId: id, now });

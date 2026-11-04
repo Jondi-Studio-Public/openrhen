@@ -27,7 +27,7 @@ import {
   type SessionSanction,
   type UsableDisruption
 } from "@openrhen/contracts";
-import { enqueueAgentWake } from "@openrhen/database";
+import { cancelPendingUnknownWakes, enqueueAgentWake } from "@openrhen/database";
 import { queueBackOnPlanPush } from "./back-on-plan-push";
 import { ensureUser } from "../persistence/postgres/ensure-user";
 import type { PoolSql, TxSql } from "../persistence/postgres/sql-pool";
@@ -1006,6 +1006,20 @@ export async function runPulseRecorderTick(sql: PoolSql, nowOverride?: Date): Pr
           ${shape.confirmedAt}, ${shape.source}
         )
       `;
+      // The unknown segment closed: a pulse_unknown wake not yet sent is no longer true.
+      if (open?.state === "unknown" && shape.state !== "unknown") {
+        await cancelPendingUnknownWakes(tx, userId);
+      }
+      // Once per unknown segment (a change inside one does not reopen it), and not stacked on a wake already sent
+      // or queued for the same silence in the last 30 minutes.
+      if (shape.state === "unknown" && open?.state !== "unknown") {
+        const recent = await tx`
+          SELECT 1 FROM agent_wakes
+          WHERE user_id = ${userId} AND created_at > ${new Date(now.getTime() - 30 * 60_000)} LIMIT 1`;
+        if (recent.length === 0) {
+          await enqueueAgentWake(tx, { userId, event: "pulse_unknown", targetId: now.toISOString(), now });
+        }
+      }
       if (shape.state === "on" && shape.reason === "confirmed" && shape.doing && judgement.confirmedAt) {
         await backfillUnconfirmedRun(tx, userId, shape.doing, now, shape.source);
       }

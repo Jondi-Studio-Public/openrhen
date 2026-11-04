@@ -55,14 +55,19 @@ describe("enqueueAgentWake", () => {
     expect(
       await enqueueAgentWake(sql, { userId, event: "pulse_lapsed", targetId: "2026-11-04T00:30:00.000Z", now })
     ).toBe(true);
+    expect(
+      await enqueueAgentWake(sql, { userId, event: "pulse_unknown", targetId: "2026-11-04T00:40:00.000Z", now })
+    ).toBe(true);
     const rows = await sql<{ event: string; status: string; attempts: number; expires_at: Date | string }[]>`
       SELECT event, status, attempts, expires_at FROM agent_wakes ORDER BY event`;
     expect(rows.map((row) => [row.event, row.status, row.attempts])).toEqual([
       ["check_in_unanswered", "pending", 0],
-      ["pulse_lapsed", "pending", 0]
+      ["pulse_lapsed", "pending", 0],
+      ["pulse_unknown", "pending", 0]
     ]);
     expect(new Date(rows[0]!.expires_at).getTime() - now.getTime()).toBe(10 * 60_000);
     expect(new Date(rows[1]!.expires_at).getTime() - now.getTime()).toBe(60 * 60_000);
+    expect(new Date(rows[2]!.expires_at).getTime() - now.getTime()).toBe(30 * 60_000);
   });
 
   it("adds nothing for the same event and target a second time", async () => {

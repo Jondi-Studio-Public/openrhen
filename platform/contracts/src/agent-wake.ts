@@ -3,7 +3,7 @@
  * A wake carries ids only, never record titles; the agent reads the record over MCP, where outside text is
  * marked as quoted. Every tool name and argument written below is pinned to `MCP_TOOL_MANIFEST` in agent-wake.test.ts.
  */
-export const AGENT_WAKE_EVENTS = ["check_in_unanswered", "pulse_lapsed"] as const;
+export const AGENT_WAKE_EVENTS = ["check_in_unanswered", "pulse_lapsed", "pulse_unknown"] as const;
 export type AgentWakeEvent = (typeof AGENT_WAKE_EVENTS)[number];
 
 /** Starts every wake message. The agent policy exception for "with no one present, do nothing" keys on it. */
@@ -15,10 +15,11 @@ export const AGENT_WAKE_MARKER = "[OpenRhen wake]";
  */
 export const AGENT_WAKE_POLICY_EXCEPTION = `A message that begins "${AGENT_WAKE_MARKER}" is the owner's instruction to message them once, so "with no one present, do nothing" does not apply to what that message names.`;
 
-/** How long a wake may wait to be sent. A check-in wake is useless late; a lapse stays true for an hour. */
+/** How long a wake may wait to be sent. A check-in wake is useless late; a lapse stays true for an hour; an unknown pulse is worth a question for half an hour. */
 export const AGENT_WAKE_TTL_MINUTES: Record<AgentWakeEvent, number> = {
   check_in_unanswered: 10,
-  pulse_lapsed: 60
+  pulse_lapsed: 60,
+  pulse_unknown: 30
 };
 
 /** A connection that is refused is retried on the next worker tick, this many times, then the wake is dead. */
@@ -56,8 +57,33 @@ const LAPSE_TEXT = [
   "If the owner cannot be reached, stop. Never guess."
 ].join("\n");
 
+const UNKNOWN_TEXT = [
+  `${AGENT_WAKE_MARKER} OpenRhen lost track of what the owner is doing a few minutes ago (the pulse went unknown at ${"${id}"}).`,
+  COMMON_RULES,
+  "Step 1: call rhen_status. Do this only now, because reading it marks the check-in as shown. Read its directive and any pending check-in.",
+  'Step 2: ask the owner a short question, for example "Are you doing <the title from quoted>?".',
+  'Step 3: if rhen_status shows a pending check-in, record their words with rhen_check_in {"status": "on-track" or "deviated" or "unknown", "basis": "stated", "evidence": "<their own words, one line, at most 300 characters>", "command-id": "<a new uuid>"}.',
+  "If they are doing something else, call rhen_disrupt with no options and follow what it asks for.",
+  "If no check-in is pending and they confirm they are on it, thank them and stop; there is no write for that yet, so call nothing else.",
+  "After a timeout resend the SAME command-id; never resend after an error under another id.",
+  "If any call is refused with reentry_required, do the re-entry steps: call rhen_reenter with no arguments and follow it. If a call is refused for scope, tell the owner their answer and stop."
+].join("\n");
+
 /** The full message for a wake, ready to POST. `id` is the check-in id or the lapse's start time. */
 export function agentWakeMessage(event: AgentWakeEvent, id: string): string {
-  const text = event === "check_in_unanswered" ? CHECK_IN_TEXT : LAPSE_TEXT;
+  let text: string;
+  switch (event) {
+    case "check_in_unanswered":
+      text = CHECK_IN_TEXT;
+      break;
+    case "pulse_lapsed":
+      text = LAPSE_TEXT;
+      break;
+    case "pulse_unknown":
+      text = UNKNOWN_TEXT;
+      break;
+    default:
+      throw new Error(`Unknown agent wake event: ${String(event satisfies never)}`);
+  }
   return text.replace("${id}", () => id);
 }

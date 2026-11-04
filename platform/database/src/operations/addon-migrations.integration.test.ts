@@ -69,7 +69,14 @@ function legacyEntries(count = 142): Entry[] {
 const legacySql = (e: Entry) =>
   e.idx === 5
     ? "CREATE TABLE addon_things (id serial PRIMARY KEY, occurrence_id text, note text);\n--> statement-breakpoint\nCREATE TABLE addon_events (id serial PRIMARY KEY, thing_id integer NOT NULL);\n"
-    : `CREATE TABLE legacy_t${e.idx} (id integer);\n`;
+    : `CREATE TABLE legacy_t${e.idx} (id integer);\n` +
+      // Legacy 0140 makes the table that OpenRhen-native 0142 alters, so a native migration has something to run on.
+      (e.idx === 140
+        ? "CREATE TABLE agent_wakes (event text, CONSTRAINT agent_wakes_event_check CHECK (event IN ('check_in_unanswered','pulse_lapsed')));\n"
+        : "");
+
+/** Migrations after the legacy history ends (0141): OpenRhen-native, applied once on top of an adopted baseline. */
+const NATIVE_COUNT = journal.entries.filter((e) => e.idx > 141).length;
 
 const describeLegacy = (e: Entry, sqlOf = legacySql) => ({
   idx: e.idx,
@@ -244,7 +251,7 @@ describe("the add-on migration set in migrate-on-deploy", () => {
     expect(result.stdout.match(/"decision":"adopt"/g)).toHaveLength(2);
     expect(result.stdout).toContain('"set":"addon","tag":"0000_addon_baseline"');
     expect(await readdir(backupDir)).toHaveLength(1);
-    expect(await coreCount()).toBe(coreBefore! + 1);
+    expect(await coreCount()).toBe(coreBefore! + 1 + NATIVE_COUNT);
     // Adoption row plus the one later add-on migration; the baseline's SQL (with its foreign key) never ran.
     expect(await addonCount()).toBe(2);
     expect(await hasForeignKey("addon_things")).toBe(false);
