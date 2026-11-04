@@ -12,7 +12,7 @@ config({ path: resolve(process.cwd(), "../../.env"), quiet: true });
  */
 export default defineConfig({
   dialect: "postgresql",
-  schema: "./src/schema/private/*",
+  schema: "./src/schema/private/index.ts",
   out: "./addon-drizzle",
   migrations: { table: "__drizzle_migrations_addon", schema: "drizzle" },
   dbCredentials: {
