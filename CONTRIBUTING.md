@@ -54,9 +54,13 @@ By making a contribution to this project, I certify that:
 1. Fork the repository and branch from `main`.
 2. Follow [Development](docs/operations/self-hosting.md#running-from-source) to run from source.
 3. Add or update automated tests with the change. Behaviour that the planner decides belongs in `engine/core` with a test; see [Engine logic](docs/engine/logic.md).
-4. Run `corepack pnpm check`, `corepack pnpm typecheck` and `corepack pnpm test` before pushing. `corepack pnpm test:integration` needs a throwaway local Postgres, and no shared CI runs it for you yet, so run it yourself: `node scripts/setup/init-env.mjs --mode source` and `docker compose up -d postgres` (see [Development](docs/operations/self-hosting.md#running-from-source)), then check that `.env` has a loopback `POSTGRES_ADMIN_URL` (the suites refuse any other host and make and drop their own databases).
+4. Run `corepack pnpm check`, `corepack pnpm typecheck` and `corepack pnpm test` before pushing. `corepack pnpm test:integration` needs a throwaway local Postgres; CI runs it against a `postgres:17` service, so locally run `node scripts/setup/init-env.mjs --mode source` and `docker compose up -d postgres` (see [Development](docs/operations/self-hosting.md#running-from-source)), then check that `.env` has a loopback `POSTGRES_ADMIN_URL` (the suites refuse any other host and make and drop their own databases).
 5. Update the document that owns the behaviour you changed (see the [documentation index](docs/README.md)). Do not copy a rule into a second place.
 6. Open a pull request using the template. Squash merge is the only merge method.
+
+## What CI checks
+
+Every pull request, including one from a fork, runs on GitHub-hosted runners with a read-only token and no secrets. The `ci-ok` check passes only when all of these pass: `pnpm check`, typecheck, unit and integration tests, the engine benchmark, the build, the production browser smoke, the self-host smoke on x86-64 and Arm64, workflow lint and a secret scan (`Hygiene`), and REUSE compliance. `main` requires both `ci-ok` and `DCO`. `DCO` is a separate check on purpose, not part of `ci-ok`: it fails the pull request if a commit lacks a matching `Signed-off-by` line in its trailer block, if the pull request holds a merge commit (rebase instead), or if it lists no commits. Pull requests opened by Renovate are exempt from the sign-off. Workflow lint and the secret scan download actionlint and gitleaks from their release pages and check a pinned sha256 before running them; the browser the production smoke uses is fetched over HTTPS without a checksum pin. A first-time contributor's run waits for a maintainer's approval.
 
 ## Ground rules
 

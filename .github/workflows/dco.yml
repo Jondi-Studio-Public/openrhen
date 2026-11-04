@@ -1,0 +1,31 @@
+# Developer Certificate of Origin: every commit a pull request adds needs a `Signed-off-by:` line whose
+# email is the commit author's (CONTRIBUTING.md); merge commits and an empty range fail. The check is a small script in this repository, not a
+# third-party app. Pull requests only; there is no pull_request_target, so a fork cannot reach secrets.
+name: DCO
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  dco:
+    name: DCO
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history so the pull request's commits can be listed against its base.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check sign-offs
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          # The authenticated opener, which decides the bot exemption; a commit's author email is
+          # whatever its committer typed and proves nothing. Env only, never inline in the script.
+          PR_AUTHOR_LOGIN: ${{ github.event.pull_request.user.login }}
+          PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
+        run: node scripts/ci/dco-check.mjs "$BASE" "$HEAD"

@@ -1,0 +1,307 @@
+# Public CI. Every job runs on a GitHub-hosted runner, because this repository is public and must not
+# run outside contributors' code on anyone's own machine (scripts/test/workflow-policy.test.mjs fails
+# the build if a workflow names another kind of runner). Pull requests from forks run the same jobs
+# with a read-only token and no secrets; there is deliberately no pull_request_target. `ci-ok` is the
+# one check the main ruleset requires.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Hosted runners are UTC already; saying so keeps date-sensitive tests the same everywhere.
+  TZ: UTC
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # What `pnpm test` runs, minus the engine benchmark: it times the engine against wall-clock
+      # ceilings and gets its own job so it never shares a two-core runner with other work.
+      - run: pnpm -r --if-present test
+
+  benchmark:
+    name: Engine benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:performance
+
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # A throwaway server owned by this job. The suites refuse any non-loopback host and make and
+      # drop their own databases on it.
+      POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # A hosted runner has two CPUs shared with Postgres; one package at a time on two workers keeps
+      # per-test latency under the suites' timeouts. The service's default max_connections (100)
+      # covers that.
+      - run: pnpm -r --workspace-concurrency=1 --if-present test:integration --maxWorkers=2
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+  # The production bundle in a real browser: unit tests, typecheck and `pnpm dev` all pass on code the
+  # built output breaks. Builds the portal, starts it and clicks through it
+  # (scripts/smoke/production-click.mjs) against its own throwaway database. Chrome for Testing has
+  # no Linux Arm64 build, so this stays on x86-64; the self-host smoke covers Arm64.
+  smoke:
+    name: Production smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:portal
+      - name: Install Chrome for Testing
+        run: |
+          # The build puppeteer-core is pinned to, so a dependency bump moves the browser with it.
+          # Accepted risk: this is an HTTPS-only download with no checksum pin,
+          # of a binary that only runs the smoke against a throwaway
+          # database in a job with a read-only token and no secrets. The pinned tools in the hygiene
+          # job, which gate the secret scan itself, are sha256-checked.
+          exe=$(node scripts/smoke/install-chrome.mjs "$RUNNER_TOOL_CACHE/chrome-for-testing")
+          missing=$(ldd "$exe" | grep 'not found' || true)
+          if [ -n "$missing" ]; then
+            echo "::error::Chrome needs shared libraries this runner lacks:"
+            echo "$missing"
+            exit 1
+          fi
+          "$exe" --version
+          echo "SMOKE_BROWSER_PATH=$exe" >> "$GITHUB_ENV"
+      - run: pnpm smoke:production
+
+  # The quick start end to end (scripts/selfhost/smoke.mjs): builds every image from source (nothing
+  # is published yet), starts the `app,bundled-db` stack, drives it with the CLI, restarts it, backs it
+  # up and checks nothing is published beyond loopback. Runs on x86-64 and Arm64 so Apple Silicon and
+  # Raspberry Pi support stay proven. No secrets and no Docker context other than the runner's own.
+  selfhost-smoke:
+    name: Self-host smoke (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x86-64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - run: node scripts/selfhost/smoke.mjs --timeout-minutes 25
+
+  # Workflow lint and a full-history secret scan, inlined because the private repository's shared
+  # actions are not reachable from here. Both tools are downloaded from their release page and checked
+  # against a pinned sha256 before they run.
+  hygiene:
+    name: Hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: actionlint
+        env:
+          VERSION: 1.7.12
+          SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          set -euo pipefail
+          dir=$(mktemp -d)
+          curl -sSfL -o "$dir/a.tgz" "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/actionlint_${VERSION}_linux_amd64.tar.gz"
+          echo "$SHA256  $dir/a.tgz" | sha256sum -c -
+          tar -xzf "$dir/a.tgz" -C "$dir" actionlint
+          "$dir/actionlint" -color
+      - name: gitleaks
+        env:
+          VERSION: 8.28.0
+          # From the v8.28.0 release's published gitleaks_8.28.0_checksums.txt (linux_x64 tarball).
+          SHA256: a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb
+        run: |
+          set -euo pipefail
+          dir=$(mktemp -d)
+          curl -sSfL -o "$dir/g.tgz" "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz"
+          echo "$SHA256  $dir/g.tgz" | sha256sum -c -
+          tar -xzf "$dir/g.tgz" -C "$dir" gitleaks
+          # The config is written here, not committed: the export audit forbids a .gitleaks.toml and
+          # inline allow comments in the tree. It allows exactly the two RFC 8291 section 5 test
+          # vectors, and only in the two web-push test files (AND: both the path and the value must
+          # match); every other finding fails the job.
+          cat > "$dir/gitleaks.toml" <<'TOML'
+          title = "OpenRhen CI"
+
+          [extend]
+          useDefault = true
+
+          [[allowlists]]
+          description = "RFC 8291 section 5 test vectors in the web-push tests"
+          condition = "AND"
+          paths = [
+            '''integrations/outbound-proxy/src/web-push\.test\.ts''',
+            '''integrations/outbound-proxy/src/server\.test\.ts''',
+          ]
+          regexes = [
+            '''BTBZMqHH6r4Tts7J_aSIgg''',
+            '''yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw''',
+          ]
+          TOML
+          "$dir/gitleaks" detect --redact --no-banner --exit-code 1 --config "$dir/gitleaks.toml"
+
+  reuse:
+    name: REUSE compliance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: fsfe/reuse-action@676e2d560c9a403aa252096d99fcab3e1132b0f5 # v6.0.0
+
+  ci-ok:
+    name: ci-ok
+    needs: [check, typecheck, unit, benchmark, integration, build, smoke, selfhost-smoke, hygiene, reuse]
+    # Runs even when a job above failed or was cancelled, so the required check is red, never missing.
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every job to have succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          needs = json.loads(os.environ["NEEDS"])
+          bad = {job: info.get("result") for job, info in needs.items() if info.get("result") != "success"}
+          for job, info in sorted(needs.items()):
+              print(f"{job}: {info.get('result')}")
+          if not needs or bad:
+              print("ci-ok failed: " + (", ".join(f"{j}={r}" for j, r in sorted(bad.items())) or "no jobs"))
+              sys.exit(1)
+          PY
