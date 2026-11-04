@@ -448,6 +448,18 @@ export function closedBySaveRefusal(input: {
   stored?: { status: string; version: number } | undefined;
 }): Refusal {
   const who = `${cap(labelOf(input.type))} ${quoted(input.id)}`;
+  if (!isClosedStatus(input.incoming)) {
+    // A reopen by save: it would skip the restore rules (version, closed ancestor, a person's close, a batch).
+    const stored = input.stored;
+    if (stored === undefined || !isClosedStatus(stored.status))
+      return { message: `${who} is not closed, so there is nothing to reopen.` };
+    return {
+      message:
+        `Setting status ${input.incoming} through a save is refused: ${labelOf(input.type)} ${quoted(input.id)} is ${stored.status}, ` +
+        `and reopening it is its own call, ${toolForVerb(stored.status === "archived" ? "archive" : "cancel")} with do restore.`,
+      nextCall: note("reopens it", restoreCall(input.type, input.id, stored.version, stored.status))
+    };
+  }
   const word = input.incoming === "archived" ? "archive" : "cancel";
   if (input.stored === undefined)
     return {

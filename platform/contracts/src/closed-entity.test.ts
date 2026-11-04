@@ -356,6 +356,24 @@ describe("the close budget vocabulary", () => {
 });
 
 describe("the save floor refusals", () => {
+  it("names the restore call for a reopen by save, by the row's own status", () => {
+    const reopen = closedBySaveRefusal({
+      type: "action",
+      id: "a1",
+      incoming: "planned",
+      stored: { status: "cancelled", version: 5 }
+    });
+    expect(reopen.message).toMatch(/refused/);
+    expect(reopen.nextCall).toMatchObject({
+      tool: "rhen_cancel",
+      arguments: { type: "action", id: "a1", do: "restore", "expected-version": 5 }
+    });
+    expect(
+      closedBySaveRefusal({ type: "area", id: "x", incoming: "active", stored: { status: "archived", version: 2 } })
+        .nextCall?.tool
+    ).toBe("rhen_archive");
+  });
+
   it("names the close call with the real id and version for an open row", () => {
     const refusal = closedBySaveRefusal({
       type: "action",

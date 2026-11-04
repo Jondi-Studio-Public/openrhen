@@ -74,7 +74,8 @@ describe("every served home says which verb takes which kind", () => {
       expect(text).toContain("rhen_cancel");
       expect(text).toMatch(/restore/i);
       // The save floor is shipped: a save that closes a row is refused, and the text says so (never "do not").
-      expect(text).toMatch(/A save that sets status archived or cancelled is refused/);
+      expect(text).toMatch(/A save that sets status archived or cancelled(, or reopens a closed row,)? is refused/);
+      expect(text).toMatch(/reopens a closed row/);
       expect(text).not.toMatch(/Never set status archived or cancelled|Do not set status archived or cancelled/);
       // The brake, worded as the stateless rolling hour it is (design section 4).
       expect(text).toMatch(/rolling hour/);

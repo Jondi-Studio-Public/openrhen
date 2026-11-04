@@ -10,12 +10,12 @@ export const ARCHIVE_OR_CANCEL_BRIEF =
   "Archive: area, preset, place, contact, capability, live; a finished outcome or project; a done action or " +
   "deliverable. Cancel: appointment, shift, event; an abandoned outcome or project; an open action or deliverable you " +
   "drop. rhen_archive and rhen_cancel take do close|restore and a reason; closed rows show " +
-  "their restore call. A save that sets status archived or cancelled is refused. Past 20 closures in a rolling " +
+  "their restore call. A save that sets status archived or cancelled, or reopens a closed row, is refused. Past 20 closures in a rolling " +
   "hour (counting the call) a close is filed for the owner.";
 
 /** The full section, as plain bullets, for the skill and the guide. */
 export const ARCHIVE_OR_CANCEL_FULL = [
-  "Archive or cancel. To remove a record from the plan use rhen_archive or rhen_cancel, each with `do` close or restore. A save that sets status archived or cancelled is refused (also in a bulk or a changeset): the refusal names the close call.",
+  "Archive or cancel. To remove a record from the plan use rhen_archive or rhen_cancel, each with `do` close or restore. A save that sets status archived or cancelled is refused, and so is a save that reopens a closed row (also in a bulk or a changeset): the refusal names the close or restore call.",
   "ARCHIVE: an area, routine preset, place, contact, capability or live context; a finished or retired outcome or project; a done action or deliverable.",
   "CANCEL: an appointment, shift or event (a commitment); an abandoned outcome or project; an open action or deliverable you drop.",
   "Give a reason (an agent must). include-children also closes the open rows under an area, outcome or project; cancelling a commitment takes its preparation steps with it.",

@@ -185,7 +185,7 @@ Ids and names: places and context ids come from `rhen_list` entity `conditions`,
 
 ## Archive or cancel
 
-- Archive or cancel. To remove a record from the plan use rhen_archive or rhen_cancel, each with `do` close or restore. A save that sets status archived or cancelled is refused (also in a bulk or a changeset): the refusal names the close call.
+- Archive or cancel. To remove a record from the plan use rhen_archive or rhen_cancel, each with `do` close or restore. A save that sets status archived or cancelled is refused, and so is a save that reopens a closed row (also in a bulk or a changeset): the refusal names the close or restore call.
 - ARCHIVE: an area, routine preset, place, contact, capability or live context; a finished or retired outcome or project; a done action or deliverable.
 - CANCEL: an appointment, shift or event (a commitment); an abandoned outcome or project; an open action or deliverable you drop.
 - Give a reason (an agent must). include-children also closes the open rows under an area, outcome or project; cancelling a commitment takes its preparation steps with it.

@@ -285,6 +285,14 @@ describe("an agent takes back its own create", () => {
     }
   });
 
+  it("is refused for a create the owner confirmed", async () => {
+    const id = uuid();
+    const command = entityCommand("area", { id, name: `Confirmed ${uuid()}`, status: "active", sortOrder: 1 });
+    await runWithActor("claude", () => saveEntity(sql, command), "owner");
+    const made: Made = { type: "area", id, commandId: command.commandId!, version: 1 };
+    await expect(asAgent(() => closeEntity(sql, undoCommand(made)))).rejects.toThrow(/reason/i);
+  });
+
   it("is refused for another agent, the owner, an update, a close, and falls back to the ordinary rules", async () => {
     const made = await makeArea(asAgent);
     const ordinary = async (command: CloseEntityCommand, run = asAgent) => run(() => closeEntity(sql, command));
@@ -660,5 +668,187 @@ describe("the save floor: an agent's save may not close a row", () => {
     }
     expect(refusedCount).toBe(25);
     expect(await sql`SELECT 1 FROM actions WHERE status='cancelled'`).toHaveLength(0);
+  });
+});
+
+describe("the save floor: an agent's save may not reopen a closed row", () => {
+  const actionBody = (id: string, projectId: string, status: string) => ({
+    id,
+    projectId,
+    title: "Draft citations",
+    status,
+    optimisticMinutes: 30,
+    expectedMinutes: 60,
+    pessimisticMinutes: 90,
+    remainingMinutes: 60,
+    energy: "medium",
+    minimumSessionMinutes: 15,
+    maximumSessionMinutes: 90,
+    splittable: true,
+    setupMinutes: 0,
+    importance: 3,
+    consequence: 3,
+    contexts: [],
+    dependencyIds: []
+  });
+  const closeAction = async (run: typeof asAgent, id: string) =>
+    (
+      await run(() =>
+        closeEntity(sql, { type: "action", id, verb: "cancel", do: "close", reason: "x" } as CloseEntityCommand)
+      )
+    ).closed;
+  const setup = async () => {
+    const outcome = await makeOutcome(asAgent, (await makeArea(asAgent)).id);
+    const project = await makeProject(asAgent, outcome.id);
+    return { outcome, project };
+  };
+
+  it("refuses a save of a cancelled action to planned and names the exact restore call", async () => {
+    const { project } = await setup();
+    const action = await makeAction(asAgent, project.id);
+    const closed = await closeAction(asAgent, action.id);
+    const err = await asAgent(() =>
+      saveAction(sql, {
+        commandId: uuid(),
+        expectedVersion: closed.version,
+        action: actionBody(action.id, project.id, "planned")
+      } as never)
+    ).catch((e) => e);
+    expect(err.message).toMatch(/refused/);
+    expect(err.nextCall).toMatchObject({
+      tool: "rhen_cancel",
+      arguments: { type: "action", id: action.id, do: "restore", "expected-version": closed.version }
+    });
+    expect((await stored("action", action.id)).status).toBe("cancelled");
+  });
+
+  it("refuses reopening a person-closed row by save, for an area and an outcome", async () => {
+    const area = await makeArea(asAgent);
+    await asOwner(() =>
+      closeEntity(sql, {
+        type: "area",
+        id: area.id,
+        verb: "archive",
+        do: "close",
+        reason: "mine"
+      } as CloseEntityCommand)
+    );
+    const areaRow = await stored("area", area.id);
+    const err = await asAgent(() =>
+      saveEntity(
+        sql,
+        entityCommand(
+          "area",
+          { id: area.id, name: `Reopen ${uuid()}`, status: "active", sortOrder: 1 },
+          uuid(),
+          areaRow.version
+        )
+      )
+    ).catch((e) => e);
+    expect(err.nextCall).toMatchObject({
+      tool: "rhen_archive",
+      arguments: { type: "area", id: area.id, do: "restore", "expected-version": areaRow.version }
+    });
+    expect((await stored("area", area.id)).status).toBe("archived");
+    const areaId = (await makeArea(asAgent)).id;
+    const outcome = await makeOutcome(asAgent, areaId);
+    const closed = (
+      await asOwner(() =>
+        closeEntity(sql, {
+          type: "outcome",
+          id: outcome.id,
+          verb: "cancel",
+          do: "close",
+          reason: "mine"
+        } as CloseEntityCommand)
+      )
+    ).closed;
+    const err2 = await asAgent(() =>
+      saveEntity(
+        sql,
+        entityCommand(
+          "outcome",
+          { id: outcome.id, areaId, title: "Outcome", definitionOfDone: "Done", value: 3, status: "active" },
+          uuid(),
+          closed.version
+        )
+      )
+    ).catch((e) => e);
+    expect(err2.nextCall).toMatchObject({ tool: "rhen_cancel", arguments: { do: "restore" } });
+    expect((await stored("outcome", outcome.id)).status).toBe("cancelled");
+  });
+
+  it("refuses the same reopen inside a changeset and leaves the row closed", async () => {
+    const { project } = await setup();
+    const action = await makeAction(asAgent, project.id);
+    const closed = await closeAction(asAgent, action.id);
+    const result = await runWithActor(
+      "claude",
+      () =>
+        runChangeset(sql, {
+          commandId: uuid(),
+          mode: "apply",
+          items: [
+            {
+              intent: 0,
+              path: "/api/commands/action",
+              payload: {
+                commandId: uuid(),
+                expectedVersion: closed.version,
+                action: actionBody(action.id, project.id, "planned")
+              }
+            }
+          ]
+        } as never),
+      undefined,
+      undefined,
+      ["write:entity:action"],
+      { action: "on" }
+    );
+    expect(result.ok).toBe(false);
+    expect(JSON.stringify(result)).toMatch(/rhen_cancel/);
+    expect(JSON.stringify(result)).toMatch(/restore/);
+    expect((await stored("action", action.id)).status).toBe("cancelled");
+  });
+
+  it("applies none of 25 reopen saves, and still lets the owner and a confirmed replay reopen", async () => {
+    const { project } = await setup();
+    let refusedCount = 0;
+    const ids: { id: string; version: number }[] = [];
+    for (let i = 0; i < 25; i++) {
+      const action = await makeAction(asAgent, project.id);
+      ids.push({ id: action.id, version: (await closeAction(asOwner, action.id)).version });
+    }
+    for (const { id, version } of ids)
+      await asAgent(() =>
+        saveAction(sql, {
+          commandId: uuid(),
+          expectedVersion: version,
+          action: actionBody(id, project.id, "planned")
+        } as never)
+      ).catch(() => (refusedCount += 1));
+    expect(refusedCount).toBe(25);
+    expect(await sql`SELECT 1 FROM actions WHERE status='cancelled'`).toHaveLength(25);
+    const first = ids[0]!;
+    await asOwner(() =>
+      saveAction(sql, {
+        commandId: uuid(),
+        expectedVersion: first.version,
+        action: actionBody(first.id, project.id, "planned")
+      } as never)
+    );
+    expect((await stored("action", first.id)).status).toBe("planned");
+    const second = ids[1]!;
+    await runWithActor(
+      "claude",
+      () =>
+        saveAction(sql, {
+          commandId: uuid(),
+          expectedVersion: second.version,
+          action: actionBody(second.id, project.id, "planned")
+        } as never),
+      "owner"
+    );
+    expect((await stored("action", second.id)).status).toBe("planned");
   });
 });
