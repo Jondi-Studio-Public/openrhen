@@ -1,0 +1,139 @@
+/* The Inbox thread card for an email thread's proposed changes (email-reasoning §8). */
+.email-thread-card .email-card-header {
+  display: grid;
+  gap: 4px;
+}
+
+.email-change-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.email-change-body {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.email-change-body p,
+.email-change-body blockquote {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.email-change-label {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.email-change-label .flag-chip.unsure {
+  background: var(--neutral-faint);
+  color: var(--ink-muted);
+}
+
+.email-change-why {
+  color: var(--ink-soft);
+}
+
+.email-change-quote {
+  padding-left: 10px;
+  border-left: 3px solid var(--line-strong);
+  color: var(--ink-muted);
+  font-size: var(--fs-4);
+  font-style: italic;
+}
+
+.email-change-diff {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+}
+
+.email-change-diff > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.email-change-diff dt {
+  color: var(--ink-muted);
+  font-weight: 600;
+}
+
+.email-change-diff dd {
+  margin: 0;
+}
+
+.email-change-diff del {
+  color: var(--ink-muted);
+}
+
+.email-change-diff ins {
+  text-decoration: none;
+  font-weight: 600;
+}
+
+/* Open questions on a captured proposal sit across the whole editor grid, above the fields they fill. */
+.proposal-questions {
+  grid-column: 1 / -1;
+}
+
+/* A project the placement add-on prefilled, with its reason, above the type chooser. */
+.placement-suggestion {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--r-2);
+  background: var(--accent-soft);
+}
+
+.email-question {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border-radius: var(--r-2);
+  background: var(--accent-soft);
+}
+
+.email-question[data-answered="true"] {
+  background: var(--neutral-faint);
+}
+
+.email-question label {
+  font-weight: 600;
+}
+
+.email-question-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Answer chips are toggles, not actions: outlined until chosen, filled only for the chosen one. */
+.email-question-chips .chip {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--ink-body);
+  font-weight: 600;
+}
+
+.email-question-chips .chip[aria-pressed="true"] {
+  border-color: var(--accent-fill);
+  background: var(--accent-fill);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .email-change-row {
+    flex-direction: column;
+  }
+}

@@ -1,0 +1,32 @@
+.head {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  margin-bottom: var(--s6);
+}
+a.back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  align-self: flex-start;
+  margin-bottom: var(--s3);
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+  font-weight: 500;
+  text-decoration: none;
+}
+a.back:hover {
+  color: var(--ink);
+}
+/* The tabs bring the gap below the head, so the header itself sits tight against them. */
+.header {
+  margin-bottom: var(--s4);
+}
+.tabs {
+  margin: 0;
+}
+@media (max-width: 719px) {
+  .head {
+    margin-bottom: var(--s4);
+  }
+}

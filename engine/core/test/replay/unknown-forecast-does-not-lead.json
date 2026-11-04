@@ -1,0 +1,24 @@
+{
+  "name": "An undated project does not outrank a well-forecast near deadline",
+  "why": "The unknown-forecast fallback awarded up to full pressure, so projects the engine understood least ranked highest.",
+  "calculatedAt": "2026-08-07T07:00:00.000Z",
+  "horizonDays": 180,
+  "capacity": { "mode": "automatic", "usableFraction": 0.85, "timezone": "Australia/Sydney", "dayStartTime": "07:00", "dayEndTime": "22:00" },
+  "currentEnergy": "high",
+  "assertedConditions": [],
+  "projects": [
+    { "id": "known", "deadlineDays": 3, "value": 3, "consequence": 4 },
+    { "id": "vague", "value": 5, "consequence": 5 }
+  ],
+  "actions": [
+    { "id": "known-work", "projectId": "known", "minutes": 600, "consequence": 4, "importance": 3 },
+    { "id": "vague-work", "projectId": "vague", "minutes": 60, "consequence": 5, "importance": 5 }
+  ],
+  "commitments": [],
+  "expect": {
+    "primaryActionId": "known-work",
+    "criticalRank": 6,
+    "criticalTier": "ordinary",
+    "health": { "vague": "unknown" }
+  }
+}

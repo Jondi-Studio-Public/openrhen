@@ -1,0 +1,38 @@
+{
+  "name": "@openrhen/database",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --config vitest.unit.config.ts",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "db:create": "tsx src/operations/create-database.ts",
+    "db:drop": "tsx src/operations/drop-database.ts",
+    "db:backup": "tsx src/operations/backup.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/operations/migrate.ts",
+    "db:migrations:check": "tsx src/operations/check-migrations.ts",
+    "db:restore:verify": "tsx src/operations/restore.ts",
+    "seed:demo": "tsx src/operations/demo-seed/seed-demo.ts",
+    "smoke:seed-late-commitment": "tsx src/operations/smoke-seed-late-commitment.ts"
+  },
+  "dependencies": {
+    "@openrhen/contracts": "workspace:*",
+    "dotenv": "18.0.9",
+    "drizzle-orm": "0.45.4",
+    "postgres": "3.4.9"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.3",
+    "drizzle-kit": "0.31.11",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vitest": "5.0.5"
+  }
+}

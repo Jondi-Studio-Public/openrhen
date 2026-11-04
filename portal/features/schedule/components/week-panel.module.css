@@ -1,0 +1,12 @@
+.card {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 var(--s4) var(--s4);
+}
+.note {
+  margin: var(--s3) 0 0;
+  font-size: var(--fs-caption);
+  line-height: 16px;
+  color: var(--ink-3);
+}

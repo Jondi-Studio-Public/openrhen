@@ -1,0 +1,26 @@
+/* The gap keeps the global database line clear of the list below it. */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+.caption {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--fs-small);
+}
+.list {
+  max-width: 720px;
+}
+.state {
+  display: inline-flex;
+}
+.telemetry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.telemetry > p,
+.telemetry > div {
+  margin: 0;
+}

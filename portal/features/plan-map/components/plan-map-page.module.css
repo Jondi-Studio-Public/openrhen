@@ -1,0 +1,338 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s5);
+  margin: 0;
+}
+.note {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--fs-small);
+}
+.desk {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s6);
+}
+@media (min-width: 1024px) {
+  .desk {
+    grid-template-columns: 300px minmax(0, 1fr);
+    align-items: start;
+  }
+}
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  min-width: 0;
+}
+.main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  min-width: 0;
+}
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  min-width: 0;
+}
+.label {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+  font-weight: 500;
+}
+.field .select {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 var(--s3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-body);
+}
+.field .select:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.switches {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+/* The whole row is the switch's label, so a tap on the words flips it too. */
+.switchRow {
+  min-height: 44px;
+  margin: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  font-size: var(--fs-body);
+  color: var(--ink);
+}
+.side .divider {
+  width: 100%;
+  height: 1px;
+  margin: 0;
+  border: 0;
+  background: var(--line);
+}
+.centre {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.centre .kind {
+  align-self: flex-start;
+}
+.centre .centreTitle {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--fs-lead);
+  line-height: 24px;
+  font-weight: 600;
+}
+.centreText {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+}
+.centreActions {
+  display: flex;
+  gap: var(--s2);
+}
+.side .inboxLink {
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.side .inboxLink:hover {
+  color: var(--ink);
+}
+
+/* Re-centring cross-fades the picture as one View Transition (see plan-map-page.tsx). */
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  view-transition-name: plan-map-body;
+}
+::view-transition-group(plan-map-body),
+::view-transition-old(plan-map-body),
+::view-transition-new(plan-map-body) {
+  animation-duration: 220ms;
+  animation-timing-function: var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1));
+}
+
+.canvasCard {
+  position: relative;
+  margin: 0;
+  overflow: hidden;
+  background-color: var(--surface);
+  background-image: radial-gradient(var(--line) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+.canvas {
+  display: flex;
+  overflow: auto;
+  padding: var(--s4);
+}
+.canvasCard .svg {
+  display: block;
+  flex: none;
+  margin: auto;
+}
+@media (min-width: 1024px) {
+  .canvasCard {
+    height: 680px;
+  }
+  .canvas {
+    height: 100%;
+    box-sizing: border-box;
+  }
+}
+
+/* Confirmed links are solid, suggested dashed, links from the plan thin. Line style is never the only
+   cue: every link is also listed below with its status in words. */
+.edge {
+  fill: none;
+  stroke-linecap: round;
+}
+.edge[data-look="confirmed"] {
+  stroke: var(--ink-2);
+  stroke-width: 2;
+}
+.edge[data-look="suggested"] {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 5;
+}
+.edge[data-look="derived"] {
+  stroke: var(--ink-3);
+  stroke-width: 1.25;
+}
+.node rect {
+  fill: var(--surface);
+  stroke: var(--line-strong);
+}
+.node.root rect {
+  fill: var(--ink);
+  stroke: var(--ink);
+}
+.nodeTitle {
+  fill: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+.nodeMeta {
+  fill: var(--ink-3);
+  font-size: 11px;
+}
+.node.root .nodeTitle {
+  fill: var(--bg);
+}
+.node.root .nodeMeta {
+  fill: var(--bg);
+  opacity: 0.75;
+}
+.canvas a:focus-visible .node rect {
+  stroke: var(--focus-ring);
+  stroke-width: 3;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1) var(--s4);
+  margin: var(--s3) var(--s4) var(--s4) var(--s4);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  list-style: none;
+  color: var(--ink-3);
+  font-size: var(--fs-caption);
+}
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+@media (min-width: 1024px) {
+  .legend {
+    position: absolute;
+    right: var(--s4);
+    bottom: var(--s4);
+    margin: 0;
+  }
+}
+
+.links {
+  margin: 0;
+}
+.linkList {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.linkRow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--s3) var(--s5);
+  border-top: 1px solid var(--line);
+}
+.linkRow:first-child {
+  border-top: 0;
+}
+.linkRow[data-look="suggested"] {
+  background: var(--accent-soft);
+}
+.linkLine {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--fs-body);
+}
+.linkLine a {
+  color: var(--ink);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.kindWord {
+  color: var(--ink-3);
+}
+
+.starts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  margin: 0;
+}
+.startsTitle {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+  font-weight: 500;
+}
+.startGroup {
+  display: grid;
+  grid-template-columns: 6.5rem minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--s2);
+}
+.startGroup h3 {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+  font-weight: 600;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.starts .chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 var(--s3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+}
+.starts .chip:hover {
+  background: var(--surface-2);
+}
+.starts .chip[aria-current="true"] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--bg);
+}
+@media (max-width: 560px) {
+  .startGroup {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s1);
+  }
+}

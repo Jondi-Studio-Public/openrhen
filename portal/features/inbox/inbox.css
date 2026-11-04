@@ -1,0 +1,125 @@
+/* The Inbox's decision toast docks at the bottom centre of a phone: while one is up, the pill rides
+   above it instead of under it. */
+body:has(.inbox-toast) .plan-updating-pill {
+  bottom: calc(var(--nav-clearance) + 76px);
+}
+
+/* On a desk the pill moves into the rail's foot, where no page content (a card's Drop button, say)
+   can sit beneath it, and clear of the toast as well. */
+@media (min-width: 1024px) {
+  .plan-updating-pill,
+  body:has(.inbox-toast) .plan-updating-pill {
+    bottom: 18px;
+    left: 18px;
+    transform: none;
+  }
+}
+.inbox-history {
+  margin-top: 14px;
+}
+
+.inbox-handled-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 6px 0;
+  padding: 11px 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-2);
+  background: var(--veil-1);
+}
+
+.inbox-handled-row div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.inbox-handled-row strong {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.inbox-history-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.inbox-history-item strong {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.inbox-batch-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.inbox-batch-heading .eyebrow {
+  margin: 0;
+}
+
+/* A decided card leaves toward where it went: right for a confirm, left for an ignore (160ms), then
+   the list closes the gap in a View Transition (use-inbox-decisions.ts). Reduced motion keeps the fade. */
+:root.inbox-reflow::view-transition-group(*) {
+  animation-duration: 220ms;
+  animation-timing-function: var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1));
+}
+
+/* The toast after a decision sits above the phone's tab bar; it rises 8px as it fades in. */
+.inbox-toast-region {
+  position: fixed;
+  z-index: 20;
+  inset: auto 0 calc(var(--nav-clearance) + 16px) 0;
+  display: grid;
+  justify-items: center;
+  padding: 0 16px;
+  pointer-events: none;
+}
+
+.inbox-toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-inline-size: 100%;
+  padding: 6px 6px 6px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--surface-raised);
+  box-shadow: 0 8px 30px var(--shadow-3);
+  font-weight: 600;
+  pointer-events: auto;
+  animation: inbox-toast-in 160ms var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1));
+}
+
+.inbox-toast button.small {
+  min-height: 40px;
+}
+
+.inbox-toast-close {
+  inline-size: 40px;
+  padding-inline: 0;
+  border-color: transparent !important;
+}
+
+@keyframes inbox-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inbox-toast {
+    animation-name: inbox-toast-fade;
+  }
+}
+@keyframes inbox-toast-fade {
+  from {
+    opacity: 0;
+  }
+}

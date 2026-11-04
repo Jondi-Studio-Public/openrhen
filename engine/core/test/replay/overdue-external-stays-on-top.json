@@ -1,0 +1,25 @@
+{
+  "name": "An overdue external deadline stays at the top of the ladder",
+  "why": "A passed external date is still the most urgent thing there is: the outcome has to be renegotiated or recorded. It outranks live external work, and its reason says the date has passed rather than that the work cannot fit.",
+  "calculatedAt": "2026-08-07T07:00:00.000Z",
+  "horizonDays": 180,
+  "capacity": { "mode": "automatic", "usableFraction": 0.85, "timezone": "Australia/Sydney", "dayStartTime": "07:00", "dayEndTime": "22:00" },
+  "currentEnergy": "high",
+  "assertedConditions": [],
+  "projects": [
+    { "id": "missed-submission", "deadlineDays": -1, "externalDeadlineDays": -1, "value": 4, "consequence": 4 },
+    { "id": "study-unit", "externalDeadlineDays": 4, "value": 5, "consequence": 5 }
+  ],
+  "actions": [
+    { "id": "finish-submission", "projectId": "missed-submission", "minutes": 300, "consequence": 4, "importance": 4 },
+    { "id": "study-assessment", "projectId": "study-unit", "minutes": 1800, "consequence": 5, "importance": 5 }
+  ],
+  "commitments": [],
+  "expect": {
+    "primaryActionId": "finish-submission",
+    "criticalTier": "overdue_external",
+    "candidateTiers": { "study-assessment": "at_risk_external" },
+    "overdue": { "missed-submission": true },
+    "proposalFeasible": ["missed-submission"]
+  }
+}

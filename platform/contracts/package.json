@@ -1,0 +1,26 @@
+{
+  "name": "@openrhen/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./integrations/*": "./src/integrations/*.ts",
+    "./zoned-time": "./src/zoned-time.ts",
+    "./commitment-repeat": "./src/planning/commitment-repeat.ts",
+    "./commitment-repeat-falls-on": "./src/planning/commitment-repeat-falls-on.ts",
+    "./readiness": "./src/readiness.ts",
+    "./plan-map-navigator": "./src/plan-map-navigator.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
+}

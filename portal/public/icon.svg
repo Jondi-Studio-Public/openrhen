@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="OpenRhen">
+  <rect width="512" height="512" rx="114" fill="#235b46" />
+  <g fill="#f3f1eb">
+    <rect x="112" y="138" width="288" height="52" rx="26" />
+    <rect x="112" y="230" width="205" height="52" rx="26" />
+    <rect x="112" y="322" width="133" height="52" rx="26" />
+  </g>
+</svg>

@@ -1,0 +1,26 @@
+{
+  "name": "An overdue self-set deadline drops beneath live deadlines and carries a move-the-date proposal",
+  "why": "Engine direction review 2026-08-18: five live projects sat at the top of the ladder forever because their self-set dates had passed. A passed date cannot be recovered by working now, so it is a stale date: it ranks as ordinary work, below every live deadline, and the forecast proposes the earliest date the remaining work would fit without displacing anything.",
+  "calculatedAt": "2026-08-07T07:00:00.000Z",
+  "horizonDays": 180,
+  "capacity": { "mode": "automatic", "usableFraction": 0.85, "timezone": "Australia/Sydney", "dayStartTime": "07:00", "dayEndTime": "22:00" },
+  "currentEnergy": "high",
+  "assertedConditions": [],
+  "projects": [
+    { "id": "study-unit", "externalDeadlineDays": 3, "value": 5, "consequence": 5 },
+    { "id": "home-organising", "deadlineDays": -7, "value": 3, "consequence": 3 }
+  ],
+  "actions": [
+    { "id": "study-assessment", "projectId": "study-unit", "minutes": 1800, "consequence": 5, "importance": 5 },
+    { "id": "sort-cupboard", "projectId": "home-organising", "minutes": 345, "consequence": 3, "importance": 3 }
+  ],
+  "commitments": [],
+  "expect": {
+    "primaryActionId": "study-assessment",
+    "criticalTier": "at_risk_external",
+    "candidateTiers": { "sort-cupboard": "stale_date" },
+    "health": { "study-unit": "at_risk", "home-organising": "behind" },
+    "overdue": { "home-organising": true, "study-unit": false },
+    "proposalFeasible": ["home-organising"]
+  }
+}

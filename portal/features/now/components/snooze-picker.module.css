@@ -1,0 +1,47 @@
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+/* Phone tap targets: the shared chip is 36 px tall. */
+.chip {
+  min-height: 44px;
+}
+.pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--s2);
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+}
+.field input {
+  height: 44px;
+  padding: 0 var(--s3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+.note,
+.error {
+  margin: 0;
+  font-size: var(--fs-small);
+}
+.note {
+  color: var(--ink-2);
+}
+.error {
+  color: var(--danger, var(--ink));
+}

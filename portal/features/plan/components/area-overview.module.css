@@ -1,0 +1,64 @@
+.areas {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.row {
+  min-height: 76px;
+}
+.name {
+  font-size: var(--fs-body);
+  font-weight: 600;
+}
+.progress {
+  width: 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.caption {
+  font-size: var(--fs-caption);
+  line-height: 16px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.badge {
+  min-width: 96px;
+  justify-content: center;
+}
+.archivedToggle.archivedToggle {
+  align-self: flex-start;
+  padding: var(--s1) 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: var(--fs-small);
+  cursor: pointer;
+}
+.archivedToggle.archivedToggle:hover {
+  color: var(--ink);
+  background: transparent;
+}
+.phoneCaption {
+  display: none;
+}
+/* A phone keeps the name, the next date and the badge; the meter column has no room. */
+@media (max-width: 719px) {
+  .row {
+    min-height: 0;
+  }
+  .progress {
+    display: none;
+  }
+  .badge {
+    min-width: 0;
+  }
+  .purpose {
+    display: none;
+  }
+  .phoneCaption {
+    display: inline;
+  }
+}

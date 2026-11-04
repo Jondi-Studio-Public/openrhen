@@ -1,0 +1,76 @@
+# Attaches the prebuilt OpenClaw plugin to a release: a deterministic tarball, its .sha256, and a keyless
+# build-provenance attestation. The README in integrations/openclaw-plugin says how to install it.
+# Runs when a release is published, or by hand for an existing release tag (re-attaches with --clobber).
+name: Release OpenClaw plugin
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to attach the plugin to, for example v0.1.0
+        required: true
+        type: string
+
+concurrency:
+  group: release-openclaw-plugin-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  plugin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # gh release upload, nothing else
+      id-token: write # keyless signing identity for the attestation
+      attestations: write
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Run the plugin's own tests
+        working-directory: integrations/openclaw-plugin
+        run: node --test
+      - name: Pack the plugin
+        run: node integrations/openclaw-plugin/pack.mjs --out dist
+      - name: Smoke-test the tarball as a user would unpack it
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum -c ./*.tgz.sha256
+          smoke="$(mktemp -d)"
+          tar -xzf ./*.tgz -C "$smoke"
+          cd "$smoke"
+          # The public plugin is core-only: fail the release if private terms or markers got through.
+          if grep -rnE 'private:(start|end)' openclaw-plugin; then
+            echo "::error::the packed plugin contains private markers"
+            exit 1
+          fi
+          node openclaw-plugin/stamp-url.mjs https://smoke.example openclaw-plugin
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            import plugin, { unstampedProblem } from "./openclaw-plugin/index.js";
+            const manifest = JSON.parse(readFileSync("./openclaw-plugin/openclaw.plugin.json", "utf8"));
+            const pkg = JSON.parse(readFileSync("./openclaw-plugin/package.json", "utf8"));
+            if (unstampedProblem(manifest)) throw new Error("manifest still unstamped after stamp-url");
+            if (pkg.private) throw new Error("packed package.json is still private");
+            if (!plugin) throw new Error("plugin entry did not load");
+          '
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*.tgz
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" dist/*.tgz dist/*.tgz.sha256 --clobber --repo "$GITHUB_REPOSITORY"

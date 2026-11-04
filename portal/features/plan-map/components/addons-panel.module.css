@@ -1,0 +1,20 @@
+.panel {
+  margin: var(--s4) 0;
+}
+.summary {
+  padding: var(--s4) var(--s5);
+  font-size: var(--fs-lead);
+  line-height: 24px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.note {
+  margin: 0;
+  padding: 0 var(--s5) var(--s3);
+  font-size: var(--fs-small);
+  line-height: 20px;
+  color: var(--ink-2);
+}
+.banner {
+  margin: 0 var(--s5) var(--s3);
+}

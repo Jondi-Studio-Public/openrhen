@@ -1,0 +1,39 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["eslint", "typescript", "unicorn", "oxc", "react", "import"],
+  "categories": {
+    "correctness": "error"
+  },
+  "env": {
+    "builtin": true,
+    "browser": true,
+    "node": true
+  },
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/coverage/**",
+    "**/.next/**",
+    "**/.vinext/**",
+    "var/**",
+    "**/*.d.ts",
+    "**/drizzle/**",
+    "docs/**"
+  ],
+  "rules": {
+    "react/set-state-in-effect": "error",
+    "react/refs": "error",
+    "react/immutability": "error",
+    "react/purity": "error",
+    "react-hooks/exhaustive-deps": "error"
+  },
+  "overrides": [
+    {
+      "files": ["portal/app/api/plan-map/routes.test.ts"],
+      "rules": {
+        "unicorn/no-invalid-fetch-options": "off"
+      }
+    }
+  ]
+}

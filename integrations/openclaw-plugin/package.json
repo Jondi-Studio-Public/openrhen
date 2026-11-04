@@ -1,0 +1,24 @@
+{
+  "name": "@openrhen/openclaw-plugin",
+  "version": "0.3.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "description": "OpenClaw plugin: the OpenRhen remote MCP server plus the skills that teach an agent to use it",
+  "files": [
+    "openclaw.plugin.json",
+    "index.js",
+    "agent-time.js",
+    "stamp-url.mjs",
+    "skills",
+    "README.md"
+  ],
+  "openclaw": {
+    "extensions": [
+      "./index.js"
+    ]
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}

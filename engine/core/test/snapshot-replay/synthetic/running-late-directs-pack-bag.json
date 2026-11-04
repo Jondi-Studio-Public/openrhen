@@ -1,0 +1,359 @@
+{
+  "name": "A commitment under way with its getting-ready steps unfinished directs the earliest step.",
+  "why": "The class started 56 minutes ago, but three before-phase steps (Load the bag, Clean teeth, Shower and skincare) are still pending and the person is still at home. The clock alone must not call the class active: it is running late, so it stays in its setup phase, its window stays shut to other work, and the live directive is the earliest unmet step, Load the bag, rather than a deliverable. The day plan works through all three steps, then the journey to school, before the class block.",
+  "capturedAt": "2027-03-22T22:56:13.405Z",
+  "request": {
+    "state": {
+      "areas": [
+        {
+          "id": "5aaf34eb-56e3-420d-b0c6-3d87af2d1835",
+          "name": "Study",
+          "status": "active",
+          "version": 1,
+          "sortOrder": 0,
+          "description": "Course work and learning."
+        },
+        {
+          "id": "c28addbb-fe3f-434d-9f4b-b741aa84bd62",
+          "name": "Household",
+          "status": "active",
+          "version": 1,
+          "sortOrder": 4,
+          "description": "Cleaning and household tasks."
+        }
+      ],
+      "actions": [],
+      "captures": [],
+      "outcomes": [
+        {
+          "id": "2569c408-0022-4c1a-a022-dea30aee87a8",
+          "title": "Finish the course",
+          "value": 5,
+          "areaId": "5aaf34eb-56e3-420d-b0c6-3d87af2d1835",
+          "status": "active",
+          "version": 1,
+          "reviewOn": "2027-03-23",
+          "deadlineAt": "2027-07-03T12:59:00.000Z",
+          "definitionOfDone": "Every unit is complete."
+        },
+        {
+          "id": "7e9f579f-7684-4f62-8adc-d92fa29308af",
+          "title": "Tidy home technology",
+          "value": 4,
+          "areaId": "c28addbb-fe3f-434d-9f4b-b741aa84bd62",
+          "status": "active",
+          "version": 1,
+          "reviewOn": "2027-03-23",
+          "deadlineAt": "2027-04-22T13:59:00.000Z",
+          "definitionOfDone": "Equipment is reviewed and upgraded."
+        }
+      ],
+      "projects": [
+        {
+          "id": "9f858892-f70a-44a4-bc7d-0b128b112865",
+          "area": "Study",
+          "title": "Complete unit one",
+          "value": 5,
+          "status": "active",
+          "version": 5,
+          "createdAt": "2027-03-01T13:45:01.731Z",
+          "outcomeId": "2569c408-0022-4c1a-a022-dea30aee87a8",
+          "consequence": 5,
+          "uncertainty": "high",
+          "externalDeadlineAt": "2027-03-02T03:59:00.000Z"
+        },
+        {
+          "id": "b1173046-67ed-4e18-832b-2a2d73d60395",
+          "area": "Study",
+          "title": "Complete unit two",
+          "value": 5,
+          "status": "active",
+          "version": 5,
+          "createdAt": "2027-03-01T13:45:01.731Z",
+          "outcomeId": "2569c408-0022-4c1a-a022-dea30aee87a8",
+          "consequence": 5,
+          "uncertainty": "some",
+          "externalDeadlineAt": "2027-02-02T03:59:00.000Z"
+        },
+        {
+          "id": "3c0de126-4b20-43ec-bea4-95cdae0e529b",
+          "area": "Household",
+          "title": "Review equipment",
+          "value": 4,
+          "status": "active",
+          "version": 1,
+          "createdAt": "2027-03-01T13:45:01.731Z",
+          "outcomeId": "7e9f579f-7684-4f62-8adc-d92fa29308af",
+          "consequence": 2,
+          "uncertainty": "high",
+          "internalDeadlineAt": "2027-04-11T13:59:00.000Z"
+        }
+      ],
+      "settings": {
+        "version": 193,
+        "timezone": "Etc/GMT-10",
+        "lastWokeAt": "2027-03-22T20:54:59.187Z",
+        "capacityMode": "automatic",
+        "maxAwakeHours": 20,
+        "conditionCatalog": [],
+        "energyMeanings": {
+          "low": "Low",
+          "high": "High",
+          "medium": "Medium",
+          "recovery": "Recovery"
+        },
+        "homeLocationId": "home",
+        "preferredBedtime": "20:50",
+        "preferredWakeTime": "06:00",
+        "planningHorizonEnd": "20:00",
+        "desiredSleepMinutes": 540,
+        "minimumSleepMinutes": 300,
+        "arrivalMarginMinutes": 5,
+        "disruptionKindLabels": {
+          "work": "Work",
+          "other": "Misc",
+          "family": "Household",
+          "life_admin": "Chores"
+        },
+        "defaultCapacityEnergy": "medium",
+        "defaultUsableFraction": 0.75,
+        "disruptionWhenPresets": [
+          {
+            "id": "later-60",
+            "label": "+60m",
+            "delayMinutes": 60
+          }
+        ],
+        "bedtimeRoutinePresetId": "5b07b8b5-400c-4692-9489-47d36018f79c",
+        "estimateBucketsMinutes": [
+          120
+        ],
+        "submissionBufferMinutes": 60,
+        "submissionBufferPercent": 0.1,
+        "defaultSetupBufferMinutes": 10,
+        "disruptionDurationPresets": [
+          {
+            "id": "unknown",
+            "kind": "unknown",
+            "label": "No idea"
+          }
+        ],
+        "locationStaleAfterMinutes": 480,
+        "defaultTransitionBufferMinutes": 10,
+        "disruptionRetroFallbackMinutes": 60
+      },
+      "horizonEnd": "2027-03-29T13:31:58.441Z",
+      "sleepPlans": [],
+      "commitments": [
+        {
+          "id": "0b11ae71-248a-41ce-9d10-f128f8ba0d42",
+          "title": "Class",
+          "endsAt": "2027-03-23T06:00:00.000Z",
+          "status": "confirmed",
+          "version": 3,
+          "location": "School",
+          "presence": "anchor",
+          "startsAt": "2027-03-22T22:00:00.000Z",
+          "createdAt": "2027-03-16T13:35:38.982Z",
+          "updatedAt": "2027-03-22T13:31:58.138Z",
+          "locationId": "school",
+          "sourceType": "calendar_event",
+          "sourceTitle": "Class",
+          "routineSource": "inherit",
+          "setupBeforeMinutes": 0,
+          "transitionAfterMinutes": 0
+        }
+      ],
+      "occurrences": [],
+      "deliverables": [],
+      "routineSteps": [
+        {
+          "id": "a3513770-f0ef-4fd8-b790-d454b98014e7",
+          "phase": "before",
+          "title": "Load the bag",
+          "energy": "low",
+          "status": "pending",
+          "version": 1,
+          "contexts": [],
+          "sequence": 2,
+          "timingRule": "contiguous",
+          "commitmentId": "0b11ae71-248a-41ce-9d10-f128f8ba0d42",
+          "dependencyIds": [],
+          "scheduledEndAt": "2027-03-22T21:04:00.000Z",
+          "durationMinutes": 10,
+          "scheduledStartAt": "2027-03-22T20:54:00.000Z"
+        },
+        {
+          "id": "f2961959-10ba-4629-b08e-ac41fc7f5275",
+          "phase": "before",
+          "title": "Clean teeth",
+          "energy": "low",
+          "status": "pending",
+          "version": 1,
+          "contexts": [],
+          "sequence": 3,
+          "timingRule": "contiguous",
+          "commitmentId": "0b11ae71-248a-41ce-9d10-f128f8ba0d42",
+          "dependencyIds": [],
+          "actionWindowId": "2f3cbae9-6d89-4213-adf7-9cdfbc9cd1c9",
+          "scheduledEndAt": "2027-03-22T21:12:00.000Z",
+          "durationMinutes": 8,
+          "scheduledStartAt": "2027-03-22T21:04:00.000Z"
+        },
+        {
+          "id": "7353c68a-1061-44ac-8369-89b2132e1ecb",
+          "phase": "before",
+          "title": "Shower and skincare",
+          "energy": "low",
+          "status": "pending",
+          "version": 1,
+          "contexts": [],
+          "sequence": 4,
+          "timingRule": "contiguous",
+          "commitmentId": "0b11ae71-248a-41ce-9d10-f128f8ba0d42",
+          "dependencyIds": [],
+          "scheduledEndAt": "2027-03-22T21:47:00.000Z",
+          "durationMinutes": 35,
+          "scheduledStartAt": "2027-03-22T21:12:00.000Z"
+        }
+      ],
+      "activeSession": null,
+      "currentEnergy": "high",
+      "planningFocus": [],
+      "completedToday": [],
+      "routinePresets": [],
+      "capacityWindows": [],
+      "assertedConditions": [],
+      "currentSituation": {
+        "travel": {},
+        "carrying": {
+          "phone": true,
+          "laptop": true,
+          "online": true
+        },
+        "overrides": {},
+        "locationId": "home",
+        "locationSetAt": "2027-03-22T21:49:15.041Z",
+        "transportModes": [
+          "car"
+        ],
+        "travelRefreshedAt": "2027-03-22T06:16:25.643Z"
+      },
+      "conditionDefinitions": [
+        {
+          "id": "home",
+          "kind": "location",
+          "name": "Home",
+          "grants": [],
+          "status": "active",
+          "version": 3,
+          "channels": [],
+          "latitude": 65.20879321943866,
+          "pathways": [],
+          "longitude": 162.0341429045884,
+          "portability": "fixed",
+          "setupBeforeMinutes": 0,
+          "transitionAfterMinutes": 0
+        },
+        {
+          "id": "school",
+          "kind": "location",
+          "name": "School",
+          "grants": [],
+          "status": "active",
+          "address": "1 Example Street",
+          "version": 2,
+          "channels": [],
+          "latitude": 65.18666265743691,
+          "pathways": [],
+          "longitude": 162.0915199791596,
+          "portability": "fixed",
+          "setupBeforeMinutes": 0,
+          "defaultRoutinePresetId": "98800473-9fee-495e-9af2-53cb525c2ae5",
+          "transitionAfterMinutes": 0
+        }
+      ],
+      "currentRecommendationId": "d25e84d9-97e7-4f28-b98c-f43577a2295a",
+      "commitmentRecurrenceRules": [],
+      "pendingLocationSuggestion": null
+    },
+    "requestId": "110ae1cd-485f-4dd3-b592-a1ce8ef18f92",
+    "horizonEnd": "2027-09-18T22:56:13.405Z",
+    "calculatedAt": "2027-03-22T22:56:13.405Z",
+    "deliverables": [
+      {
+        "id": "37197e34-fbcf-4db2-8d50-f60f573bb483",
+        "title": "Assessment A",
+        "status": "needs_breakdown",
+        "approved": false,
+        "projectId": "9f858892-f70a-44a4-bc7d-0b128b112865",
+        "importance": 5,
+        "consequence": 5,
+        "uncertainty": "high",
+        "hasOpenBlockers": false,
+        "executionOptions": [],
+        "partiallyBlocked": false,
+        "remainingMinutes": null,
+        "externalDeadlineAt": "2027-03-02T03:59:00.000Z",
+        "dependenciesSatisfied": true,
+        "incompletePrerequisites": [],
+        "minimumUsefulSessionMinutes": null
+      },
+      {
+        "id": "d8a0def5-20ad-4e1a-ad09-ec88b80f0c19",
+        "title": "Assessment B",
+        "status": "in_progress",
+        "approved": true,
+        "projectId": "b1173046-67ed-4e18-832b-2a2d73d60395",
+        "importance": 5,
+        "consequence": 5,
+        "uncertainty": "some",
+        "lastWorkedAt": "2027-03-22T11:59:31.822Z",
+        "hasOpenBlockers": false,
+        "executionOptions": [
+          {
+            "id": "15f71245-49a8-49f1-95d8-f41e52d4b4bb",
+            "title": "Draft part A",
+            "energy": "medium",
+            "splittable": true,
+            "setupMinutes": 0,
+            "expectedMinutes": 180,
+            "remainingMinutes": 180,
+            "optimisticMinutes": 126,
+            "pessimisticMinutes": 270,
+            "requirementPathways": [],
+            "maximumSessionMinutes": 120,
+            "minimumSessionMinutes": 15
+          }
+        ],
+        "partiallyBlocked": false,
+        "remainingMinutes": 450,
+        "externalDeadlineAt": "2027-02-02T03:59:00.000Z",
+        "dependenciesSatisfied": true,
+        "incompletePrerequisites": [],
+        "minimumUsefulSessionMinutes": 15
+      }
+    ],
+    "inputVersion": "synthetic",
+    "contractVersion": "1"
+  },
+  "expect": {
+    "currentDirective": {
+      "kind": "routine_step",
+      "targetId": "a3513770-f0ef-4fd8-b790-d454b98014e7",
+      "title": "Load the bag",
+      "recommendedMinutes": 10
+    },
+    "primaryActionId": null,
+    "dayPlan": [
+      "22:56-23:06 routine_step a3513770-f0ef-4fd8-b790-d454b98014e7 0/10",
+      "23:06-23:14 routine_step f2961959-10ba-4629-b08e-ac41fc7f5275 0/8",
+      "23:14-23:49 routine_step 7353c68a-1061-44ac-8369-89b2132e1ecb 0/35",
+      "23:49-00:02 travel→school 0b11ae71-248a-41ce-9d10-f128f8ba0d42 0/13",
+      "00:02-06:00 commitment 0b11ae71-248a-41ce-9d10-f128f8ba0d42 0/358",
+      "06:00-06:13 travel→home 0/13",
+      "06:13-08:55 deliverable d8a0def5-20ad-4e1a-ad09-ec88b80f0c19 120/162 overdue_external",
+      "08:55-10:00 deliverable 37197e34-fbcf-4db2-8d50-f60f573bb483 48/65 overdue_external"
+    ]
+  }
+}

@@ -1,0 +1,22 @@
+.line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+}
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--warn-ink);
+}
+.link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--ink);
+  font-weight: 500;
+}

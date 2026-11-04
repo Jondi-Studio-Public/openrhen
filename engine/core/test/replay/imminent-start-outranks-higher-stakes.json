@@ -1,0 +1,23 @@
+{
+  "name": "At-risk work that must start within the hour outranks higher-stakes work that can wait",
+  "why": "Inside a tier the stakes decided before the latest safe start, so a consequence-5 project that could still start next week beat a consequence-4 project that had to start now.",
+  "calculatedAt": "2026-08-07T07:00:00.000Z",
+  "horizonDays": 180,
+  "capacity": { "mode": "automatic", "usableFraction": 0.85, "timezone": "Australia/Sydney", "dayStartTime": "07:00", "dayEndTime": "22:00" },
+  "currentEnergy": "high",
+  "assertedConditions": [],
+  "projects": [
+    { "id": "later", "externalDeadlineDays": 12, "value": 5, "consequence": 5 },
+    { "id": "now", "externalDeadlineDays": 1, "value": 4, "consequence": 4 }
+  ],
+  "actions": [
+    { "id": "later-work", "projectId": "later", "minutes": 5650, "consequence": 5, "importance": 5 },
+    { "id": "now-work", "projectId": "now", "minutes": 560, "consequence": 4, "importance": 4 }
+  ],
+  "commitments": [],
+  "expect": {
+    "primaryActionId": "now-work",
+    "criticalTier": "at_risk_external",
+    "candidateTiers": { "later-work": "at_risk_external" }
+  }
+}

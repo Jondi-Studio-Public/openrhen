@@ -1,0 +1,93 @@
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+/* The global `section` rule adds a large top margin; this one sits flush under the header. */
+section.group {
+  margin: 0;
+  overflow: hidden;
+}
+.titleText {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.lead {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.live {
+  font-weight: 600;
+}
+.trail {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+}
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 150px;
+  flex: none;
+}
+.caption {
+  font-size: var(--fs-caption);
+  line-height: 16px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.overdue {
+  color: var(--danger-ink);
+  font-weight: 500;
+}
+.badgeSlot {
+  display: inline-flex;
+  min-width: 96px;
+  justify-content: flex-end;
+}
+.chev {
+  width: 16px;
+  height: 16px;
+  color: var(--ink-3);
+  flex: none;
+}
+.meta {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.flags {
+  color: var(--warn-ink);
+}
+/* Two classes, so the global button hover/focus rules do not win. */
+button.toggle {
+  align-self: flex-start;
+  min-height: 44px;
+  padding: 0 var(--s2);
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+  font-weight: 500;
+}
+button.toggle:hover {
+  filter: none;
+  background: var(--surface-2);
+  color: var(--ink);
+}
+button.toggle:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+@media (max-width: 719px) {
+  .progress {
+    display: none;
+  }
+  .badgeSlot {
+    min-width: 0;
+  }
+}

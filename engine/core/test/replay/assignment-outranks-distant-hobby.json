@@ -1,0 +1,24 @@
+{
+  "name": "A four-day assignment outranks a distant high-value hobby",
+  "why": "The engine review measured the hobby winning 51 to 42 because deadline proximity contributed almost nothing and self-reported value dominated.",
+  "calculatedAt": "2026-08-07T07:00:00.000Z",
+  "horizonDays": 180,
+  "capacity": { "mode": "automatic", "usableFraction": 0.85, "timezone": "Australia/Sydney", "dayStartTime": "07:00", "dayEndTime": "22:00" },
+  "currentEnergy": "high",
+  "assertedConditions": [],
+  "projects": [
+    { "id": "assignment", "deadlineDays": 4, "value": 4, "consequence": 4 },
+    { "id": "hobby", "deadlineDays": 120, "value": 5, "consequence": 5 }
+  ],
+  "actions": [
+    { "id": "assignment-draft", "projectId": "assignment", "minutes": 300, "consequence": 4, "importance": 4, "lastWorkedDaysAgo": 2 },
+    { "id": "hobby-start", "projectId": "hobby", "minutes": 60, "consequence": 5, "importance": 5 }
+  ],
+  "commitments": [],
+  "expect": {
+    "primaryActionId": "assignment-draft",
+    "criticalRank": 6,
+    "criticalTier": "ordinary",
+    "health": { "assignment": "on_track", "hobby": "on_track" }
+  }
+}

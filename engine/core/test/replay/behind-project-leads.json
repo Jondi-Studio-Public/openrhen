@@ -1,0 +1,24 @@
+{
+  "name": "A behind project leads regardless of a comfortable project's value",
+  "why": "Capacity pressure alone collapsed when capacity was plentiful, so a behind project could be out-scored by a comfortable one with higher self-reported value.",
+  "calculatedAt": "2026-08-07T07:00:00.000Z",
+  "horizonDays": 180,
+  "capacity": { "mode": "automatic", "usableFraction": 0.85, "timezone": "Australia/Sydney", "dayStartTime": "07:00", "dayEndTime": "22:00" },
+  "currentEnergy": "high",
+  "assertedConditions": [],
+  "projects": [
+    { "id": "overdue", "deadlineDays": 1, "value": 2, "consequence": 2 },
+    { "id": "comfortable", "deadlineDays": 20, "value": 5, "consequence": 5 }
+  ],
+  "actions": [
+    { "id": "overdue-work", "projectId": "overdue", "minutes": 1200, "consequence": 2, "importance": 2 },
+    { "id": "comfortable-work", "projectId": "comfortable", "minutes": 60, "consequence": 5, "importance": 5 }
+  ],
+  "commitments": [],
+  "expect": {
+    "primaryActionId": "overdue-work",
+    "criticalRank": 3,
+    "criticalTier": "behind_internal",
+    "health": { "overdue": "behind" }
+  }
+}

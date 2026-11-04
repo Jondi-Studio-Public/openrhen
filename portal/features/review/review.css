@@ -1,0 +1,25 @@
+/* Non-form content inside an editor-card (a read-only disclosure rather than a field grid) still
+   needs the summary's horizontal padding carried down; .editor-grid's own padding is form-specific. */
+.editor-card-body {
+  padding: 0 19px 19px;
+}
+
+.monthly-check h3 {
+  margin: 14px 0 6px;
+  font-size: var(--fs-4);
+}
+
+.monthly-check h3:first-child {
+  margin-top: 0;
+}
+
+.monthly-check-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 2px;
+}
+
+.monthly-check summary .flag-chip {
+  margin-left: 8px;
+}

@@ -1,0 +1,45 @@
+.card {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.head {
+  padding: var(--s3) var(--s5);
+}
+.notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  padding: var(--s3) var(--s5) 0;
+}
+.notes:empty {
+  display: none;
+}
+.note {
+  margin: 0;
+  font-size: var(--fs-small);
+  line-height: 18px;
+  color: var(--ink-3);
+}
+.warn {
+  color: var(--warn-ink);
+}
+.day {
+  padding: var(--s3) var(--s4) var(--s4);
+}
+.switched {
+  animation: day-fade var(--dur-1) var(--ease-out);
+}
+@keyframes day-fade {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .switched {
+    animation: none;
+  }
+}
+.timeline {
+  position: relative;
+}

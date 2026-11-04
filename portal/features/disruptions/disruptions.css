@@ -1,0 +1,80 @@
+/* The renegotiation prompt: shown only when a disruption actually cost something — a displaced
+   target, or a bedtime move past the threshold — so the amber tint (borrowed from `.form-warning`)
+   reads as "a decision to make", distinct from the calmer, informational `.engagement-strip`. */
+.renegotiation-panel {
+  margin: 14px 0 4px;
+  padding: 14px 16px;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r-2);
+  background: var(--warn-bg);
+}
+
+.renegotiation-panel h2 {
+  margin: 0 0 6px;
+  font-size: var(--fs-5);
+  color: var(--warn-ink);
+}
+
+/* Filled in one-handed while the disruption is happening, so every answer but the name is a tap on a
+   bucket: wide targets, wrapping rather than scrolling, and no control that opens a menu. */
+.disruption-form {
+  display: grid;
+  gap: 15px;
+  margin-top: 4px;
+}
+
+.disruption-form .form-error {
+  position: static;
+  margin: 0;
+}
+
+.disruption-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.disruption-choices button.quiet {
+  min-height: 42px;
+  border-radius: var(--r-pill);
+}
+
+.disruption-choices button.quiet.selected {
+  border-color: var(--accent-bright);
+  background: var(--accent-tint);
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+/* One editable row per when/duration preset on /settings/disruptions: fields on the left, reorder
+   and remove controls on the right, wrapping on a narrow screen rather than scrolling. */
+.disruption-preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.disruption-preset-row .field {
+  flex: 1 1 140px;
+  margin: 0;
+}
+
+.disruption-preset-row-actions {
+  display: flex;
+  gap: 6px;
+  padding-bottom: 2px;
+}
+
+.proposal-editor .form-error {
+  grid-column: 1 / -1;
+  position: static;
+  margin: 0;
+}
+
+.report-card .field {
+  margin-top: 12px;
+  max-width: 640px;
+}

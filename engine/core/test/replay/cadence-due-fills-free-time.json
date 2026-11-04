@@ -1,0 +1,26 @@
+{
+  "name": "Due cadence actions fill free time by importance, and one done today yields to the next",
+  "why": "A cadence action has no deadline, so only its own pressure can carry it. Importance must decide between two due habits, a habit done today must not be offered again, and none of it may reach a deadline tier.",
+  "calculatedAt": "2026-08-07T07:00:00.000Z",
+  "horizonDays": 180,
+  "capacity": { "mode": "automatic", "usableFraction": 0.85, "timezone": "Australia/Sydney", "dayStartTime": "07:00", "dayEndTime": "22:00" },
+  "currentEnergy": "high",
+  "assertedConditions": [],
+  "projects": [
+    { "id": "maths", "value": 3, "consequence": 3 },
+    { "id": "fitness", "value": 3, "consequence": 3 },
+    { "id": "garden", "value": 3, "consequence": 3 }
+  ],
+  "actions": [
+    { "id": "maths-drill", "projectId": "maths", "minutes": 30, "importance": 5, "minimumSessionMinutes": 15, "cadence": { "intervalDays": 1, "lastDoneDaysAgo": 1 } },
+    { "id": "run", "projectId": "fitness", "minutes": 40, "importance": 2, "minimumSessionMinutes": 20, "cadence": { "intervalDays": 3, "lastDoneDaysAgo": 3 } },
+    { "id": "stretch", "projectId": "fitness", "minutes": 10, "importance": 5, "minimumSessionMinutes": 5, "cadence": { "intervalDays": 1, "lastDoneDaysAgo": 0 } },
+    { "id": "weed-beds", "projectId": "garden", "minutes": 60, "importance": 3, "minimumSessionMinutes": 30 }
+  ],
+  "commitments": [],
+  "expect": {
+    "primaryActionId": "maths-drill",
+    "criticalTier": "ordinary",
+    "candidateTiers": { "maths-drill": "ordinary", "run": "ordinary", "stretch": "ordinary", "weed-beds": "ordinary" }
+  }
+}

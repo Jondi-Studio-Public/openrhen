@@ -1,0 +1,17 @@
+.count {
+  min-width: 22px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--surface-3);
+  color: var(--ink-2);
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  display: inline-grid;
+  place-items: center;
+  font-variant-numeric: tabular-nums;
+}
+.hot {
+  background: var(--accent-fill);
+  color: var(--accent-ink);
+}

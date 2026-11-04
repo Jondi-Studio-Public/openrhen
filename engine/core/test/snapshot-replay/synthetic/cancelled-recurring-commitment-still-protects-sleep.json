@@ -1,0 +1,484 @@
+{
+  "name": "A cancelled occurrence of a recurring commitment no longer shortens sleep or holds a block in the day.",
+  "why": "The weekly workshop on 11 December is cancelled, but the rule that repeats it is still active, so the engine regenerates that occurrence from the rule as if it were confirmed. A stored row marked cancelled must win over the regenerated occurrence: the cancelled occurrence is dropped from the protected commitments. Sleep is then not cut to 96 minutes to make way for it, no phantom workshop block appears in the day plan, and the night reaches 531 minutes, ending at the wake time before the next getting-ready chain.",
+  "capturedAt": "2026-12-10T18:57:21.904Z",
+  "request": {
+    "state": {
+      "areas": [
+        {
+          "id": "b16b9a91-d6e9-4314-9870-11d4e23e5da2",
+          "name": "Study",
+          "status": "active",
+          "version": 1,
+          "sortOrder": 0,
+          "description": "Course work and learning."
+        },
+        {
+          "id": "e675f462-a251-45a6-92d3-5ace6eea96ea",
+          "name": "Household",
+          "status": "active",
+          "version": 1,
+          "sortOrder": 4,
+          "description": "Cleaning and household tasks."
+        }
+      ],
+      "actions": [],
+      "captures": [],
+      "outcomes": [
+        {
+          "id": "55bfc220-6cca-4f81-ab7d-b8b85445e769",
+          "title": "Finish the course",
+          "value": 5,
+          "areaId": "b16b9a91-d6e9-4314-9870-11d4e23e5da2",
+          "status": "active",
+          "version": 1,
+          "reviewOn": "2026-12-08",
+          "deadlineAt": "2027-03-20T12:59:00.000Z",
+          "definitionOfDone": "Every unit is complete."
+        },
+        {
+          "id": "d484a4a8-d673-42af-9637-4b37998d18c6",
+          "title": "Tidy home technology",
+          "value": 4,
+          "areaId": "e675f462-a251-45a6-92d3-5ace6eea96ea",
+          "status": "active",
+          "version": 1,
+          "reviewOn": "2026-12-08",
+          "deadlineAt": "2027-01-07T13:59:00.000Z",
+          "definitionOfDone": "Equipment is reviewed and upgraded."
+        }
+      ],
+      "projects": [
+        {
+          "id": "e55441ef-b1e8-4091-83fd-9c9db3ebd9ee",
+          "area": "Study",
+          "title": "Complete unit one",
+          "value": 5,
+          "status": "active",
+          "version": 5,
+          "createdAt": "2026-11-16T13:45:01.731Z",
+          "outcomeId": "55bfc220-6cca-4f81-ab7d-b8b85445e769",
+          "consequence": 5,
+          "uncertainty": "high",
+          "externalDeadlineAt": "2026-11-17T03:59:00.000Z"
+        },
+        {
+          "id": "abb69351-507f-4f3c-b9e8-3d3efa460aa9",
+          "area": "Household",
+          "title": "Review equipment",
+          "value": 4,
+          "status": "active",
+          "version": 1,
+          "createdAt": "2026-11-16T13:45:01.731Z",
+          "outcomeId": "d484a4a8-d673-42af-9637-4b37998d18c6",
+          "consequence": 2,
+          "uncertainty": "high",
+          "internalDeadlineAt": "2026-12-27T13:59:00.000Z"
+        },
+        {
+          "id": "ec2860b9-c6fa-4983-a232-4da33ce71d97",
+          "area": "Household",
+          "title": "Merge duplicate services",
+          "value": 4,
+          "status": "active",
+          "version": 1,
+          "createdAt": "2026-11-16T13:45:01.731Z",
+          "outcomeId": "d484a4a8-d673-42af-9637-4b37998d18c6",
+          "consequence": 3,
+          "uncertainty": "some",
+          "internalDeadlineAt": "2027-01-07T13:59:00.000Z"
+        }
+      ],
+      "settings": {
+        "version": 226,
+        "timezone": "Etc/GMT-10",
+        "lastWokeAt": "2026-12-10T05:02:38.582Z",
+        "capacityMode": "automatic",
+        "maxAwakeHours": 20,
+        "conditionCatalog": [],
+        "energyMeanings": {
+          "low": "Low",
+          "high": "High",
+          "medium": "Medium",
+          "recovery": "Recovery"
+        },
+        "homeLocationId": "home",
+        "preferredBedtime": "20:50",
+        "preferredWakeTime": "06:00",
+        "planningHorizonEnd": "20:00",
+        "desiredSleepMinutes": 540,
+        "minimumSleepMinutes": 300,
+        "arrivalMarginMinutes": 5,
+        "disruptionKindLabels": {
+          "work": "Work",
+          "other": "Misc",
+          "family": "Household",
+          "life_admin": "Chores"
+        },
+        "defaultCapacityEnergy": "medium",
+        "defaultUsableFraction": 0.75,
+        "disruptionWhenPresets": [
+          {
+            "id": "later-60",
+            "label": "+60m",
+            "delayMinutes": 60
+          }
+        ],
+        "bedtimeRoutinePresetId": "c2f1df3c-499d-428f-8017-1d4c648dc067",
+        "estimateBucketsMinutes": [
+          120
+        ],
+        "submissionBufferMinutes": 60,
+        "submissionBufferPercent": 0.1,
+        "defaultSetupBufferMinutes": 10,
+        "disruptionDurationPresets": [
+          {
+            "id": "unknown",
+            "kind": "unknown",
+            "label": "No idea"
+          }
+        ],
+        "locationStaleAfterMinutes": 480,
+        "defaultTransitionBufferMinutes": 10,
+        "disruptionRetroFallbackMinutes": 60
+      },
+      "horizonEnd": "2026-12-17T16:10:11.673Z",
+      "sleepPlans": [],
+      "commitments": [
+        {
+          "id": "21a8f3ea-a657-4587-8200-5980eb1635aa",
+          "title": "Work",
+          "endsAt": "2026-12-10T23:45:00.000Z",
+          "status": "confirmed",
+          "version": 1,
+          "location": "Office",
+          "presence": "blocking",
+          "startsAt": "2026-12-10T20:00:00.000Z",
+          "createdAt": "2026-12-10T15:09:21.900Z",
+          "updatedAt": "2026-12-10T15:09:21.900Z",
+          "locationId": "work",
+          "sourceType": "calendar_event",
+          "sourceTitle": "Work",
+          "promptPolicy": "normal",
+          "routineSource": "custom",
+          "setupBeforeMinutes": 10,
+          "transitionAfterMinutes": 20
+        },
+        {
+          "id": "db9b34e3-74ac-491b-bc1a-525b431eea97",
+          "title": "Weekly workshop",
+          "endsAt": "2026-12-11T05:00:00.000Z",
+          "status": "cancelled",
+          "version": 2,
+          "location": "Home",
+          "presence": "blocking",
+          "startsAt": "2026-12-11T02:00:00.000Z",
+          "createdAt": "2026-11-20T02:14:21.997Z",
+          "localDate": "2026-12-11",
+          "updatedAt": "2026-12-10T18:53:44.049Z",
+          "promptPolicy": "normal",
+          "routineSource": "inherit",
+          "recurrenceRuleId": "7890cd2a-ace0-4dd6-9c6e-2a5f25d81b7b",
+          "setupBeforeMinutes": 0,
+          "transitionAfterMinutes": 0
+        },
+        {
+          "id": "f26b54ec-211e-4fa2-9c24-e237326c7e21",
+          "title": "Work",
+          "endsAt": "2026-12-11T23:00:00.000Z",
+          "status": "confirmed",
+          "version": 1,
+          "location": "Office",
+          "presence": "blocking",
+          "startsAt": "2026-12-11T20:00:00.000Z",
+          "createdAt": "2026-12-10T15:09:21.900Z",
+          "updatedAt": "2026-12-10T15:09:21.900Z",
+          "locationId": "work",
+          "sourceType": "calendar_event",
+          "sourceTitle": "Work",
+          "promptPolicy": "normal",
+          "routineSource": "custom",
+          "setupBeforeMinutes": 10,
+          "transitionAfterMinutes": 20
+        }
+      ],
+      "occurrences": [],
+      "deliverables": [],
+      "routineSteps": [
+        {
+          "id": "3f317fb0-dad6-4732-aefa-cc9b0691b961",
+          "phase": "before",
+          "title": "Have a morning meal",
+          "energy": "low",
+          "status": "pending",
+          "version": 2,
+          "contexts": [],
+          "sequence": 1,
+          "timingRule": "contiguous",
+          "commitmentId": "21a8f3ea-a657-4587-8200-5980eb1635aa",
+          "dependencyIds": [],
+          "scheduledEndAt": "2026-12-10T19:05:00.000Z",
+          "durationMinutes": 15,
+          "scheduledStartAt": "2026-12-10T18:50:00.000Z"
+        },
+        {
+          "id": "41564167-59a1-4798-95b1-e6a68a16f9ab",
+          "phase": "before",
+          "title": "Fill water bottle",
+          "energy": "low",
+          "status": "pending",
+          "version": 2,
+          "contexts": [],
+          "sequence": 2,
+          "timingRule": "flexible",
+          "commitmentId": "21a8f3ea-a657-4587-8200-5980eb1635aa",
+          "dependencyIds": [],
+          "maxLeadMinutes": 900,
+          "scheduledEndAt": "2026-12-10T19:10:00.000Z",
+          "durationMinutes": 5,
+          "scheduledStartAt": "2026-12-10T19:05:00.000Z"
+        },
+        {
+          "id": "c87525b9-6e20-49f4-8a53-c2c3acd50c94",
+          "phase": "before",
+          "title": "Shower and dress",
+          "energy": "low",
+          "status": "pending",
+          "version": 2,
+          "contexts": [],
+          "sequence": 3,
+          "timingRule": "contiguous",
+          "commitmentId": "21a8f3ea-a657-4587-8200-5980eb1635aa",
+          "dependencyIds": [],
+          "scheduledEndAt": "2026-12-10T19:40:00.000Z",
+          "durationMinutes": 30,
+          "scheduledStartAt": "2026-12-10T19:10:00.000Z"
+        },
+        {
+          "id": "a61dc6b0-8b07-4af6-a38a-6e4f6b5ff7ef",
+          "phase": "before",
+          "title": "Clean teeth",
+          "energy": "low",
+          "status": "pending",
+          "version": 2,
+          "contexts": [],
+          "sequence": 4,
+          "timingRule": "contiguous",
+          "commitmentId": "21a8f3ea-a657-4587-8200-5980eb1635aa",
+          "dependencyIds": [
+            "3f317fb0-dad6-4732-aefa-cc9b0691b961"
+          ],
+          "actionWindowId": "57e123da-ca6e-4a4b-b5ef-ce8f2158d0e7",
+          "scheduledEndAt": "2026-12-10T19:48:00.000Z",
+          "durationMinutes": 8,
+          "scheduledStartAt": "2026-12-10T19:40:00.000Z"
+        },
+        {
+          "id": "c468d429-af37-4b9f-96b9-6aadb95914ed",
+          "phase": "before",
+          "title": "Final check",
+          "energy": "low",
+          "status": "pending",
+          "version": 1,
+          "contexts": [],
+          "sequence": 5,
+          "timingRule": "contiguous",
+          "commitmentId": "21a8f3ea-a657-4587-8200-5980eb1635aa",
+          "dependencyIds": [],
+          "scheduledEndAt": "2026-12-10T19:50:00.000Z",
+          "durationMinutes": 2,
+          "scheduledStartAt": "2026-12-10T19:48:00.000Z"
+        },
+        {
+          "id": "c1d31786-c3ab-4745-bb24-e5d69af2d9a3",
+          "phase": "before",
+          "title": "Have a morning meal",
+          "energy": "low",
+          "status": "pending",
+          "version": 1,
+          "contexts": [],
+          "sequence": 1,
+          "timingRule": "contiguous",
+          "commitmentId": "f26b54ec-211e-4fa2-9c24-e237326c7e21",
+          "dependencyIds": [],
+          "scheduledEndAt": "2026-12-11T19:05:00.000Z",
+          "durationMinutes": 15,
+          "scheduledStartAt": "2026-12-11T18:50:00.000Z"
+        },
+        {
+          "id": "cd96c022-1d73-45ae-ac74-6bcdfc093888",
+          "phase": "before",
+          "title": "Shower and dress",
+          "energy": "low",
+          "status": "pending",
+          "version": 1,
+          "contexts": [],
+          "sequence": 3,
+          "timingRule": "contiguous",
+          "commitmentId": "f26b54ec-211e-4fa2-9c24-e237326c7e21",
+          "dependencyIds": [],
+          "scheduledEndAt": "2026-12-11T19:40:00.000Z",
+          "durationMinutes": 30,
+          "scheduledStartAt": "2026-12-11T19:10:00.000Z"
+        },
+        {
+          "id": "0009b470-67d8-42a1-8491-d2dfa6d11f58",
+          "phase": "before",
+          "title": "Clean teeth",
+          "energy": "low",
+          "status": "pending",
+          "version": 2,
+          "contexts": [],
+          "sequence": 4,
+          "timingRule": "contiguous",
+          "commitmentId": "f26b54ec-211e-4fa2-9c24-e237326c7e21",
+          "dependencyIds": [],
+          "actionWindowId": "57e123da-ca6e-4a4b-b5ef-ce8f2158d0e7",
+          "scheduledEndAt": "2026-12-11T19:48:00.000Z",
+          "durationMinutes": 8,
+          "scheduledStartAt": "2026-12-11T19:40:00.000Z"
+        }
+      ],
+      "activeSession": null,
+      "currentEnergy": "high",
+      "planningFocus": [],
+      "completedToday": [],
+      "routinePresets": [
+        {
+          "id": "c2f1df3c-499d-428f-8017-1d4c648dc067",
+          "name": "Evening routine",
+          "steps": [
+            {
+              "id": "db079127-82ec-43ac-a8b7-b635a78c11e9",
+              "phase": "before",
+              "title": "Have a glass of water",
+              "energy": "low",
+              "contexts": [],
+              "sequence": 0,
+              "timingRule": "contiguous",
+              "dependencyIds": [],
+              "actionWindowId": "680215db-5d64-4d31-aa58-2e981c2d2b11",
+              "durationMinutes": 1
+            },
+            {
+              "id": "0997cbba-de10-4dc1-be6c-394fcc0e2ea5",
+              "phase": "before",
+              "title": "Evening hygiene",
+              "energy": "low",
+              "contexts": [],
+              "sequence": 1,
+              "timingRule": "contiguous",
+              "dependencyIds": [],
+              "actionWindowId": "78ca6a2e-aefc-417e-ad1f-b855eaf10cb9",
+              "durationMinutes": 8
+            },
+            {
+              "id": "111e2ceb-6a2b-4155-bbaa-ec6877f9a962",
+              "phase": "before",
+              "title": "Wash up",
+              "energy": "low",
+              "contexts": [],
+              "sequence": 2,
+              "timingRule": "flexible",
+              "dependencyIds": [],
+              "maxLeadMinutes": 120,
+              "durationMinutes": 10
+            }
+          ],
+          "status": "active",
+          "version": 8,
+          "activityName": "Sleep"
+        }
+      ],
+      "capacityWindows": [],
+      "assertedConditions": [],
+      "currentSituation": {
+        "travel": {},
+        "carrying": {
+          "phone": true,
+          "laptop": true,
+          "online": true
+        },
+        "overrides": {},
+        "locationId": "home",
+        "locationSetAt": "2026-12-10T18:51:27.226Z",
+        "transportModes": []
+      },
+      "conditionDefinitions": [],
+      "currentRecommendationId": "c3c25408-15ad-4851-9557-23ac82150847",
+      "commitmentRecurrenceRules": [
+        {
+          "id": "7890cd2a-ace0-4dd6-9c6e-2a5f25d81b7b",
+          "title": "Weekly workshop",
+          "status": "active",
+          "version": 3,
+          "location": "Home",
+          "presence": "blocking",
+          "timezone": "Etc/GMT-10",
+          "startDate": "2026-11-20",
+          "localEndTime": "15:00",
+          "routineSource": "inherit",
+          "localStartTime": "12:00",
+          "setupBeforeMinutes": 0,
+          "transitionAfterMinutes": 0,
+          "repeat": {
+            "unit": "days",
+            "intervalDays": 7
+          }
+        }
+      ],
+      "pendingLocationSuggestion": null
+    },
+    "requestId": "bcbadd26-c58d-47d0-952c-22b4406efbc5",
+    "horizonEnd": "2027-06-08T18:57:21.904Z",
+    "calculatedAt": "2026-12-10T18:57:21.904Z",
+    "deliverables": [
+      {
+        "id": "692f1dfd-2278-41c5-9323-66ba4e4d0480",
+        "title": "Assessment A",
+        "status": "needs_breakdown",
+        "approved": false,
+        "projectId": "e55441ef-b1e8-4091-83fd-9c9db3ebd9ee",
+        "importance": 5,
+        "consequence": 5,
+        "uncertainty": "high",
+        "hasOpenBlockers": false,
+        "executionOptions": [],
+        "partiallyBlocked": false,
+        "remainingMinutes": null,
+        "externalDeadlineAt": "2026-11-17T03:59:00.000Z",
+        "dependenciesSatisfied": true,
+        "incompletePrerequisites": [],
+        "minimumUsefulSessionMinutes": null
+      }
+    ],
+    "inputVersion": "synthetic",
+    "contractVersion": "1"
+  },
+  "expect": {
+    "currentDirective": {
+      "kind": "routine_step",
+      "targetId": "3f317fb0-dad6-4732-aefa-cc9b0691b961",
+      "title": "Have a morning meal",
+      "recommendedMinutes": 15
+    },
+    "primaryActionId": null,
+    "dayPlan": [
+      "18:57-19:12 routine_step 3f317fb0-dad6-4732-aefa-cc9b0691b961 0/15",
+      "19:12-19:17 routine_step 41564167-59a1-4798-95b1-e6a68a16f9ab 0/5",
+      "19:17-19:47 routine_step c87525b9-6e20-49f4-8a53-c2c3acd50c94 0/30",
+      "19:47-19:55 routine_step a61dc6b0-8b07-4af6-a38a-6e4f6b5ff7ef 0/8",
+      "19:55-19:57 routine_step c468d429-af37-4b9f-96b9-6aadb95914ed 0/2",
+      "19:57-00:05 commitment 21a8f3ea-a657-4587-8200-5980eb1635aa 0/248",
+      "00:05-00:06 routine_step 7ee8ac40-0071-44ce-8e3b-5996d00e66b2 0/1",
+      "00:06-00:14 routine_step a367198d-03b0-41d1-a948-a6cfc502e3f5 0/8",
+      "00:14-00:24 routine_step 65a732e1-ad2f-414d-b6f1-3a9f2fea2f51 0/10",
+      "00:24-09:15 sleep 415083c5-a437-4835-b835-b663ad999df1 0/531",
+      "09:15-09:26 deliverable 692f1dfd-2278-41c5-9323-66ba4e4d0480 8/11 overdue_external",
+      "09:26-09:27 routine_step 26887d60-993e-47e8-a704-2c02848f2eec 0/1",
+      "09:27-09:35 routine_step 8b6199ad-9c7d-44eb-886a-d8ab7983ac2f 0/8",
+      "09:35-09:45 routine_step 99dcbc01-45fc-4467-b118-570be46af78b 0/10",
+      "09:45-18:45 sleep 3e507f0c-2a23-42ac-b01d-abacd56e8920 0/540"
+    ]
+  }
+}

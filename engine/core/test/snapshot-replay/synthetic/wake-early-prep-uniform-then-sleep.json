@@ -1,0 +1,554 @@
+{
+  "name": "A night just under the minimum counts as slept, so the morning routine is directed rather than a sliver of sleep",
+  "why": "A night within tolerance of the minimum sleep counts as slept, so it is not classified as a nap that re-arms the missed bedtime as a few minutes of \"Time to sleep\". Soon after waking, the directive must be the first morning routine step, followed by the rest of the chain in order, and the next sleep block sits after the day's work rather than immediately.",
+  "capturedAt": "2027-02-11T18:42:09.065Z",
+  "request": {
+    "state": {
+      "areas": [
+        {
+          "id": "ae854461-1a19-49ac-9176-6787908e78d6",
+          "name": "Study",
+          "status": "active",
+          "version": 1,
+          "sortOrder": 0,
+          "description": "Course work and learning."
+        },
+        {
+          "id": "eb5a1e59-2ad3-48b4-a2f9-1e523528b5a1",
+          "name": "Hobbies",
+          "status": "active",
+          "version": 1,
+          "sortOrder": 2,
+          "description": "Personal hobby work."
+        }
+      ],
+      "actions": [],
+      "captures": [],
+      "outcomes": [
+        {
+          "id": "4fce58f6-2574-4109-9e1f-33577542c116",
+          "title": "Item 1",
+          "value": 5,
+          "areaId": "ae854461-1a19-49ac-9176-6787908e78d6",
+          "status": "active",
+          "version": 1,
+          "reviewOn": "2027-02-16",
+          "deadlineAt": "2027-05-29T12:59:00.000Z",
+          "definitionOfDone": "Text 1"
+        },
+        {
+          "id": "5316a230-a80e-400c-9dc7-2515d7fab30f",
+          "title": "Item 2",
+          "value": 3,
+          "areaId": "eb5a1e59-2ad3-48b4-a2f9-1e523528b5a1",
+          "status": "active",
+          "version": 1,
+          "reviewOn": "2027-03-02",
+          "deadlineAt": "2027-07-18T12:59:00.000Z",
+          "definitionOfDone": "Text 2"
+        }
+      ],
+      "projects": [
+        {
+          "id": "18ebffc0-5146-44ab-914d-7fd3f48fcfc4",
+          "area": "Study",
+          "title": "Item 3",
+          "value": 5,
+          "status": "active",
+          "version": 4,
+          "createdAt": "2027-01-25T13:45:01.731Z",
+          "outcomeId": "4fce58f6-2574-4109-9e1f-33577542c116",
+          "consequence": 5,
+          "uncertainty": "some",
+          "externalDeadlineAt": "2027-02-01T03:59:00.000Z"
+        },
+        {
+          "id": "f70b0588-22d4-4f4e-b9fe-f4de91d79d68",
+          "area": "Study",
+          "title": "Item 4",
+          "value": 5,
+          "status": "active",
+          "version": 4,
+          "createdAt": "2027-01-25T13:45:01.731Z",
+          "outcomeId": "4fce58f6-2574-4109-9e1f-33577542c116",
+          "consequence": 5,
+          "uncertainty": "high",
+          "externalDeadlineAt": "2027-03-01T03:59:00.000Z"
+        },
+        {
+          "id": "f6bd8530-ce8e-463b-9488-f55e4f9e6bde",
+          "area": "Hobbies",
+          "title": "Item 5",
+          "value": 3,
+          "status": "active",
+          "version": 1,
+          "createdAt": "2027-01-25T13:45:01.731Z",
+          "outcomeId": "5316a230-a80e-400c-9dc7-2515d7fab30f",
+          "consequence": 3,
+          "uncertainty": "some",
+          "internalDeadlineAt": "2027-02-15T13:59:00.000Z"
+        }
+      ],
+      "settings": {
+        "version": 144,
+        "timezone": "Etc/GMT-10",
+        "lastWokeAt": "2027-02-11T18:35:00.000Z",
+        "capacityMode": "automatic",
+        "maxAwakeHours": 20,
+        "conditionCatalog": [],
+        "energyMeanings": {
+          "low": "Low",
+          "high": "High",
+          "medium": "Medium",
+          "recovery": "Recovery"
+        },
+        "homeLocationId": "home",
+        "preferredBedtime": "20:50",
+        "preferredWakeTime": "06:00",
+        "defaultCapacityEnd": "17:00",
+        "planningHorizonEnd": "20:00",
+        "desiredSleepMinutes": 540,
+        "minimumSleepMinutes": 300,
+        "defaultCapacityStart": "09:00",
+        "defaultCapacityEnergy": "medium",
+        "defaultUsableFraction": 0.75,
+        "bedtimeRoutinePresetId": "bd7a0b8b-67b0-49f9-93da-6016c8cbdfdd",
+        "estimateBucketsMinutes": [
+          120
+        ],
+        "submissionBufferMinutes": 60,
+        "submissionBufferPercent": 0.1,
+        "defaultSetupBufferMinutes": 10,
+        "locationStaleAfterMinutes": 480,
+        "defaultTransitionBufferMinutes": 10
+      },
+      "horizonEnd": "2027-02-18T18:36:18.065Z",
+      "sleepPlans": [
+        {
+          "id": "f02c827b-8e21-4574-bd50-f05c1325aa64",
+          "manual": true,
+          "status": "completed",
+          "version": 1,
+          "hardErrors": [],
+          "explanation": "Text 3",
+          "actualWakeAt": "2027-02-11T18:35:00.000Z",
+          "actualStartAt": "2027-02-11T13:37:00.000Z",
+          "plannedWakeAt": "2027-02-11T18:35:00.000Z",
+          "allowedMinutes": 298,
+          "desiredMinutes": 540,
+          "plannedStartAt": "2027-02-11T13:37:00.000Z",
+          "sleepDeficitMinutes": 0,
+          "anchorDeviationMinutes": 0
+        }
+      ],
+      "commitments": [
+        {
+          "id": "9c3b74a3-70e7-4dd0-9d2a-4c3760959173",
+          "title": "Work",
+          "endsAt": "2027-02-11T23:45:00.000Z",
+          "status": "confirmed",
+          "version": 1,
+          "location": "Office",
+          "presence": "blocking",
+          "startsAt": "2027-02-11T20:00:00.000Z",
+          "createdAt": "2027-02-04T10:54:18.111Z",
+          "updatedAt": "2027-02-04T10:54:18.111Z",
+          "locationId": "work",
+          "sourceType": "calendar_event",
+          "sourceTitle": "Work",
+          "routineSource": "custom",
+          "setupBeforeMinutes": 10,
+          "transitionAfterMinutes": 20
+        },
+        {
+          "id": "3dfd204a-ab64-4e9c-bcb2-57fdfdb1597b",
+          "title": "Work",
+          "endsAt": "2027-02-12T23:15:00.000Z",
+          "status": "confirmed",
+          "version": 1,
+          "location": "Office",
+          "presence": "blocking",
+          "startsAt": "2027-02-12T20:00:00.000Z",
+          "createdAt": "2027-02-04T10:54:18.111Z",
+          "updatedAt": "2027-02-04T10:54:18.111Z",
+          "locationId": "work",
+          "sourceType": "calendar_event",
+          "sourceTitle": "Work",
+          "routineSource": "custom",
+          "setupBeforeMinutes": 10,
+          "transitionAfterMinutes": 20
+        }
+      ],
+      "occurrences": [],
+      "deliverables": [],
+      "routineSteps": [
+        {
+          "id": "c27fe666-c970-4761-969a-e1f4a22962a7",
+          "phase": "before",
+          "title": "Have a morning meal",
+          "energy": "low",
+          "status": "pending",
+          "version": 1,
+          "contexts": [],
+          "sequence": 1,
+          "timingRule": "contiguous",
+          "commitmentId": "3dfd204a-ab64-4e9c-bcb2-57fdfdb1597b",
+          "dependencyIds": [],
+          "scheduledEndAt": "2027-02-12T19:03:00.000Z",
+          "durationMinutes": 15,
+          "scheduledStartAt": "2027-02-12T18:48:00.000Z"
+        },
+        {
+          "id": "468ad284-6169-4b86-9bfb-53d908e6db4e",
+          "phase": "before",
+          "title": "Shower and dress",
+          "energy": "low",
+          "status": "pending",
+          "version": 1,
+          "contexts": [],
+          "sequence": 3,
+          "timingRule": "contiguous",
+          "commitmentId": "3dfd204a-ab64-4e9c-bcb2-57fdfdb1597b",
+          "dependencyIds": [],
+          "scheduledEndAt": "2027-02-12T19:38:00.000Z",
+          "durationMinutes": 30,
+          "scheduledStartAt": "2027-02-12T19:08:00.000Z"
+        },
+        {
+          "id": "4de2ad51-2b18-4695-9361-a703d08663c8",
+          "phase": "before",
+          "title": "Clean teeth",
+          "energy": "low",
+          "status": "pending",
+          "version": 1,
+          "contexts": [],
+          "sequence": 4,
+          "timingRule": "contiguous",
+          "commitmentId": "3dfd204a-ab64-4e9c-bcb2-57fdfdb1597b",
+          "dependencyIds": [],
+          "scheduledEndAt": "2027-02-12T19:48:00.000Z",
+          "durationMinutes": 10,
+          "scheduledStartAt": "2027-02-12T19:38:00.000Z"
+        },
+        {
+          "id": "dc71c15e-e6af-4531-8424-0fb329bc0092",
+          "phase": "before",
+          "title": "Have a morning meal",
+          "energy": "low",
+          "status": "pending",
+          "version": 1,
+          "contexts": [],
+          "sequence": 1,
+          "timingRule": "contiguous",
+          "commitmentId": "9c3b74a3-70e7-4dd0-9d2a-4c3760959173",
+          "dependencyIds": [],
+          "scheduledEndAt": "2027-02-11T19:03:00.000Z",
+          "durationMinutes": 15,
+          "scheduledStartAt": "2027-02-11T18:48:00.000Z"
+        },
+        {
+          "id": "0b318ec9-1ebe-4487-ab2f-946853c49602",
+          "phase": "before",
+          "title": "Pack water bottle",
+          "energy": "low",
+          "status": "pending",
+          "version": 1,
+          "contexts": [],
+          "sequence": 2,
+          "timingRule": "flexible",
+          "commitmentId": "9c3b74a3-70e7-4dd0-9d2a-4c3760959173",
+          "dependencyIds": [],
+          "maxLeadMinutes": 900,
+          "scheduledEndAt": "2027-02-11T19:08:00.000Z",
+          "durationMinutes": 5,
+          "scheduledStartAt": "2027-02-11T19:03:00.000Z"
+        },
+        {
+          "id": "57073ba4-bbf5-4e8c-8137-0653d0d96837",
+          "phase": "before",
+          "title": "Shower and dress",
+          "energy": "low",
+          "status": "pending",
+          "version": 1,
+          "contexts": [],
+          "sequence": 3,
+          "timingRule": "contiguous",
+          "commitmentId": "9c3b74a3-70e7-4dd0-9d2a-4c3760959173",
+          "dependencyIds": [],
+          "scheduledEndAt": "2027-02-11T19:38:00.000Z",
+          "durationMinutes": 30,
+          "scheduledStartAt": "2027-02-11T19:08:00.000Z"
+        },
+        {
+          "id": "28febbf9-68d2-47ef-83e0-90c2c3b6c03f",
+          "phase": "before",
+          "title": "Clean teeth",
+          "energy": "low",
+          "status": "pending",
+          "version": 1,
+          "contexts": [],
+          "sequence": 4,
+          "timingRule": "contiguous",
+          "commitmentId": "9c3b74a3-70e7-4dd0-9d2a-4c3760959173",
+          "dependencyIds": [
+            "dc71c15e-e6af-4531-8424-0fb329bc0092"
+          ],
+          "scheduledEndAt": "2027-02-11T19:48:00.000Z",
+          "durationMinutes": 10,
+          "scheduledStartAt": "2027-02-11T19:38:00.000Z"
+        },
+        {
+          "id": "8ca3c1cb-1a1d-4c17-987e-ea8e604e3de8",
+          "phase": "before",
+          "title": "Final check",
+          "energy": "low",
+          "status": "pending",
+          "version": 1,
+          "contexts": [],
+          "sequence": 5,
+          "timingRule": "contiguous",
+          "commitmentId": "9c3b74a3-70e7-4dd0-9d2a-4c3760959173",
+          "dependencyIds": [
+            "0b318ec9-1ebe-4487-ab2f-946853c49602"
+          ],
+          "scheduledEndAt": "2027-02-11T19:50:00.000Z",
+          "durationMinutes": 2,
+          "scheduledStartAt": "2027-02-11T19:48:00.000Z"
+        }
+      ],
+      "activeSession": null,
+      "currentEnergy": "medium",
+      "planningFocus": [],
+      "completedToday": [],
+      "routinePresets": [
+        {
+          "id": "bd7a0b8b-67b0-49f9-93da-6016c8cbdfdd",
+          "name": "Name 1",
+          "steps": [
+            {
+              "id": "f0256bf4-f091-4032-869b-e0d9b9fb3ccb",
+              "phase": "before",
+              "title": "Item 6",
+              "energy": "low",
+              "contexts": [],
+              "sequence": 0,
+              "timingRule": "contiguous",
+              "dependencyIds": [],
+              "durationMinutes": 10
+            },
+            {
+              "id": "42619770-e246-497f-ac62-7ada3b86ec58",
+              "phase": "before",
+              "title": "Item 7",
+              "energy": "low",
+              "contexts": [],
+              "sequence": 1,
+              "timingRule": "flexible",
+              "dependencyIds": [],
+              "maxLeadMinutes": 120,
+              "durationMinutes": 10
+            },
+            {
+              "id": "2d60b00f-1291-48b7-ba91-e2fb130c56db",
+              "phase": "before",
+              "title": "Item 8",
+              "energy": "low",
+              "contexts": [],
+              "sequence": 2,
+              "timingRule": "contiguous",
+              "dependencyIds": [],
+              "actionWindowId": "6a81882b-ab86-45dd-8cde-c7864e5ef955",
+              "durationMinutes": 8
+            }
+          ],
+          "status": "active",
+          "version": 5,
+          "activityName": "Sleep"
+        }
+      ],
+      "capacityWindows": [],
+      "assertedConditions": [],
+      "currentSituation": {
+        "travel": {},
+        "carrying": {
+          "phone": true,
+          "laptop": true,
+          "online": true
+        },
+        "overrides": {},
+        "locationId": "home",
+        "locationSetAt": "2027-02-11T18:35:00.000Z",
+        "transportModes": []
+      },
+      "conditionDefinitions": [
+        {
+          "id": "work",
+          "kind": "location",
+          "name": "Office",
+          "grants": [],
+          "status": "active",
+          "version": 5,
+          "channels": [],
+          "latitude": 29.816463872681094,
+          "pathways": [],
+          "longitude": -39.139302309624945,
+          "portability": "fixed",
+          "setupBeforeMinutes": 10,
+          "defaultRoutinePresetId": "47b3794e-883b-4e46-b5b1-7b56cef861fd",
+          "transitionAfterMinutes": 20
+        }
+      ],
+      "currentRecommendationId": "cca70632-ee63-4be1-8d60-d49bb9017bde",
+      "commitmentRecurrenceRules": [
+        {
+          "id": "e7997d11-070b-4a6b-b80d-5ed664415f6e",
+          "title": "Item 9",
+          "status": "active",
+          "version": 1,
+          "location": "Place 1",
+          "presence": "blocking",
+          "timezone": "Etc/GMT-10",
+          "startDate": "2027-01-29",
+          "localEndTime": "16:30",
+          "routineSource": "inherit",
+          "localStartTime": "15:30",
+          "setupBeforeMinutes": 10,
+          "transitionAfterMinutes": 10,
+          "repeat": {
+            "unit": "days",
+            "intervalDays": 14
+          }
+        },
+        {
+          "id": "59f453b6-77b6-47ae-989f-84e69236e657",
+          "title": "Item 10",
+          "status": "active",
+          "version": 3,
+          "location": "Home",
+          "presence": "blocking",
+          "timezone": "Etc/GMT-10",
+          "startDate": "2027-01-29",
+          "localEndTime": "15:00",
+          "routineSource": "inherit",
+          "localStartTime": "12:00",
+          "setupBeforeMinutes": 0,
+          "transitionAfterMinutes": 0,
+          "repeat": {
+            "unit": "days",
+            "intervalDays": 7
+          }
+        }
+      ],
+      "pendingLocationSuggestion": null
+    },
+    "requestId": "d49ef319-9f83-4fee-af50-5c3cd5c52c44",
+    "horizonEnd": "2027-08-10T18:42:09.065Z",
+    "calculatedAt": "2027-02-11T18:42:09.065Z",
+    "deliverables": [
+      {
+        "id": "3c2e4b7c-3c88-469e-b053-5f5b5648021c",
+        "title": "Item 11",
+        "status": "needs_breakdown",
+        "approved": false,
+        "projectId": "f70b0588-22d4-4f4e-b9fe-f4de91d79d68",
+        "importance": 5,
+        "consequence": 5,
+        "uncertainty": "high",
+        "hasOpenBlockers": false,
+        "executionOptions": [],
+        "partiallyBlocked": false,
+        "remainingMinutes": null,
+        "externalDeadlineAt": "2027-02-06T03:59:00.000Z",
+        "dependenciesSatisfied": true,
+        "incompletePrerequisites": [],
+        "minimumUsefulSessionMinutes": null
+      },
+      {
+        "id": "77c1eebe-83a0-4b2a-88bb-462d129745c8",
+        "title": "Item 12",
+        "status": "needs_breakdown",
+        "approved": false,
+        "projectId": "f70b0588-22d4-4f4e-b9fe-f4de91d79d68",
+        "importance": 5,
+        "consequence": 5,
+        "uncertainty": "high",
+        "hasOpenBlockers": false,
+        "executionOptions": [],
+        "partiallyBlocked": false,
+        "remainingMinutes": null,
+        "externalDeadlineAt": "2027-02-04T03:59:00.000Z",
+        "dependenciesSatisfied": true,
+        "incompletePrerequisites": [],
+        "minimumUsefulSessionMinutes": null
+      },
+      {
+        "id": "ba094e76-3391-4420-b860-ee41545136a7",
+        "title": "Item 13",
+        "status": "needs_breakdown",
+        "approved": false,
+        "projectId": "18ebffc0-5146-44ab-914d-7fd3f48fcfc4",
+        "importance": 5,
+        "consequence": 5,
+        "uncertainty": "some",
+        "hasOpenBlockers": false,
+        "executionOptions": [],
+        "partiallyBlocked": false,
+        "remainingMinutes": null,
+        "externalDeadlineAt": "2027-01-28T03:59:00.000Z",
+        "dependenciesSatisfied": true,
+        "incompletePrerequisites": [],
+        "minimumUsefulSessionMinutes": null
+      },
+      {
+        "id": "fcfb6865-0b21-4717-bc16-a15455ad312b",
+        "title": "Item 14",
+        "status": "needs_breakdown",
+        "approved": false,
+        "projectId": "18ebffc0-5146-44ab-914d-7fd3f48fcfc4",
+        "importance": 5,
+        "consequence": 5,
+        "uncertainty": "some",
+        "hasOpenBlockers": false,
+        "executionOptions": [],
+        "partiallyBlocked": false,
+        "remainingMinutes": null,
+        "externalDeadlineAt": "2027-02-01T03:59:00.000Z",
+        "dependenciesSatisfied": true,
+        "incompletePrerequisites": [],
+        "minimumUsefulSessionMinutes": null
+      }
+    ],
+    "inputVersion": "synthetic",
+    "contractVersion": "1"
+  },
+  "expect": {
+    "currentDirective": {
+      "kind": "routine_step",
+      "targetId": "dc71c15e-e6af-4531-8424-0fb329bc0092",
+      "title": "Have a morning meal",
+      "recommendedMinutes": 15
+    },
+    "primaryActionId": null,
+    "dayPlan": [
+      "18:42-18:57 routine_step dc71c15e-e6af-4531-8424-0fb329bc0092 0/15",
+      "18:57-19:02 routine_step 0b318ec9-1ebe-4487-ab2f-946853c49602 0/5",
+      "19:02-19:32 routine_step 57073ba4-bbf5-4e8c-8137-0653d0d96837 0/30",
+      "19:32-19:42 routine_step 28febbf9-68d2-47ef-83e0-90c2c3b6c03f 0/10",
+      "19:42-19:44 routine_step 8ca3c1cb-1a1d-4c17-987e-ea8e604e3de8 0/2",
+      "19:44-20:14 travel→work 9c3b74a3-70e7-4dd0-9d2a-4c3760959173 0/30",
+      "20:14-00:05 commitment 9c3b74a3-70e7-4dd0-9d2a-4c3760959173 0/231",
+      "00:05-01:27 deliverable ba094e76-3391-4420-b860-ee41545136a7 60/82 overdue_external",
+      "01:27-02:00 deliverable fcfb6865-0b21-4717-bc16-a15455ad312b 24/33 overdue_external",
+      "02:00-05:00 commitment 3e8fc1ac-d44f-4182-b856-5c1e6f8f88f6 0/180",
+      "05:00-05:20 deliverable fcfb6865-0b21-4717-bc16-a15455ad312b 14/20 overdue_external",
+      "05:20-06:40 commitment d1dc8dff-014a-4b9d-ba9a-d2c98ef76481 0/80",
+      "06:40-07:21 deliverable fcfb6865-0b21-4717-bc16-a15455ad312b 30/41 overdue_external",
+      "07:21-08:42 deliverable 77c1eebe-83a0-4b2a-88bb-462d129745c8 60/81 overdue_external",
+      "08:42-09:17 deliverable 3c2e4b7c-3c88-469e-b053-5f5b5648021c 25/35 overdue_external",
+      "09:17-09:27 routine_step ae6b215d-5c6b-4621-ae73-8015d6a61a2d 0/10",
+      "09:27-09:37 routine_step 63da5f5e-5ea2-4870-8546-bc7293af7efc 0/10",
+      "09:37-09:45 routine_step 4709c0e0-7378-4dc6-8346-d590d3dd8792 0/8",
+      "09:45-18:45 sleep db180cb3-dcc4-4553-8b88-b031a9cdb7af 0/540"
+    ]
+  }
+}

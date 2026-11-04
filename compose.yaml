@@ -1,0 +1,338 @@
+# Every service now writes a JSON line per request. Docker's json-file driver keeps those forever by
+# default, so an unattended server would fill its disk with them; 10 MB x 3 files per service is
+# several weeks of this portal's traffic and a bounded worst case.
+# The project name this stack runs under. Compose names volumes and networks after it, so
+# changing it starts a second, empty stack beside the real one.
+name: openrhen
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+volumes:
+  outbound-proxy-state:
+  postgres-data:
+
+services:
+  # The bundled database for a self-hosted stack (COMPOSE_PROFILES=app,bundled-db). A deployment with its
+  # own database never activates `bundled-db`. Nothing depends_on it (the migrate service waits for the
+  # database itself), so a stack with an external DATABASE_URL is unaffected.
+  postgres:
+    profiles: ["bundled-db"]
+    logging: *logging
+    image: postgres:17.10-alpine
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-openrhen}
+      POSTGRES_DB: ${POSTGRES_DB:-openrhen}
+      # Blank on purpose: the image refuses to initialise without a password, which is the
+      # "you skipped setup" signal. `init-env` writes a generated one.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    # Loopback only, on an uncommon port, so running from source and the integration tests can reach it.
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-55432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # One-shot first-run setup: `docker compose run --rm setup` writes .env with generated secrets.
+  # Running a service by name enables its profile, so this works before any .env exists. The server
+  # never activates the `setup` profile, and its directory has no scripts/.
+  setup:
+    profiles: ["setup"]
+    image: node:24.22.1-alpine
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace
+    command: ["node", "scripts/setup/init-env.mjs", "--docker"]
+    restart: "no"
+
+  engine-service:
+    profiles: ["planning", "app"]
+    logging: *logging
+    image: ${IMAGE_PREFIX:-ghcr.io/jondi-studio-public/openrhen}-engine-service:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: engine/service/Dockerfile
+      labels:
+        com.openrhen.project: openrhen
+    # Limits exist to contain a runaway process, not to size the service: the four services below
+    # sum to 2GB. Idle (`docker stats --no-stream`) was
+    # ~43MiB here, but a full-horizon planSchedule is the peak, not idle, so the ceiling is generous.
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    environment:
+      PLAN_FORECAST_HOST: 0.0.0.0
+      PLAN_FORECAST_PORT: 4100
+      PLAN_FORECAST_SERVICE_TOKEN: ${PLAN_FORECAST_SERVICE_TOKEN:-replace-before-lan-use}
+      # Read only to refuse starting on the placeholder token when this is `require`.
+      OPENRHEN_OWNER_AUTH: ${OPENRHEN_OWNER_AUTH:-off}
+      PLAN_FORECAST_MAX_PAYLOAD_BYTES: ${PLAN_FORECAST_MAX_PAYLOAD_BYTES:-5242880}
+      PLAN_FORECAST_REQUEST_TIMEOUT_MS: ${PLAN_FORECAST_REQUEST_TIMEOUT_MS:-10000}
+    # Host-local only. The portal and worker reach this as `engine-service:4100` over the compose
+    # network and never touch the published port; the publish exists solely for
+    # `curl http://127.0.0.1:4100/health` diagnostics. Widening it beyond this machine is a deliberate act.
+    ports:
+      - "127.0.0.1:${PLAN_FORECAST_PORT:-4100}:4100"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:4100/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # Every third-party call the portal makes - Google Routes, OpenAI - goes through here,
+  # so that the credentials for them live in a container that is never published on the LAN. The
+  # portal holds only OUTBOUND_PROXY_URL and a bearer token, and reaches this over internal HTTP.
+  # Any new outbound HTTPS call belongs here for the same reason.
+  #
+  # Deliberately never published: it has no `ports:` entry, so it is reachable only from the compose
+  # network. Publishing it would put every third-party credential in the stack one request away.
+  outbound-proxy:
+    profiles: ["planning", "app"]
+    logging: *logging
+    image: ${IMAGE_PREFIX:-ghcr.io/jondi-studio-public/openrhen}-outbound-proxy:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: integrations/outbound-proxy/Dockerfile
+      labels:
+        com.openrhen.project: openrhen
+    # Idle ~31MiB; streams are piped, not buffered, and request bodies are capped, so 256m is ample.
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    environment:
+      OUTBOUND_PROXY_HOST: 0.0.0.0
+      OUTBOUND_PROXY_PORT: 4200
+      OUTBOUND_AI_RATE_LIMIT_PER_MINUTE: ${OUTBOUND_AI_RATE_LIMIT_PER_MINUTE:-30}
+      OUTBOUND_PROXY_TOKEN: ${OUTBOUND_PROXY_TOKEN:-replace-before-lan-use}
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+      # Read-only Google Calendar: the refresh token lives only here.
+      GOOGLE_CALENDAR_CLIENT_ID: ${GOOGLE_CALENDAR_CLIENT_ID:-}
+      GOOGLE_CALENDAR_CLIENT_SECRET: ${GOOGLE_CALENDAR_CLIENT_SECRET:-}
+      GOOGLE_CALENDAR_REFRESH_TOKEN: ${GOOGLE_CALENDAR_REFRESH_TOKEN:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Plan search by meaning (the portal's hybrid search embeds through /capabilities/model_provider/deepinfra/embed).
+      DEEPINFRA_API_KEY: ${DEEPINFRA_API_KEY:-}
+      DEEPINFRA_EMBEDDING_MODEL: ${DEEPINFRA_EMBEDDING_MODEL:-Qwen/Qwen3-Embedding-8B}
+      WEB_PUSH_VAPID_PUBLIC_KEY: ${WEB_PUSH_VAPID_PUBLIC_KEY:-}
+      WEB_PUSH_VAPID_PRIVATE_KEY: ${WEB_PUSH_VAPID_PRIVATE_KEY:-}
+      WEB_PUSH_SUBJECT: ${WEB_PUSH_SUBJECT:-}
+      # The public pulse tracker: both live only
+      # here, never in the database or a backup, and never reach the portal process.
+      PULSE_PUBLISH_URL: ${PULSE_PUBLISH_URL:-}
+      PULSE_PUBLISH_SECRET: ${PULSE_PUBLISH_SECRET:-}
+    # Mounted by this service alone. `compose down` keeps it; `down -v` drops it and costs one sign-in.
+    volumes:
+      - outbound-proxy-state:/var/lib/openrhen-proxy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:4200/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # The deploy's migration step: a one-shot that applies pending drizzle migrations before the app services
+  # are recreated (platform/database/src/operations/migrate-on-deploy.ts). When something is pending it first
+  # writes a pg_dump to /backups, the newest five kept. portal and engine-worker wait for it
+  # to exit 0. Compose has already recreated them by then, so a failed
+  # migration or dump leaves them created but not started (the database unchanged) until a fixed or
+  # previous-tag deploy; see docs/operations/self-hosting.md.
+  # Only a deploy migrates: a local `--profile planning up` builds `dev` images against your real database, so with
+  # IMAGE_TAG=dev and no MIGRATE_ON_DEPLOY=apply it logs and exits 0 untouched (src/operations/migrate-skip.ts).
+  # Runs as root (see Dockerfile.migrate) because Docker creates the bind-mount's host folder root-owned.
+  migrate:
+    profiles: ["planning", "app"]
+    logging: *logging
+    # MIGRATE_IMAGE_TAG exists for redeploying a tag older than this service, which has no migrate image.
+    # After a restore, pair it with MIGRATE_ON_DEPLOY=skip, or that newer image reapplies what the restore reversed.
+    image: ${IMAGE_PREFIX:-ghcr.io/jondi-studio-public/openrhen}-migrate:${MIGRATE_IMAGE_TAG:-${IMAGE_TAG:-latest}}
+    build:
+      context: .
+      dockerfile: platform/database/Dockerfile.migrate
+      labels:
+        com.openrhen.project: openrhen
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      IMAGE_TAG: ${IMAGE_TAG:-latest}
+      MIGRATE_ON_DEPLOY: ${MIGRATE_ON_DEPLOY:-apply}
+    # The dumps hold the whole database, so like photos they live under the gitignored var/, never in git
+    # or an image. Pre-migration dumps are for restoring after a bad migration (docs/operations/database-and-backups.md).
+    volumes:
+      - ${MIGRATE_BACKUP_HOST_DIR:-./var/backups/pre-migrate}:/backups
+    restart: "no"
+
+  # The daily database backup (scripts/backup/scheduled.mjs; docs/operations/database-and-backups.md): create, verify by
+  # restoring into `<db>_restore_test`, copy to BACKUP_COPY_DIR, prune, then ping BACKUP_PING_URL (a healthchecks.io
+  # check), which alerts when a ping is missing. Verification needs POSTGRES_ADMIN_URL; without it the run fails
+  # loudly rather than skip, because an unverified backup is a guess. Never published; reaches only Postgres and the monitor.
+  backup:
+    profiles: ["planning", "app"]
+    logging: *logging
+    image: ${IMAGE_PREFIX:-ghcr.io/jondi-studio-public/openrhen}-backup:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: scripts/backup/Dockerfile
+      labels:
+        com.openrhen.project: openrhen
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      POSTGRES_ADMIN_URL: ${POSTGRES_ADMIN_URL:-}
+      BACKUP_ENABLED: ${BACKUP_ENABLED:-false}
+      BACKUP_RUN_ON_START: ${BACKUP_RUN_ON_START:-false}
+      BACKUP_TIME: ${BACKUP_TIME:-03:30}
+      BACKUP_PING_URL: ${BACKUP_PING_URL:-}
+      BACKUP_COPY_DIR: ${BACKUP_COPY_DIR:+/backup-copy}
+      # Self-hoster opt-out for the off-site copy (BACKUP_COPY=off); empty means unset.
+      BACKUP_COPY: ${BACKUP_COPY:-}
+      BACKUP_KEEP_LOCAL: ${BACKUP_KEEP_LOCAL:-14}
+      BACKUP_KEEP_COPIES: ${BACKUP_KEEP_COPIES:-60}
+      TZ: ${BACKUP_TZ:-UTC}
+    volumes:
+      - ${BACKUP_HOST_DIR:-./var/backups}:/app/var/backups
+      - ${PHOTO_STORE_HOST_DIR:-./var/photos}:/app/var/photos:ro
+      - ${BACKUP_COPY_DIR:-./var/backup-copy}:/backup-copy
+    restart: unless-stopped
+
+  engine-worker:
+    profiles: ["planning", "app"]
+    logging: *logging
+    image: ${IMAGE_PREFIX:-ghcr.io/jondi-studio-public/openrhen}-engine-worker:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: engine/worker/Dockerfile
+      labels:
+        com.openrhen.project: openrhen
+    # The worker's own forced-exit timer is 15 s; Docker's default 10 s would SIGKILL it first.
+    stop_grace_period: 30s
+    # Idle ~56MiB; forecast jobs hydrate the whole planning document, so the ceiling matches the service.
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      PLAN_FORECAST_SERVICE_URL: http://engine-service:4100
+      PLAN_FORECAST_SERVICE_TOKEN: ${PLAN_FORECAST_SERVICE_TOKEN:-replace-before-lan-use}
+      PLAN_FORECAST_REQUEST_TIMEOUT_MS: ${PLAN_FORECAST_REQUEST_TIMEOUT_MS:-10000}
+      # How the worker reaches the portal for its sync triggers. Internal HTTP, not the published port.
+      PORTAL_INTERNAL_URL: http://portal:8787
+      # The calendar sync trigger: which providers, and how often.
+      CALENDAR_SYNC_PROVIDERS: ${CALENDAR_SYNC_PROVIDERS:-google_calendar}
+      CALENDAR_SYNC_INTERVAL_MINUTES: ${CALENDAR_SYNC_INTERVAL_MINUTES:-60}
+      APP_TIMEZONE: ${APP_TIMEZONE:-UTC}
+      # Sent as X-OpenRhen-Worker so OPENRHEN_OWNER_AUTH=require accepts the worker's calls (the portal holds WORKER_TOKEN_HASH).
+      OPENRHEN_WORKER_TOKEN: ${OPENRHEN_WORKER_TOKEN:-}
+    depends_on:
+      engine-service:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Plain Node, like every other service: `node server.js` against the standalone build.
+  # Everything below is read from the environment at start, so changing the database or a
+  # token is a container restart, not an image rebuild, and no credential is ever in a layer.
+  portal:
+    profiles: ["planning", "app"]
+    logging: *logging
+    image: ${IMAGE_PREFIX:-ghcr.io/jondi-studio-public/openrhen}-portal:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: portal/Dockerfile
+      labels:
+        com.openrhen.project: openrhen
+    # Idle ~50MiB, but this is the process that parses uploaded xlsx/csv imports, hydrates state for
+    # every request and streams OpenAI chat, so it gets the largest ceiling.
+    deploy:
+      resources:
+        limits:
+          memory: 768m
+    environment:
+      PORT: 8787
+      # The commit this image was built from (IMAGE_TAG is the 12-char sha in deploys, `dev` locally);
+      # sent as x-openrhen-server-commit so the agent CLI can tell when it is behind.
+      OPENRHEN_BUILD_COMMIT: ${IMAGE_TAG:-dev}
+      DATABASE_URL: ${DATABASE_URL}
+      PLAN_FORECAST_SERVICE_URL: http://engine-service:4100
+      PLAN_FORECAST_SERVICE_TOKEN: ${PLAN_FORECAST_SERVICE_TOKEN:-replace-before-lan-use}
+      PLAN_FORECAST_REQUEST_TIMEOUT_MS: ${PLAN_FORECAST_REQUEST_TIMEOUT_MS:-10000}
+      OUTBOUND_PROXY_URL: http://outbound-proxy:4200
+      OUTBOUND_PROXY_TOKEN: ${OUTBOUND_PROXY_TOKEN:-replace-before-lan-use}
+      # The calendar sync: the portal refuses a provider the worker does not schedule, and holds every
+      # delete of a run once it would apply more than this many.
+      CALENDAR_SYNC_PROVIDERS: ${CALENDAR_SYNC_PROVIDERS:-google_calendar}
+      CALENDAR_SYNC_MAX_DELETES: ${CALENDAR_SYNC_MAX_DELETES:-10}
+      # Behind a reverse proxy that terminates https and forwards here, this makes the server honour that
+      # hop's X-Forwarded-Proto, so it builds request URLs as https rather than the http it is served on.
+      # Anything that can reach the published port below can claim the same header, but with sign-in off
+      # the portal is unauthenticated there anyway - it changes generated URLs, not access.
+      VINEXT_TRUST_PROXY: "1"
+      # The phone's key to /api/location/ping. No default on purpose: an absent value closes the
+      # only route that can move the location assertion, and a placeholder default would open it.
+      LOCATION_PING_TOKEN: ${LOCATION_PING_TOKEN:-}
+      # Host values the portal answers to (DNS-rebinding defence), for example
+      # portal.example.com,portal:8787,127.0.0.1:8787,localhost:8787
+      # (your public hostname, then portal:8787 for engine-worker and the CLI, and 127.0.0.1:8787 for the health
+      # check). Unset accepts only localhost, [::1], portal:8787 and the PORTAL_PUBLIC_URL host.
+      PORTAL_ALLOWED_HOSTS: ${PORTAL_ALLOWED_HOSTS:-}
+      PORTAL_PUBLIC_URL: ${PORTAL_PUBLIC_URL:-}
+      # Per-agent tokens: JSON array of
+      # {name, sha256, writes}, hashes only. Unset means no agent has a token. AUTH=require refuses a
+      # self-declared agent name that carries no token; off (default) accepts it as before.
+      OPENRHEN_AGENT_TOKENS: ${OPENRHEN_AGENT_TOKENS:-}
+      OPENRHEN_AGENT_AUTH: ${OPENRHEN_AGENT_AUTH:-off}
+      # Owner sign-in: off | shadow | require. OWNER_RECOVERY_TOKEN is
+      # the sha256 (hex) of a token you keep in your secrets manager, accepted only at the enrol route, the way back in under require.
+      OPENRHEN_OWNER_AUTH: ${OPENRHEN_OWNER_AUTH:-off}
+      OWNER_RECOVERY_TOKEN: ${OWNER_RECOVERY_TOKEN:-}
+      # The worker's token for the routes only it calls (sha256 hex; the plain token is OPENRHEN_WORKER_TOKEN on engine-worker).
+      WORKER_TOKEN_HASH: ${WORKER_TOKEN_HASH:-}
+      # A companion device's token for the two device routes (sha256 hex; the device holds the plain token).
+      DEVICE_TOKEN_HASH: ${DEVICE_TOKEN_HASH:-}
+      # Photo check-ins: where the blobs are written inside the container; the
+      # host folder below is what backup copies. Photos never go in the database or git.
+      PHOTO_STORE_DIR: /var/lib/openrhen-photos
+    # A bind mount, not a named volume: `compose down -v` cannot drop it, and backup copies this host folder.
+    volumes:
+      - ${PHOTO_STORE_HOST_DIR:-./var/photos}:/var/lib/openrhen-photos
+    # Published on PORTAL_PORT (loopback only when PORTAL_HOST_IP=127.0.0.1). Put an https reverse proxy in
+    # front before exposing it: only an https address is a secure context, which the browser needs.
+    ports:
+      - "${PORTAL_HOST_IP:-127.0.0.1}:${PORTAL_PORT:-8787}:8787"
+    # /api/health/database is the honest liveness signal: it answers 503 while the portal is up
+    # but cannot reach Postgres, which is the state worth catching. node, not wget - the runtime
+    # image carries no shell utilities beyond what Alpine ships.
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8787/api/health/database').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      engine-service:
+        condition: service_healthy
+      outbound-proxy:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped

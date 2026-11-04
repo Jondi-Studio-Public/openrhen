@@ -1,0 +1,312 @@
+.time-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.time-pair span {
+  color: var(--ink-soft);
+  font-size: var(--fs-3);
+}
+
+.project-grid {
+  /* A section: the global section rule would add 54px under its own heading. */
+  margin-top: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.project-card {
+  margin: 0;
+  min-width: 0;
+}
+
+.project-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.project-top h2 {
+  margin: 5px 0;
+}
+
+.project-math {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 7px;
+  margin: 22px 0;
+}
+
+.project-math small {
+  display: block;
+  color: var(--ink-faint);
+  font-size: var(--fs-1);
+  font-weight: 500;
+}
+
+.project-card ul {
+  padding: 0;
+  list-style: none;
+}
+
+.project-card li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line-soft);
+  color: var(--ink-muted);
+  font-size: var(--fs-4);
+}
+
+.project-card li span:last-child {
+  white-space: nowrap;
+  color: var(--ink-faint);
+}
+
+.project-reasons {
+  margin: 12px 0;
+  color: var(--ink-soft);
+  font-size: var(--fs-3);
+}
+
+.project-reasons summary {
+  cursor: pointer;
+  color: var(--ink-body);
+  font-weight: 600;
+}
+
+.project-reasons p {
+  margin: 7px 0;
+}
+
+/* A project's own Connections fold reads like its other disclosures (deliverables, forecast evidence). */
+.project-card > .plan-map-fold {
+  margin: 12px 0;
+}
+
+.project-card > .plan-map-fold > summary {
+  color: var(--ink-body);
+  font-size: var(--fs-3);
+  font-weight: 600;
+}
+
+/* The quiet lines on a project's forecast card (pace, evidence, waiting, beyond six months). */
+.forecast-label {
+  color: var(--ink-soft);
+  font-size: var(--fs-2);
+}
+
+/* A forecast card reads at two sizes: the deadline line is the one emphasis, and every other note on
+   it (pace, waiting, nothing set aside, adherence, the evidence behind the fold) is one quiet size. */
+.project-card > .microcopy {
+  margin: var(--s2) 0;
+  color: var(--ink);
+  font-size: var(--fs-body);
+  font-weight: 500;
+}
+
+.project-card > .forecast-label,
+.project-card > .adherence-actions li,
+.project-card > .project-reasons p,
+.project-card > .override-evidence {
+  color: var(--ink-soft);
+  font-size: var(--fs-small);
+}
+
+.project-card > .override-evidence strong {
+  color: var(--ink);
+}
+
+.override-evidence {
+  display: grid;
+  gap: 3px;
+  margin-top: 12px;
+  padding: 11px 13px;
+  border-radius: var(--r-2);
+  background: var(--neutral-faint);
+  font-size: var(--fs-3);
+}
+
+/* Its slot has gone but it is still tickable, so it is dimmed rather than struck through. */
+.hierarchy-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.hierarchy-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-3);
+  background: var(--veil-2);
+}
+
+.hierarchy-card p {
+  margin: 5px 0 0;
+  color: var(--ink-soft);
+  font-size: var(--fs-4);
+}
+
+.hierarchy-card .area-label {
+  margin: 0 0 5px;
+  font-size: 0.65rem;
+}
+
+/* A project's actions, collapsed behind a disclosure so a long-running project stays short; each row
+   keeps the edit / "done today" / "mark goal complete" affordances the old flat action list offered. */
+.project-actions {
+  margin-top: 10px;
+}
+
+.project-actions summary {
+  cursor: pointer;
+  color: var(--ink-body);
+  font-weight: 600;
+  font-size: var(--fs-3);
+}
+
+.project-card .action-row {
+  align-items: center;
+}
+
+.project-card .action-row .actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+  margin-top: 0;
+}
+
+.project-card .action-row > div:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.project-card .action-row span:last-child {
+  white-space: normal;
+}
+
+/* A deliverable row is a door, not a drawer: it never expands in place, so the whole row is a plain
+   link into the deliverable's own workspace rather than a details/summary disclosure. */
+.project-card li.deliverable-row {
+  padding: 0;
+}
+
+.deliverable-row > a {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.deliverable-row > a > div:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.project-card .deliverable-row > a > div:first-child > span:last-child {
+  white-space: normal;
+}
+
+.deliverable-row > a:hover {
+  color: var(--ink);
+}
+
+.deliverable-row-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.deliverable-row-enter {
+  color: var(--ink-muted);
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+/* Standalone actions sit inside their own nested "Actions" disclosure once a project has deliverables
+   to list beside them; the wrapping row needs block layout rather than the row-list's flex treatment. */
+.project-card li.nested-disclosure-row {
+  display: block;
+}
+
+.dependency-field {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px 16px;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--line-mid);
+  border-radius: var(--r-2);
+}
+
+.dependency-field legend {
+  color: var(--ink-muted);
+  font-size: var(--fs-3);
+  font-weight: 600;
+  padding: 0 5px;
+}
+
+.dependency-field label {
+  color: var(--ink-muted);
+  font-size: var(--fs-4);
+}
+
+.dependency-field input {
+  width: auto;
+  margin-right: 4px;
+}
+
+.field small {
+  color: var(--ink-faint);
+  font-weight: 500;
+}
+
+.input-suffix > input {
+  min-width: 0;
+}
+
+@media (max-width: 720px) {
+  .project-grid,
+  .hierarchy-list,
+  .editor-grid,
+  .proposal-editor {
+    grid-template-columns: 1fr;
+  }
+
+  .project-math {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+@media (max-width: 560px) {
+  .project-top {
+    flex-wrap: wrap;
+  }
+
+  .project-top .health {
+    white-space: normal;
+  }
+}
+.replay-banner a {
+  color: var(--accent-ink);
+}
+
+.project-card li.action-row {
+  flex-wrap: wrap;
+}

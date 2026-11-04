@@ -1,0 +1,13 @@
+/* Five tabs do not fit one row on a phone, so they wrap. The element selector out-ranks the plain
+   .capture-mode-switch rule, which keeps them on one line. */
+div.modes {
+  display: flex;
+  flex-wrap: wrap;
+  border-radius: var(--r-3);
+}
+
+/* The import cards sit right under the sheet's own intro line, so they drop their page-level top margin. */
+.pane :global(.ai-intake),
+.pane :global(.bulk-intake) {
+  margin-top: 0;
+}

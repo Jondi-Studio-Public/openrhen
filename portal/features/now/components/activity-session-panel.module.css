@@ -1,0 +1,18 @@
+.wokeEarlier {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  margin-top: var(--s3);
+}
+.wokeLabel {
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+}
+.wokeAt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  flex: 1 0 100%;
+}

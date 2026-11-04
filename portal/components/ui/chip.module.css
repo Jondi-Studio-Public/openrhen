@@ -1,0 +1,52 @@
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 var(--s3);
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 1;
+  font-family: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  transition:
+    transform var(--dur-press) var(--ease-out),
+    background var(--dur-1) var(--ease-out);
+}
+.chip svg {
+  width: 16px;
+  height: 16px;
+}
+.chip:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.chip:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.on {
+  background: var(--ink);
+  color: var(--bg);
+  border-color: var(--ink);
+}
+@media (prefers-reduced-motion: reduce) {
+  .chip {
+    transition: none;
+  }
+  .chip:active:not(:disabled) {
+    transform: none;
+  }
+}
+@media (pointer: coarse) {
+  .chip {
+    height: 44px;
+  }
+}

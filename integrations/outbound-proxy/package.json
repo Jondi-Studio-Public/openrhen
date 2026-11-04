@@ -1,0 +1,25 @@
+{
+  "name": "@openrhen/outbound-proxy",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=../../.env src/main.ts",
+    "build": "node scripts/build.mjs",
+    "start": "node --env-file-if-exists=../../.env dist/main.js",
+    "google-calendar:auth": "tsx --env-file-if-exists=../../.env src/connections/google-calendar/google-calendar-auth.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@openrhen/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.3",
+    "esbuild": "0.28.2",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vitest": "5.0.5"
+  }
+}

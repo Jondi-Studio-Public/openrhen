@@ -1,0 +1,46 @@
+{
+  "name": "@openrhen/portal",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "scripts": {
+    "dev": "vinext dev",
+    "build": "vinext build",
+    "start": "vinext start",
+    "test": "vitest run --config vitest.unit.config.ts",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "export:round-trip": "node scripts/export-round-trip.mjs",
+    "routes:table": "node scripts/generate-mcp-route-table.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@openrhen/cli": "workspace:*",
+    "@openrhen/contracts": "workspace:*",
+    "@openrhen/database": "workspace:*",
+    "@types/qrcode": "^1.5.6",
+    "drizzle-orm": "0.45.4",
+    "exceljs": "4.4.0",
+    "jszip": "3.10.2",
+    "postgres": "^3.4.5",
+    "qrcode": "^1.5.4",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/react": "16.3.3",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.2.0",
+    "@vitejs/plugin-rsc": "0.5.38",
+    "dotenv": "18.0.9",
+    "jsdom": "30.1.3",
+    "react-server-dom-webpack": "19.3.1",
+    "typescript": "7.0.2",
+    "vinext": "1.4.1",
+    "vite": "8.3.5",
+    "vitest": "5.0.5"
+  },
+  "type": "module"
+}

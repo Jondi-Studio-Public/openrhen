@@ -1,0 +1,24 @@
+# Dependencies, build output, and framework caches
+node_modules/
+dist/
+build/
+.next/
+.vinext/
+coverage/
+/.pnpm-store/
+
+# Ignored local data
+/var/
+
+# Documentation is maintained by `pnpm docs:check`, not the formatter.
+# Anchored so that tooling such as `scripts/docs/` is still formatted.
+/docs/
+*.md
+
+# Generated declarations and Drizzle migrations/metadata
+*.d.ts
+drizzle/
+
+# Fixtures and lockfiles must stay byte-stable
+engine/core/test/**/*.json
+/pnpm-lock.yaml

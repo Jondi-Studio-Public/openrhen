@@ -1,0 +1,52 @@
+.banner {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--ink-2);
+}
+.icon {
+  display: inline-flex;
+  flex: none;
+}
+.icon svg {
+  width: 18px;
+  height: 18px;
+}
+.text {
+  flex: 1;
+  min-width: 0;
+}
+.action {
+  margin-left: auto;
+  flex: none;
+}
+.warn {
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+}
+.danger {
+  background: var(--danger-bg);
+  color: var(--danger-ink);
+}
+.info {
+  background: var(--info-bg);
+  color: var(--info-ink);
+}
+.neutral {
+}
+@media (max-width: 640px) {
+  .stack {
+    flex-wrap: wrap;
+  }
+  .stack .text {
+    flex: 1 1 100%;
+  }
+  .stack .action {
+    margin-left: 0;
+  }
+}

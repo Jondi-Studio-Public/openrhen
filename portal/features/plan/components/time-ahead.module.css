@@ -1,0 +1,124 @@
+.card {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  align-self: start;
+}
+.title {
+  margin: 0;
+  font-size: var(--fs-h3);
+  line-height: 26px;
+  font-weight: 600;
+}
+.lead {
+  margin: var(--s1) 0 0;
+  font-size: var(--fs-small);
+  line-height: 18px;
+  color: var(--ink-2);
+}
+.sheetLead {
+  margin: 0;
+  color: var(--ink-2);
+}
+.bands {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.band {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.line {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+.name {
+  margin: 0;
+  font-size: var(--fs-small);
+  font-weight: 500;
+  color: var(--ink);
+}
+.figure {
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.figure b {
+  font-weight: 600;
+  color: var(--ink);
+}
+/* Time is neutral: the meter reads in ink, not the green of a good verdict. */
+.meter > i {
+  background: var(--ink-2);
+}
+.phoneRest {
+  display: none;
+}
+.how.how {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--fs-small);
+  font-weight: 500;
+  cursor: pointer;
+}
+.how.how:hover {
+  background: transparent;
+  text-decoration: underline;
+}
+.explain {
+  margin: var(--s4) 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+.figures {
+  margin: var(--s2) 0 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--s2) var(--s4);
+}
+.figures dt {
+  font-size: var(--fs-caption);
+  color: var(--ink-3);
+}
+.figures dd {
+  margin: 0;
+  font-size: var(--fs-small);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+/* A phone shows the next 7 days and one line for the rest, as the mockup's compact card. */
+@media (max-width: 719px) {
+  .card {
+    gap: var(--s2);
+    padding: 14px var(--s4);
+  }
+  .lead {
+    display: none;
+  }
+  .later {
+    display: none;
+  }
+  .phoneRest {
+    display: block;
+    margin: 0;
+    font-size: var(--fs-caption);
+    color: var(--ink-3);
+  }
+  .bands {
+    gap: var(--s2);
+  }
+}

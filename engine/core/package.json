@@ -1,0 +1,23 @@
+{
+  "name": "@openrhen/engine-core",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run --exclude test/system/performance.test.ts",
+    "test:performance": "vitest run test/system/performance.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@openrhen/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "fast-check": "^4.10.2",
+    "typescript": "7.0.2",
+    "vitest": "5.0.5"
+  }
+}

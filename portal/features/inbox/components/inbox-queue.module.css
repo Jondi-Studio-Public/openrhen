@@ -1,0 +1,237 @@
+/* The Inbox: one queue, chips over it, the list beside the chosen item on a desk. */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s5);
+}
+/* The header's own bottom margin would double the page gap. */
+.page > header {
+  margin-bottom: 0;
+}
+.chips {
+  display: flex;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+.chipCount {
+  color: inherit;
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+}
+.split {
+  display: grid;
+  grid-template-columns: 420px minmax(0, 1fr);
+  gap: var(--s6);
+  align-items: start;
+}
+/* Two classes: the global `section` rule adds a top margin. */
+.page .list,
+.page .detail {
+  margin: 0;
+}
+.list {
+  overflow: hidden;
+}
+.row {
+  padding: 14px var(--s5);
+}
+.foot {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s2);
+  padding: var(--s3) var(--s5);
+  border-top: 1px solid var(--line);
+}
+.caption {
+  margin: 0;
+  font-size: var(--fs-caption);
+  line-height: 16px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.page .detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s5);
+  padding: 28px var(--s7);
+}
+.detailHead {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.detailMeta {
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+}
+.page .detailTitle {
+  margin: 0;
+  font-size: var(--fs-h2);
+  line-height: 30px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.detailBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  min-width: 0;
+}
+.quote {
+  margin: 0;
+  border: 0;
+  font-style: normal;
+  padding: var(--s3) var(--s4);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--ink-2);
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.handled {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.progress {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.segments {
+  flex: 1;
+  display: grid;
+  gap: var(--s1);
+}
+.segments i {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface-3);
+}
+.segments i[data-state="done"] {
+  background: var(--ink-3);
+}
+.segments i[data-state="now"] {
+  background: var(--ink);
+}
+.bar {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.bar i {
+  display: block;
+  height: 100%;
+  background: var(--ink);
+}
+/* On a desk the chosen item stays in view beside a long list, and scrolls inside itself when it is
+   taller than the screen. */
+@media (min-width: 1024px) {
+  .page .detail {
+    position: sticky;
+    top: var(--s4);
+    max-height: calc(100dvh - var(--s4) * 2);
+    overflow-y: auto;
+  }
+}
+@media (max-width: 1023px) {
+  .page {
+    gap: var(--s4);
+  }
+  /* One line of chips that scrolls sideways, so the page never does. */
+  .chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    margin: 0 calc(-1 * var(--s4));
+    padding: 0 var(--s4) 2px;
+    scrollbar-width: none;
+  }
+  .chips > * {
+    flex: none;
+  }
+  .page .detail {
+    padding: var(--s5);
+    gap: var(--s4);
+  }
+  .page .detailTitle {
+    font-size: var(--fs-h3);
+    line-height: 26px;
+  }
+  /* The phone's decision bar: docked above the tab bar, with the card's own main and ignore buttons
+     (which it presses) hidden. The page scrolls clear of the bar and the Capture button above it. */
+  .dock {
+    position: fixed;
+    z-index: 6;
+    left: 0;
+    right: 0;
+    bottom: var(--nav-clearance);
+    display: flex;
+    gap: var(--s3);
+    padding: var(--s2) var(--s4);
+    border-top: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .dock > :first-child:not(:last-child) {
+    flex: 0 0 35%;
+  }
+  .dock > :last-child {
+    flex: 1;
+  }
+  /* The reused cards mark their main and ignore buttons with data-inbox-action; this reaches into
+     them only by that attribute, which they set for exactly this, so it has no class to use instead. */
+  .docked :global([data-inbox-action]) {
+    display: none;
+  }
+  /* The decision toast and the plan-updating pill rise above the bar too, so neither covers its buttons. */
+  :global(body:has([data-docked-actions]) .inbox-toast-region) {
+    bottom: calc(var(--nav-clearance) + var(--docked-bar-height) + var(--s4));
+  }
+  :global(body:has([data-docked-actions]) .plan-updating-pill) {
+    bottom: calc(var(--nav-clearance) + var(--docked-bar-height) + var(--s4));
+  }
+  :global(body:has([data-docked-actions]):has(.inbox-toast) .plan-updating-pill) {
+    bottom: calc(var(--nav-clearance) + var(--docked-bar-height) + var(--s9) + var(--s3));
+  }
+  :global(body:has([data-docked-actions]) .app-content) {
+    /* The bar, then the 56px floating Capture button (app-nav.module.css) with a gap either side. */
+    padding-bottom: calc(var(--docked-bar-height) + 56px + var(--s4) * 2);
+  }
+}
+/* A capture's one-tap project choice, above its actions. */
+.choice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding-top: var(--s4);
+  border-top: 1px solid var(--line);
+}
+.detailBody .choiceLabel {
+  margin: 0;
+  font-size: var(--fs-small);
+  font-weight: 500;
+  color: var(--ink);
+}
+.choiceRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+/* The sweep's label is long: on a narrow screen it wraps instead of running past the card. */
+.foot .sweep {
+  height: auto;
+  min-height: 36px;
+  max-width: 100%;
+  padding-block: var(--s2);
+  line-height: 1.25;
+  text-align: left;
+  white-space: normal;
+}

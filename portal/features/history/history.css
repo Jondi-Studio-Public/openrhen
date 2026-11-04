@@ -1,0 +1,381 @@
+.history-card {
+  background: var(--surface);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-4);
+  padding: 18px;
+  margin-bottom: 14px;
+}
+
+/* Evidence, not a scoreboard: quiet outlined figures instead of the solid hero tiles .metric-row
+   gives the Now page, so five per session do not turn a short list into a wall of dark green. */
+.history-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.history-metrics > div {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  padding: 10px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-2);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.history-metrics strong {
+  font-size: 1.25rem;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.history-metrics span {
+  color: var(--ink-muted);
+  opacity: 1;
+  font-size: var(--fs-2);
+}
+
+/* A phone gets the five figures as one compact block of three columns instead of five boxed tiles,
+   so a session is two short rows rather than three tall ones. */
+@media (max-width: 560px) {
+  .history-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px 10px;
+  }
+
+  .history-metrics > div {
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+
+  .history-metrics strong {
+    font-size: 1.05rem;
+  }
+}
+.history-card .section-heading {
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6px 14px;
+}
+
+.history-card .section-heading h2 {
+  margin: 0 0 4px;
+  font-size: var(--fs-6);
+  overflow-wrap: anywhere;
+}
+
+.history-card .section-heading p {
+  margin: 0 0 8px;
+  color: var(--ink-soft);
+  font-size: var(--fs-4);
+}
+
+.history-card .section-heading time {
+  color: var(--ink-soft);
+  font-size: var(--fs-3);
+  white-space: nowrap;
+}
+
+.day-timeline-line-gap span {
+  color: var(--ink-soft);
+}
+
+.import-table-search span {
+  color: var(--ink-soft);
+  font-size: var(--fs-2);
+  font-weight: 600;
+}
+
+.import-table-sort span {
+  color: var(--accent);
+  font-size: 0.66rem;
+}
+
+.import-table-messages span {
+  display: block;
+  color: var(--danger-ink-deep);
+  font-size: var(--fs-2);
+}
+
+.day-timeline-wait > span {
+  position: absolute;
+  left: 8px;
+  top: 3px;
+  padding: 1px 2px;
+  border-radius: 3px;
+  background: var(--veil-4);
+  color: var(--ink-muted);
+  font-size: 0.6rem;
+  font-weight: 600;
+  white-space: nowrap;
+  writing-mode: vertical-rl;
+}
+
+.history-calendar {
+  margin-bottom: 28px;
+}
+
+.history-cal-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.history-cal-toggle {
+  display: inline-flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.history-cal-toggle button,
+.history-cal-nav button {
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: var(--r-pill);
+  padding: 6px 14px;
+  font-size: var(--fs-4);
+  cursor: pointer;
+}
+
+.history-cal-toggle button.active {
+  background: var(--accent-tint);
+  border-color: var(--line-accent-2);
+  color: var(--accent-strong);
+}
+
+.history-cal-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+}
+
+.history-cal-nav strong {
+  flex: 1 1 140px;
+  text-align: center;
+}
+
+.history-cal-notice {
+  margin: 0 0 10px;
+}
+
+.history-cal-scroll {
+  overflow-x: auto;
+}
+
+.history-cal-grid {
+  min-width: 640px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-2);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.history-cal-weekdays,
+.history-cal-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history-cal-weekdays span {
+  padding: 6px 8px;
+  font-size: var(--fs-3);
+  color: var(--ink-soft);
+  border-bottom: 1px solid var(--line-faint);
+}
+
+.history-cal-week + .history-cal-week {
+  border-top: 1px solid var(--line-soft);
+}
+
+.history-cal-bands {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px 0;
+  margin: 0;
+  padding: 4px 0 0;
+  list-style: none;
+}
+
+.history-cal-band {
+  margin: 0 3px;
+  padding: 3px 8px;
+  background: var(--accent-soft);
+  border: 1px solid var(--line-accent);
+  border-radius: var(--r-1);
+  color: var(--accent-strong);
+  font-size: var(--fs-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-cal-band.continues-before {
+  margin-left: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.history-cal-band.continues-after {
+  margin-right: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.history-cal-day {
+  min-height: 72px;
+  min-width: 0;
+  padding: 6px;
+  border-left: 1px solid var(--line-faint);
+}
+
+.history-cal-day:first-child {
+  border-left: 0;
+}
+
+.history-cal-day.outside {
+  background: var(--surface-sunken);
+  color: var(--ink-soft);
+}
+
+.history-cal-day.today .history-cal-date {
+  background: var(--accent-fill);
+  color: var(--accent-ink);
+}
+
+.history-cal-date {
+  display: inline-block;
+  min-width: 1.6em;
+  margin-bottom: 4px;
+  border-radius: var(--r-pill);
+  text-align: center;
+  font-size: var(--fs-3);
+}
+
+.history-cal-entry {
+  margin: 0 0 3px;
+  padding: 2px 6px;
+  border-radius: var(--r-1);
+  background: var(--surface-sunken);
+  font-size: var(--fs-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-cal-entry.sleep {
+  background: var(--accent-veil-2);
+}
+
+.history-cal-entry.occurrence.missed {
+  background: var(--danger-bg);
+}
+
+.history-cal-old {
+  margin: 0;
+  font-size: var(--fs-2);
+  color: var(--ink-soft);
+}
+
+.history-cal-grid.week .history-cal-day {
+  min-height: 140px;
+}
+
+.history-cal-grid.week .history-cal-entry {
+  white-space: normal;
+}
+
+.history-cal-span-list {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  font-size: var(--fs-3);
+  color: var(--ink-soft);
+}
+
+/* Phone: seven columns have to fit the card, so the grid drops its desktop minimum width, entries shrink
+   to dots (their title stays in the tooltip and the screen-reader label) and the period title takes its
+   own row above the buttons. The span legend and the session list below carry the detail. */
+@media (max-width: 640px) {
+  .history-calendar {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .history-cal-grid {
+    min-width: 0;
+  }
+
+  .history-cal-nav strong {
+    order: -1;
+    flex-basis: 100%;
+  }
+
+  .history-cal-nav button {
+    padding: 6px 12px;
+  }
+
+  .history-cal-weekdays span {
+    padding: 4px 2px;
+    font-size: var(--fs-2);
+    text-align: center;
+  }
+
+  .history-cal-day,
+  .history-cal-grid.week .history-cal-day {
+    min-height: 56px;
+    padding: 3px 2px;
+  }
+
+  .history-cal-date {
+    font-size: var(--fs-2);
+  }
+
+  .history-cal-entry {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin: 0 2px 2px 0;
+    padding: 0;
+    border-radius: 50%;
+    background: var(--accent-fill);
+    font-size: 0;
+  }
+
+  .history-cal-entry.sleep {
+    background: var(--ink-soft);
+  }
+
+  .history-cal-entry.occurrence.missed {
+    background: var(--danger-bg);
+    outline: 1px solid var(--line-strong);
+  }
+
+  .history-cal-band {
+    margin: 0 1px;
+    padding: 2px 4px;
+    font-size: var(--fs-2);
+  }
+
+  .history-cal-band span {
+    display: none;
+  }
+
+  .history-cal-old {
+    font-size: 10px;
+    line-height: 1.2;
+  }
+}

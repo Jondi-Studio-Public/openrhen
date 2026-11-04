@@ -1,0 +1,10 @@
+:root { color-scheme: light dark; }
+body { margin: 0; font: 16px/1.5 system-ui, sans-serif; }
+.oauth-page { max-width: 32rem; margin: 0 auto; padding: 2rem 1rem; }
+.oauth-page label { display: block; margin: 1rem 0; }
+.oauth-page input[type="password"] { display: block; width: 100%; box-sizing: border-box; margin-top: 0.25rem; padding: 0.5rem; font: inherit; }
+.oauth-page button { font: inherit; padding: 0.5rem 1.25rem; margin-right: 0.5rem; cursor: pointer; }
+.oauth-page button.secondary { background: transparent; border: 1px solid currentColor; color: inherit; }
+.oauth-page code { overflow-wrap: anywhere; }
+.oauth-page .error { color: #b00020; }
+@media (prefers-color-scheme: dark) { .oauth-page .error { color: #ff8a80; } }

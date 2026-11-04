@@ -1,0 +1,1216 @@
+{
+  "note": "Lower bound: fields read by these fixtures. A field read only on a rare branch may be missing. Fields the engine reads only after copying an item out of state (for example routine steps and sleep plans) can also be missing; the table never over-reports.",
+  "regenerate": "UPDATE_ENGINE_STATE_READS=1 corepack pnpm --filter @openrhen/engine-core exec vitest run test/snapshot-replay/state-reads.test.ts",
+  "fixtures": [
+    "leave-by-allows-for-variability.json",
+    "synthetic/after-work-steps-follow-overtime-finish.json",
+    "synthetic/arrived-pack-bag-no-longer-directed.json",
+    "synthetic/bedtime-routine-survives-midnight-rollover.json",
+    "synthetic/behind-prep-pace-for-a-commitment.json",
+    "synthetic/cancelled-recurring-commitment-still-protects-sleep.json",
+    "synthetic/completed-overridden-sleep-plan-stops-blocking-capacity.json",
+    "synthetic/overdue-external-outranks-unknown-forecast.json",
+    "synthetic/pending-ready-check-outranked-by-travel.json",
+    "synthetic/replanned-sleep-stays-directable.json",
+    "synthetic/routine-step-directive-honors-unmet-prerequisite.json",
+    "synthetic/running-late-directs-pack-bag.json",
+    "synthetic/sleep-walks-back-before-a-routine-chain.json",
+    "synthetic/wake-early-prep-uniform-then-sleep.json",
+    "synthetic/wake-only-completed-sleep-must-not-pin-bedtime.json",
+    "tracked-overtime-keeps-return-leg.json",
+    "travel-leg-protects-the-journey.json"
+  ],
+  "paths": [
+    {
+      "path": "state.actions[].availableFrom",
+      "fixtures": 8
+    },
+    {
+      "path": "state.actions[].consequence",
+      "fixtures": 8
+    },
+    {
+      "path": "state.actions[].contexts",
+      "fixtures": 8
+    },
+    {
+      "path": "state.actions[].createdAt",
+      "fixtures": 8
+    },
+    {
+      "path": "state.actions[].deadlineAt",
+      "fixtures": 8
+    },
+    {
+      "path": "state.actions[].dependencyIds",
+      "fixtures": 8
+    },
+    {
+      "path": "state.actions[].energy",
+      "fixtures": 8
+    },
+    {
+      "path": "state.actions[].expectedMinutes",
+      "fixtures": 8
+    },
+    {
+      "path": "state.actions[].id",
+      "fixtures": 8
+    },
+    {
+      "path": "state.actions[].importance",
+      "fixtures": 8
+    },
+    {
+      "path": "state.actions[].lastWorkedAt",
+      "fixtures": 8
+    },
+    {
+      "path": "state.actions[].latestStartAt",
+      "fixtures": 8
+    },
+    {
+      "path": "state.actions[].maximumSessionMinutes",
+      "fixtures": 8
+    },
+    {
+      "path": "state.actions[].minimumSessionMinutes",
+      "fixtures": 8
+    },
+    {
+      "path": "state.actions[].optimisticMinutes",
+      "fixtures": 8
+    },
+    {
+      "path": "state.actions[].pessimisticMinutes",
+      "fixtures": 8
+    },
+    {
+      "path": "state.actions[].preferences",
+      "fixtures": 8
+    },
+    {
+      "path": "state.actions[].prerequisites",
+      "fixtures": 8
+    },
+    {
+      "path": "state.actions[].projectId",
+      "fixtures": 8
+    },
+    {
+      "path": "state.actions[].recurrence.accumulatedMinutes",
+      "fixtures": 1
+    },
+    {
+      "path": "state.actions[].recurrence.actionId",
+      "fixtures": 1
+    },
+    {
+      "path": "state.actions[].recurrence.completedAt",
+      "fixtures": 1
+    },
+    {
+      "path": "state.actions[].recurrence.completionCount",
+      "fixtures": 1
+    },
+    {
+      "path": "state.actions[].recurrence.completionLocalDates",
+      "fixtures": 1
+    },
+    {
+      "path": "state.actions[].recurrence.completionMode",
+      "fixtures": 1
+    },
+    {
+      "path": "state.actions[].recurrence.eligibleWeekdays",
+      "fixtures": 1
+    },
+    {
+      "path": "state.actions[].recurrence.endDate",
+      "fixtures": 1
+    },
+    {
+      "path": "state.actions[].recurrence.id",
+      "fixtures": 1
+    },
+    {
+      "path": "state.actions[].recurrence.intervalDays",
+      "fixtures": 1
+    },
+    {
+      "path": "state.actions[].recurrence.lastCompletedLocalDate",
+      "fixtures": 1
+    },
+    {
+      "path": "state.actions[].recurrence.minSpacingDays",
+      "fixtures": 1
+    },
+    {
+      "path": "state.actions[].recurrence.period",
+      "fixtures": 1
+    },
+    {
+      "path": "state.actions[].recurrence.startDate",
+      "fixtures": 1
+    },
+    {
+      "path": "state.actions[].recurrence.targetOccurrences",
+      "fixtures": 1
+    },
+    {
+      "path": "state.actions[].recurrence.targetTotalMinutes",
+      "fixtures": 1
+    },
+    {
+      "path": "state.actions[].recurrence.timezone",
+      "fixtures": 1
+    },
+    {
+      "path": "state.actions[].recurrence.windows[].anchor",
+      "fixtures": 1
+    },
+    {
+      "path": "state.actions[].recurrence.windows[].endOffsetMinutes",
+      "fixtures": 1
+    },
+    {
+      "path": "state.actions[].recurrence.windows[].fallback.endTime",
+      "fixtures": 1
+    },
+    {
+      "path": "state.actions[].recurrence.windows[].fallback.startTime",
+      "fixtures": 1
+    },
+    {
+      "path": "state.actions[].recurrence.windows[].id",
+      "fixtures": 1
+    },
+    {
+      "path": "state.actions[].recurrence.windows[].localEndTime",
+      "fixtures": 1
+    },
+    {
+      "path": "state.actions[].recurrence.windows[].localStartTime",
+      "fixtures": 1
+    },
+    {
+      "path": "state.actions[].recurrence.windows[].name",
+      "fixtures": 1
+    },
+    {
+      "path": "state.actions[].recurrence.windows[].startOffsetMinutes",
+      "fixtures": 1
+    },
+    {
+      "path": "state.actions[].remainingMinutes",
+      "fixtures": 8
+    },
+    {
+      "path": "state.actions[].remainingSetAt",
+      "fixtures": 8
+    },
+    {
+      "path": "state.actions[].requirementPathways[].contextIds[]",
+      "fixtures": 2
+    },
+    {
+      "path": "state.actions[].requirementPathways[].id",
+      "fixtures": 2
+    },
+    {
+      "path": "state.actions[].schedulingMode",
+      "fixtures": 8
+    },
+    {
+      "path": "state.actions[].setupMinutes",
+      "fixtures": 8
+    },
+    {
+      "path": "state.actions[].splittable",
+      "fixtures": 8
+    },
+    {
+      "path": "state.actions[].status",
+      "fixtures": 8
+    },
+    {
+      "path": "state.actions[].title",
+      "fixtures": 8
+    },
+    {
+      "path": "state.activeSession",
+      "fixtures": 17
+    },
+    {
+      "path": "state.commitmentRecurrenceRules[].contactId",
+      "fixtures": 2
+    },
+    {
+      "path": "state.commitmentRecurrenceRules[].endDate",
+      "fixtures": 2
+    },
+    {
+      "path": "state.commitmentRecurrenceRules[].id",
+      "fixtures": 2
+    },
+    {
+      "path": "state.commitmentRecurrenceRules[].latenessMatters",
+      "fixtures": 2
+    },
+    {
+      "path": "state.commitmentRecurrenceRules[].localEndTime",
+      "fixtures": 2
+    },
+    {
+      "path": "state.commitmentRecurrenceRules[].localStartTime",
+      "fixtures": 2
+    },
+    {
+      "path": "state.commitmentRecurrenceRules[].location",
+      "fixtures": 2
+    },
+    {
+      "path": "state.commitmentRecurrenceRules[].locationId",
+      "fixtures": 2
+    },
+    {
+      "path": "state.commitmentRecurrenceRules[].presence",
+      "fixtures": 2
+    },
+    {
+      "path": "state.commitmentRecurrenceRules[].projectId",
+      "fixtures": 2
+    },
+    {
+      "path": "state.commitmentRecurrenceRules[].repeat.intervalDays",
+      "fixtures": 2
+    },
+    {
+      "path": "state.commitmentRecurrenceRules[].repeat.unit",
+      "fixtures": 2
+    },
+    {
+      "path": "state.commitmentRecurrenceRules[].routinePresetId",
+      "fixtures": 2
+    },
+    {
+      "path": "state.commitmentRecurrenceRules[].routineSource",
+      "fixtures": 2
+    },
+    {
+      "path": "state.commitmentRecurrenceRules[].setupBeforeMinutes",
+      "fixtures": 2
+    },
+    {
+      "path": "state.commitmentRecurrenceRules[].startDate",
+      "fixtures": 2
+    },
+    {
+      "path": "state.commitmentRecurrenceRules[].status",
+      "fixtures": 2
+    },
+    {
+      "path": "state.commitmentRecurrenceRules[].timezone",
+      "fixtures": 2
+    },
+    {
+      "path": "state.commitmentRecurrenceRules[].title",
+      "fixtures": 2
+    },
+    {
+      "path": "state.commitmentRecurrenceRules[].transitionAfterMinutes",
+      "fixtures": 2
+    },
+    {
+      "path": "state.commitmentRecurrenceRules[].transportMode",
+      "fixtures": 2
+    },
+    {
+      "path": "state.commitments[].attendance",
+      "fixtures": 15
+    },
+    {
+      "path": "state.commitments[].endsAt",
+      "fixtures": 15
+    },
+    {
+      "path": "state.commitments[].id",
+      "fixtures": 15
+    },
+    {
+      "path": "state.commitments[].latenessMatters",
+      "fixtures": 15
+    },
+    {
+      "path": "state.commitments[].location",
+      "fixtures": 15
+    },
+    {
+      "path": "state.commitments[].locationId",
+      "fixtures": 15
+    },
+    {
+      "path": "state.commitments[].preferredLocationId",
+      "fixtures": 15
+    },
+    {
+      "path": "state.commitments[].presence",
+      "fixtures": 15
+    },
+    {
+      "path": "state.commitments[].recurrenceRuleId",
+      "fixtures": 15
+    },
+    {
+      "path": "state.commitments[].routinePresetId",
+      "fixtures": 11
+    },
+    {
+      "path": "state.commitments[].routineSource",
+      "fixtures": 11
+    },
+    {
+      "path": "state.commitments[].scheduleSource",
+      "fixtures": 1
+    },
+    {
+      "path": "state.commitments[].setupBeforeMinutes",
+      "fixtures": 15
+    },
+    {
+      "path": "state.commitments[].startsAt",
+      "fixtures": 15
+    },
+    {
+      "path": "state.commitments[].status",
+      "fixtures": 15
+    },
+    {
+      "path": "state.commitments[].title",
+      "fixtures": 15
+    },
+    {
+      "path": "state.commitments[].trackedEndedAt",
+      "fixtures": 15
+    },
+    {
+      "path": "state.commitments[].transitionAfterMinutes",
+      "fixtures": 15
+    },
+    {
+      "path": "state.commitments[].transportMode",
+      "fixtures": 15
+    },
+    {
+      "path": "state.conditionDefinitions[].defaultRoutinePresetId",
+      "fixtures": 2
+    },
+    {
+      "path": "state.conditionDefinitions[].id",
+      "fixtures": 12
+    },
+    {
+      "path": "state.conditionDefinitions[].kind",
+      "fixtures": 12
+    },
+    {
+      "path": "state.conditionDefinitions[].latitude",
+      "fixtures": 11
+    },
+    {
+      "path": "state.conditionDefinitions[].longitude",
+      "fixtures": 11
+    },
+    {
+      "path": "state.conditionDefinitions[].name",
+      "fixtures": 12
+    },
+    {
+      "path": "state.conditionDefinitions[].status",
+      "fixtures": 2
+    },
+    {
+      "path": "state.conditionDefinitions[].travelMinutes",
+      "fixtures": 11
+    },
+    {
+      "path": "state.conditionDefinitions[].usualTransportMode",
+      "fixtures": 11
+    },
+    {
+      "path": "state.currentEnergy",
+      "fixtures": 13
+    },
+    {
+      "path": "state.currentSituation.carrying",
+      "fixtures": 14
+    },
+    {
+      "path": "state.currentSituation.energySetAt",
+      "fixtures": 17
+    },
+    {
+      "path": "state.currentSituation.locationId",
+      "fixtures": 17
+    },
+    {
+      "path": "state.currentSituation.locationSetAt",
+      "fixtures": 17
+    },
+    {
+      "path": "state.currentSituation.overrides.campus",
+      "fixtures": 1
+    },
+    {
+      "path": "state.currentSituation.overrides.home",
+      "fixtures": 1
+    },
+    {
+      "path": "state.currentSituation.transportModes[]",
+      "fixtures": 8
+    },
+    {
+      "path": "state.currentSituation.travel",
+      "fixtures": 13
+    },
+    {
+      "path": "state.currentSituation.travelOff",
+      "fixtures": 15
+    },
+    {
+      "path": "state.currentSituation.travelRefreshedAt",
+      "fixtures": 13
+    },
+    {
+      "path": "state.dailyPlan",
+      "fixtures": 16
+    },
+    {
+      "path": "state.deliverables[].dependencyIds",
+      "fixtures": 2
+    },
+    {
+      "path": "state.deliverables[].id",
+      "fixtures": 2
+    },
+    {
+      "path": "state.deliverables[].prerequisites",
+      "fixtures": 2
+    },
+    {
+      "path": "state.deliverables[].projectId",
+      "fixtures": 2
+    },
+    {
+      "path": "state.deliverables[].status",
+      "fixtures": 2
+    },
+    {
+      "path": "state.deliverables[].steps",
+      "fixtures": 2
+    },
+    {
+      "path": "state.deliverables[].title",
+      "fixtures": 2
+    },
+    {
+      "path": "state.estimateCalibration.areas",
+      "fixtures": 13
+    },
+    {
+      "path": "state.estimateCalibration.overall",
+      "fixtures": 13
+    },
+    {
+      "path": "state.lastEndedSessions",
+      "fixtures": 16
+    },
+    {
+      "path": "state.occurrences",
+      "fixtures": 16
+    },
+    {
+      "path": "state.outcomes[].areaId",
+      "fixtures": 13
+    },
+    {
+      "path": "state.outcomes[].id",
+      "fixtures": 13
+    },
+    {
+      "path": "state.outcomes[].status",
+      "fixtures": 13
+    },
+    {
+      "path": "state.planningFocus",
+      "fixtures": 16
+    },
+    {
+      "path": "state.projects[].actualCompletionRatio",
+      "fixtures": 13
+    },
+    {
+      "path": "state.projects[].consequence",
+      "fixtures": 13
+    },
+    {
+      "path": "state.projects[].createdAt",
+      "fixtures": 13
+    },
+    {
+      "path": "state.projects[].externalDeadlineAt",
+      "fixtures": 13
+    },
+    {
+      "path": "state.projects[].id",
+      "fixtures": 13
+    },
+    {
+      "path": "state.projects[].internalDeadlineAt",
+      "fixtures": 13
+    },
+    {
+      "path": "state.projects[].lastWorkedAt",
+      "fixtures": 13
+    },
+    {
+      "path": "state.projects[].outcomeId",
+      "fixtures": 13
+    },
+    {
+      "path": "state.projects[].prerequisites",
+      "fixtures": 13
+    },
+    {
+      "path": "state.projects[].remainingEffortOverrideMinutes",
+      "fixtures": 13
+    },
+    {
+      "path": "state.projects[].requiredCompletionRatio",
+      "fixtures": 13
+    },
+    {
+      "path": "state.projects[].status",
+      "fixtures": 13
+    },
+    {
+      "path": "state.projects[].title",
+      "fixtures": 13
+    },
+    {
+      "path": "state.projects[].uncertainty",
+      "fixtures": 13
+    },
+    {
+      "path": "state.projects[].value",
+      "fixtures": 13
+    },
+    {
+      "path": "state.routinePresets[].id",
+      "fixtures": 3
+    },
+    {
+      "path": "state.routinePresets[].status",
+      "fixtures": 3
+    },
+    {
+      "path": "state.routinePresets[].steps[].actionWindowId",
+      "fixtures": 3
+    },
+    {
+      "path": "state.routinePresets[].steps[].cadenceActionId",
+      "fixtures": 3
+    },
+    {
+      "path": "state.routinePresets[].steps[].contexts",
+      "fixtures": 3
+    },
+    {
+      "path": "state.routinePresets[].steps[].durationMinutes",
+      "fixtures": 3
+    },
+    {
+      "path": "state.routinePresets[].steps[].energy",
+      "fixtures": 3
+    },
+    {
+      "path": "state.routinePresets[].steps[].id",
+      "fixtures": 3
+    },
+    {
+      "path": "state.routinePresets[].steps[].maxLeadMinutes",
+      "fixtures": 3
+    },
+    {
+      "path": "state.routinePresets[].steps[].mustStartByMinutes",
+      "fixtures": 3
+    },
+    {
+      "path": "state.routinePresets[].steps[].phase",
+      "fixtures": 3
+    },
+    {
+      "path": "state.routinePresets[].steps[].preferredBands",
+      "fixtures": 3
+    },
+    {
+      "path": "state.routinePresets[].steps[].sequence",
+      "fixtures": 3
+    },
+    {
+      "path": "state.routinePresets[].steps[].timingRule",
+      "fixtures": 3
+    },
+    {
+      "path": "state.routinePresets[].steps[].title",
+      "fixtures": 3
+    },
+    {
+      "path": "state.routinePresets[].steps[].waitAfterMinutes",
+      "fixtures": 3
+    },
+    {
+      "path": "state.routineSteps[].actionWindowId",
+      "fixtures": 12
+    },
+    {
+      "path": "state.routineSteps[].anchorType",
+      "fixtures": 12
+    },
+    {
+      "path": "state.routineSteps[].commitmentId",
+      "fixtures": 12
+    },
+    {
+      "path": "state.routineSteps[].completedAt",
+      "fixtures": 12
+    },
+    {
+      "path": "state.routineSteps[].contexts",
+      "fixtures": 12
+    },
+    {
+      "path": "state.routineSteps[].dependencyIds[]",
+      "fixtures": 7
+    },
+    {
+      "path": "state.routineSteps[].durationMinutes",
+      "fixtures": 12
+    },
+    {
+      "path": "state.routineSteps[].id",
+      "fixtures": 12
+    },
+    {
+      "path": "state.routineSteps[].maxLeadMinutes",
+      "fixtures": 12
+    },
+    {
+      "path": "state.routineSteps[].mustStartByMinutes",
+      "fixtures": 12
+    },
+    {
+      "path": "state.routineSteps[].phase",
+      "fixtures": 12
+    },
+    {
+      "path": "state.routineSteps[].preferredBands",
+      "fixtures": 12
+    },
+    {
+      "path": "state.routineSteps[].scheduledEndAt",
+      "fixtures": 12
+    },
+    {
+      "path": "state.routineSteps[].scheduledStartAt",
+      "fixtures": 12
+    },
+    {
+      "path": "state.routineSteps[].sequence",
+      "fixtures": 12
+    },
+    {
+      "path": "state.routineSteps[].status",
+      "fixtures": 12
+    },
+    {
+      "path": "state.routineSteps[].timingRule",
+      "fixtures": 12
+    },
+    {
+      "path": "state.routineSteps[].title",
+      "fixtures": 12
+    },
+    {
+      "path": "state.routineSteps[].waitAfterMinutes",
+      "fixtures": 12
+    },
+    {
+      "path": "state.settings.arrivalMarginMinutes",
+      "fixtures": 16
+    },
+    {
+      "path": "state.settings.bedtimeDeviationMinutes",
+      "fixtures": 15
+    },
+    {
+      "path": "state.settings.bedtimeRoutinePresetId",
+      "fixtures": 16
+    },
+    {
+      "path": "state.settings.defaultTransportMode",
+      "fixtures": 16
+    },
+    {
+      "path": "state.settings.defaultUsableFraction",
+      "fixtures": 16
+    },
+    {
+      "path": "state.settings.desiredSleepMinutes",
+      "fixtures": 15
+    },
+    {
+      "path": "state.settings.estimateCalibrationEnabled",
+      "fixtures": 12
+    },
+    {
+      "path": "state.settings.homeLocationId",
+      "fixtures": 16
+    },
+    {
+      "path": "state.settings.lastWokeAt",
+      "fixtures": 17
+    },
+    {
+      "path": "state.settings.locale",
+      "fixtures": 16
+    },
+    {
+      "path": "state.settings.maxAwakeHours",
+      "fixtures": 17
+    },
+    {
+      "path": "state.settings.minimumSleepMinutes",
+      "fixtures": 16
+    },
+    {
+      "path": "state.settings.planningHorizonEnd",
+      "fixtures": 16
+    },
+    {
+      "path": "state.settings.preferredBedtime",
+      "fixtures": 16
+    },
+    {
+      "path": "state.settings.preferredWakeTime",
+      "fixtures": 16
+    },
+    {
+      "path": "state.settings.recoveryEndTime",
+      "fixtures": 16
+    },
+    {
+      "path": "state.settings.recoveryStartTime",
+      "fixtures": 16
+    },
+    {
+      "path": "state.settings.recoveryWeekdays",
+      "fixtures": 16
+    },
+    {
+      "path": "state.settings.sessionBreakMinutes",
+      "fixtures": 16
+    },
+    {
+      "path": "state.settings.startByWarningMinutes",
+      "fixtures": 16
+    },
+    {
+      "path": "state.settings.submissionBufferMinutes",
+      "fixtures": 16
+    },
+    {
+      "path": "state.settings.submissionBufferPercent",
+      "fixtures": 16
+    },
+    {
+      "path": "state.settings.timeBands",
+      "fixtures": 16
+    },
+    {
+      "path": "state.settings.timezone",
+      "fixtures": 16
+    },
+    {
+      "path": "state.settings.wakeRoutinePresetId",
+      "fixtures": 16
+    },
+    {
+      "path": "state.sleepPlans[].actualStartAt",
+      "fixtures": 4
+    },
+    {
+      "path": "state.sleepPlans[].actualWakeAt",
+      "fixtures": 5
+    },
+    {
+      "path": "state.sleepPlans[].allowedMinutes",
+      "fixtures": 4
+    },
+    {
+      "path": "state.sleepPlans[].anchorDeviationMinutes",
+      "fixtures": 4
+    },
+    {
+      "path": "state.sleepPlans[].desiredMinutes",
+      "fixtures": 4
+    },
+    {
+      "path": "state.sleepPlans[].explanation",
+      "fixtures": 4
+    },
+    {
+      "path": "state.sleepPlans[].hardErrors",
+      "fixtures": 4
+    },
+    {
+      "path": "state.sleepPlans[].id",
+      "fixtures": 5
+    },
+    {
+      "path": "state.sleepPlans[].minimumShortfallMinutes",
+      "fixtures": 2
+    },
+    {
+      "path": "state.sleepPlans[].overridden",
+      "fixtures": 2
+    },
+    {
+      "path": "state.sleepPlans[].plannedStartAt",
+      "fixtures": 4
+    },
+    {
+      "path": "state.sleepPlans[].plannedWakeAt",
+      "fixtures": 4
+    },
+    {
+      "path": "state.sleepPlans[].replannedFromMissedStart",
+      "fixtures": 1
+    },
+    {
+      "path": "state.sleepPlans[].sleepDeficitMinutes",
+      "fixtures": 4
+    },
+    {
+      "path": "state.sleepPlans[].status",
+      "fixtures": 5
+    },
+    {
+      "path": "state.sleepPlans[].targetMinutes",
+      "fixtures": 3
+    },
+    {
+      "path": "state.sleepPlans[].version",
+      "fixtures": 4
+    },
+    {
+      "path": "state.sleepPlans[].wakeConstraint.commitmentId",
+      "fixtures": 1
+    },
+    {
+      "path": "state.sleepPlans[].wakeConstraint.title",
+      "fixtures": 1
+    }
+  ],
+  "collections": [
+    {
+      "name": "actions",
+      "fields": [
+        "[].availableFrom",
+        "[].consequence",
+        "[].contexts",
+        "[].createdAt",
+        "[].deadlineAt",
+        "[].dependencyIds",
+        "[].energy",
+        "[].expectedMinutes",
+        "[].id",
+        "[].importance",
+        "[].lastWorkedAt",
+        "[].latestStartAt",
+        "[].maximumSessionMinutes",
+        "[].minimumSessionMinutes",
+        "[].optimisticMinutes",
+        "[].pessimisticMinutes",
+        "[].preferences",
+        "[].prerequisites",
+        "[].projectId",
+        "[].recurrence.accumulatedMinutes",
+        "[].recurrence.actionId",
+        "[].recurrence.completedAt",
+        "[].recurrence.completionCount",
+        "[].recurrence.completionLocalDates",
+        "[].recurrence.completionMode",
+        "[].recurrence.eligibleWeekdays",
+        "[].recurrence.endDate",
+        "[].recurrence.id",
+        "[].recurrence.intervalDays",
+        "[].recurrence.lastCompletedLocalDate",
+        "[].recurrence.minSpacingDays",
+        "[].recurrence.period",
+        "[].recurrence.startDate",
+        "[].recurrence.targetOccurrences",
+        "[].recurrence.targetTotalMinutes",
+        "[].recurrence.timezone",
+        "[].recurrence.windows[].anchor",
+        "[].recurrence.windows[].endOffsetMinutes",
+        "[].recurrence.windows[].fallback.endTime",
+        "[].recurrence.windows[].fallback.startTime",
+        "[].recurrence.windows[].id",
+        "[].recurrence.windows[].localEndTime",
+        "[].recurrence.windows[].localStartTime",
+        "[].recurrence.windows[].name",
+        "[].recurrence.windows[].startOffsetMinutes",
+        "[].remainingMinutes",
+        "[].remainingSetAt",
+        "[].requirementPathways[].contextIds[]",
+        "[].requirementPathways[].id",
+        "[].schedulingMode",
+        "[].setupMinutes",
+        "[].splittable",
+        "[].status",
+        "[].title"
+      ]
+    },
+    {
+      "name": "commitmentRecurrenceRules",
+      "fields": [
+        "[].contactId",
+        "[].endDate",
+        "[].id",
+        "[].latenessMatters",
+        "[].localEndTime",
+        "[].localStartTime",
+        "[].location",
+        "[].locationId",
+        "[].presence",
+        "[].projectId",
+        "[].repeat.intervalDays",
+        "[].repeat.unit",
+        "[].routinePresetId",
+        "[].routineSource",
+        "[].setupBeforeMinutes",
+        "[].startDate",
+        "[].status",
+        "[].timezone",
+        "[].title",
+        "[].transitionAfterMinutes",
+        "[].transportMode"
+      ]
+    },
+    {
+      "name": "commitments",
+      "fields": [
+        "[].attendance",
+        "[].endsAt",
+        "[].id",
+        "[].latenessMatters",
+        "[].location",
+        "[].locationId",
+        "[].preferredLocationId",
+        "[].presence",
+        "[].recurrenceRuleId",
+        "[].routinePresetId",
+        "[].routineSource",
+        "[].scheduleSource",
+        "[].setupBeforeMinutes",
+        "[].startsAt",
+        "[].status",
+        "[].title",
+        "[].trackedEndedAt",
+        "[].transitionAfterMinutes",
+        "[].transportMode"
+      ]
+    },
+    {
+      "name": "conditionDefinitions",
+      "fields": [
+        "[].defaultRoutinePresetId",
+        "[].id",
+        "[].kind",
+        "[].latitude",
+        "[].longitude",
+        "[].name",
+        "[].status",
+        "[].travelMinutes",
+        "[].usualTransportMode"
+      ]
+    },
+    {
+      "name": "currentSituation",
+      "fields": [
+        "carrying",
+        "energySetAt",
+        "locationId",
+        "locationSetAt",
+        "overrides.campus",
+        "overrides.home",
+        "transportModes[]",
+        "travel",
+        "travelOff",
+        "travelRefreshedAt"
+      ]
+    },
+    {
+      "name": "deliverables",
+      "fields": [
+        "[].dependencyIds",
+        "[].id",
+        "[].prerequisites",
+        "[].projectId",
+        "[].status",
+        "[].steps",
+        "[].title"
+      ]
+    },
+    {
+      "name": "estimateCalibration",
+      "fields": [
+        "areas",
+        "overall"
+      ]
+    },
+    {
+      "name": "outcomes",
+      "fields": [
+        "[].areaId",
+        "[].id",
+        "[].status"
+      ]
+    },
+    {
+      "name": "projects",
+      "fields": [
+        "[].actualCompletionRatio",
+        "[].consequence",
+        "[].createdAt",
+        "[].externalDeadlineAt",
+        "[].id",
+        "[].internalDeadlineAt",
+        "[].lastWorkedAt",
+        "[].outcomeId",
+        "[].prerequisites",
+        "[].remainingEffortOverrideMinutes",
+        "[].requiredCompletionRatio",
+        "[].status",
+        "[].title",
+        "[].uncertainty",
+        "[].value"
+      ]
+    },
+    {
+      "name": "routinePresets",
+      "fields": [
+        "[].id",
+        "[].status",
+        "[].steps[].actionWindowId",
+        "[].steps[].cadenceActionId",
+        "[].steps[].contexts",
+        "[].steps[].durationMinutes",
+        "[].steps[].energy",
+        "[].steps[].id",
+        "[].steps[].maxLeadMinutes",
+        "[].steps[].mustStartByMinutes",
+        "[].steps[].phase",
+        "[].steps[].preferredBands",
+        "[].steps[].sequence",
+        "[].steps[].timingRule",
+        "[].steps[].title",
+        "[].steps[].waitAfterMinutes"
+      ]
+    },
+    {
+      "name": "routineSteps",
+      "fields": [
+        "[].actionWindowId",
+        "[].anchorType",
+        "[].commitmentId",
+        "[].completedAt",
+        "[].contexts",
+        "[].dependencyIds[]",
+        "[].durationMinutes",
+        "[].id",
+        "[].maxLeadMinutes",
+        "[].mustStartByMinutes",
+        "[].phase",
+        "[].preferredBands",
+        "[].scheduledEndAt",
+        "[].scheduledStartAt",
+        "[].sequence",
+        "[].status",
+        "[].timingRule",
+        "[].title",
+        "[].waitAfterMinutes"
+      ]
+    },
+    {
+      "name": "sleepPlans",
+      "fields": [
+        "[].actualStartAt",
+        "[].actualWakeAt",
+        "[].allowedMinutes",
+        "[].anchorDeviationMinutes",
+        "[].desiredMinutes",
+        "[].explanation",
+        "[].hardErrors",
+        "[].id",
+        "[].minimumShortfallMinutes",
+        "[].overridden",
+        "[].plannedStartAt",
+        "[].plannedWakeAt",
+        "[].replannedFromMissedStart",
+        "[].sleepDeficitMinutes",
+        "[].status",
+        "[].targetMinutes",
+        "[].version",
+        "[].wakeConstraint.commitmentId",
+        "[].wakeConstraint.title"
+      ]
+    }
+  ],
+  "settings": [
+    "arrivalMarginMinutes",
+    "bedtimeDeviationMinutes",
+    "bedtimeRoutinePresetId",
+    "defaultTransportMode",
+    "defaultUsableFraction",
+    "desiredSleepMinutes",
+    "estimateCalibrationEnabled",
+    "homeLocationId",
+    "lastWokeAt",
+    "locale",
+    "maxAwakeHours",
+    "minimumSleepMinutes",
+    "planningHorizonEnd",
+    "preferredBedtime",
+    "preferredWakeTime",
+    "recoveryEndTime",
+    "recoveryStartTime",
+    "recoveryWeekdays",
+    "sessionBreakMinutes",
+    "startByWarningMinutes",
+    "submissionBufferMinutes",
+    "submissionBufferPercent",
+    "timeBands",
+    "timezone",
+    "wakeRoutinePresetId"
+  ],
+  "scalars": [
+    "activeSession",
+    "currentEnergy",
+    "dailyPlan",
+    "lastEndedSessions",
+    "occurrences",
+    "planningFocus"
+  ]
+}

@@ -1,0 +1,90 @@
+/* Plan map: the Inbox's Links and findings and Add-ons windows, and an item's Connections section.
+   A suggested link is drawn dashed and marked suggested until it is confirmed. */
+.plan-map-connections ul {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plan-map-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-3);
+}
+
+.plan-map-row.suggested {
+  border-style: dashed;
+  border-color: var(--line-accent);
+}
+
+.plan-map-row-body {
+  display: grid;
+  flex: 1 1 14rem;
+  gap: 2px;
+  min-width: 0;
+}
+
+.plan-map-row-body p {
+  margin: 0;
+}
+
+.plan-map-row .actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+  margin-top: 0;
+}
+
+.plan-map-kind,
+.plan-map-tag {
+  color: var(--ink-ghost);
+  font-style: italic;
+}
+
+.plan-map-evidence,
+.plan-map-changes ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  list-style: disc;
+}
+
+.plan-map-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.plan-map-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.plan-map-add label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.plan-map-fold {
+  flex-basis: 100%;
+}
+
+.plan-map-fold > summary {
+  cursor: pointer;
+}
+
+/* The fold's own summary already says "Connections"; do not repeat it as a heading inside. */
+.plan-map-fold .plan-map-connections .section-heading {
+  display: none;
+}

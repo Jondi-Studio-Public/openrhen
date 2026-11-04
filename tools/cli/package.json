@@ -1,0 +1,33 @@
+{
+  "name": "@openrhen/cli",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "rhen": "./dist/rhen.mjs"
+  },
+  "exports": {
+    "./in-process": "./src/in-process.ts"
+  },
+  "scripts": {
+    "dev": "tsx --env-file-if-exists=../../.env src/dev.ts",
+    "start": "tsx --env-file-if-exists=../../.env src/dev.ts",
+    "build": "node ./scripts/build.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "manifest": "tsx scripts/generate-mcp-manifest.ts",
+    "contract-snapshot": "tsx scripts/generate-agent-contract-snapshot.ts"
+  },
+  "dependencies": {
+    "@openrhen/contracts": "workspace:*",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.3",
+    "esbuild": "0.28.2",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vitest": "5.0.5"
+  }
+}

@@ -1,0 +1,9 @@
+.list {
+  margin: 0;
+}
+/* A phone keeps the count and the button; the breakdown is in the sheet. */
+@media (max-width: 719px) {
+  .summary {
+    display: none;
+  }
+}

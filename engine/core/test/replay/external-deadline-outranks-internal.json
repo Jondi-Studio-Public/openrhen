@@ -1,0 +1,24 @@
+{
+  "name": "An at-risk external deadline outranks an already-behind self-set one",
+  "why": "A household project whose self-set deadlines had all passed was permanently rank 0 'behind', so it outranked at-risk study units answering to real submission dates. A deadline someone else set cannot be renegotiated, so it now outranks a self-set one at every severity.",
+  "calculatedAt": "2026-08-07T07:00:00.000Z",
+  "horizonDays": 180,
+  "capacity": { "mode": "automatic", "usableFraction": 0.85, "timezone": "Australia/Sydney", "dayStartTime": "07:00", "dayEndTime": "22:00" },
+  "currentEnergy": "high",
+  "assertedConditions": [],
+  "projects": [
+    { "id": "study-unit", "externalDeadlineDays": 3, "value": 5, "consequence": 5 },
+    { "id": "bedroom", "deadlineDays": 0, "value": 3, "consequence": 3 }
+  ],
+  "actions": [
+    { "id": "study-assessment", "projectId": "study-unit", "minutes": 1800, "consequence": 5, "importance": 5 },
+    { "id": "bedroom-cupboard", "projectId": "bedroom", "minutes": 345, "consequence": 3, "importance": 3 }
+  ],
+  "commitments": [],
+  "expect": {
+    "primaryActionId": "study-assessment",
+    "criticalRank": 2,
+    "criticalTier": "at_risk_external",
+    "health": { "study-unit": "at_risk", "bedroom": "behind" }
+  }
+}

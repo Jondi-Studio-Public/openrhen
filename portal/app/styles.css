@@ -1,0 +1,1591 @@
+/* ---------------------------------------------------------------------------
+   Design tokens: the "Quiet ledger" system (the portal redesign canvas).
+
+   A warm paper ground, ink text and one green that marks only what to act on.
+   New code uses the semantic set first in each group (--surface-2, --ink-2,
+   --ink-3, --s1..--s9, --r-sm..--r-xl, --fs-caption..--fs-display, --elev-*).
+   The older names below each group are kept, remapped onto the same values, so
+   pages not yet rebuilt follow the new palette; they go once every place has
+   been rebuilt.
+
+   Two conventions worth knowing before you add a rule:
+
+   * A colour used as TEXT and the same colour as a solid FILL are separate
+     tokens, because they move in opposite directions in dark mode. Green text
+     is --accent (lighter in dark mode); a green button is --accent-fill (stays
+     deep enough for white text, --accent-ink).
+   * --shadow-* are bare colours for composing box-shadows; --elev-1 (resting)
+     and --elev-2 (floating: sheets, menus, toasts) are whole shadows.
+
+   There is no in-app theme switch. This follows the system, and nothing else.
+   --------------------------------------------------------------------------- */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400 900;
+  font-display: swap;
+  src: url("/fonts/InterVariable.woff2") format("woff2");
+}
+
+:root {
+  /* GROUND AND SURFACES */
+  --bg: #f6f5f1; /* paper */
+  --surface: #ffffff; /* cards, inputs, sheets */
+  --surface-2: #efeee9; /* recessed panel, segmented track, hover */
+  --surface-3: #e7e5df; /* meter tracks, counts, switch off */
+  --bg-wash: #f6f5f1;
+  --bg-veil: #f6f5f1f2; /* ground at near-opacity, for docked bars */
+  --surface-raised: #ffffff;
+  --surface-sunken: #efeee9;
+  --neutral-faint: #efeee9;
+  --neutral-soft: #e7e5df;
+  --neutral: #e2e0d9;
+
+  /* TRANSLUCENT PANELS */
+  --veil-1: #ffffff99;
+  --veil-2: #ffffffe6;
+  --veil-3: #fffffff2;
+  --veil-4: #fffffffa;
+  --tint-veil: #e2ede766;
+  --tint-veil-faint: #e2ede72e;
+  --tint-veil-soft: #efeee980;
+  --ink-veil: #1a1f1c12;
+
+  /* LINES */
+  --line: #e2e0d9; /* the default border and divider */
+  --line-strong: #cbc8bf; /* control borders */
+  --line-faint: #ebe9e3;
+  --line-soft: #e2e0d9;
+  --line-mid: #d6d3cb;
+  --line-heavy: #b5b2a9;
+  --line-tint: #dfe4df;
+  --line-tint-2: #d3dbd5;
+  --line-accent: #b9cbc0;
+  --line-accent-2: #9ab3a5;
+
+  /* INK */
+  --ink: #1a1f1c; /* primary text */
+  --ink-2: #47504b; /* secondary text, labels */
+  --ink-3: #636b66; /* captions, meta, hints (5:1 on paper) */
+  --ink-body: #2f3733;
+  --ink-muted: #47504b;
+  --ink-soft: #5a625d;
+  --ink-faint: #636b66;
+  --ink-ghost: #858b86; /* dashed rules and inert marks, not text */
+
+  /* ACCENT */
+  --accent: #1f5c45; /* green text and icons */
+  --accent-fill: #1f5c45; /* the primary button */
+  --accent-fill-hover: #174a37;
+  --accent-ink: #ffffff; /* text on any solid fill */
+  --accent-soft: #e2ede7; /* pale green fill: selected, on track */
+  --accent-tint: #e2ede7;
+  --accent-strong: #174a37;
+  --accent-mid: #2c6650;
+  --accent-muted: #4a6f5e;
+  --accent-vivid: #4f8a6e;
+  --accent-bright: #78a08c;
+  --accent-pale: #9cc4ad;
+  --focus-ring: #4f8a6e;
+  --focus-glow: #4f8a6e26;
+  --accent-strong-fill: #174a37;
+  --accent-mid-fill: #2c6650;
+  --accent-muted-fill: #4a6f5e;
+  --accent-vivid-fill: #4f8a6e;
+  --accent-bright-fill: #78a08c;
+  --ink-muted-fill: #47504b;
+  --ink-ghost-fill: #858b86;
+
+  /* STATUS: amber for attention, red for failure, blue for information */
+  --warn-ink: #855600;
+  --warn-bg: #fbf0d9;
+  --warn-bg-strong: #f4e3bd;
+  --warn-line-soft: #efe2c4;
+  --warn-line-mute: #d9c7a0;
+  --warn-line: #e0c680;
+  --warn-line-strong: #d4a24f;
+  --warn-accent: #b98a3a;
+  --warn-ink-soft: #7a5a12;
+  --warn-ink-deep: #6a4500;
+  --warn-ink-soft-fill: #7a5a12;
+  --danger-ink: #a63a2b;
+  --danger-bg: #fae9e5;
+  --danger-bg-strong: #f2d6d0;
+  --danger-line: #dbb3ab;
+  --danger: #a63a2b;
+  --danger-ink-deep: #87301f;
+  --danger-fill: #a63a2b;
+  --danger-solid: #8f2f2f;
+  --info-ink: #2c5282;
+  --info-bg: #e6edf7;
+  --info-line: #a9bfdc;
+  --info-solid: #2c5282;
+  --now: #c2412d; /* the current-time line */
+
+  /* PLACES: only ever a 3px edge on a timeline block */
+  --place-home: #8a6d3b;
+  --place-work: #3b5f8a;
+  --place-school: #7a4f8a;
+  --place-out: #4f7a5c;
+
+  /* ELEVATION */
+  --elev-1: 0 1px 2px #1a1f1c0f, 0 1px 1px #1a1f1c0a;
+  --elev-2: 0 12px 32px -8px #1a1f1c2e, 0 2px 6px #1a1f1c0f;
+  --shadow-1: #1a1f1c0c;
+  --shadow-2: #1a1f1c14;
+  --shadow-3: #1a1f1c1e;
+  --shadow-4: #1a1f1c28;
+  --scrim-soft: #10131157;
+  --scrim: #10131180;
+  --accent-veil-1: #1f5c4514;
+  --accent-veil-2: #1f5c451f;
+  --accent-veil-3: #1f5c4536;
+
+  /* SPACE: a 4px scale */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 20px;
+  --s6: 24px;
+  --s7: 32px;
+  --s8: 48px;
+  --s9: 64px;
+  /* A phone's one-row decision bar docked above the tab bar (the Inbox's): a large button (52px,
+     button.module.css), 8px padding above and below, and its 1px top border. The page and the floating
+     Capture button make room for it. */
+  --docked-bar-height: 70px;
+
+  /* RADIUS: 6 chips, 10 controls, 14 cards, 20 sheets, pill for badges */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 20px;
+  --r-pill: 999px;
+  --r-1: 10px;
+  --r-2: 14px;
+  --r-3: 14px;
+  --r-4: 14px;
+
+  /* TYPE: Inter, weights 400 / 500 / 600 only */
+  --fs-caption: 12px;
+  --fs-small: 13px;
+  --fs-body: 15px;
+  --fs-lead: 17px;
+  --fs-h3: 20px;
+  --fs-h2: 24px;
+  --fs-h1: 32px;
+  --fs-display: 44px;
+  --fs-1: 12px;
+  --fs-2: 12px;
+  --fs-3: 13px;
+  --fs-4: 14px;
+  --fs-5: 15px;
+  --fs-6: 17px;
+
+  /* MOTION — animate transform and opacity only, stay under 300ms, ease out on enter and exit. The
+     global prefers-reduced-motion block below the button rules drops scale, translate and loops. */
+  --t-fast: 0.16s;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1); /* enter, exit, press */
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1); /* something already on screen moving */
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1); /* sheets */
+  --dur-press: 120ms;
+  --dur-1: 160ms;
+  --dur-2: 220ms;
+  --dur-3: 300ms;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101311;
+    --surface: #171b19;
+    --surface-2: #1e2320;
+    --surface-3: #262c28;
+    --bg-wash: #101311;
+    --bg-veil: #101311f2;
+    --surface-raised: #1b201d;
+    --surface-sunken: #1e2320;
+    --neutral-faint: #1e2320;
+    --neutral-soft: #262c28;
+    --neutral: #29302c;
+
+    --veil-1: #171b1980;
+    --veil-2: #171b19e6;
+    --veil-3: #171b19f2;
+    --veil-4: #171b19fa;
+    --tint-veil: #1b31287a;
+    --tint-veil-faint: #1b312842;
+    --tint-veil-soft: #1e23208c;
+    --ink-veil: #0000004d;
+
+    --line: #29302c;
+    --line-strong: #3a423d;
+    --line-faint: #222825;
+    --line-soft: #29302c;
+    --line-mid: #323935;
+    --line-heavy: #4a524d;
+    --line-tint: #2a3530;
+    --line-tint-2: #33403a;
+    --line-accent: #3d5247;
+    --line-accent-2: #4d6657;
+
+    --ink: #eceeec;
+    --ink-2: #b7beb9;
+    --ink-3: #939a95;
+    --ink-body: #d5dad6;
+    --ink-muted: #b7beb9;
+    --ink-soft: #a2a9a4;
+    --ink-faint: #939a95;
+    --ink-ghost: #6f7671;
+
+    --accent: #74c69f;
+    --accent-fill: #2e7a5a;
+    --accent-fill-hover: #358a66;
+    --accent-ink: #ffffff;
+    --accent-soft: #1b3128;
+    --accent-tint: #1b3128;
+    --accent-strong: #9ad8b9;
+    --accent-mid: #6bbb94;
+    --accent-muted: #5fa985;
+    --accent-vivid: #579d7b;
+    --accent-bright: #4d8b6e;
+    --accent-pale: #437a61;
+    --focus-ring: #74c69f;
+    --focus-glow: #74c69f40;
+    --accent-strong-fill: #2a6f52;
+    --accent-mid-fill: #347458;
+    --accent-muted-fill: #3f6f5a;
+    --accent-vivid-fill: #4a8a6c;
+    --accent-bright-fill: #5a8a75;
+    --ink-muted-fill: #3a423d;
+    --ink-ghost-fill: #4a524d;
+
+    --warn-ink: #e8b55a;
+    --warn-bg: #2e2512;
+    --warn-bg-strong: #3b2f18;
+    --warn-line-soft: #40351f;
+    --warn-line-mute: #4d4028;
+    --warn-line: #61502a;
+    --warn-line-strong: #7d612d;
+    --warn-accent: #e0b45f;
+    --warn-ink-soft: #d8bf85;
+    --warn-ink-deep: #f2d08c;
+    --warn-ink-soft-fill: #6b5729;
+    --danger-ink: #f08a78;
+    --danger-bg: #36201b;
+    --danger-bg-strong: #442824;
+    --danger-line: #5c352d;
+    --danger: #f08a78;
+    --danger-ink-deep: #f5b6a8;
+    --danger-fill: #a5433a;
+    --danger-solid: #96342f;
+    --info-ink: #8fb4e8;
+    --info-bg: #1a2536;
+    --info-line: #3b5470;
+    --info-solid: #33509b;
+    --now: #f07a62;
+
+    --place-home: #c9a66b;
+    --place-work: #7ea4d4;
+    --place-school: #b98ccb;
+    --place-out: #86b894;
+
+    --elev-1: 0 1px 2px #00000066;
+    --elev-2: 0 16px 40px -8px #00000099, 0 2px 6px #00000066;
+    --shadow-1: #00000047;
+    --shadow-2: #0000005c;
+    --shadow-3: #00000073;
+    --shadow-4: #00000087;
+    --scrim-soft: #00000094;
+    --scrim: #000000b3;
+    --accent-veil-1: #74c69f14;
+    --accent-veil-2: #74c69f21;
+    --accent-veil-3: #74c69f33;
+  }
+}
+:root {
+  color-scheme: light dark;
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+/* The bottom tab bar's height plus the phone's home-indicator inset; every page keeps this much clear
+   at its foot, and anything else that docks at the bottom (settings save, workspace actions, the Now
+   action bar) sits on top of it. On a desk the rail replaces the bar and the clearance is zero. */
+:root {
+  --tab-bar-height: 56px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --nav-clearance: calc(var(--tab-bar-height) + var(--safe-bottom));
+  /* How far a docked action bar reaches above the clearance; the floating Capture button rises past
+     it while one is on the page. ActionBar overrides this with the bar's measured height; this is
+     two rows of large buttons and its padding, for the first paint. */
+  --docked-actions-height: 130px;
+  --rail-width: 220px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  font-size: var(--fs-body);
+  line-height: 1.47;
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+}
+
+.app-shell {
+  min-height: 100vh;
+}
+
+.app-content {
+  min-width: 0;
+}
+
+.app-content > main {
+  min-width: 0;
+  overflow-x: clip;
+}
+
+.nav-icon {
+  display: block;
+  flex: none;
+}
+
+/* Off screen until a keyboard focuses it; then it sits over the top-left corner of whatever is there. */
+.skip-link {
+  position: fixed;
+  z-index: 200;
+  top: 10px;
+  left: 10px;
+  padding: 10px 16px;
+  border-radius: var(--r-2);
+  background: var(--accent-fill);
+  color: var(--accent-ink);
+  font-weight: 600;
+  text-decoration: none;
+  transform: translateY(-200%);
+}
+
+.skip-link:focus {
+  transform: none;
+}
+
+.app-content:focus {
+  outline: none;
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --nav-clearance: 0px;
+  }
+
+  .app-shell {
+    display: grid;
+    grid-template-columns: var(--rail-width) minmax(0, 1fr);
+  }
+}
+/* A phone's floating Capture button sits above the tab bar; the end of every page scrolls clear of it. */
+@media (max-width: 1023px) {
+  .app-content {
+    padding-bottom: calc(var(--nav-clearance) + 56px + var(--s4) * 2);
+  }
+}
+/* Sheet: a bottom-anchored modal on a phone, a centred one on a desk. */
+.sheet-backdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: end center;
+  background: var(--scrim);
+  backdrop-filter: blur(5px);
+}
+
+.sheet {
+  display: grid;
+  width: 100%;
+  max-height: calc(100vh - 24px);
+  grid-template-rows: auto minmax(0, 1fr);
+  border: 1px solid var(--line-accent);
+  border-radius: 24px 24px 0 0;
+  background: var(--surface-sunken);
+  box-shadow: 0 -18px 60px var(--scrim-soft);
+  outline: none;
+}
+
+.sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+  border-radius: inherit;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  background: var(--surface);
+}
+
+.sheet-header h2 {
+  margin: 0;
+  font-size: var(--fs-6);
+}
+
+.sheet-body {
+  overflow: auto;
+  padding: 18px 20px calc(20px + var(--safe-bottom));
+}
+
+.sheet .capture-form {
+  margin-top: 0;
+}
+
+.sheet .reason {
+  margin-top: 0;
+}
+
+@media (min-width: 721px) {
+  .sheet-backdrop {
+    padding: 24px;
+    place-items: center;
+  }
+
+  .sheet {
+    width: min(720px, 100%);
+    max-height: calc(100vh - 48px);
+    border-radius: 24px;
+  }
+}
+.engagement-strip .actions {
+  margin-top: 12px;
+}
+
+.renegotiation-panel .actions {
+  margin-top: 10px;
+}
+
+/* An on/off setting drawn as a switch: the thumb slides, the track takes the accent when on. */
+button.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0;
+  background: transparent;
+  color: var(--ink-body);
+  font-weight: 600;
+}
+
+button.switch:hover {
+  filter: none;
+}
+
+.switch-track {
+  position: relative;
+  flex: none;
+  width: 42px;
+  height: 26px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  background: var(--neutral);
+}
+
+.switch-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: 0 1px 3px var(--shadow-3);
+  transition: transform var(--dur-1) var(--ease-out);
+}
+
+button.switch[aria-checked="true"] .switch-track {
+  border-color: var(--accent-fill);
+  background: var(--accent-fill);
+}
+
+button.switch[aria-checked="true"] .switch-thumb {
+  transform: translateX(16px);
+}
+
+/* Before there is anything true to show: the hero's shape in quiet blocks. */
+.hero-skeleton {
+  display: grid;
+  max-width: 40rem;
+}
+
+.hero-skeleton > div {
+  display: grid;
+  gap: 14px;
+}
+
+.skeleton-bar {
+  display: block;
+  border-radius: var(--r-1);
+  background: var(--neutral);
+  animation: skeleton-pulse 1.6s ease-in-out infinite alternate;
+}
+
+.skeleton-eyebrow {
+  width: 5rem;
+  height: 0.8rem;
+}
+
+.skeleton-title {
+  width: 85%;
+  height: clamp(2rem, 6vw, 3.6rem);
+}
+
+.skeleton-title.short {
+  width: 55%;
+}
+
+.skeleton-card {
+  display: grid;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-4);
+  background: var(--veil-2);
+}
+
+.skeleton-line {
+  width: 90%;
+  height: 0.9rem;
+}
+
+.skeleton-line.short {
+  width: 60%;
+}
+
+.skeleton-buttons {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.skeleton-button {
+  width: 7rem;
+  height: 46px;
+  border-radius: var(--r-pill);
+}
+
+@keyframes skeleton-pulse {
+  from {
+    opacity: 0.55;
+  }
+}
+
+/* The first-load placeholder sits where the page will, beside the rail that has not rendered yet. */
+@media (min-width: 1024px) {
+  main.portal-loading {
+    padding-left: var(--rail-width);
+  }
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-bar {
+    animation: none;
+  }
+}
+@media (max-width: 1023px) {
+  body:has(.action-bar > .actions) .app-content {
+    padding-bottom: calc(var(--nav-clearance) + var(--docked-actions-height) + 56px + var(--s4) * 2);
+  }
+
+  .action-bar > .row-card {
+    position: sticky;
+    z-index: 6;
+    bottom: calc(var(--nav-clearance) + 8px);
+    background: var(--veil-4);
+    box-shadow: 0 10px 30px var(--shadow-3);
+  }
+}
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  min-height: 44px;
+  border: 0;
+  border-radius: var(--r-md);
+  padding: 10px 20px;
+  background: var(--accent-fill);
+  color: var(--accent-ink);
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    filter var(--t-fast) ease,
+    transform var(--dur-press) var(--ease-out),
+    box-shadow var(--t-fast) ease;
+}
+
+button:hover {
+  filter: brightness(0.96);
+}
+
+/* Press feedback before the server answers: a tap that changes nothing on screen feels dead. */
+button:where(:active:not(:disabled)) {
+  transform: scale(0.97);
+}
+
+a {
+  color: var(--accent);
+  text-underline-offset: 3px;
+}
+
+/* Reduced motion keeps fades and colour changes and drops scale, translate and anything that loops.
+   View Transitions are skipped in script as well; this catches any that start anyway. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+
+  button:where(:active:not(:disabled)) {
+    transform: none;
+  }
+
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
+button:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+  filter: none;
+}
+
+button.secondary {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+button.quiet {
+  background: transparent;
+  color: var(--ink-2);
+  border: 1px solid var(--line-strong);
+}
+
+button.small {
+  min-height: 36px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: var(--fs-4);
+}
+
+.now-page,
+.content-page {
+  width: min(1400px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 13vh 0 calc(var(--nav-clearance) + 40px);
+}
+
+.content-page {
+  padding-top: 72px;
+}
+
+.eyebrow,
+.area-label {
+  color: var(--ink-3);
+  font-size: var(--fs-small);
+  font-weight: 500;
+}
+
+/* Page titles are compact: the page name, with one sentence of .reason under it. Only Now keeps the
+   display size, because its title is the thing to do. */
+h1 {
+  font-size: var(--fs-h1);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  margin: 8px 0;
+}
+
+h2 {
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.time {
+  color: var(--accent-mid);
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.reason {
+  color: var(--ink-muted);
+  font-size: 1.05rem;
+  line-height: 1.65;
+  max-width: 62ch;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 30px;
+}
+
+.health {
+  display: inline-block;
+  border-radius: var(--r-pill);
+  padding: 6px 10px;
+  font-size: var(--fs-2);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.health.on_track,
+.health.ahead {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.health.at_risk {
+  background: var(--warn-bg-strong);
+  color: var(--warn-ink);
+}
+
+.choice-list {
+  display: grid;
+  gap: 8px;
+  padding: 8px 0 0;
+}
+
+.choice-list label {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  background: var(--veil-3);
+  color: var(--ink-body);
+  cursor: pointer;
+}
+
+.choice-list label:has(input:checked) {
+  border-color: var(--accent-bright);
+  background: var(--accent-tint);
+}
+
+.choice-list label:has(input:disabled) {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.choice-list label span {
+  line-height: 1.35;
+}
+
+.choice-list label span small {
+  display: block;
+  color: var(--ink-soft);
+  font-size: var(--fs-1);
+  font-weight: 600;
+}
+
+.context-choice-list {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.geocode-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.geocode-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.geocode-matches {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.geocode-matches button {
+  text-align: left;
+  width: 100%;
+}
+
+.geocode-matches button.selected {
+  border-color: var(--accent-bright);
+  background: var(--accent-tint);
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+.pathway-editor {
+  display: grid;
+  gap: 10px;
+}
+
+.pathway-route {
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  padding: 12px;
+  background: var(--veil-2);
+}
+
+.pathway-route-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.pathway-or {
+  text-align: center;
+  color: var(--ink-muted);
+  font-size: var(--fs-3);
+  letter-spacing: 0.08em;
+}
+
+.situation-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.situation-location {
+  min-height: 38px;
+  padding: 8px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  background: var(--veil-2);
+  min-width: 190px;
+}
+
+.situation-inferred {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.situation-inferred li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 7px 11px;
+  background: var(--veil-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+}
+
+.situation-inferred li > span:first-child {
+  font-weight: 600;
+}
+
+.situation-inferred li button {
+  margin-left: auto;
+}
+
+/* The three states are deliberately distinguishable without colour: unanswered is the one that needs
+   acting on, so it carries weight rather than only a hue. */
+.situation-truth {
+  border-radius: var(--r-pill);
+  padding: 1px 9px;
+  font-size: var(--fs-2);
+}
+
+.situation-truth.yes {
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+.situation-truth.no {
+  background: var(--danger-bg-strong);
+  color: var(--danger-ink-deep);
+}
+
+.situation-source {
+  color: var(--ink-muted);
+  font-size: var(--fs-2);
+}
+
+.metric-row.compact {
+  margin-top: 12px;
+}
+
+/* A link that does a button's job: the same filled pill as a primary button. The quiet and chip
+   versions are further down, beside .template-links. */
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  background: var(--accent-fill);
+  color: var(--accent-ink);
+  padding: 10px 20px;
+  border-radius: var(--r-md);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.microcopy,
+.empty {
+  color: var(--ink-faint);
+}
+
+/* The capture sheet's status and links: their height is held so the sheet does not jump on Saved. */
+.capture-saved {
+  min-height: 6.5rem;
+}
+/* On a phone the saved line wraps to two, over the links row. */
+@media (max-width: 560px) {
+  .capture-saved {
+    min-height: 7.5rem;
+  }
+}
+
+section {
+  margin-top: 54px;
+}
+
+.section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--line-strong);
+  margin-bottom: 12px;
+}
+
+.row-card,
+.review-card,
+.project-card {
+  background: var(--veil-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-4);
+  padding: 18px;
+  margin: 10px 0;
+}
+
+.row-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
+}
+
+.row-card > div:first-child {
+  min-width: 0;
+}
+
+.row-card strong,
+.row-card p {
+  overflow-wrap: anywhere;
+}
+
+.row-card p {
+  margin: 5px 0 0;
+  color: var(--ink-soft);
+}
+
+.metric-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 34px;
+}
+
+.database-status {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 20px;
+  border: 1px solid var(--line-mid);
+  border-radius: var(--r-2);
+  padding: 11px 14px;
+  background: var(--veil-2);
+}
+
+.database-status small {
+  color: var(--ink-faint);
+}
+
+.database-status.connected strong {
+  color: var(--accent);
+}
+
+.database-status.error {
+  border-color: var(--danger-line);
+  background: var(--danger-bg);
+}
+
+.database-status.error strong {
+  color: var(--danger-ink-deep);
+}
+
+.metric-row > div {
+  flex: 1 1 140px;
+  min-width: 0;
+  background: var(--accent-strong-fill);
+  color: var(--accent-ink);
+  padding: 20px;
+  border-radius: var(--r-4);
+}
+
+.capture-form {
+  margin-top: 36px;
+  max-width: 720px;
+}
+
+.capture-form label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 9px;
+}
+
+/* The `+` sheet holds two acts with opposite promises — a thought that waits, and a thing that has
+   already taken the time — so the switch between them is one segmented control at the top of it. */
+.capture-mode-switch {
+  display: inline-flex;
+  margin-bottom: 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  overflow: hidden;
+}
+
+.capture-mode-switch button.quiet {
+  min-height: 36px;
+  border: 0;
+  border-radius: 0;
+  padding: 6px 16px;
+}
+
+.capture-mode-switch button.quiet.selected {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+/* :where() keeps these at element weight, so any container rule still sizes its own fields. */
+textarea,
+input:where(:not([type="checkbox"], [type="radio"], [type="range"])),
+select {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid var(--line-accent);
+  border-radius: var(--r-2);
+  padding: 12px 14px;
+  background: var(--veil-4);
+  color: var(--ink);
+  /* `font: inherit` would hand a field's typed text the bold of the `.field` label wrapping it. */
+  font-weight: 400;
+  transition:
+    border-color var(--t-fast) ease,
+    box-shadow var(--t-fast) ease,
+    background-color var(--t-fast) ease;
+}
+
+select {
+  appearance: none;
+  padding-right: 42px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--ink-muted) 50%),
+    linear-gradient(135deg, var(--ink-muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 19px) calc(50% - 2px),
+    calc(100% - 14px) calc(50% - 2px);
+  background-size:
+    5px 5px,
+    5px 5px;
+  background-repeat: no-repeat;
+}
+
+input:where([type="checkbox"], [type="radio"]) {
+  inline-size: 20px;
+  block-size: 20px;
+  margin: 0;
+  flex: none;
+  accent-color: var(--accent-fill);
+}
+
+/* A bare checkbox or radio and its words share one hit target, at least 44px tall. */
+label:where(:has(> input[type="checkbox"], > input[type="radio"])) {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+button:focus-visible,
+a:focus-visible,
+summary:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+textarea {
+  min-height: 130px;
+  resize: vertical;
+  margin-bottom: 12px;
+}
+
+.review-card p {
+  font-size: 1.05rem;
+}
+
+.source-line {
+  display: block;
+  margin-top: -4px;
+  color: var(--ink-faint);
+  font-size: var(--fs-2);
+}
+
+.source-line a {
+  color: var(--accent-mid);
+  font-weight: 600;
+}
+
+.review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.proposal-editor {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.proposal-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--r-2);
+  background: var(--neutral-faint);
+  color: var(--ink-muted);
+  font-size: var(--fs-4) !important;
+  line-height: 1.5;
+}
+
+.proposal-status {
+  border-radius: var(--r-pill);
+  padding: 6px 10px;
+  font-size: var(--fs-1) !important;
+  font-weight: 600;
+}
+
+.proposal-status.confirmed {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.proposal-status.ignored,
+.proposal-status.superseded {
+  background: var(--neutral);
+  color: var(--ink-soft);
+}
+
+.focus-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.focus-card {
+  padding: 18px;
+}
+
+.focus-card > button {
+  margin-top: 14px;
+}
+
+.reset {
+  margin-top: 40px;
+}
+
+.form-error {
+  position: sticky;
+  top: 16px;
+  z-index: 5;
+  max-width: 720px;
+  margin: 18px 0;
+  padding: 12px 15px;
+  border: 1px solid var(--danger-line);
+  border-radius: var(--r-2);
+  background: var(--danger-bg);
+  color: var(--danger-ink-deep);
+  font-weight: 600;
+}
+
+.form-warning {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 11px 13px;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r-2);
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+  font-size: var(--fs-4);
+  line-height: 1.45;
+}
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  color: var(--ink-soft);
+  font-size: var(--fs-3);
+}
+
+.editor-card {
+  border: 1px solid var(--line-mid);
+  border-radius: var(--r-4);
+  background: var(--veil-2);
+  overflow: hidden;
+}
+
+.editor-card[open] summary {
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.editor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 16px;
+  padding: 20px;
+}
+
+.field {
+  display: grid;
+  /* Top-aligned, so a field beside a taller neighbour (one with help text) keeps its input's height. */
+  align-content: start;
+  gap: 6px;
+  color: var(--ink-muted);
+  font-size: var(--fs-3);
+  font-weight: 600;
+}
+
+/* A field holding a group of controls is a fieldset, so a checkbox is named by its own label rather
+   than by the whole group. The reset and the legend margin reproduce the label/span version exactly. */
+fieldset.field {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+fieldset.field > legend {
+  padding: 0;
+  margin-bottom: 6px;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  min-height: 46px;
+  gap: 8px;
+  color: var(--ink-muted);
+  font-weight: 500;
+}
+
+/* Seven weekday checkboxes on one wrapping line; each label owns its box so the pair stays together. */
+.weekday-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  min-height: 46px;
+  align-items: center;
+  color: var(--ink-muted);
+  font-weight: 500;
+}
+
+.weekday-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.field.wide,
+.dependency-field,
+.disruption-preset-row,
+.form-actions {
+  grid-column: 1 / -1;
+}
+
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 3px;
+}
+
+/* `minmax(0, 1fr)` and the input's `min-width: 0` let a wide control such as `datetime-local` shrink,
+   rather than its intrinsic width pushing the suffix (or the stepper pair) past the field's edge. */
+.input-suffix {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The −15 / +15 minute stepper pair beside a sleep-log time field, sharing `.input-suffix`'s layout
+   with the input it nudges. */
+.stepper-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.save-notice {
+  max-width: 720px;
+  padding: 12px 15px;
+  border: 1px solid var(--line-accent);
+  border-radius: var(--r-2);
+  background: var(--accent-tint);
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 22px;
+  color: var(--accent-mid);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.icon-button {
+  min-width: 36px;
+  min-height: 36px;
+  padding: 7px;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--accent-mid);
+}
+
+.danger {
+  color: var(--danger-ink) !important;
+  border-color: var(--danger-line) !important;
+}
+
+@media (min-width: 1100px) {
+  .content-page > section > .editor-grid {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  }
+}
+@media (max-width: 900px) {
+  .now-page,
+  .content-page {
+    width: min(100% - 32px, 1400px);
+  }
+
+  .row-card {
+    align-items: flex-start;
+  }
+}
+@media (max-width: 560px) {
+  .now-page,
+  .content-page {
+    width: min(100% - 24px, 1400px);
+  }
+
+  .content-page {
+    padding-top: 42px;
+  }
+
+  .row-card {
+    flex-direction: column;
+  }
+
+  .row-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .section-heading {
+    align-items: baseline;
+    gap: 12px;
+  }
+}
+/* "Updating plan…": the quiet pill for a usable plan with a fresher one on its way. Centred on a
+   phone and kept clear of a 56px button's width either side, so it never covers the floating Capture
+   button in the bottom-right corner. */
+.plan-updating-pill {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--nav-clearance) + var(--s4));
+  max-width: calc(100vw - 2 * (56px + var(--s4) * 2));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  z-index: 15;
+  border: 1px solid var(--line-mid);
+  border-radius: var(--r-pill);
+  background: var(--veil-4);
+  padding: 7px 14px;
+  color: var(--ink-muted);
+  font-size: var(--fs-3);
+  pointer-events: none;
+}
+
+/* Now's date line already says "Updating plan…" (and on a phone the floating pill would sit over Up
+   next), so the pill steps aside wherever that status line is drawn. */
+body:has([data-plan-status]) .plan-updating-pill {
+  display: none;
+}
+
+/* A secondary link beside buttons looks like button.quiet. */
+.button-link.quiet {
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--ink-muted);
+}
+
+/* The quiet chip: template downloads, and the actions on a report or contact message. */
+.template-links .button-link,
+.report-card .button-link,
+.contact-message .button-link {
+  min-height: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-2);
+  padding: 9px 12px;
+  background: var(--surface);
+  color: var(--accent-mid);
+  font-weight: 600;
+}
+
+.report-issue-trigger {
+  margin-top: 42px;
+}
+
+.report-panel {
+  display: grid;
+  width: min(620px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: hidden auto;
+  border: 1px solid var(--line-accent);
+  border-radius: 24px;
+  background: var(--surface-sunken);
+  box-shadow: 0 28px 90px var(--scrim-soft);
+}
+
+.report-body {
+  display: grid;
+  gap: 14px;
+  padding: 20px 22px 24px;
+}
+
+.report-body code {
+  overflow-wrap: anywhere;
+  font-size: var(--fs-3);
+}
+
+.report-body .form-warning ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.replay-banner {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 0;
+  padding: 0.75rem 1rem;
+  color: var(--accent-ink);
+  background: var(--info-solid);
+  text-align: center;
+}
+
+.report-card {
+  background: var(--veil-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-4);
+  padding: 18px;
+  margin: 12px 0;
+}
+
+/* Deliverables: the workspace is a focused engine-started session; the overview list is deliverable-list.module.css. */
+.phase-pill {
+  display: inline-flex;
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  color: var(--accent);
+  background: var(--accent-tint);
+  font-size: var(--fs-1);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.phase-pill.live {
+  color: var(--accent-ink);
+  background: var(--accent-fill);
+}
+
+.phase-pill.closed {
+  color: var(--ink-muted);
+  background: var(--neutral);
+}
+
+.flag-chip {
+  display: inline-flex;
+  padding: 3px 9px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-1);
+  font-weight: 600;
+}
+
+.flag-chip.blocker {
+  color: var(--danger-ink-deep);
+  background: var(--danger-bg-strong);
+}
+
+.flag-chip.review {
+  color: var(--warn-ink);
+  background: var(--warn-bg-strong);
+}

@@ -1,0 +1,31 @@
+# Versions
+
+Every version number the app writes, with the file that holds it. The values below are checked against the source by a test, so a bump that misses this page fails the build. Everything is v0: the last column says what is tested today, and a row with no test is `unstable`.
+
+| Surface | Constant and file | Version | What bumps it | Stability today |
+|---|---|---|---|---|
+| Agent contract | `AGENT_CONTRACT_VERSION` in `platform/contracts/src/agent-contract.ts` | `8` | A served tool added, removed or renamed, or a required argument changed. By hand, in the same change that regenerates the committed snapshot. The maintainer decides. | v0; names and required arguments are snapshot-tested; a renamed tool aliases for one version |
+| Plan contract | `PLAN_FORECAST_CONTRACT_VERSION` in `platform/contracts/src/planning/plan-forecast.ts` | `1` | A breaking change to the engine request or response shape. The service rejects a request carrying another value. | v0; tested in `engine/service/src/server.test.ts` |
+| Engine | `PLAN_FORECAST_ENGINE_VERSION` in `engine/core/src/engine.ts` | `1.8.1` | A change to what the engine calculates. Returned as `engineVersion` on every response. | v0; pinned in `engine/core/test/system/fact-freshness.test.ts` |
+| Backup format number | `CURRENT_BACKUP_FORMAT_VERSION` in `platform/database/src/operations/backup-format.ts` | `19` | A change to what a backup file contains. One constant; older numbers stay readable. | v0; tested in `backup-format.test.ts` |
+| Backup format string | `ACCEPTED_BACKUP_FORMATS` in `platform/database/src/operations/backup-format.ts` | `openrhen-postgresql-logical-backup` | Adding a name before any writer produces it. | v0; the reader accepts every listed name |
+| Backup format string written | `BACKUP_FORMAT` in `platform/database/src/operations/backup-format.ts` | `priorities-postgresql-logical-backup` | Never lightly: backups carry it. | v0; pinned in `backup-format.test.ts` |
+| Agent session schema | `AGENT_SESSION_SCHEMA_VERSION` in `platform/contracts/src/agent-sessions.ts` | `1` | A breaking change to the stored agent-session record. | unstable: no test pins the number |
+| Issue snapshot | `ISSUE_SNAPSHOT_FORMAT_VERSION` in `platform/contracts/src/diagnostics/issue-snapshot.ts` | `1` | A breaking change to the diagnostic snapshot a user can attach to an issue. | unstable: no test pins it |
+| Connection manifest | `CONNECTION_MANIFEST_VERSION` in `platform/contracts/src/connections/manifest.ts` | `1` | A breaking change to the manifest. Additive fields do not bump it. The host rejects a manifest above this value with an error naming both numbers; a manifest with no `version` reads as 1. | v0; tested in `manifest.test.ts` |
+
+A backup carries a format number and a format string. The writer currently writes the `priorities-postgresql-logical-backup` string, kept so existing backups stay valid; the reader accepts that string and the `openrhen-postgresql-logical-backup` name, so the writer can switch later without stranding a backup. Do not treat the `openrhen-` string as a brand to copy.
+
+## Not machine-checked
+
+These exist but no test reads them, so this page cannot be kept in step by a test. Treat them as `unstable`.
+
+- `settings.version`, a row version used to detect concurrent edits, not a schema version.
+- Stored key shapes. Imported records are keyed `<provider>:shift:` style, a provider id then a kind then an id. A new add-on picks its own provider id; changing a key shape orphans the records already stored under it.
+
+## Upgrading stored data
+
+- A fresh install applies one baseline migration; an add-on's own migrations apply after it from its migration folder (planned; the folder is not built yet).
+- Migrations are append-only: a correction is a new migration, never an edit.
+- Back up before upgrading. A backup records its format number and string; restore reads any listed string and any older number, and refuses a number newer than the running version. Restore is verified by restoring into a scratch database ([Database and backups](../operations/database-and-backups.md)).
+- The agent contract and plan contract are not migrated: a client sees `contractVersion` and decides.

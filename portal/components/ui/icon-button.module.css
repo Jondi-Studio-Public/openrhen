@@ -1,0 +1,47 @@
+.iconBtn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-2);
+  padding: 0;
+  cursor: pointer;
+  transition:
+    transform var(--dur-press) var(--ease-out),
+    background var(--dur-1) var(--ease-out);
+}
+.iconBtn svg {
+  width: 18px;
+  height: 18px;
+}
+.iconBtn:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.iconBtn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.iconBtn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.iconBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+@media (prefers-reduced-motion: reduce) {
+  .iconBtn {
+    transition: none;
+  }
+  .iconBtn:active:not(:disabled) {
+    transform: none;
+  }
+}
+@media (pointer: coarse) {
+  .iconBtn {
+    width: 44px;
+    height: 44px;
+  }
+}

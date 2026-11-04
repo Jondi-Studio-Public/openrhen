@@ -1,0 +1,1087 @@
+/* The "What changed" disclosure in Day's Change the day sheet (plan-change-panel.tsx). */
+.today-panel {
+  margin-top: 18px;
+  border: 1px solid var(--line-mid);
+  border-radius: var(--r-4);
+  background: var(--veil-2);
+  overflow: hidden;
+}
+
+.today-panel > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 15px 19px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.today-panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+.today-panel > summary::after {
+  content: "▾";
+  color: var(--ink-soft);
+  font-size: var(--fs-3);
+  transition: transform var(--t-fast) ease;
+}
+
+.today-panel[open] > summary::after {
+  transform: rotate(180deg);
+}
+
+.today-panel > summary h2 {
+  margin: 0;
+  font-size: var(--fs-5);
+}
+
+.today-panel > summary > span {
+  margin-left: auto;
+  margin-right: 4px;
+  color: var(--ink-soft);
+  font-size: var(--fs-3);
+  font-weight: 600;
+}
+
+.today-panel[open] > summary {
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.today-panel-body {
+  padding: 14px 19px 18px;
+}
+
+.today-panel-body > section:first-child,
+.today-panel-body > .row-card:first-child {
+  margin-top: 0;
+}
+
+.today-panel-body > .editor-grid {
+  padding: 0;
+}
+
+/* The "What changed" diff: one line per moved/dropped/added item, no card chrome — it is a receipt. */
+.plan-change-panel .plan-change-row {
+  margin: 0 0 6px;
+  color: var(--ink-body);
+  font-size: 0.92rem;
+}
+
+.plan-change-panel .plan-change-row:last-child {
+  margin-bottom: 0;
+}
+
+.direction-picker {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line-accent);
+  border-radius: var(--r-2);
+  background: var(--veil-2);
+}
+
+.direction-cascade {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
+  gap: 10px;
+  align-items: end;
+}
+
+.direction-cascade select {
+  background: var(--surface);
+}
+
+.direction-cascade-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.direction-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+/* A win's label is its whole folder path, which can be longer than a phone is wide: it wraps, so it
+   can never set the width of the sheet it sits in. */
+.direction-picker {
+  min-width: 0;
+}
+
+.direction-chips button {
+  max-width: 100%;
+  min-width: 0;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.direction-picker .empty {
+  margin: 0;
+}
+
+.prerequisite-picker > summary {
+  display: grid;
+  gap: 2px;
+  padding: 9px 30px 9px 12px;
+  cursor: pointer;
+  list-style: none;
+  position: relative;
+  transition: background-color var(--t-fast) ease;
+}
+
+.prerequisite-picker > summary::-webkit-details-marker {
+  display: none;
+}
+
+.prerequisite-picker > summary::after {
+  content: "▾";
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--ink-faint);
+  font-size: var(--fs-3);
+  transition: transform var(--t-fast) ease;
+}
+
+.prerequisite-picker[open] > summary::after {
+  transform: translateY(-50%) rotate(180deg);
+}
+
+.prerequisite-picker > summary > span {
+  color: var(--ink-soft);
+  font-size: var(--fs-1);
+  font-weight: 600;
+}
+
+.prerequisite-picker[open] > summary {
+  border-bottom: 1px solid var(--line-faint);
+}
+
+.prerequisite-group > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  list-style: none;
+  color: var(--ink-muted);
+  font-size: var(--fs-2);
+  font-weight: 600;
+  transition: background-color var(--t-fast) ease;
+}
+
+.prerequisite-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+.prerequisite-group[open] > summary {
+  border-bottom: 1px dashed var(--line-faint);
+}
+
+.criterion-item > summary {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 6px;
+  margin: 0 -6px;
+  border-radius: var(--r-1);
+  cursor: pointer;
+  list-style: none;
+  transition: background-color var(--t-fast) ease;
+}
+
+/* Editors inside a Day sheet: the sheet is the frame, so the editor card drops its own. */
+.today-form-sheet .editor-card {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.today-form-sheet .editor-card > summary {
+  display: none;
+}
+
+.today-form-sheet .editor-grid {
+  padding: 0;
+}
+
+.today-form-sheet .form-error {
+  position: static;
+  margin: 0 0 14px;
+}
+
+/* Plan editors always render with `open` inside their sheet, so the now-redundant summary that would
+   otherwise repeat the sheet's own title is hidden the same way Today already hides it. */
+.plan-editor-sheet .editor-card {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.plan-editor-sheet .editor-card > summary {
+  display: none;
+}
+
+.plan-editor-sheet .editor-grid {
+  padding: 0;
+}
+
+.plan-editor-sheet .form-error {
+  position: static;
+  margin: 0 0 14px;
+}
+
+.inbox-history > summary {
+  padding: 10px 0;
+  color: var(--accent-mid);
+  font-size: var(--fs-4);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.inbox-history > summary span {
+  margin-left: 6px;
+  color: var(--ink-soft);
+  font-weight: 400;
+}
+
+.inbox-handled-row div span {
+  color: var(--ink-soft);
+  font-size: var(--fs-3);
+}
+
+/* Day: the timeline canvas (portal/features/today/components/day-timeline.tsx, timeline-track.tsx) */
+.day-timeline {
+  --dt-hour-px: 48px;
+  --dt-gutter: 52px;
+  position: relative;
+  font-size: var(--fs-3);
+}
+
+.day-timeline-canvas {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--dt-gutter) minmax(0, 1fr);
+}
+
+.day-timeline-gutter {
+  position: relative;
+}
+
+.day-timeline-hour {
+  position: absolute;
+  right: 8px;
+  transform: translateY(-50%);
+  color: var(--ink-3);
+  font-size: var(--fs-caption);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.day-timeline-track {
+  position: relative;
+  min-width: 0;
+  border-left: 1px solid var(--line);
+}
+
+.day-timeline-backgrounds,
+.day-timeline-items,
+.day-timeline-reserved {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.day-timeline-backgrounds {
+  pointer-events: none;
+}
+
+.day-timeline-band,
+.day-timeline-rule,
+.day-timeline-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+
+.day-timeline-band-sleep {
+  background: repeating-linear-gradient(135deg, var(--surface-2) 0 6px, transparent 6px 12px);
+}
+
+.day-timeline-band-free {
+  background: transparent;
+}
+
+.day-timeline-band-protected {
+  background: var(--tint-veil);
+}
+
+.day-timeline-band-fixed {
+  background: repeating-linear-gradient(135deg, var(--neutral) 0 4px, transparent 4px 10px);
+  opacity: 0.35;
+}
+
+.day-timeline-band-unavailable {
+  background: var(--neutral-soft);
+}
+
+.day-timeline-band-elapsed {
+  background: var(--neutral-faint);
+  opacity: 0.6;
+}
+
+.day-timeline-rule {
+  border-top: 1px solid var(--line);
+}
+
+.day-timeline-line {
+  border-top: 1px dashed var(--ink-ghost);
+  z-index: 2;
+}
+
+.day-timeline-line span {
+  position: absolute;
+  right: 6px;
+  top: 1px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink-muted);
+  font-size: var(--fs-1);
+  white-space: nowrap;
+}
+
+.day-timeline-line-boundary {
+  border-top-color: var(--warn-accent);
+}
+
+.day-timeline-items {
+  z-index: 3;
+}
+
+.day-timeline-item {
+  position: absolute;
+  padding: 0 4px;
+}
+
+.day-timeline-halo {
+  position: absolute;
+  /* Behind every block on the canvas, not only its own: a setup halo reaches above its block into
+     whatever came before, and drawn later in the list it crossed out that block's title. */
+  z-index: -1;
+  left: 3px;
+  right: 3px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  background: var(--surface-sunken);
+  pointer-events: none;
+}
+
+.day-timeline-block {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 1px;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 2px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-small);
+  font-weight: 400;
+  line-height: 18px;
+  text-align: left;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease-out);
+}
+
+.day-timeline-block:hover,
+.day-timeline-block:focus-visible {
+  border-color: var(--line-strong);
+  filter: none;
+  z-index: 4;
+}
+
+.day-timeline-block:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.day-timeline-block-title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.day-timeline-block-meta {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-3);
+  font-size: var(--fs-caption);
+  line-height: 14px;
+}
+
+.day-timeline-block-fixed {
+  background: var(--surface-2);
+}
+
+.day-timeline-block-fixed.tentative {
+  border-style: dotted;
+  background: var(--warn-bg-strong);
+}
+
+.day-timeline-block-kind-sleep {
+  border-color: transparent;
+  background: repeating-linear-gradient(135deg, var(--surface-2) 0 6px, transparent 6px 12px);
+  color: var(--ink-3);
+}
+
+.day-timeline-block-kind-routine_instance,
+.day-timeline-block-kind-routine_step {
+  background: var(--surface-sunken);
+}
+
+.day-timeline-block-recorded {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--ink-2);
+}
+
+.day-timeline-block-kind-active_session {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.day-timeline-block-engine {
+  border-color: transparent;
+  background: var(--accent-soft);
+}
+
+.day-timeline-block-engine .day-timeline-block-title {
+  color: var(--accent);
+}
+
+.day-timeline-block.stale {
+  border-color: var(--line-heavy);
+  background: var(--neutral-faint);
+  color: var(--ink-soft);
+}
+
+/* "planned" or "projected" in front of an engine block's title: said quietly, since the fill already
+   tells planned work from fixed. */
+.day-timeline-tag {
+  display: inline;
+  margin-right: 6px;
+  color: var(--ink-3);
+  font-size: var(--fs-caption);
+  font-weight: 500;
+}
+
+.day-timeline-block.clipped-start {
+  border-top-style: dotted;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.day-timeline-block.clipped-end {
+  border-bottom-style: dotted;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* An eligibility window: a translucent band across the whole track, drawn under the blocks and
+   inert except for its one label chip, because a window is the shape of an opportunity rather than
+   something standing in the day's way. Band and chip are one drawn object and only read together. */
+.day-timeline-windows {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  pointer-events: none;
+}
+
+.day-timeline-window {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px dashed var(--line-accent);
+  border-bottom: 1px dashed var(--line-accent);
+  border-radius: 6px;
+  background: var(--tint-veil-faint);
+}
+
+.day-timeline-window-label {
+  position: absolute;
+  left: 4px;
+  max-width: calc(100% - 8px);
+  padding: 0 8px;
+  border: 1px dashed var(--line-accent);
+  border-radius: var(--r-pill);
+  background: var(--veil-4);
+  color: var(--ink-muted);
+  font: inherit;
+  font-size: var(--fs-1);
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.day-timeline-reserved {
+  z-index: 2;
+  pointer-events: none;
+}
+
+.day-timeline-reserved li {
+  position: absolute;
+  padding: 0 3px;
+}
+
+.day-timeline-reserved-block {
+  pointer-events: auto;
+  border: 1px dashed var(--line-accent);
+  background: repeating-linear-gradient(45deg, var(--tint-veil) 0 6px, transparent 6px 12px);
+  color: var(--ink-muted);
+}
+
+.day-timeline-reserved-block.soft {
+  border-color: var(--ink-ghost);
+  background: repeating-linear-gradient(45deg, var(--neutral-faint) 0 6px, transparent 6px 12px);
+}
+
+.day-timeline-marker-start_by.soon {
+  border-top-color: var(--warning, var(--accent));
+}
+
+.day-timeline-marker-start_by.soon span {
+  border-color: var(--warning, var(--accent));
+  color: var(--warning-ink, var(--accent-strong));
+}
+
+.day-timeline-marker-start_by.missed {
+  border-top-color: var(--danger);
+}
+
+.day-timeline-marker-start_by.missed span {
+  border-color: var(--danger);
+  color: var(--danger-ink-deep);
+}
+
+.day-timeline-marker {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  padding: 0;
+  border: 0;
+  border-top: 2px dotted var(--accent);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  z-index: 3;
+}
+
+.day-timeline-marker span {
+  position: absolute;
+  left: 6px;
+  top: 2px;
+  padding: 1px 8px;
+  border: 1px dashed var(--accent);
+  border-radius: var(--r-pill);
+  background: var(--surface-sunken);
+  color: var(--accent-strong);
+  font-size: var(--fs-1);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* A marker with no block of its own to sit on keeps its chip inside the column it belongs to. */
+.day-timeline-marker span {
+  max-width: calc(100% - 12px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A commitment's journey (`journeysByBlock` in timeline-track.tsx): its own 6px track at the block's
+   left edge, the bar running from the leave time down to the block, and "Leave 13:43" as the block's
+   first line, in place of a leave-by chip floating over whatever else was on then. */
+.day-timeline-item.has-journey {
+  padding-left: 9px;
+}
+
+.day-timeline-item.has-journey .day-timeline-halo {
+  left: 9px;
+}
+
+.day-timeline-journey {
+  position: absolute;
+  left: 3px;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.day-timeline-journey.stale {
+  background: var(--ink-ghost);
+}
+
+.day-timeline-block-title .day-timeline-leave {
+  display: inline;
+}
+
+.day-timeline-leave {
+  overflow: hidden;
+  color: var(--accent-strong);
+  font-size: var(--fs-1);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.day-timeline-marker.stale {
+  border-top-color: var(--ink-ghost);
+}
+
+.day-timeline-marker.stale span {
+  border-color: var(--ink-ghost);
+  color: var(--ink-soft);
+  background: var(--neutral-faint);
+}
+
+.day-timeline-untimed {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px dashed var(--line-accent);
+  border-radius: var(--r-2);
+  background: var(--veil-4);
+}
+
+.day-timeline-untimed-foot {
+  position: static;
+  margin: 10px 0 0;
+}
+
+.day-timeline-untimed-label {
+  color: var(--ink-muted);
+  font-size: var(--fs-1);
+  font-weight: 600;
+}
+
+.day-timeline-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 3px 10px;
+  border: 1px dashed var(--accent);
+  border-radius: var(--r-pill);
+  background: var(--surface-sunken);
+  color: var(--accent-strong);
+  font: inherit;
+  font-size: var(--fs-2);
+  font-weight: 600;
+  cursor: default;
+}
+
+button.day-timeline-chip {
+  cursor: pointer;
+}
+
+.day-timeline-now {
+  position: absolute;
+  left: -5px;
+  right: 0;
+  z-index: 6;
+  height: 0;
+  border-top: 2px solid var(--now);
+  pointer-events: none;
+}
+
+.day-timeline-now::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: -6px;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--r-pill);
+  background: var(--now);
+}
+
+.day-timeline-now span {
+  position: absolute;
+  right: 4px;
+  top: -20px;
+  padding: 0 6px;
+  border-radius: var(--r-sm);
+  background: var(--now);
+  color: var(--accent-ink);
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.day-timeline-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.day-agenda-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.day-agenda-fold {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px var(--s2);
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.day-agenda-row button {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--s3);
+  width: 100%;
+  min-height: 52px;
+  padding: 10px var(--s2);
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 400;
+  text-align: left;
+  cursor: pointer;
+}
+
+.day-agenda-row:last-child button {
+  border-bottom: 0;
+}
+
+.day-agenda-row button:hover,
+.day-agenda-row button:focus-visible {
+  background: var(--surface-2);
+  filter: none;
+}
+
+.day-agenda-time {
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* "10:15 pm–10:30 pm" is wider than the column: it breaks after the dash, never inside a time. */
+.day-agenda-time > span {
+  white-space: nowrap;
+}
+
+.day-agenda-body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.day-agenda-body strong {
+  font-weight: 500;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+
+.day-agenda-body small {
+  color: var(--ink-3);
+  font-size: var(--fs-small);
+  line-height: 18px;
+}
+
+.day-agenda-row-engine .day-agenda-body strong {
+  color: var(--accent);
+}
+
+/* A window row says when something may happen, not that it did: one clipped line, quieter than the
+   rows around it, however long the recurring action's own wording runs. */
+.day-agenda-row-window button {
+  padding: 6px 12px;
+}
+
+.day-agenda-row-window .day-agenda-time,
+.day-agenda-row-window .day-agenda-body strong {
+  color: var(--ink-soft);
+  font-weight: 500;
+}
+
+.day-agenda-row-window .day-agenda-body strong {
+  display: block;
+  overflow: hidden;
+  overflow-wrap: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.day-agenda-source {
+  align-self: center;
+  color: var(--ink-3);
+  font-size: var(--fs-caption);
+}
+
+/* A commitment the projection could give no journey figure for at all — flagged, never silently zero. */
+.day-agenda-travel-gap {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r-pill);
+  color: var(--warn-ink);
+  font-size: var(--fs-1);
+}
+
+.day-agenda-row.stale {
+  opacity: 0.65;
+}
+
+.day-agenda-untimed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.day-plan-detail h3 {
+  margin: 0 0 12px;
+}
+
+.day-plan-detail dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 14px;
+  margin: 0 0 12px;
+}
+
+.day-plan-detail dt {
+  color: var(--ink-soft);
+  font-size: var(--fs-3);
+}
+
+.day-plan-detail dd {
+  margin: 0;
+}
+
+.day-plan-detail-steps {
+  margin: 0 0 12px;
+  padding-left: 20px;
+  font-size: var(--fs-4);
+}
+
+.day-plan-detail .form-actions {
+  margin-top: 14px;
+}
+
+.day-plan-snooze {
+  margin-top: 14px;
+}
+
+.day-plan-snooze h4 {
+  margin: 0 0 8px;
+  font-size: var(--fs-3);
+  color: var(--ink-soft);
+}
+
+@media (min-width: 1024px) {
+  .day-timeline {
+    --dt-gutter: 60px;
+  }
+}
+@media (max-width: 460px) {
+  .day-agenda-row button {
+    grid-template-columns: 82px minmax(0, 1fr);
+  }
+
+  .day-agenda-source {
+    display: none;
+  }
+}
+.reference-fold > summary,
+.csv-fold > summary {
+  padding: 12px 0;
+  color: var(--accent-mid);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.csv-fold > summary {
+  font-size: var(--fs-4);
+  font-weight: 600;
+}
+
+.day-timeline-block-engine.projected:not(.stale) {
+  border: 1px dashed var(--line-accent);
+  background: var(--tint-veil);
+}
+
+.day-timeline-block.displaced {
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+
+.day-timeline-line-gap {
+  border-top: 1px dotted var(--line-accent);
+}
+
+.day-timeline-locations {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  z-index: 1;
+}
+
+.day-timeline-location {
+  position: absolute;
+  left: 0;
+  width: 6px;
+  border-radius: 3px;
+  background: var(--line-accent);
+}
+
+.day-timeline-location.transit {
+  background: repeating-linear-gradient(135deg, var(--ink-ghost-fill) 0 3px, transparent 3px 6px);
+}
+
+/* On a phone the strip and the hour labels cannot share one narrow gutter, so the hours keep 44px of
+   their own and each block carries its place as a coloured left edge instead (`stayColourFor`). */
+@media (max-width: 640px) {
+  .day-timeline {
+    --dt-gutter: 44px;
+  }
+
+  .day-timeline .day-timeline-locations {
+    display: none;
+  }
+}
+.day-timeline-waits {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 10px;
+  width: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  z-index: 1;
+}
+
+.day-timeline-wait {
+  position: absolute;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.day-timeline-wait.running {
+  background: var(--line-accent);
+}
+
+.day-timeline-wait.projected {
+  background: var(--ink-ghost-fill);
+}
+
+.day-timeline-wait.stale {
+  opacity: 0.5;
+}
+
+/* Travel is movement, not work: a dashed row with no fill. */
+.day-timeline-block.day-timeline-block-kind-travel {
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+  color: var(--ink-3);
+}
+
+.day-timeline-block-kind-travel .day-timeline-block-title {
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+/* Where a block happens, as a coloured edge: the same colour as its stay in the location strip. */
+.day-timeline-item.has-place > .day-timeline-block {
+  border-left: 3px solid var(--dt-place);
+}
+
+.day-agenda-row-engine .day-agenda-body small {
+  color: var(--ink-soft);
+}
+
+/* --- Schedule: the week grid, and the two block treatments it shares with the day view
+       (portal/features/schedule/components, portal/features/today/components/timeline-track.tsx) --- */
+/* A commitment that only anchors you somewhere is tinted rather than walled: the time is spoken for,
+   but not taken. Blocking keeps the stronger border it has always had. Tentative wins over both —
+   whether an occurrence is real at all is the first thing about it. */
+.day-timeline-block.presence-anchor:not(.tentative) {
+  border-color: var(--line-soft);
+  background: var(--neutral-faint);
+}
+
+/* A block that opens nothing is drawn as a span rather than a button (see `selectable`), so it takes
+   no pointer and makes no hover promise. Today that is a projected occurrence, which is styled as a
+   tentative fixed commitment — hence that border colour on hover. */
+span.day-timeline-block {
+  cursor: default;
+}
+
+span.day-timeline-block:hover {
+  border-color: var(--line-accent);
+  z-index: auto;
+}

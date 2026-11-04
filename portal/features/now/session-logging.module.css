@@ -1,0 +1,87 @@
+/* Logging that matches what happened: the "Started earlier?" chips and the "Logged 42 min" line that
+   follows Save. */
+.earlier {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.earlierRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+.earlierLabel {
+  margin-right: var(--s1);
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+}
+.earlierField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  max-width: 280px;
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+}
+.earlierField input {
+  height: 40px;
+  padding: 0 var(--s3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+.earlierHint {
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+}
+.earlierProblem {
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--danger-ink);
+}
+.more {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.correct {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s3);
+}
+.toastRegion {
+  position: fixed;
+  right: var(--s4);
+  bottom: calc(var(--s5) + env(safe-area-inset-bottom, 0px));
+  left: var(--s4);
+  z-index: 40;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  max-width: 100%;
+  margin: 0;
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface-raised);
+  color: var(--ink);
+  font-size: var(--fs-small);
+  pointer-events: auto;
+}
+/* On a phone the bottom is the docked buttons, the tab bar and Capture, so the line sits at the top. */
+@media (max-width: 1023px) {
+  .toastRegion {
+    top: calc(var(--s3) + env(safe-area-inset-top, 0px));
+    bottom: auto;
+  }
+}

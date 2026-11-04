@@ -1,0 +1,30 @@
+.card {
+  margin: var(--s4) 0;
+}
+.note {
+  margin: 0;
+  padding: var(--s3) var(--s5);
+  font-size: var(--fs-small);
+  line-height: 20px;
+  color: var(--ink-2);
+}
+.banner {
+  margin: 0 var(--s5) var(--s3);
+}
+.line {
+  display: block;
+}
+.trail {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.switchLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+}

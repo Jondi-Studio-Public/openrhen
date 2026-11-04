@@ -1,0 +1,29 @@
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+}
+.padded {
+  padding: var(--s5);
+}
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s4) var(--s5);
+  border-bottom: 1px solid var(--line);
+}
+.title {
+  margin: 0;
+  font-size: var(--fs-lead);
+  line-height: 24px;
+  font-weight: 600;
+  min-width: 0;
+}
+.trailing {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+}

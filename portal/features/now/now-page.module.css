@@ -1,0 +1,619 @@
+/* Now: one answer and one primary button. The date and the situation chips on top, the hero card, the
+   rest of today as one meter; Up next and From people beside it on a desk, below it on a phone. */
+main.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s5);
+  padding-top: var(--s7);
+}
+@media (max-width: 1023px) {
+  main.page {
+    padding-top: calc(var(--s4) + env(safe-area-inset-top, 0px));
+  }
+}
+.page section {
+  margin: 0;
+}
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2) var(--s4);
+}
+.date {
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+/* On a phone the round Go to button is pinned over the top right, so the status line stops short of it. */
+@media (max-width: 1023px) {
+  .date {
+    padding-right: calc(44px + var(--s3));
+  }
+}
+.date time {
+  font-variant-numeric: tabular-nums;
+}
+.live {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--s2);
+  border-radius: 3px;
+  background: var(--ink-ghost);
+  vertical-align: middle;
+}
+.live[data-live="true"] {
+  background: var(--accent-vivid);
+}
+.grid {
+  display: grid;
+  gap: var(--s5);
+  align-items: start;
+}
+@media (min-width: 1024px) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr) 360px;
+    gap: var(--s7);
+  }
+}
+.primary,
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s5);
+  min-width: 0;
+}
+@media (min-width: 1024px) {
+  .side {
+    gap: var(--s6);
+  }
+}
+
+/* The hero card. A change of what it shows (Start, Done, a new plan) runs a view transition: the old
+   one fades while the new one rises 8px into place. */
+.hero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s5);
+  padding: var(--s6) var(--s5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  background: var(--surface);
+  view-transition-name: now-hero;
+}
+::view-transition-group(now-hero) {
+  animation-duration: var(--dur-2);
+  animation-timing-function: var(--ease-out);
+}
+::view-transition-old(now-hero) {
+  animation: now-hero-out var(--dur-1) var(--ease-out) both;
+}
+::view-transition-new(now-hero) {
+  animation: now-hero-in var(--dur-2) var(--ease-out) both;
+}
+@keyframes now-hero-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes now-hero-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@media (min-width: 1024px) {
+  .hero {
+    padding: var(--s7);
+  }
+}
+.kicker {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.ring {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+.heading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.hero h1 {
+  margin: 0;
+  max-width: 720px;
+  font-size: var(--fs-h1);
+  line-height: 38px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+@media (min-width: 1024px) {
+  .hero h1 {
+    font-size: var(--fs-display);
+    line-height: 48px;
+    letter-spacing: -0.025em;
+  }
+}
+.lead {
+  margin: 0;
+  font-size: var(--fs-small);
+  line-height: 20px;
+  color: var(--ink-2);
+}
+@media (min-width: 1024px) {
+  .lead {
+    font-size: var(--fs-lead);
+    line-height: 26px;
+  }
+}
+
+/* The hero's buttons: one primary, then the ways out. Full-width Start over a pair on a phone. */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+@media (min-width: 1024px) {
+  .actions {
+    gap: var(--s3);
+  }
+  .start {
+    min-width: 160px;
+  }
+}
+@media (max-width: 1023px) {
+  .actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .actions > .start,
+  .actions > .notice {
+    grid-column: 1 / -1;
+  }
+}
+.notice {
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+}
+.tier {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+}
+
+/* "Why this, now": a few plain sentences under a rule, the workings behind one more tap. */
+.why {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding-top: var(--s4);
+  border-top: 1px solid var(--line);
+}
+.label {
+  margin: 0;
+  font-size: var(--fs-small);
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.whyList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.whyList li {
+  position: relative;
+  padding-left: var(--s5);
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--ink-2);
+}
+.whyList li::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 7px;
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--line-strong);
+}
+.workings {
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+}
+.workings summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 500;
+}
+.workings ul {
+  margin: var(--s2) 0 0;
+  padding-left: var(--s5);
+}
+.workings p {
+  margin: var(--s2) 0 0;
+}
+.score {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1) var(--s3);
+  margin-top: var(--s2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A running session: the countdown is the page. */
+.countdown {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.clockLine {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+.clock {
+  margin: 0;
+  font-size: 52px;
+  line-height: 56px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+}
+.clock[data-overtime="true"] {
+  color: var(--warn-ink);
+}
+.of {
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.caption {
+  margin: 0;
+  font-size: var(--fs-caption);
+  line-height: 16px;
+  color: var(--ink-3);
+}
+
+/* The checkpoint sheet: four answers as rows, the chosen one opens its follow-up in place. */
+.sheetBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+.sheetSub {
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.sheetHeading {
+  margin: 0;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.answers {
+  overflow: hidden;
+}
+.answer {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+}
+.answer:first-child {
+  border-top: 0;
+}
+.answer[data-chosen="true"] {
+  background: var(--surface-2);
+}
+.answer > button {
+  border: 0;
+  border-top: 0;
+}
+.answer[data-chosen="true"] > button:hover {
+  background: transparent;
+}
+.follow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding: 0 var(--s5) var(--s4);
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+}
+.field input {
+  height: 40px;
+  padding: 0 var(--s3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+.sheetActions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: var(--s2);
+}
+.radio {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 9px;
+}
+[data-chosen="true"] .radio {
+  border: 5px solid var(--accent);
+}
+
+/* The rest of today in one line and a meter. */
+.today {
+  display: flex;
+  align-items: center;
+  gap: var(--s5);
+}
+.todayText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.todayLine {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+.todayLine p {
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.todayLine p:first-child {
+  font-weight: 500;
+}
+
+/* Quiet ways in under the hero: anything that can interrupt whatever it shows. */
+.more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+.more:empty {
+  display: none;
+}
+.note {
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+}
+
+/* The situation as chips that open one sheet. */
+.situation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  min-height: 0;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+.situation:hover {
+  filter: none;
+}
+.situation:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--r-pill);
+}
+.part {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 var(--s3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.situation:hover .part {
+  background: var(--surface-2);
+}
+.part[data-unsure="true"] {
+  border-color: var(--warn-line);
+  color: var(--warn-ink);
+}
+
+/* Side cards: rows of Up next, From people and the rest. */
+.headLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-size: var(--fs-small);
+  font-weight: 500;
+  color: var(--accent);
+  text-decoration: none;
+}
+.headLink:hover {
+  text-decoration: underline;
+}
+.cardFoot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  padding: var(--s3) var(--s5);
+  border-top: 1px solid var(--line);
+}
+.error {
+  margin: 0;
+  padding: var(--s2) var(--s5);
+  font-size: var(--fs-small);
+  color: var(--danger-ink);
+}
+.rowActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.todayLine p {
+  white-space: nowrap;
+}
+@media (max-width: 1023px) {
+  .today {
+    flex-wrap: wrap;
+    gap: var(--s3);
+  }
+  .todayText {
+    flex-basis: 100%;
+  }
+}
+/* A panel inside the hero sits in the ActionBar's positioning scope; keep the hero's rhythm through it. */
+.hero > :global(.action-bar) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s5);
+}
+.hero > :global(.action-bar) > :global(.actions) {
+  margin-top: 0;
+}
+@media (max-width: 1023px) {
+  .actions > * {
+    min-width: 0;
+    padding-left: var(--s3);
+    padding-right: var(--s3);
+  }
+}
+@media (max-width: 1023px) {
+  .actions > :nth-child(2):last-child {
+    grid-column: 1 / -1;
+  }
+}
+/* Where the Keep going row would be: why it isn't offered. */
+.refusal {
+  margin: 0;
+  padding: var(--s3) var(--s5);
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-small);
+  line-height: 18px;
+  color: var(--ink-2);
+}
+
+/* What OpenRhen needs to be told: one row per fact that has aged. The blocking stack stands above the
+   hero in the warn colours; "Also check" is an ordinary card. */
+.needs {
+  overflow: hidden;
+}
+.needs[data-blocking="true"] {
+  border-color: var(--warn-line);
+  background: var(--warn-bg);
+}
+.needList {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.need {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2) var(--s4);
+  padding: var(--s3) var(--s5);
+  border-top: 1px solid var(--line);
+}
+.need:first-child {
+  border-top: 0;
+}
+.needs[data-blocking="true"] .need {
+  border-top-color: var(--warn-line-soft);
+}
+.needText {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.needTitle,
+.needQuestion {
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+}
+.needTitle {
+  font-weight: 500;
+}
+.needQuestion {
+  color: var(--ink-2);
+}
+.needs[data-blocking="true"] .needQuestion {
+  color: var(--warn-ink);
+}
+.needControls,
+.needChoices {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+.needField {
+  height: 36px;
+  padding: 0 var(--s3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+}
+.needError {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--danger-ink);
+}

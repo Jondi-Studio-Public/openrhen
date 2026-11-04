@@ -1,0 +1,149 @@
+.page {
+  display: flex;
+  flex-direction: column;
+}
+.layout {
+  display: grid;
+  gap: var(--s6);
+  align-items: start;
+}
+.primary,
+.side {
+  min-width: 0;
+}
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s6);
+}
+@media (min-width: 1024px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr) 360px;
+    gap: var(--s8);
+  }
+  .side {
+    position: sticky;
+    top: var(--s6);
+  }
+}
+@media (max-width: 1023px) {
+  .layout {
+    gap: var(--s4);
+  }
+  .side {
+    gap: var(--s4);
+  }
+}
+
+/* Phone head: the day's name, the week strip and the answer sentence. */
+.phoneHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--s3);
+}
+.phoneTitle {
+  margin: 0;
+  font-size: var(--fs-h2);
+  line-height: 30px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.strip {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--s1);
+  margin-bottom: var(--s3);
+}
+.strip .stripDay {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  height: 52px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--ink-2);
+  font-family: inherit;
+  font-size: var(--fs-caption);
+  font-weight: 500;
+  line-height: 16px;
+  cursor: pointer;
+}
+.strip .stripDay b {
+  font-size: 16px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.strip .stripDay:hover {
+  background: var(--surface-2);
+}
+.strip .stripDay.stripOn {
+  background: var(--ink);
+  color: var(--bg);
+}
+.strip .stripDay.stripOn b {
+  color: var(--bg);
+}
+.strip .stripDay:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.summary {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.stats {
+  display: flex;
+  gap: var(--s6);
+}
+.small {
+  margin: 0 0 var(--s4);
+  font-size: var(--fs-small);
+  line-height: 20px;
+  color: var(--ink-2);
+}
+.summary .small {
+  margin: 0;
+}
+.rows {
+  margin: 0;
+  overflow: hidden;
+}
+.key {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.label {
+  margin: 0;
+  font-size: var(--fs-small);
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.travelBadge {
+  background: transparent;
+  border: 1px dashed var(--line-strong);
+}
+.reserved {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  margin-top: var(--s2);
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+  cursor: pointer;
+}

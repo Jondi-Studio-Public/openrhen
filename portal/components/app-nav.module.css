@@ -1,0 +1,274 @@
+/* The bars that stay on screen while a page scrolls are opaque rather than frosted: a backdrop-filter
+   on a fixed element re-blurs everything behind it on every scroll frame, which made scrolling crawl
+   on cheaper phones. */
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  color: var(--ink-3);
+  font-weight: 500;
+  text-decoration: none;
+}
+.link:focus-visible,
+.search:focus-visible,
+.capture:focus-visible,
+.brand:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--r-pill);
+  background: var(--accent-fill);
+  color: var(--accent-ink);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  animation: badge-in 160ms var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1));
+}
+@keyframes badge-in {
+  from {
+    opacity: 0.6;
+    transform: scale(0.9);
+  }
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--r-pill);
+  background: var(--warn-ink);
+}
+.capture {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  padding: 0;
+  border: 0;
+  background: var(--accent-fill);
+  color: var(--accent-ink);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.capture:hover {
+  background: var(--accent-fill-hover);
+}
+
+/* Phone: five tabs along the bottom and a floating Capture button just above them, at the thumb. */
+.tabs {
+  position: fixed;
+  z-index: 10;
+  inset: auto 0 0 0;
+  height: calc(var(--tab-bar-height) + var(--safe-bottom));
+  padding: 0 4px var(--safe-bottom);
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+.tabs .list {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  height: var(--tab-bar-height);
+}
+.tabs .link {
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  height: 100%;
+  min-height: 44px;
+  font-size: 11px;
+  line-height: 14px;
+}
+.tabs .link :global(.nav-icon) {
+  width: 22px;
+  height: 22px;
+}
+.tabs .link[aria-current="page"] {
+  color: var(--accent);
+}
+.tabs .badge {
+  position: absolute;
+  top: 4px;
+  left: calc(50% + 6px);
+  min-width: 16px;
+  height: 16px;
+  font-size: 10px;
+  line-height: 16px;
+}
+.tabs .dot {
+  position: absolute;
+  top: var(--s2);
+  left: calc(50% + var(--s2));
+}
+.tabs .capture {
+  position: fixed;
+  right: var(--s4);
+  bottom: calc(var(--nav-clearance) + var(--s4));
+  width: 56px;
+  height: 56px;
+  border-radius: 18px;
+  box-shadow: var(--elev-2);
+}
+/* A page with a docked action bar (Now's hero buttons) keeps it under the thumb: the button rises
+   clear of the bar (two rows of buttons and its padding) instead of covering its right end. */
+:global(body:has(.action-bar > .actions)) .tabs .capture {
+  bottom: calc(var(--nav-clearance) + var(--docked-actions-height) + var(--s3));
+}
+/* Go to on a phone: a small round button pinned to the top right, clear of the notch. */
+.phoneSearch {
+  position: fixed;
+  z-index: 10;
+  top: calc(var(--s2) + env(safe-area-inset-top, 0px));
+  right: var(--s3);
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  box-shadow: var(--elev-1);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.phoneSearch:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.rail {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .tabs {
+    display: none;
+  }
+  /* Starts under the stale-plan banner while it shows (its height is published by StatusBanner), so
+     the rail's foot stays on screen. */
+  .rail {
+    position: sticky;
+    top: var(--status-banner-height, 0px);
+    display: flex;
+    height: calc(100vh - var(--status-banner-height, 0px));
+    flex-direction: column;
+    gap: var(--s1);
+    padding: var(--s5) var(--s3);
+    overflow-y: auto;
+    border-right: 1px solid var(--line);
+    background: var(--bg);
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: var(--s2);
+    padding: 0 var(--s3) var(--s5);
+    color: var(--ink);
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .mark {
+    display: grid;
+    width: 22px;
+    height: 22px;
+    place-items: center;
+    border-radius: 7px;
+    background: var(--accent-fill);
+    color: var(--accent-ink);
+  }
+  .search {
+    display: flex;
+    align-items: center;
+    gap: var(--s2);
+    height: 36px;
+    min-height: 36px;
+    margin-bottom: var(--s3);
+    padding: 0 var(--s3);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    box-shadow: none;
+    color: var(--ink-3);
+    font: inherit;
+    font-size: var(--fs-small);
+    font-weight: 400;
+    cursor: pointer;
+  }
+  .search:hover {
+    border-color: var(--line-strong);
+    background: var(--surface);
+  }
+  .kbd {
+    margin-left: auto;
+    padding: 0 5px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: var(--fs-caption);
+  }
+  .rail .list {
+    display: grid;
+    gap: var(--s1);
+  }
+  .rail .link {
+    gap: var(--s3);
+    height: 40px;
+    padding: 0 var(--s3);
+    border-radius: var(--r-md);
+    color: var(--ink-2);
+  }
+  .rail .link :global(.nav-icon) {
+    width: 18px;
+    height: 18px;
+  }
+  .rail .link:hover {
+    background: var(--surface-2);
+    color: var(--ink);
+  }
+  .rail .link[aria-current="page"] {
+    background: var(--surface);
+    color: var(--ink);
+    box-shadow: var(--elev-1);
+  }
+  .rail .badge {
+    margin-left: auto;
+  }
+  .rail .capture {
+    width: 100%;
+    height: 40px;
+    margin-top: var(--s4);
+    border-radius: var(--r-md);
+  }
+  /* The "Updating plan…" pill takes this corner of the rail while it shows, so the line steps aside. */
+  :global(body:has(.plan-updating-pill)) .updated {
+    visibility: hidden;
+  }
+  .updated {
+    margin: auto 0 0;
+    padding: var(--s4) var(--s3) 0;
+    font-size: var(--fs-caption);
+    line-height: 16px;
+    color: var(--ink-3);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .badge {
+    animation: none;
+  }
+}
+/* A page with a docked decision bar (the Inbox on a phone) keeps it under the thumb: the button
+   rises clear of the bar instead of covering its right end. */
+@media (max-width: 1023px) {
+  :global(body:has([data-docked-actions])) .tabs .capture {
+    bottom: calc(var(--nav-clearance) + var(--docked-bar-height) + var(--s3));
+  }
+}

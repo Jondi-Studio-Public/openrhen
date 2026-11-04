@@ -1,0 +1,7 @@
+/* The batch under review sits flat in the Inbox's detail card: its heading, its records, then its commit controls. */
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  min-width: 0;
+}

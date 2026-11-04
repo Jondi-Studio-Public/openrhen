@@ -1,0 +1,322 @@
+{
+  "name": "Bedtime walks back to the earliest step of a getting-ready chain so the night is not cut short.",
+  "why": "Work starts at 20:00Z, preceded by six contiguous before-phase steps (Freshen up through Final check) that all overlap the usual bedtime window. The walk-back must clear the whole chain in one step rather than letting the last link win, so the night is cut only by the earliest step and is not shortened to fit the one nearest Work. The ideal start has already passed at this instant, so the night is clamped to now, lasts 532 minutes and ends before the first step, and the directive is to sleep.",
+  "capturedAt": "2027-04-02T09:12:41.539Z",
+  "request": {
+    "state": {
+      "areas": [
+        {
+          "id": "c965b7b4-2149-4c5c-9809-44752323a005",
+          "name": "Household",
+          "status": "active",
+          "version": 1,
+          "sortOrder": 4,
+          "description": "Cleaning and household tasks."
+        },
+        {
+          "id": "e1d582e3-4074-4f29-8307-e0cbd68a4817",
+          "name": "Social",
+          "status": "active",
+          "version": 1,
+          "sortOrder": 5,
+          "description": "Close contacts."
+        }
+      ],
+      "actions": [],
+      "captures": [],
+      "outcomes": [
+        {
+          "id": "aa13af6f-5951-423c-b5f9-e4b54bb6f6ad",
+          "title": "Meet new people",
+          "value": 3,
+          "areaId": "e1d582e3-4074-4f29-8307-e0cbd68a4817",
+          "status": "active",
+          "version": 1,
+          "reviewOn": "2027-03-21",
+          "deadlineAt": "2027-08-29T12:59:00.000Z",
+          "definitionOfDone": "Keep in regular contact."
+        },
+        {
+          "id": "becd6e14-5034-4366-9171-ef8259691948",
+          "title": "Tidy home technology",
+          "value": 4,
+          "areaId": "c965b7b4-2149-4c5c-9809-44752323a005",
+          "status": "active",
+          "version": 1,
+          "reviewOn": "2027-03-30",
+          "deadlineAt": "2027-04-29T13:59:00.000Z",
+          "definitionOfDone": "Equipment is reviewed and upgraded."
+        }
+      ],
+      "projects": [
+        {
+          "id": "921bba20-0b6c-4ec7-b914-2d4c6b983494",
+          "area": "Household",
+          "title": "Review equipment",
+          "value": 4,
+          "status": "active",
+          "version": 1,
+          "createdAt": "2027-03-08T13:45:01.731Z",
+          "outcomeId": "becd6e14-5034-4366-9171-ef8259691948",
+          "consequence": 2,
+          "uncertainty": "high",
+          "internalDeadlineAt": "2027-04-18T13:59:00.000Z",
+          "actualCompletionRatio": 0,
+          "requiredCompletionRatio": 0.02745293432628322
+        },
+        {
+          "id": "c130d070-59e2-4ad7-945f-81b11631c150",
+          "area": "Social",
+          "title": "Arrange a catch-up",
+          "value": 3,
+          "status": "active",
+          "version": 1,
+          "createdAt": "2027-03-08T13:45:01.731Z",
+          "outcomeId": "aa13af6f-5951-423c-b5f9-e4b54bb6f6ad",
+          "consequence": 3,
+          "uncertainty": "some",
+          "internalDeadlineAt": "2027-04-28T13:59:00.000Z",
+          "actualCompletionRatio": 0,
+          "requiredCompletionRatio": 0.017153996486981613
+        }
+      ],
+      "settings": {
+        "version": 247,
+        "timezone": "Etc/GMT-10",
+        "lastWokeAt": "2027-04-01T18:50:00.000Z",
+        "capacityMode": "automatic",
+        "maxAwakeHours": 20,
+        "conditionCatalog": [],
+        "energyMeanings": {
+          "low": "Low",
+          "high": "High",
+          "medium": "Medium",
+          "recovery": "Recovery"
+        },
+        "homeLocationId": "home",
+        "preferredBedtime": "20:50",
+        "preferredWakeTime": "06:00",
+        "planningHorizonEnd": "20:00",
+        "desiredSleepMinutes": 540,
+        "minimumSleepMinutes": 300,
+        "arrivalMarginMinutes": 5,
+        "disruptionKindLabels": {
+          "work": "Work",
+          "other": "Misc",
+          "family": "Household",
+          "life_admin": "Chores"
+        },
+        "defaultCapacityEnergy": "medium",
+        "defaultUsableFraction": 0.75,
+        "disruptionWhenPresets": [
+          {
+            "id": "later-60",
+            "label": "+60m",
+            "delayMinutes": 60
+          }
+        ],
+        "bedtimeRoutinePresetId": "a0a41e73-1cab-41e1-8d1f-b2bcdd2193da",
+        "estimateBucketsMinutes": [
+          120
+        ],
+        "submissionBufferMinutes": 60,
+        "submissionBufferPercent": 0.1,
+        "defaultSetupBufferMinutes": 10,
+        "disruptionDurationPresets": [
+          {
+            "id": "unknown",
+            "kind": "unknown",
+            "label": "No idea"
+          }
+        ],
+        "locationStaleAfterMinutes": 480,
+        "defaultTransitionBufferMinutes": 10,
+        "disruptionRetroFallbackMinutes": 60
+      },
+      "horizonEnd": "2027-04-09T08:57:41.539Z",
+      "sleepPlans": [],
+      "commitments": [
+        {
+          "id": "e48bb3fc-41e7-4531-80a3-4e463e16a3e9",
+          "title": "Work",
+          "endsAt": "2027-04-02T23:00:00.000Z",
+          "status": "confirmed",
+          "version": 1,
+          "location": "Office",
+          "presence": "blocking",
+          "startsAt": "2027-04-02T20:00:00.000Z",
+          "createdAt": "2027-04-01T15:09:21.900Z",
+          "updatedAt": "2027-04-01T15:09:21.900Z",
+          "locationId": "work",
+          "sourceType": "calendar_event",
+          "sourceTitle": "Work",
+          "promptPolicy": "normal",
+          "routineSource": "custom",
+          "setupBeforeMinutes": 10,
+          "transitionAfterMinutes": 20
+        }
+      ],
+      "occurrences": [],
+      "deliverables": [],
+      "routineSteps": [
+        {
+          "id": "1a3c6d5a-f172-4ced-9e84-6449b099fad7",
+          "phase": "before",
+          "title": "Freshen up",
+          "energy": "low",
+          "status": "pending",
+          "version": 1,
+          "contexts": [],
+          "sequence": 1,
+          "timingRule": "contiguous",
+          "commitmentId": "e48bb3fc-41e7-4531-80a3-4e463e16a3e9",
+          "dependencyIds": [],
+          "scheduledEndAt": "2027-04-02T18:45:00.000Z",
+          "durationMinutes": 5,
+          "scheduledStartAt": "2027-04-02T18:40:00.000Z"
+        },
+        {
+          "id": "95590cc2-6cf5-4958-86ff-3e02d9842074",
+          "phase": "before",
+          "title": "Have a morning meal",
+          "energy": "low",
+          "status": "pending",
+          "version": 4,
+          "contexts": [],
+          "sequence": 2,
+          "timingRule": "contiguous",
+          "commitmentId": "e48bb3fc-41e7-4531-80a3-4e463e16a3e9",
+          "dependencyIds": [],
+          "actionWindowId": "8ba9123e-1604-425c-8bda-eaf1eeb26299",
+          "scheduledEndAt": "2027-04-02T19:05:00.000Z",
+          "durationMinutes": 20,
+          "scheduledStartAt": "2027-04-02T18:45:00.000Z"
+        },
+        {
+          "id": "94ea2de2-32e3-43cf-8ad7-41c0dcfc8120",
+          "phase": "before",
+          "title": "Pack water bottle",
+          "energy": "low",
+          "status": "pending",
+          "version": 2,
+          "contexts": [],
+          "sequence": 3,
+          "timingRule": "flexible",
+          "commitmentId": "e48bb3fc-41e7-4531-80a3-4e463e16a3e9",
+          "dependencyIds": [],
+          "maxLeadMinutes": 900,
+          "scheduledEndAt": "2027-04-02T19:10:00.000Z",
+          "durationMinutes": 5,
+          "scheduledStartAt": "2027-04-02T19:05:00.000Z"
+        },
+        {
+          "id": "b88399d3-8a96-4afd-bf77-7c3047704ce5",
+          "phase": "before",
+          "title": "Shower and dress",
+          "energy": "low",
+          "status": "pending",
+          "version": 2,
+          "contexts": [],
+          "sequence": 4,
+          "timingRule": "contiguous",
+          "commitmentId": "e48bb3fc-41e7-4531-80a3-4e463e16a3e9",
+          "dependencyIds": [],
+          "scheduledEndAt": "2027-04-02T19:40:00.000Z",
+          "durationMinutes": 30,
+          "scheduledStartAt": "2027-04-02T19:10:00.000Z"
+        },
+        {
+          "id": "04275d61-bdb8-4ede-a0aa-88827320265d",
+          "phase": "before",
+          "title": "Clean teeth",
+          "energy": "low",
+          "status": "pending",
+          "version": 3,
+          "contexts": [],
+          "sequence": 5,
+          "timingRule": "contiguous",
+          "commitmentId": "e48bb3fc-41e7-4531-80a3-4e463e16a3e9",
+          "dependencyIds": [],
+          "actionWindowId": "8266d9fc-55c9-46c8-848c-eb05a0c19a7f",
+          "scheduledEndAt": "2027-04-02T19:48:00.000Z",
+          "durationMinutes": 8,
+          "scheduledStartAt": "2027-04-02T19:40:00.000Z"
+        },
+        {
+          "id": "ea7a4059-1e3a-492e-ba49-a470dec45361",
+          "phase": "before",
+          "title": "Final check",
+          "energy": "low",
+          "status": "pending",
+          "version": 2,
+          "contexts": [],
+          "sequence": 6,
+          "timingRule": "contiguous",
+          "commitmentId": "e48bb3fc-41e7-4531-80a3-4e463e16a3e9",
+          "dependencyIds": [],
+          "scheduledEndAt": "2027-04-02T19:50:00.000Z",
+          "durationMinutes": 2,
+          "scheduledStartAt": "2027-04-02T19:48:00.000Z"
+        }
+      ],
+      "activeSession": null,
+      "currentEnergy": "medium",
+      "planningFocus": [],
+      "completedToday": [],
+      "routinePresets": [],
+      "capacityWindows": [],
+      "assertedConditions": [],
+      "currentSituation": {
+        "travel": {},
+        "carrying": {
+          "phone": true,
+          "laptop": true,
+          "online": true
+        },
+        "overrides": {},
+        "locationId": "home",
+        "locationSetAt": "2027-04-02T08:35:06.752Z",
+        "transportModes": []
+      },
+      "conditionDefinitions": [
+        {
+          "id": "work",
+          "kind": "location",
+          "name": "Office",
+          "grants": [],
+          "status": "active",
+          "version": 5,
+          "channels": [],
+          "latitude": 35.37622826423735,
+          "pathways": [],
+          "longitude": -69.7399707902331,
+          "portability": "fixed",
+          "setupBeforeMinutes": 10,
+          "defaultRoutinePresetId": "265dc74a-deff-4145-b117-29f79b34b0ff",
+          "transitionAfterMinutes": 20
+        }
+      ],
+      "currentRecommendationId": "5bc0099b-6353-46d5-8f8c-e3dd31cc3e2a",
+      "commitmentRecurrenceRules": [],
+      "pendingLocationSuggestion": null
+    },
+    "requestId": "16f8c0f2-6c04-4032-bdda-86570e859339",
+    "horizonEnd": "2027-09-29T09:12:41.539Z",
+    "calculatedAt": "2027-04-02T09:12:41.539Z",
+    "deliverables": [],
+    "inputVersion": "synthetic",
+    "contractVersion": "1"
+  },
+  "expect": {
+    "currentDirective": {
+      "kind": "sleep",
+      "targetId": "06c6ab1c-cb28-4144-bff0-6ae6a8597790",
+      "title": "Time to sleep",
+      "recommendedMinutes": 532
+    },
+    "primaryActionId": null,
+    "dayPlan": [
+      "09:12-18:05 sleep 06c6ab1c-cb28-4144-bff0-6ae6a8597790 0/532"
+    ]
+  }
+}

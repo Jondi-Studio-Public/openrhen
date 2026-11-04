@@ -1,0 +1,181 @@
+{
+  "name": "leave-by allows for variability: a stored fallback's leaving figure is the padded allowing, not the bare typical",
+  "why": "the travel time model design note, \"Variability\"/\"What the plan uses\": with no samples at all, a leg's allowing minutes are its typical figure plus `max(3, 0.15 x typical)`, rounded up, and it is the allowing figure leave-by and the live travel directive read, never the bare typical (which is carried alongside only for display). This fixture is new for the journey store rather than a re-baseline: it names the two figures directly (`typicalMinutes` 40 vs `minutes`/`recommendedMinutes` 46) so a future change to the padding formula, or a regression back to the bare typical, fails here first. Captured a minute after leave-by (07:15, leave-by is 07:14) rather than exactly on the boundary, the same margin `tracked-overtime-keeps-return-leg.json` keeps. Re-baselined for `ranking-consistency`'s maximum-session break: each `write` session now reaches its own maximum and owes a 15-minute rest before the day plan offers it again, so the four sessions that used to run back to back are now each followed by a `none`-reason gap, pushing the last one later and shrinking the final horizon gap to match; the leave-by/padding behaviour this fixture pins is unaffected.",
+  "capturedAt": "2026-08-19T07:15:00.000Z",
+  "request": {
+    "contractVersion": "1",
+    "requestId": "00000000-0000-4000-8000-00000000c7a1",
+    "inputVersion": "leave-by-allows-for-variability-fixture",
+    "calculatedAt": "2026-08-19T07:15:00.000Z",
+    "horizonEnd": "2026-09-18T00:00:00.000Z",
+    "state": {
+      "settings": {
+        "timezone": "UTC",
+        "planningHorizonEnd": "22:00",
+        "defaultUsableFraction": 1,
+        "defaultSetupBufferMinutes": 0,
+        "defaultTransitionBufferMinutes": 0,
+        "submissionBufferMinutes": 0,
+        "submissionBufferPercent": 0,
+        "energyMeanings": {
+          "high": "high",
+          "medium": "medium",
+          "low": "low",
+          "recovery": "recovery"
+        },
+        "estimateBucketsMinutes": [15, 30, 60],
+        "preferredBedtime": "23:30",
+        "preferredWakeTime": "06:00",
+        "desiredSleepMinutes": 480,
+        "minimumSleepMinutes": 420,
+        "maxAwakeHours": 18,
+        "lastWokeAt": "2026-08-19T06:00:00.000Z",
+        "homeLocationId": "home",
+        "arrivalMarginMinutes": 0
+      },
+      "areas": [{ "id": "area", "name": "Everything", "status": "active", "sortOrder": 0 }],
+      "outcomes": [
+        {
+          "id": "outcome",
+          "areaId": "area",
+          "title": "Outcome",
+          "definitionOfDone": "Done.",
+          "value": 3,
+          "status": "active"
+        }
+      ],
+      "projects": [
+        {
+          "id": "proj",
+          "title": "proj",
+          "area": "Everything",
+          "outcomeId": "outcome",
+          "status": "active",
+          "uncertainty": "known",
+          "value": 3,
+          "consequence": 3,
+          "internalDeadlineAt": "2026-10-18T00:00:00.000Z"
+        }
+      ],
+      "actions": [
+        {
+          "id": "write",
+          "projectId": "proj",
+          "title": "write",
+          "status": "active",
+          "optimisticMinutes": 240,
+          "expectedMinutes": 240,
+          "pessimisticMinutes": 240,
+          "remainingMinutes": 240,
+          "splittable": true,
+          "setupMinutes": 0,
+          "energy": "medium",
+          "minimumSessionMinutes": 15,
+          "maximumSessionMinutes": 60,
+          "importance": 3,
+          "consequence": 3,
+          "contexts": [],
+          "dependencyIds": [],
+          "schedulingMode": "one_off",
+          "requirementPathways": [],
+          "preferences": []
+        }
+      ],
+      "deliverables": [],
+      "commitments": [
+        {
+          "id": "meeting",
+          "title": "Meeting",
+          "startsAt": "2026-08-19T08:00:00.000Z",
+          "endsAt": "2026-08-19T09:00:00.000Z",
+          "status": "confirmed",
+          "locationId": "office",
+          "setupBeforeMinutes": 0,
+          "transitionAfterMinutes": 0
+        }
+      ],
+      "commitmentRecurrenceRules": [],
+      "routineSteps": [],
+      "routinePresets": [],
+      "occurrences": [],
+      "sleepPlans": [],
+      "captures": [],
+      "completedToday": [],
+      "assertedConditions": ["home"],
+      "currentEnergy": "medium",
+      "horizonEnd": "2026-09-18T00:00:00.000Z",
+      "conditionDefinitions": [
+        {
+          "id": "home",
+          "name": "Home",
+          "kind": "location",
+          "status": "active",
+          "pathways": [],
+          "portability": "fixed",
+          "grants": [],
+          "setupBeforeMinutes": 0,
+          "transitionAfterMinutes": 0,
+          "channels": []
+        },
+        {
+          "id": "office",
+          "name": "Office",
+          "kind": "location",
+          "status": "active",
+          "pathways": [],
+          "portability": "fixed",
+          "grants": [],
+          "travelMinutes": 40,
+          "setupBeforeMinutes": 0,
+          "transitionAfterMinutes": 0,
+          "channels": []
+        }
+      ],
+      "currentSituation": {
+        "locationId": "home",
+        "locationSetAt": "2026-08-19T07:15:00.000Z",
+        "overrides": {},
+        "carrying": {},
+        "transportModes": ["car"],
+        "travel": {}
+      },
+      "pendingLocationSuggestion": null,
+      "activeSession": null,
+      "planningFocus": []
+    },
+    "deliverables": []
+  },
+  "expect": {
+    "currentDirective": {
+      "kind": "travel",
+      "toLocationId": "office",
+      "title": "Drive to Office",
+      "recommendedMinutes": 46,
+      "mode": "car",
+      "source": "fallback",
+      "typicalMinutes": 40,
+      "sampleCount": 0,
+      "leaveBy": "2026-08-19T07:14:00.000Z",
+      "then": {
+        "kind": "commitment",
+        "targetId": "meeting",
+        "title": "Meeting",
+        "recommendedMinutes": 60
+      }
+    },
+    "primaryActionId": null,
+    "dayPlan": [
+      "07:15-08:01 travel→office meeting 0/46",
+      "08:01-09:00 commitment meeting 0/59",
+      "09:00-09:46 travel→home 0/46",
+      "09:46-10:46 action write 60/60 ordinary",
+      "10:46-11:01 gap 0/15 none",
+      "11:01-12:01 action write 60/60 ordinary",
+      "12:01-12:16 gap 0/15 none",
+      "12:16-13:16 action write 60/60 ordinary",
+      "13:16-13:31 gap 0/15 none",
+      "13:31-14:31 action write 60/60 ordinary",
+      "14:31-22:00 gap 0/449 none"
+    ]
+  }
+}

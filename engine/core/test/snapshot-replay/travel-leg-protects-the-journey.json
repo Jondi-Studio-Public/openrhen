@@ -1,0 +1,234 @@
+{
+  "name": "a journey to a located commitment is protected, drawn and directed",
+  "why": "Travel is additive, not folded into the setup buffer: the day works at home until the whole protected run begins, spends the setup buffer, drives, arrives two minutes early, and the errand that needs campus waits for the moment it is free. A changed line here means the travel policy moved \u2014 the leg's length, where it is protected from, or which work the journey is judged worth.",
+  "capturedAt": "2026-08-19T00:00:00.000Z",
+  "request": {
+    "contractVersion": "1",
+    "requestId": "00000000-0000-4000-8000-00000000e9a1",
+    "inputVersion": "travel-leg-golden",
+    "calculatedAt": "2026-08-19T00:00:00.000Z",
+    "horizonEnd": "2026-09-02T00:00:00.000Z",
+    "state": {
+      "settings": {
+        "timezone": "Etc/GMT-10",
+        "planningHorizonEnd": "20:00",
+        "defaultCapacityStart": "09:00",
+        "defaultCapacityEnd": "17:00",
+        "defaultCapacityEnergy": "medium",
+        "capacityMode": "automatic",
+        "defaultUsableFraction": 1,
+        "defaultSetupBufferMinutes": 0,
+        "defaultTransitionBufferMinutes": 0,
+        "submissionBufferMinutes": 0,
+        "submissionBufferPercent": 0,
+        "energyMeanings": {
+          "high": "High",
+          "medium": "Medium",
+          "low": "Low",
+          "recovery": "Recovery"
+        },
+        "estimateBucketsMinutes": [
+          15,
+          30,
+          60
+        ],
+        "conditionCatalog": [
+          "home",
+          "campus"
+        ],
+        "preferredBedtime": "23:00",
+        "preferredWakeTime": "07:00",
+        "desiredSleepMinutes": 480,
+        "minimumSleepMinutes": 420,
+        "maxAwakeHours": 16,
+        "locationStaleAfterMinutes": 480,
+        "homeLocationId": "home"
+      },
+      "areas": [
+        {
+          "id": "area",
+          "name": "Everything",
+          "status": "active",
+          "sortOrder": 0
+        }
+      ],
+      "outcomes": [
+        {
+          "id": "outcome",
+          "areaId": "area",
+          "title": "Outcome",
+          "definitionOfDone": "Done.",
+          "value": 3,
+          "status": "active"
+        }
+      ],
+      "projects": [
+        {
+          "id": "thesis",
+          "title": "thesis",
+          "area": "Everything",
+          "outcomeId": "outcome",
+          "status": "active",
+          "uncertainty": "known",
+          "value": 4,
+          "consequence": 4,
+          "internalDeadlineAt": "2026-09-18T00:00:00.000Z"
+        },
+        {
+          "id": "house",
+          "title": "house",
+          "area": "Everything",
+          "outcomeId": "outcome",
+          "status": "active",
+          "uncertainty": "known",
+          "value": 2,
+          "consequence": 2,
+          "internalDeadlineAt": "2026-10-03T00:00:00.000Z"
+        }
+      ],
+      "actions": [
+        {
+          "id": "write-chapter",
+          "projectId": "thesis",
+          "title": "write-chapter",
+          "status": "active",
+          "optimisticMinutes": 240,
+          "expectedMinutes": 240,
+          "pessimisticMinutes": 240,
+          "remainingMinutes": 240,
+          "splittable": true,
+          "setupMinutes": 0,
+          "energy": "medium",
+          "minimumSessionMinutes": 15,
+          "maximumSessionMinutes": 60,
+          "importance": 3,
+          "consequence": 3,
+          "contexts": [],
+          "dependencyIds": [],
+          "schedulingMode": "one_off",
+          "requirementPathways": [],
+          "preferences": []
+        },
+        {
+          "id": "lab-samples",
+          "projectId": "house",
+          "title": "lab-samples",
+          "status": "active",
+          "optimisticMinutes": 45,
+          "expectedMinutes": 45,
+          "pessimisticMinutes": 45,
+          "remainingMinutes": 45,
+          "splittable": true,
+          "setupMinutes": 0,
+          "energy": "medium",
+          "minimumSessionMinutes": 15,
+          "maximumSessionMinutes": 60,
+          "importance": 3,
+          "consequence": 3,
+          "contexts": [],
+          "dependencyIds": [],
+          "schedulingMode": "one_off",
+          "requirementPathways": [
+            {
+              "id": "lab-samples:at",
+              "contextIds": [
+                "campus"
+              ]
+            }
+          ],
+          "preferences": []
+        }
+      ],
+      "deliverables": [],
+      "capacityWindows": [],
+      "commitments": [
+        {
+          "id": "seminar",
+          "title": "Seminar",
+          "startsAt": "2026-08-19T04:00:00.000Z",
+          "endsAt": "2026-08-19T05:00:00.000Z",
+          "status": "confirmed",
+          "locationId": "campus",
+          "setupBeforeMinutes": 10,
+          "transitionAfterMinutes": 5
+        }
+      ],
+      "commitmentRecurrenceRules": [],
+      "routineSteps": [],
+      "routinePresets": [],
+      "occurrences": [],
+      "locationProfiles": [],
+      "sleepPlans": [],
+      "captures": [],
+      "completedToday": [],
+      "assertedConditions": [],
+      "currentEnergy": "medium",
+      "horizonEnd": "2026-09-02T00:00:00.000Z",
+      "conditionDefinitions": [
+        {
+          "id": "home",
+          "name": "Home",
+          "kind": "location",
+          "status": "active",
+          "pathways": [],
+          "portability": "fixed",
+          "grants": [],
+          "latitude": -61.12569037821812,
+          "longitude": 115.49917470248619,
+          "setupBeforeMinutes": 0,
+          "transitionAfterMinutes": 0,
+          "channels": []
+        },
+        {
+          "id": "campus",
+          "name": "Campus",
+          "kind": "location",
+          "status": "active",
+          "pathways": [],
+          "portability": "fixed",
+          "grants": [],
+          "travelMinutes": 25,
+          "latitude": -61.099938089394236,
+          "longitude": 115.45373902086789,
+          "setupBeforeMinutes": 0,
+          "transitionAfterMinutes": 0,
+          "channels": []
+        }
+      ],
+      "currentSituation": {
+        "locationId": "home",
+        "locationSetAt": "2026-08-19T00:00:00.000Z",
+        "overrides": {},
+        "carrying": {},
+        "transportModes": [
+          "car"
+        ],
+        "travel": {}
+      },
+      "activeSession": null,
+      "planningFocus": []
+    },
+    "deliverables": []
+  },
+  "expect": {
+    "currentDirective": {
+      "kind": "action",
+      "targetId": "write-chapter",
+      "title": "write-chapter",
+      "recommendedMinutes": 60
+    },
+    "primaryActionId": "write-chapter",
+    "dayPlan": [
+      "00:00-01:00 action write-chapter 60/60 ordinary",
+      "01:00-02:00 action write-chapter 60/60 ordinary",
+      "02:00-03:00 action write-chapter 60/60 ordinary",
+      "03:00-03:23 action write-chapter 23/23 ordinary",
+      "03:23-03:33 commitment seminar 0/10",
+      "03:33-03:58 travel\u2192campus seminar 0/25",
+      "03:58-05:05 commitment seminar 0/67",
+      "05:05-05:42 action write-chapter 37/37 ordinary",
+      "05:42-06:27 action lab-samples 45/45 ordinary",
+      "06:27-10:00 gap 0/213 none"
+    ]
+  }
+}

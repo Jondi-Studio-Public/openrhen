@@ -1,0 +1,83 @@
+# Architecture overview
+
+OpenRhen is a TypeScript workspace of a few small processes around one PostgreSQL database. This page names the processes, what each is allowed to do, and how a change flows through them.
+
+## The processes
+
+| Process | Package | Job |
+|---|---|---|
+| Portal | `portal/` | The web interface and its HTTP API. Validates requests, commits state, enqueues planning work, renders saved results. |
+| Planning service | `engine/service` | A stateless, authenticated HTTP service. The only runtime that executes the planning engine. |
+| Worker | `engine/worker` | Claims durable jobs, sends a snapshot to the planning service, saves the result, and runs the scheduled loops. |
+| Outbound proxy | `integrations/outbound-proxy` | Makes every third-party call and holds every third-party credential. |
+| Database | PostgreSQL 17 | The only store: planning records, jobs, results, evidence, uploaded files. |
+| Command line | `tools/cli` (`rhen`) | A client of the portal's HTTP API for people and AI tools. Never opens the database. |
+
+Shared libraries: `platform/contracts` (schemas, commands and wire shapes, validated with Zod), `platform/database` (schema, migrations, jobs, backup and restore) and `engine/core` (the pure planning functions).
+
+## Boundaries that are deliberate
+
+- **The planner is pure.** `engine/core` does no I/O. Given a snapshot of state and a calculation time it returns the same plan every time. Only the planning service imports it; the portal and worker may not, and a boundary test enforces this so there is never a second implementation of the rules. Logic that both sides must agree on (for example matching a requirement to your situation) lives in `platform/contracts` and is shared code, not a second opinion.
+- **The database is the source of truth.** The portal never calculates a plan inside a request. A change is validated, written in a transaction with an evidence record, and a recalculation job is queued in the same transaction.
+- **Secrets stay out of the portal.** Third-party credentials live only in the outbound proxy's environment. The portal holds the proxy's URL and a bearer token.
+- **Outside data proposes; you decide.** Imports, captures, model output and connection data become proposals that wait for review. Nothing outside the app can change your plan unreviewed, and untrusted text can never issue a command.
+
+## How a change flows
+
+```text
+Browser or CLI
+  -> versioned API command
+  -> contract validation
+  -> one PostgreSQL transaction:
+       optimistic version check
+       write normalised records
+       append change evidence
+       build an immutable planning snapshot
+       enqueue a recalculation job
+  -> return current saved state
+
+Worker
+  -> claim the job (row locking, so no two workers take it)
+  -> send the snapshot to the planning service
+  -> validate the result
+  -> discard it if newer state has superseded the snapshot
+  -> save the plan and its evidence
+  -> schedule the next recalculation at the plan's earliest validity boundary
+```
+
+The browser shows the last saved plan with a freshness label while recalculation runs, and polls a small status endpoint until a newer plan lands. A server-sent-events stream (`GET /api/events`, fed by PostgreSQL `NOTIFY`) tells open tabs when to look, but nothing depends on it: without it, polling does the same job.
+
+Jobs are idempotent by input version, so duplicate triggers collapse. At most one recalculation waits per user. A plan carries an expiry; when the planning service is down the last plan stays readable but is labelled stale, Start is disabled until a valid plan returns, and capture, review and settings keep working. Restarting the service or worker is enough to recover.
+
+## Worker loops
+
+The worker runs independent loops, so a slow one delays only itself: planning jobs, pruning old evidence, the check-in scheduler, leave-by notifications, and each connection's own sync schedule.
+
+## Persistence
+
+PostgreSQL is required. The portal reads `DATABASE_URL` and refuses to serve planning state without it. Migrations are append-only: a correction is a new migration, never an edit. Uploaded source files are stored in the database as bounded records with a content hash, so a backup is one artefact; the payload can move behind object storage later without changing identifiers. Backups are logical, verified by restoring them, and described in [Database and backups](../operations/database-and-backups.md).
+
+## Single user
+
+An install has one owner. The portal acts as the first user row, and foreign keys still keep that user's rows apart. With `OPENRHEN_OWNER_AUTH=off` (the default) trust is the network boundary, which is only safe when the portal listens on loopback. With `require`, every API call needs an owner credential, an agent token, or a route-specific token. See [Locking down the API](../operations/locking-down.md).
+
+## Security rules the code relies on
+
+- Secrets live in environment configuration and never in source, client state, logs, planning evidence or import provenance.
+- Imported files, HTML and model output are untrusted. Model extraction preserves uncertainty and cannot commit data.
+- Optimistic versions, command ids and transactions prevent stale or duplicate writes.
+- Failure evidence may include error classes, timestamps and retry information, never credentials, cookies or private imported content.
+- There is no telemetry. The only outbound calls are the ones you configure through connections.
+
+## Where to look in the repository
+
+```text
+engine/{core,service,worker}   planning library, service, job runner
+platform/{contracts,database}  shared schemas; schema, migrations, backup
+portal/                        web app: app/ routes, features/, server/
+integrations/outbound-proxy/   connection host and bundled connections
+tools/cli/                     the rhen command line
+scripts/                       dependency-free repository tooling
+```
+
+Dependencies point inward: the portal and worker depend on `platform/*`; `engine/core` depends on nothing; connections depend only on `platform/contracts` and the host's connection API. `corepack pnpm structure:check` enforces these rules. Names are lowercase kebab-case, tests end in `.test.ts`, and generic `utils`, `helpers` and `common` directories are not allowed.

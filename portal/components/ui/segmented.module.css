@@ -1,0 +1,55 @@
+.seg {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.opt {
+  height: 32px;
+  padding: 0 var(--s4);
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-family: inherit;
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition:
+    background var(--dur-1) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+.opt:active {
+  transform: scale(0.97);
+}
+.opt:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.on {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--elev-1);
+}
+/* In the dark the card surface is darker than the track, so the chosen side would sink into it: it
+   takes the lighter raised surface instead. */
+@media (prefers-color-scheme: dark) {
+  .on {
+    background: var(--surface-3);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .opt {
+    transition: none;
+  }
+  .opt:active {
+    transform: none;
+  }
+}
+@media (pointer: coarse) {
+  .opt {
+    height: 44px;
+  }
+}

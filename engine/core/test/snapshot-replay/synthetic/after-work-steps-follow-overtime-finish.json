@@ -1,0 +1,182 @@
+{
+  "name": "After-work steps follow the tracked finish of a commitment that ran over.",
+  "why": "Work was scheduled to end at 23:00Z but tracking stopped at 23:38:47Z, 38 minutes over. The after-work steps (Eat a snack, Change clothes, Wash clothes) are anchored to the tracked end plus the transition, so the first opens at 23:58:47Z and the commitment stays protected until then. At the captured instant the first step must be directed; anchoring to the scheduled end would have closed all three windows before the person finished.",
+  "capturedAt": "2027-05-29T00:00:00.000Z",
+  "request": {
+    "state": {
+      "areas": [],
+      "actions": [],
+      "captures": [],
+      "outcomes": [],
+      "projects": [],
+      "settings": {
+        "version": 252,
+        "timezone": "Etc/GMT-10",
+        "lastWokeAt": "2027-05-28T18:35:46.029Z",
+        "capacityMode": "automatic",
+        "maxAwakeHours": 20,
+        "conditionCatalog": [],
+        "energyMeanings": {
+          "low": "Low",
+          "high": "High",
+          "medium": "Medium",
+          "recovery": "Recovery"
+        },
+        "homeLocationId": "home",
+        "preferredBedtime": "20:50",
+        "preferredWakeTime": "06:00",
+        "planningHorizonEnd": "20:00",
+        "desiredSleepMinutes": 540,
+        "minimumSleepMinutes": 300,
+        "arrivalMarginMinutes": 5,
+        "disruptionKindLabels": {
+          "work": "Work",
+          "other": "Misc",
+          "family": "Household",
+          "life_admin": "Chores"
+        },
+        "defaultCapacityEnergy": "medium",
+        "defaultUsableFraction": 0.75,
+        "disruptionWhenPresets": [
+          {
+            "id": "later-60",
+            "label": "+60m",
+            "delayMinutes": 60
+          }
+        ],
+        "bedtimeRoutinePresetId": "96658a5c-e541-49ba-9f81-9bb957593ed5",
+        "estimateBucketsMinutes": [
+          120
+        ],
+        "submissionBufferMinutes": 60,
+        "submissionBufferPercent": 0.1,
+        "defaultSetupBufferMinutes": 10,
+        "disruptionDurationPresets": [
+          {
+            "id": "unknown",
+            "kind": "unknown",
+            "label": "No idea"
+          }
+        ],
+        "locationStaleAfterMinutes": 480,
+        "defaultTransitionBufferMinutes": 10,
+        "disruptionRetroFallbackMinutes": 60
+      },
+      "horizonEnd": "2027-06-04T23:38:56.951Z",
+      "sleepPlans": [],
+      "commitments": [
+        {
+          "id": "fbadb06f-4a29-4c5f-b7e9-b7c008f58cd3",
+          "title": "Work",
+          "endsAt": "2027-05-28T23:00:00.000Z",
+          "status": "confirmed",
+          "version": 1,
+          "location": "Office",
+          "presence": "blocking",
+          "startsAt": "2027-05-28T20:00:00.000Z",
+          "createdAt": "2027-05-27T15:09:21.900Z",
+          "updatedAt": "2027-05-27T15:09:21.900Z",
+          "locationId": "work",
+          "sourceType": "calendar_event",
+          "sourceTitle": "Work",
+          "promptPolicy": "normal",
+          "routineSource": "custom",
+          "setupBeforeMinutes": 10,
+          "transitionAfterMinutes": 20,
+          "trackedEndedAt": "2027-05-28T23:38:47.000Z"
+        }
+      ],
+      "occurrences": [],
+      "deliverables": [],
+      "routineSteps": [
+        {
+          "id": "ae47c19b-ec86-455b-8bc6-db9ba7558eac",
+          "phase": "after",
+          "title": "Eat a snack",
+          "energy": "low",
+          "status": "pending",
+          "version": 1,
+          "contexts": [],
+          "sequence": 7,
+          "timingRule": "contiguous",
+          "commitmentId": "fbadb06f-4a29-4c5f-b7e9-b7c008f58cd3",
+          "dependencyIds": [],
+          "scheduledEndAt": "2027-05-29T00:13:47.000Z",
+          "durationMinutes": 15,
+          "scheduledStartAt": "2027-05-28T23:58:47.000Z"
+        },
+        {
+          "id": "c6a4af65-053d-4000-80c1-0bcc185455f5",
+          "phase": "after",
+          "title": "Change clothes",
+          "energy": "low",
+          "status": "pending",
+          "version": 2,
+          "contexts": [],
+          "sequence": 8,
+          "timingRule": "contiguous",
+          "commitmentId": "fbadb06f-4a29-4c5f-b7e9-b7c008f58cd3",
+          "dependencyIds": [],
+          "scheduledEndAt": "2027-05-29T00:18:47.000Z",
+          "durationMinutes": 5,
+          "scheduledStartAt": "2027-05-29T00:13:47.000Z"
+        },
+        {
+          "id": "4edbd246-250a-406c-9224-ded723e76421",
+          "phase": "after",
+          "title": "Wash clothes",
+          "energy": "low",
+          "status": "pending",
+          "version": 2,
+          "contexts": [],
+          "sequence": 9,
+          "timingRule": "contiguous",
+          "commitmentId": "fbadb06f-4a29-4c5f-b7e9-b7c008f58cd3",
+          "dependencyIds": [
+            "c6a4af65-053d-4000-80c1-0bcc185455f5"
+          ],
+          "scheduledEndAt": "2027-05-29T00:21:47.000Z",
+          "durationMinutes": 3,
+          "scheduledStartAt": "2027-05-29T00:18:47.000Z"
+        }
+      ],
+      "activeSession": null,
+      "currentEnergy": "medium",
+      "planningFocus": [],
+      "completedToday": [],
+      "routinePresets": [],
+      "capacityWindows": [],
+      "assertedConditions": [],
+      "currentSituation": {
+        "travel": {},
+        "carrying": {
+          "phone": true,
+          "laptop": true,
+          "online": true
+        },
+        "overrides": {},
+        "locationId": "home",
+        "locationSetAt": "2027-05-28T23:44:49.039Z",
+        "transportModes": []
+      },
+      "conditionDefinitions": [],
+      "currentRecommendationId": "337ba246-0ce4-4707-b2c9-23b1bae1f920",
+      "commitmentRecurrenceRules": [],
+      "pendingLocationSuggestion": null
+    },
+    "requestId": "00a0857d-4506-402e-bab7-ab6648a0ce5d",
+    "horizonEnd": "2027-11-24T23:44:49.046Z",
+    "calculatedAt": "2027-05-29T00:00:00.000Z",
+    "deliverables": [],
+    "inputVersion": "synthetic",
+    "contractVersion": "1"
+  },
+  "expect": {
+    "currentDirective": {
+      "kind": "routine_step",
+      "targetId": "ae47c19b-ec86-455b-8bc6-db9ba7558eac",
+      "title": "Eat a snack",
+      "recommendedMinutes": 15
+    }
+  }
+}

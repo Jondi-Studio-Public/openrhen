@@ -1,0 +1,88 @@
+/* The blocks inside a connection's details sheet. Two-part selectors beat the global element rules. */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.stack > p,
+.stack > div,
+.stack > hr,
+.stack > ul {
+  margin: 0;
+}
+.stack > p {
+  line-height: 1.5;
+}
+.subheading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+.subheading > strong {
+  font-weight: 600;
+}
+.subheading > span {
+  color: var(--ink-3);
+  font-size: var(--fs-small);
+}
+.divider {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: var(--s2) 0;
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--s2);
+}
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: var(--s3);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.metric strong {
+  overflow-wrap: anywhere;
+  font-size: var(--fs-lead);
+  font-weight: 600;
+}
+.metric span {
+  color: var(--ink-3);
+  font-size: var(--fs-small);
+}
+.code {
+  display: block;
+  padding: var(--s3);
+  overflow-wrap: anywhere;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-size: var(--fs-small);
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+.chips > span {
+  color: var(--ink-3);
+  font-size: var(--fs-small);
+  font-weight: 500;
+}
+.chips > strong {
+  padding: var(--s1) var(--s2);
+  border-radius: var(--r-pill);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--fs-small);
+  font-weight: 500;
+}
+.list {
+  padding-left: var(--s5);
+  color: var(--ink-2);
+}

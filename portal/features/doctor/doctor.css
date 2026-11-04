@@ -1,0 +1,97 @@
+/* Data check (features/doctor): the /doctor screen. Single column so it reads one-handed on a phone. */
+.doctor {
+  max-width: 640px;
+  display: grid;
+  gap: 14px;
+  padding-bottom: calc(var(--nav-clearance) + 24px);
+}
+
+.doctor-summary {
+  margin: 0;
+  font-size: var(--fs-5);
+  font-weight: 500;
+}
+
+.doctor-not-checked {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--ink-muted);
+  font-size: var(--fs-small);
+}
+
+.doctor-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.doctor-tier h2 {
+  margin: 0 0 6px;
+  font-size: var(--fs-5);
+}
+
+.doctor-tier[data-tier="blocking"] h2 {
+  color: var(--danger-ink);
+}
+
+.doctor-tier[data-tier="degrading"] h2 {
+  color: var(--warn-ink);
+}
+
+.doctor-count {
+  color: var(--ink-muted);
+  font-weight: 400;
+  font-size: var(--fs-small);
+}
+
+.doctor-tier ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.doctor-item {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  background: var(--surface);
+}
+
+.doctor-tier[data-tier="blocking"] .doctor-item {
+  border-color: var(--danger-line);
+  background: var(--danger-bg);
+}
+
+.doctor-item h3 {
+  margin: 0 0 4px;
+  font-size: var(--fs-5);
+}
+
+.doctor-item p {
+  margin: 0 0 6px;
+}
+
+.doctor-why {
+  color: var(--ink-muted);
+}
+
+.doctor-age {
+  color: var(--ink-muted);
+  font-size: var(--fs-small);
+}
+
+.doctor-agent code {
+  display: block;
+  padding: 6px 8px;
+  border-radius: var(--r-1, 6px);
+  background: var(--surface-2);
+  font-size: var(--fs-small);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.doctor-link {
+  display: inline-block;
+  margin-top: 4px;
+}

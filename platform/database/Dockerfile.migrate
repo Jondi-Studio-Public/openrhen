@@ -1,0 +1,30 @@
+# syntax=docker/dockerfile:1.28
+#
+# The deploy's one-shot migration step (compose.yaml, service `migrate`): checks the database for pending
+# drizzle migrations, takes a pg_dump into /backups if there are any, then applies them. The app services
+# wait for it to exit 0. Runs as root on purpose: /backups is a host bind mount that Docker creates
+# root-owned, and this container serves no requests, holds no secret but DATABASE_URL, and exits.
+FROM node:24.22.1-alpine AS build
+WORKDIR /app
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+# engine/worker is copied only for its esbuild: @openrhen/database has no bundler of its own, and adding
+# one would change the lockfile.
+COPY engine/worker/package.json engine/worker/package.json
+COPY platform/database/package.json platform/database/package.json
+COPY platform/contracts/package.json platform/contracts/package.json
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm-store \
+    pnpm config set store-dir /pnpm-store && \
+    pnpm install --frozen-lockfile
+COPY platform/database platform/database
+COPY platform/contracts platform/contracts
+RUN pnpm --filter @openrhen/engine-worker exec esbuild ../../platform/database/src/operations/migrate-on-deploy.ts \
+    --bundle --platform=node --format=esm --target=node22 --outfile=/app/migrate/main.js
+
+FROM node:24.22.1-alpine
+WORKDIR /app
+# Prod Postgres is 17; pg_dump must be at least that new. Bump this with any server upgrade.
+RUN apk add --no-cache postgresql17-client
+COPY --from=build /app/migrate/main.js ./main.js
+COPY platform/database/drizzle ./drizzle
+CMD ["node", "main.js"]

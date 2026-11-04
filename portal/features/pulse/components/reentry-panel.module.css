@@ -1,0 +1,122 @@
+/* Re-entry: the sheet that stands in for the directive while the pulse is lapsed. One column, rows that wrap. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s5);
+}
+.lead {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-body);
+}
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.label {
+  margin: 0;
+  padding: 0;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.heading {
+  margin: 0;
+  font-size: var(--fs-h3, 1.0625rem);
+  font-weight: 600;
+  color: var(--ink);
+}
+.rows {
+  overflow: hidden;
+}
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s3) var(--s4);
+  border-top: 1px solid var(--line);
+}
+.row:first-child {
+  border-top: 0;
+}
+.rowHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  flex-wrap: wrap;
+}
+.title {
+  margin: 0;
+  font-size: var(--fs-body);
+  font-weight: 500;
+  color: var(--ink);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.meta {
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--ink-3);
+}
+.exceptions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding-top: var(--s2);
+}
+.exceptionItem {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  flex-wrap: wrap;
+}
+.progress {
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+}
+.missing {
+  margin: var(--s2) 0 0;
+  padding-left: var(--s4);
+  font-size: var(--fs-small);
+}
+.note {
+  width: 100%;
+  font: inherit;
+}
+@media (max-width: 599px) {
+  .bar > button {
+    width: 100%;
+  }
+}
+
+.actions {
+  display: flex;
+  gap: var(--s2);
+}
+
+.undoWrap:focus {
+  outline: none;
+}

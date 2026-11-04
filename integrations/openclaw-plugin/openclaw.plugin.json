@@ -1,0 +1,52 @@
+{
+  "id": "openrhen",
+  "name": "OpenRhen",
+  "version": "0.3.0",
+  "description": "Connects OpenClaw to the OpenRhen planner over remote MCP (OAuth), teaches the agent how to drive it, and reports agent time. Run stamp-url.mjs once to point it at your server.",
+  "skills": ["skills"],
+  "mcpServers": {
+    "openrhen": {
+      "url": "https://stamp-url.invalid/mcp",
+      "transport": "streamable-http",
+      "auth": "oauth",
+      "oauth": {
+        "scope": "propose:agent-change propose:capture propose:catch-up propose:entity read:changes read:files read:plan read:proposals write:activity write:arrival write:cadence write:catch-up write:check-in write:deliverable write:disruption write:entity write:entity:commitment write:entity:current_availability write:entity:project write:entity:sleep_log_entry write:entity:span write:inbox write:plan-map write:recalculate write:recurrence write:routine write:session write:undo"
+      }
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "agentTimeToken": {
+        "type": ["string", "object"],
+        "description": "An agent-time token (rhen agent-token create --name openclaw --scopes agent-time), as text or a SecretRef. Without it, agent time is not reported."
+      },
+      "portalUrl": {
+        "type": "string",
+        "description": "The OpenRhen portal's address (set by stamp-url.mjs).",
+        "default": "https://stamp-url.invalid"
+      }
+    }
+  },
+  "uiHints": {
+    "agentTimeToken": {
+      "label": "Agent-time token",
+      "placeholder": "pri_...",
+      "sensitive": true
+    },
+    "portalUrl": {
+      "label": "OpenRhen address"
+    }
+  },
+  "configContracts": {
+    "secretInputs": {
+      "paths": [
+        {
+          "path": "agentTimeToken",
+          "expected": "string"
+        }
+      ]
+    }
+  }
+}

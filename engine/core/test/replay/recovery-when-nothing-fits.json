@@ -1,0 +1,13 @@
+{
+  "name": "Recovery capacity produces a deliberate recovery directive",
+  "why": "MVP 8.1 and acceptance J require recovery to be recommended rather than showing an empty Now screen.",
+  "calculatedAt": "2026-08-07T07:00:00.000Z",
+  "horizonDays": 7,
+  "capacity": { "mode": "manual", "windows": [{ "id": "rest", "startMinutes": 0, "endMinutes": 180, "energy": "recovery" }] },
+  "currentEnergy": "high",
+  "assertedConditions": [],
+  "projects": [{ "id": "study", "deadlineDays": 3, "value": 3, "consequence": 3 }],
+  "actions": [{ "id": "draft", "projectId": "study", "minutes": 60 }],
+  "commitments": [],
+  "expect": { "primaryActionId": null, "directiveKind": "recovery" }
+}

@@ -1,0 +1,5 @@
+/* The waking day: the canvas under it is the whole day, and the night is cropped off. */
+.crop {
+  position: relative;
+  overflow: hidden;
+}

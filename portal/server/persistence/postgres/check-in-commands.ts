@@ -1,0 +1,135 @@
+import { requestAgent } from "@/server/agent-actor";
+import type { CheckInCommand } from "@openrhen/contracts";
+import type { PortalState } from "@/state/portal-state";
+import { claimCommandReceipt, commandRequestHash, hasCommandReceipt } from "./command-receipt";
+import { alreadyClosed, notFound, versionConflict } from "./command-errors";
+import { ensureUser } from "./ensure-user";
+import { readStateAfterCommit } from "./read-after-commit";
+import type { PoolSql, TxSql } from "./sql-pool";
+import { WriteSnapshot } from "./write-snapshot";
+
+type AnswerCheckInCommand = Extract<CheckInCommand, { type: "answer_check_in" }>;
+type AnswerCheckInsCommand = Extract<CheckInCommand, { type: "answer_check_ins" }>;
+
+/**
+ * Answers one check-in, or a whole reconciliation trail in one transaction. Record-only: this writes
+ * `check_in` alone, with no `write_rows` row and no enqueued recalculation — an answer is ground truth
+ * about the past, not new input the next plan should react to (plan invariant 5).
+ *
+ * Returns the ordinary full portal state, the same shape every other command returns, even though
+ * nothing about check-ins lives in it — `check_in` sits outside the portal state model entirely (see
+ * `readers/check-in-read.ts`), so a caller that wants to know the answer landed re-reads `/api/check-ins/current`
+ * (or `/api/check-ins/trail`) rather than looking for it in this response.
+ */
+export async function runCheckInCommand(sql: PoolSql, command: CheckInCommand): Promise<PortalState> {
+  const userId = await ensureUser(sql);
+  const requestHash = commandRequestHash(command.type, command);
+  if (await hasCommandReceipt(sql, { id: command.commandId, userId, commandType: command.type, requestHash }))
+    return await readStateAfterCommit(sql);
+  await sql.begin(async (tx) => {
+    // A request racing its own retry passes the pre-check above in both; the loser waits on the
+    // winner's insert and then finds the receipt taken. That is an applied replay, not an error.
+    if (!(await claimCommandReceipt(tx, { id: command.commandId, userId, commandType: command.type, requestHash })))
+      return;
+    // An agent's answer keeps the row as it was, so `POST /api/commands/revert` can put it back (write-snapshot.ts).
+    const snap = await WriteSnapshot.open(tx, userId, command.commandId, "check_in");
+    if (command.type === "answer_check_in") {
+      await answerCheckIn(tx, userId, command, snap);
+    } else {
+      await answerCheckInsBatch(tx, userId, command, snap);
+    }
+    await snap?.save();
+  });
+  return await readStateAfterCommit(sql);
+}
+
+async function answerCheckIn(
+  tx: TxSql,
+  userId: string,
+  command: AnswerCheckInCommand,
+  snap: WriteSnapshot | null
+): Promise<void> {
+  const rows = await tx<
+    { version: number; status: string; answered_at: Date | null }[]
+  >`SELECT version,status,answered_at FROM check_in WHERE id=${command.checkInId} AND user_id=${userId} FOR UPDATE`;
+  if (!rows[0]) throw notFound("check-in", command.checkInId);
+  if (command.expectedVersion !== null && command.expectedVersion !== rows[0].version)
+    throw versionConflict("check-in", command.checkInId, command.expectedVersion, rows[0].version);
+  // Only a still-open slot can be answered: 'pending' (answered before its timeout) or 'unknown'
+  // (the catch-up path, answered after the fact). Anything else has already said its piece.
+  //
+  // 'unknown' additionally has to be unanswered, because answering "unsure" writes that same status
+  // back — with `answered_at` stamped. Judging openness by status alone made an "unsure" answer
+  // re-answerable forever, which is the write half of the loop `readCurrentCheckIn` showed the user.
+  // Replay of an identical `commandId` never reaches here: the receipt check above returns first, so
+  // a retried or duplicated request still succeeds without touching the row a second time.
+  const alreadyAnswered = rows[0].answered_at !== null;
+  if ((rows[0].status !== "pending" && rows[0].status !== "unknown") || alreadyAnswered)
+    throw alreadyClosed(
+      "check-in",
+      command.checkInId,
+      rows[0].status === "unknown" ? "answered as unknown" : "answered",
+      { tool: "rhen_status", arguments: {}, note: "shows the check-in that is pending now, if any" }
+    );
+  const at = new Date();
+  await snap?.before("check_in", [command.checkInId]);
+  await tx`
+    UPDATE check_in SET
+      status=${command.status},
+      answered_at=${at},
+      deviation_category=${command.deviationCategory ?? null},
+      deviation_note=${command.deviationNote ?? null},
+      deviation_target_id=${command.deviationTargetId ?? null},
+      answer_source=${command.answerSource},
+      answered_by=${requestAgent()},
+      version=version+1,
+      updated_at=${at}
+    WHERE id=${command.checkInId}
+  `;
+}
+
+/**
+ * Answers a whole reconciliation trail at once, split at `upTo`: a slot at or before it becomes
+ * `on_track`; a slot after it takes the tail's one answer (`deviated` with category/note, or
+ * `unknown` with `answered_at` stamped — an actual "not sure", distinct from the timeout that wrote
+ * the same status with no `answered_at`). Every written row gets `answer_source='session_reconciliation'`.
+ *
+ * No trail slot is answered twice (see the design's Invariants): each id is re-checked
+ * `status='unknown' AND answered_at IS NULL`, locked `FOR UPDATE`, inside this same transaction —
+ * exactly the discipline `answerCheckIn` uses for its one row. An id that fails that check (already
+ * answered elsewhere, e.g. a concurrent catch-up reply, or simply missing) is skipped, not an error:
+ * a refresh mid-way must not leave the batch half-failed with a thrown exception.
+ */
+async function answerCheckInsBatch(
+  tx: TxSql,
+  userId: string,
+  command: AnswerCheckInsCommand,
+  snap: WriteSnapshot | null
+): Promise<void> {
+  const upTo = new Date(command.upTo);
+  const at = new Date();
+  for (const checkInId of command.checkInIds) {
+    const rows = await tx<
+      { slot_at: Date; status: string; answered_at: Date | null }[]
+    >`SELECT slot_at,status,answered_at FROM check_in WHERE id=${checkInId} AND user_id=${userId} FOR UPDATE`;
+    const row = rows[0];
+    if (!row) continue;
+    if (row.status !== "unknown" || row.answered_at !== null) continue;
+    const isInTrunk = row.slot_at.getTime() <= upTo.getTime();
+    const status = isInTrunk ? "on_track" : command.tail.status;
+    const deviated = !isInTrunk && command.tail.status === "deviated";
+    await snap?.before("check_in", [checkInId]);
+    await tx`
+      UPDATE check_in SET
+        status=${status},
+        answered_at=${at},
+        deviation_category=${deviated ? (command.tail.deviationCategory ?? null) : null},
+        deviation_note=${deviated ? (command.tail.deviationNote ?? null) : null},
+        answer_source='session_reconciliation',
+        answered_by=${requestAgent()},
+        version=version+1,
+        updated_at=${at}
+      WHERE id=${checkInId}
+    `;
+  }
+}

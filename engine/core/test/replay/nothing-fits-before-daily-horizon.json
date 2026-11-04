@@ -1,0 +1,17 @@
+{
+  "name": "Too little time before the daily horizon is a boundary, not a data problem",
+  "why": "Engine direction review 2026-08-18: roughly 170 of 364 'nothing fits' runs were the daily horizon or an imminent boundary, but the explanation named an arbitrary candidate's minimum session. At 19:45 with a 20:00 horizon the answer is the boundary and the first thing that fits after it — tomorrow, not the unplannable time between the horizon and bedtime.",
+  "calculatedAt": "2026-08-07T09:45:00.000Z",
+  "horizonDays": 180,
+  "capacity": { "mode": "automatic", "usableFraction": 0.85, "timezone": "Australia/Sydney", "dayStartTime": "07:00", "dayEndTime": "22:00" },
+  "currentEnergy": "high",
+  "assertedConditions": [],
+  "dailyHorizonMinutes": 15,
+  "projects": [{ "id": "study", "deadlineDays": 5, "value": 3, "consequence": 3 }],
+  "actions": [{ "id": "draft", "projectId": "study", "minutes": 120 }],
+  "commitments": [],
+  "expect": {
+    "primaryActionId": null,
+    "noFit": { "kind": "boundary", "boundaryKind": "daily_horizon", "nextFitActionId": "draft" }
+  }
+}

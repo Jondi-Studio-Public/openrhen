@@ -1,0 +1,93 @@
+/* The one banner across the top. Working is neutral with a moving bar, warning is amber, and only a
+   real failure is red: an expected wait in alarm colours teaches people to ignore the colour. */
+.status-banner {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 14px;
+  margin: 0;
+  padding: 0.7rem 1rem;
+  overflow: hidden;
+  text-align: center;
+  animation: status-banner-in var(--dur-2) var(--ease-out);
+}
+
+.status-banner a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.status-banner.tone-working {
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-raised);
+  color: var(--ink-body);
+}
+
+/* Indeterminate: a short bar sliding along the bottom edge for as long as the wait lasts. */
+.status-banner.tone-working::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 30%;
+  height: 2px;
+  background: var(--accent-vivid);
+  animation: status-banner-bar 1.4s linear infinite;
+}
+
+.status-banner.tone-warning {
+  border-bottom: 1px solid var(--warn-line);
+  background: var(--warn-bg);
+  color: var(--warn-ink-deep);
+}
+
+.status-banner.tone-danger {
+  background: var(--danger-solid);
+  color: var(--accent-ink);
+}
+
+/* Buttons inside the red banner sit on the solid fill, where the quiet button's ink tokens disappear
+   in light mode — pin them to the on-fill ink instead. */
+.status-banner.tone-danger button.quiet {
+  color: var(--accent-ink);
+  border-color: var(--accent-ink);
+}
+
+@keyframes status-banner-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes status-banner-bar {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-banner {
+    animation-name: status-banner-fade;
+  }
+
+  /* A full, faint bar rather than one frozen part-way across. */
+  .status-banner.tone-working::after {
+    width: 100%;
+    opacity: 0.35;
+    animation: none;
+  }
+}
+@keyframes status-banner-fade {
+  from {
+    opacity: 0;
+  }
+}

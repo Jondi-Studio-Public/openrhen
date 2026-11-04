@@ -1,0 +1,25 @@
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--s2);
+  padding: var(--s8) var(--s6);
+  color: var(--ink-3);
+}
+.title {
+  margin: 0;
+  font-size: var(--fs-lead);
+  font-weight: 600;
+  letter-spacing: normal;
+  line-height: inherit;
+  color: var(--ink);
+}
+.body {
+  margin: 0;
+  max-width: 40ch;
+  font-size: var(--fs-body);
+}
+.action {
+  margin-top: var(--s2);
+}

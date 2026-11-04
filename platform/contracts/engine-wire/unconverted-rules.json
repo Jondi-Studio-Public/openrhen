@@ -1,0 +1,50 @@
+{
+  "note": "Rules the server enforces that the structural schema cannot express. Generated from UNCONVERTED_RULES; do not edit.",
+  "rules": [
+    {
+      "path": "",
+      "rule": "horizonEnd must be after calculatedAt and at most 366 days (PLAN_FORECAST_MAX_HORIZON_DAYS) after it.",
+      "source": "platform/contracts/src/planning/plan-forecast.ts"
+    },
+    {
+      "path": "deliverables[].executionOptions[]",
+      "rule": "Estimates must be ordered optimisticMinutes <= expectedMinutes <= pessimisticMinutes, and minimumSessionMinutes must not exceed maximumSessionMinutes.",
+      "source": "platform/contracts/src/planning/deliverable-projection.ts"
+    },
+    {
+      "path": "state",
+      "rule": "Ids unique per entity kind; recovery window needs both ends and they must differ; outcomes, projects and actions must reference existing parents and dependencies; per-action session range, estimate ordering and recurrence/cadence consistency (cross-reference and cross-field checks).",
+      "source": "platform/contracts/src/portal/state-schema.ts"
+    },
+    {
+      "path": "state.actions[].recurrence",
+      "rule": "An end_date recurrence needs an end date, a total_minutes recurrence needs a target, and minimum spacing times target occurrences must fit within a days period.",
+      "source": "platform/contracts/src/portal/state-schema.ts"
+    },
+    {
+      "path": "state.commitmentRecurrenceRules[].repeat|1.weekdays",
+      "rule": "Weekdays must be listed once each, in ascending order.",
+      "source": "platform/contracts/src/planning/commitment-repeat.ts"
+    },
+    {
+      "path": "state.conditionDefinitions[]",
+      "rule": "A live condition names exactly one of recurrenceRuleId or commitmentId; every other kind names neither.",
+      "source": "platform/contracts/src/planning/context-model.ts"
+    },
+    {
+      "path": "state.settings.timeBands[]",
+      "rule": "A time band's start must be before its end.",
+      "source": "platform/contracts/src/portal/state-schema.ts"
+    },
+    {
+      "path": "state.spans[]",
+      "rule": "A span's endDate must not be before its startDate.",
+      "source": "platform/contracts/src/planning/span.ts"
+    },
+    {
+      "path": "state.spans[].window",
+      "rule": "A span window must end after it starts (it cannot cross midnight).",
+      "source": "platform/contracts/src/planning/span.ts"
+    }
+  ]
+}

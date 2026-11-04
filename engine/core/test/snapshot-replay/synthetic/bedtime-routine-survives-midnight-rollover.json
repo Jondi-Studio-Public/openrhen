@@ -1,0 +1,204 @@
+{
+  "name": "A missed bedtime that spills past midnight is directed as its own night",
+  "why": "A missed-start sleep plan must not share an identity with another night that falls on the same calendar day, or the second night inherits the first night's completed state and its routine is wrongly treated as done. Identity follows the night itself rather than the date, with a suffix when two nights would otherwise collide. Here the person last woke the previous evening and the night in progress, planned after midnight, is the one directed as \"Time to sleep\", with a single sleep block in the projected day. Note: no mutant of today's engine makes this case fail, so it pins current behaviour only.",
+  "capturedAt": "2027-07-10T12:26:14.190Z",
+  "request": {
+    "state": {
+      "areas": [],
+      "actions": [],
+      "captures": [],
+      "outcomes": [],
+      "projects": [],
+      "settings": {
+        "version": 98,
+        "timezone": "Etc/GMT-10",
+        "lastWokeAt": "2027-07-09T19:05:40.815Z",
+        "capacityMode": "automatic",
+        "maxAwakeHours": 20,
+        "conditionCatalog": [],
+        "energyMeanings": {
+          "low": "Low",
+          "high": "High",
+          "medium": "Medium",
+          "recovery": "Recovery"
+        },
+        "preferredBedtime": "20:50",
+        "preferredWakeTime": "06:00",
+        "defaultCapacityEnd": "17:00",
+        "planningHorizonEnd": "20:00",
+        "desiredSleepMinutes": 540,
+        "minimumSleepMinutes": 300,
+        "defaultCapacityStart": "09:00",
+        "defaultCapacityEnergy": "medium",
+        "defaultUsableFraction": 0.75,
+        "bedtimeRoutinePresetId": "cb48f4b6-ed0d-4f8f-bc9f-81c8a59cc2fe",
+        "estimateBucketsMinutes": [
+          120
+        ],
+        "submissionBufferMinutes": 60,
+        "submissionBufferPercent": 0.1,
+        "defaultSetupBufferMinutes": 10,
+        "locationStaleAfterMinutes": 480,
+        "defaultTransitionBufferMinutes": 10
+      },
+      "horizonEnd": "2027-07-17T12:26:14.190Z",
+      "sleepPlans": [
+        {
+          "id": "f6098e09-da7f-4e5f-818f-f82e149e2fd0",
+          "status": "planned",
+          "version": 1,
+          "hardErrors": [],
+          "explanation": "Text 1",
+          "plannedWakeAt": "2027-07-10T18:58:00.000Z",
+          "targetMinutes": 510,
+          "allowedMinutes": 392,
+          "desiredMinutes": 540,
+          "plannedStartAt": "2027-07-10T12:25:35.689Z",
+          "wakeConstraint": {
+            "title": "Have a morning meal",
+            "commitmentId": "routine:eac41226-cfeb-4bac-a76e-bab16a4c554a",
+            "protectedStartAt": "2027-07-10T18:58:00.000Z"
+          },
+          "sleepDeficitMinutes": 148,
+          "anchorDeviationMinutes": 158,
+          "minimumShortfallMinutes": 0,
+          "replannedFromMissedStart": true
+        }
+      ],
+      "commitments": [
+        {
+          "id": "c03266d2-c623-4ef2-b1e2-37e7084b90ed",
+          "title": "Work",
+          "endsAt": "2027-07-10T23:45:00.000Z",
+          "status": "confirmed",
+          "version": 1,
+          "location": "Office",
+          "startsAt": "2027-07-10T20:00:00.000Z",
+          "setupBeforeMinutes": 10,
+          "transitionAfterMinutes": 20
+        }
+      ],
+      "occurrences": [],
+      "routineSteps": [
+        {
+          "id": "eac41226-cfeb-4bac-a76e-bab16a4c554a",
+          "phase": "before",
+          "title": "Have a morning meal",
+          "energy": "low",
+          "status": "pending",
+          "version": 2,
+          "contexts": [],
+          "sequence": 1,
+          "timingRule": "contiguous",
+          "commitmentId": "c03266d2-c623-4ef2-b1e2-37e7084b90ed",
+          "dependencyIds": [],
+          "scheduledEndAt": "2027-07-10T19:08:00.000Z",
+          "durationMinutes": 10,
+          "scheduledStartAt": "2027-07-10T18:58:00.000Z"
+        },
+        {
+          "id": "3811637e-8aa4-416f-b25f-d39d92253bdf",
+          "phase": "before",
+          "title": "Pack water bottle",
+          "energy": "low",
+          "status": "pending",
+          "version": 2,
+          "contexts": [],
+          "sequence": 2,
+          "timingRule": "flexible",
+          "commitmentId": "c03266d2-c623-4ef2-b1e2-37e7084b90ed",
+          "dependencyIds": [],
+          "maxLeadMinutes": 900,
+          "scheduledEndAt": "2027-07-10T19:13:00.000Z",
+          "durationMinutes": 5,
+          "scheduledStartAt": "2027-07-10T19:08:00.000Z"
+        },
+        {
+          "id": "27e8e3e3-248a-442b-882f-20d6d52f7526",
+          "phase": "before",
+          "title": "Shower and dress",
+          "energy": "low",
+          "status": "pending",
+          "version": 2,
+          "contexts": [],
+          "sequence": 3,
+          "timingRule": "contiguous",
+          "commitmentId": "c03266d2-c623-4ef2-b1e2-37e7084b90ed",
+          "dependencyIds": [],
+          "scheduledEndAt": "2027-07-10T19:38:00.000Z",
+          "durationMinutes": 25,
+          "scheduledStartAt": "2027-07-10T19:13:00.000Z"
+        },
+        {
+          "id": "4a1ddf43-1d35-4b0f-90e4-3a4165b1ae61",
+          "phase": "before",
+          "title": "Clean teeth",
+          "energy": "low",
+          "status": "pending",
+          "version": 2,
+          "contexts": [],
+          "sequence": 4,
+          "timingRule": "contiguous",
+          "commitmentId": "c03266d2-c623-4ef2-b1e2-37e7084b90ed",
+          "dependencyIds": [],
+          "scheduledEndAt": "2027-07-10T19:48:00.000Z",
+          "durationMinutes": 10,
+          "scheduledStartAt": "2027-07-10T19:38:00.000Z"
+        },
+        {
+          "id": "2485760d-c1ac-46c6-ba68-c865b922f9fd",
+          "phase": "before",
+          "title": "Final check",
+          "energy": "low",
+          "status": "pending",
+          "version": 1,
+          "contexts": [],
+          "sequence": 5,
+          "timingRule": "contiguous",
+          "commitmentId": "c03266d2-c623-4ef2-b1e2-37e7084b90ed",
+          "dependencyIds": [],
+          "scheduledEndAt": "2027-07-10T19:50:00.000Z",
+          "durationMinutes": 2,
+          "scheduledStartAt": "2027-07-10T19:48:00.000Z"
+        }
+      ],
+      "activeSession": null,
+      "currentEnergy": "high",
+      "planningFocus": [],
+      "completedToday": [],
+      "routinePresets": [],
+      "capacityWindows": [],
+      "assertedConditions": [],
+      "currentSituation": {
+        "carrying": {
+          "online": true,
+          "phone": true
+        },
+        "overrides": {},
+        "locationId": "home",
+        "locationSetAt": "2027-07-07T09:29:11Z"
+      },
+      "locationProfiles": [],
+      "conditionDefinitions": [],
+      "currentRecommendationId": "c5e1faec-3aef-494c-a057-cae173cb4528",
+      "commitmentRecurrenceRules": []
+    },
+    "requestId": "e13d18b9-71e9-4754-97b3-2d3de1684768",
+    "horizonEnd": "2028-01-06T12:26:14.190Z",
+    "calculatedAt": "2027-07-10T12:26:14.190Z",
+    "inputVersion": "synthetic",
+    "contractVersion": "1"
+  },
+  "expect": {
+    "currentDirective": {
+      "kind": "sleep",
+      "targetId": "f3ed9f5c-1c67-4e8a-85c1-4eb60e438f96",
+      "title": "Time to sleep",
+      "recommendedMinutes": 391
+    },
+    "primaryActionId": null,
+    "dayPlan": [
+      "12:26-18:58 sleep f3ed9f5c-1c67-4e8a-85c1-4eb60e438f96 0/392"
+    ]
+  }
+}

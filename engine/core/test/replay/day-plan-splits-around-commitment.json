@@ -1,0 +1,62 @@
+{
+  "name": "a long action is worked in capped sessions around a commitment, then the next project follows",
+  "why": "The projected day must be the current policy replayed forward: the maximum-session cap splits the report action into sessions of its risk-adjusted effort, the commitment interrupts it where the schedule says, a full session owes its maximum-session break (ranking-consistency), during which the lower-value project's own action fills the time instead, and the report action resumes once its own session is done and the day closes at the daily horizon. A changed line here means the replayed policy moved.",
+  "calculatedAt": "2026-08-07T00:00:00.000Z",
+  "horizonDays": 14,
+  "capacity": {
+    "mode": "automatic",
+    "usableFraction": 1,
+    "timezone": "Australia/Sydney",
+    "dayStartTime": "07:00",
+    "dayEndTime": "22:00"
+  },
+  "currentEnergy": "high",
+  "assertedConditions": [],
+  "dailyHorizonMinutes": 480,
+  "projects": [
+    {
+      "id": "report",
+      "deadlineDays": 20,
+      "value": 5,
+      "consequence": 4
+    },
+    {
+      "id": "garden",
+      "deadlineDays": 40,
+      "value": 2,
+      "consequence": 2
+    }
+  ],
+  "actions": [
+    {
+      "id": "draft-report",
+      "projectId": "report",
+      "minutes": 150,
+      "maximumSessionMinutes": 60
+    },
+    {
+      "id": "prune-hedge",
+      "projectId": "garden",
+      "minutes": 45,
+      "maximumSessionMinutes": 60
+    }
+  ],
+  "commitments": [
+    {
+      "id": "standup",
+      "startMinutes": 60,
+      "endMinutes": 120
+    }
+  ],
+  "expect": {
+    "primaryActionId": "draft-report",
+    "dayPlan": [
+      "00:00-01:00 action draft-report 60/60 ordinary",
+      "01:00-02:00 commitment standup 0/60",
+      "02:00-03:00 action draft-report 60/60 ordinary",
+      "03:00-03:52 action prune-hedge 52/52 ordinary",
+      "03:52-04:27 action draft-report 35/35 ordinary",
+      "04:27-08:00 gap 0/213 none"
+    ]
+  }
+}

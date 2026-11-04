@@ -1,0 +1,84 @@
+# Building the plan
+
+This guide covers how work arrives and is shaped: Inbox, Plan, the deliverable workspace and Review.
+
+## Inbox
+
+Inbox is where things arrive and wait for a decision, in one queue. Nothing in it changes your plan until you confirm it. Chips along the top narrow the queue to one kind, each with its count:
+
+- **Captured**: new thoughts, and changes an agent or tool proposed. A new capture opens with a guess already made (a task, or "at a time" when its text names a clock time) so **Add to plan** is one tap. **Change first** opens every field.
+- **Calendar**: events read from a calendar connection and imports waiting for review.
+- **Links**: suggested links between records and plan findings.
+- **Kept for later**: someday and reference items, filed but not planned. **Review again** sends one back to Captured.
+
+An item can ask a question first, inside its card; it waits until every question is answered. After a decision a note offers **Undo** (for an ignore) or a link to the record it created. **Ignore** keeps the record but never makes planning data.
+
+### Add
+
+The **+**, Inbox **Add or import** and **Go to > Capture a thought** open one sheet: **Capture**, **Paste or photo**, **Workbook or CSV**, **Disruption**. A thought is a proposal in Captured; the rest waits under Calendar. Nothing applies unreviewed.
+
+### Capture
+
+**Change first** offers every classification: Outcome, Project, Action (without a due date it is open work, offered when there is slack and never overdue), Fixed commitment, Deliverable, and Someday or Reference. **Confirm** validates the edited proposal and creates the selected record; **Confirm as tentative** saves a commitment as a "maybe".
+
+### Import
+
+Import is for large amounts of information. AI-assisted and structured imports share one editable review, and every preview waits as a batch until committed.
+
+- **Text and images**: a model proposes records and relationships from pasted text or photos. It preserves uncertainty: a value it cannot tell stays blank and blocks confirmation until you fill it.
+- **Workbook and CSV**: columns map onto the importable entities; the Import page can download a template and a field guide.
+- **Reference pack**: export your current plan as a reference for an external tool to continue it. Reference sheets are context only and are ignored as import changes.
+
+In review, each row shows its operation (create, update, link), evidence, warnings and errors. Repeating an import with the same keys previews updates, not duplicates. An event you already have from another calendar arrives as **Link to** the existing commitment rather than a second copy. The whole valid batch commits in one transaction, so a failure never writes a partial hierarchy.
+
+## Plan
+
+Plan is where you build the hierarchy and check whether projects mathematically fit. It opens on one sentence saying whether the math works and how many decisions wait.
+
+### Project forecast cards
+
+Each active project can show:
+
+- **Health**: on track, at risk, behind, ahead, or not forecast (too little deadline or scheduling information).
+- **Min of work left**, allowing for estimates that run over.
+- **Min free before deadline**, and **Min for earlier deadlines** already claimed by projects due sooner.
+- **Min left for this**, **Min a week needed** and **Min set aside later**.
+
+A pace line (for example "40% done, 65% of time used") compares what is finished with how far the run to the deadline has gone. A project made only of habits shows how well the habit is kept instead. **Time ahead** shows five bands from the next 7 days to days 91 to 180, with the arithmetic behind each.
+
+### Fields
+
+- **Area**: name, description, status, and **Private**.
+- **Outcome**: parent area, title, definition of done, value 1 to 5, optional deadline and review date, status.
+- **Project**: parent outcome, title, internal deadline (when you want it finished), external deadline (the true outside date), uncertainty (known, some, high), an optional remaining-effort override, consequence 1 to 5, status, and **Private**.
+- **Action**: parent project, title, details, scheduling (once, recurrence, or cadence), optimistic, expected and pessimistic minutes (ascending), remaining minutes, required energy, **requirements** as one or more routes (everything inside a route is needed together; any one route is enough), **preferences** that shade ranking without ever blocking, minimum and maximum session length, whether it is splittable, setup minutes, importance and consequence, availability, due date and latest useful start, **prerequisites** (loops are refused), and status.
+
+Saving uses record-version checks, so an older page cannot silently overwrite a newer edit. Use the remaining-effort override only when you have a better project-level estimate than the sum of actions.
+
+### The map
+
+**Map** shows areas, outcomes, projects and subjects as a canvas you can re-centre, with derived links (tree, dependencies, shared source, place, contact) between them.
+
+### Deliverable workspace
+
+Use a deliverable for work that needs a completion contract and a step plan, such as an assessment or report. Register the shell in Plan. Work happens only inside a session the engine allocates: when **Now** recommends the deliverable, **Start** opens a timed, editable workspace. The first phase is Breakdown: you and the assistant propose and approve a step plan and completion criteria. Until approved, the deliverable's total effort is unknown rather than zero. The Deliverables tab lists every deliverable with its phase, progress and due date. Ordinary small tasks remain actions.
+
+## Review
+
+Review is a weekly review in three steps, each ticked off when empty: **Clear blockers**, **Wake up stale projects** (nothing done in a week: keep, pause or drop each), and **Choose this week's undated focus**.
+
+- **Proposals**: for a project with a passed internal date the engine names the earliest the remaining effort fits. A project that is behind or at risk lists the smallest changes that would fix it, smallest first: narrow an uncertain estimate, let work split, add time, then move the date.
+- **Week ahead**: what the forecast sets aside this week for each project against the pace its deadline needs.
+- **Check-ins**: how sampling went, recorded only.
+- **Monthly check**: recorded time by area over four weeks, flagging an area with active work but no recorded time as neglected (a signal, never a ranking input).
+- **Focus**: which undated projects receive capacity this week and month. Projects with a deadline need no selection.
+
+## Recurrence workflow
+
+Choose **Recurrence** for an action that repeats in windows. The estimate is the duration of one occurrence. Set the series start and end and the morning and bedtime fallback clocks: the morning window runs from wake for three hours, and the bedtime window covers the three hours before planned sleep. A routine tile in **Settings > Routines** can link to a recurrence window; its duration then follows the action. Finish a routine with one checklist: checked items complete, unchecked ones stay pending. After the series ends, Review shows expected, completed, missed and unmaterialised counts with **Complete**, **Extend** and **Edit**.
+
+## Cadence workflow
+
+Choose **Cadence** for work where the habit matters more than a finish line: an hour of practice every day, a run every three days. The estimate is one session. **Suggest** offers an interval ("every N days"), a count within each block of days, or a count within the calendar month.
+
+A cadence is never required at a time and never reserves capacity, so deadline work always goes first. It competes for what is left over, pressing harder the longer it goes undone, and **Importance** decides which due cadence wins. **Done for today** closes the cycle, resets remaining effort to the estimate and leaves the action active. **Review > Week ahead** shows how much free time the cadence wants against what fits.

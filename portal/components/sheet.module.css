@@ -1,0 +1,75 @@
+/* Sheet enter/exit motion and swipe-to-dismiss feedback.
+
+   The rest of the Sheet's look — colour, size, radius, the desk-vs-phone layout switch — lives in
+   app/styles.css under .sheet-backdrop / .sheet / .sheet-header, owned by another pass right now.
+   This is a small scoped module purely for the transition, so it doesn't collide with that file.
+   Worth folding into styles.css when convenient: styles.css owner, these three rule blocks are
+   the whole of it. */
+
+/* Drawer motion: 300ms in on the drawer curve, a quicker 200ms out, so dismissing never feels slower
+   than opening. The closing phase carries its own (shorter) duration. */
+.backdrop {
+  opacity: 1;
+  transition: opacity var(--dur-3) var(--ease-out);
+}
+.backdrop[data-phase="entering"],
+.backdrop[data-phase="closing"] {
+  opacity: 0;
+}
+
+.panel {
+  transform: translateY(0);
+  opacity: 1;
+  transition:
+    transform var(--dur-3) var(--ease-drawer),
+    opacity var(--dur-3) var(--ease-out);
+}
+.panel[data-phase="entering"],
+.panel[data-phase="closing"] {
+  transform: translateY(28px);
+  opacity: 0;
+}
+.backdrop[data-phase="closing"],
+.panel[data-phase="closing"] {
+  transition-duration: 200ms;
+}
+
+/* The desk presentation is centred, not bottom-anchored, so its entrance is a smaller lift rather
+   than a rise from off-screen. Matches the breakpoint styles.css already switches layout at. */
+@media (min-width: 721px) {
+  .panel[data-phase="entering"],
+  .panel[data-phase="closing"] {
+    transform: translateY(14px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .backdrop,
+  .panel {
+    transition: none;
+  }
+}
+
+/* `useModalFocus` already stops trapping focus the instant `open` goes false, but the sheet stays
+   mounted and visible for the whole exit transition — without this, its content is still tappable
+   (and the backdrop's own click-to-dismiss still fires) for that entire window. Paired with `inert`
+   on the same element in sheet.tsx, which additionally pulls it out of the accessibility tree. */
+.closing {
+  pointer-events: none;
+}
+
+/* Sized to the dynamic viewport, so the sheet is never taller than what is actually visible: with the
+   phone's browser bars or keyboard showing, 100vh would push the sheet's top or its foot off screen.
+   The doubled class out-ranks the plain .sheet and .sheet-backdrop rules in styles.css, which still
+   carry the 100vh fallback for browsers without dvh. */
+.backdrop.backdrop {
+  height: 100dvh;
+}
+.backdrop .panel {
+  max-height: calc(100dvh - 24px);
+}
+@media (min-width: 721px) {
+  .backdrop .panel {
+    max-height: calc(100dvh - 48px);
+  }
+}

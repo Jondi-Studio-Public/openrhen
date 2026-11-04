@@ -1,0 +1,51 @@
+/* One commitment's own page: plain stacked sections, because every one of them is a different kind
+   of fact about the same record and a grid would imply a comparison that is not there. */
+.commitment-heading {
+  align-items: flex-start;
+}
+
+.commitment-section {
+  margin-top: 30px;
+}
+
+.commitment-section .row-card:first-of-type {
+  margin-top: 14px;
+}
+
+.commitment-provenance {
+  margin-top: 34px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.commitment-provenance p {
+  margin: 4px 0;
+}
+
+/* The chip states provenance, so it is deliberately quiet: it is evidence, not an action. */
+.provenance-chip {
+  display: inline-block;
+  margin: 6px 0 0;
+  padding: 5px 12px;
+  border: 1px solid var(--line-mid);
+  border-radius: var(--r-pill);
+  background: var(--veil-3);
+  color: var(--ink-muted);
+  font-size: var(--fs-3);
+  text-decoration: none;
+}
+
+.provenance-chip.small {
+  padding: 2px 9px;
+  font-size: var(--fs-2);
+}
+
+.provenance-chip[data-provenance="customized"] {
+  border-color: var(--warn-line-mute);
+  background: var(--warn-bg);
+}
+
+.provenance-chip[data-provenance="removed"],
+.provenance-chip[data-provenance="none"] {
+  color: var(--ink-faint);
+}

@@ -1,0 +1,565 @@
+.routine-page {
+  max-width: 1600px;
+}
+
+.routine-page-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 28px;
+}
+
+.routine-workspace {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 20px;
+  margin-top: 38px;
+}
+
+.routine-sidebar,
+.routine-canvas-panel {
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: var(--veil-2);
+}
+
+.routine-sidebar {
+  align-self: start;
+  overflow: hidden;
+  padding-bottom: 12px;
+}
+
+.routine-sidebar .section-heading {
+  padding: 17px;
+  margin: 0 0 8px;
+}
+
+.routine-view-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin: 0 8px 8px;
+  padding: 4px;
+  border-radius: var(--r-2);
+  background: var(--neutral-faint);
+}
+
+.routine-view-tabs button {
+  min-height: 34px;
+  padding: 6px 8px;
+  border-radius: var(--r-1);
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: var(--fs-2);
+}
+
+.routine-view-tabs button.active {
+  background: var(--surface);
+  color: var(--accent-strong);
+  box-shadow: 0 1px 4px var(--accent-veil-2);
+}
+
+.preset-choice {
+  display: grid;
+  width: calc(100% - 16px);
+  min-height: 0;
+  gap: 4px;
+  margin: 8px;
+  padding: 13px 14px;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ink-body);
+  text-align: left;
+}
+
+.preset-choice:hover,
+.preset-choice.active {
+  background: var(--accent-soft);
+  filter: none;
+}
+
+.preset-choice span {
+  color: var(--ink-faint);
+  font-size: var(--fs-2);
+  font-weight: 500;
+}
+
+.routine-sidebar .empty {
+  padding: 0 17px;
+}
+
+.routine-canvas-panel {
+  min-width: 0;
+  /* It is a <section>, whose global top margin pushed it 54px below the routine list beside it. */
+  margin-top: 0;
+  overflow: hidden;
+}
+
+.routine-toolbar {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(150px, 220px) auto;
+  align-items: end;
+  gap: 14px;
+  padding: 18px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.routine-toolbar label,
+.tile-editor label {
+  display: grid;
+  gap: 6px;
+  color: var(--ink-muted);
+  font-size: var(--fs-3);
+  font-weight: 600;
+}
+
+.toolbar-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.routine-message {
+  position: static;
+  max-width: none;
+  margin: 14px 18px 0;
+}
+
+.routine-board-scroll {
+  overflow: auto;
+  padding: 24px;
+  background:
+    linear-gradient(var(--tint-veil-soft) 1px, transparent 1px),
+    linear-gradient(90deg, var(--tint-veil-soft) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.routine-board {
+  position: relative;
+  display: flex;
+  min-width: max-content;
+  min-height: 430px;
+  align-items: flex-start;
+  gap: 84px;
+  padding: 8px 24px 60px;
+}
+
+.routine-connections {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.routine-connections path {
+  fill: none;
+  stroke: var(--accent-bright);
+  stroke-width: 2.5;
+}
+
+.routine-connections marker path {
+  fill: var(--accent-bright);
+  stroke: none;
+}
+
+.routine-connections .terminal-line {
+  stroke: var(--accent-mid);
+  stroke-width: 3;
+}
+
+.routine-level {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: 260px;
+  gap: 16px;
+  align-content: start;
+}
+
+.level-label {
+  color: var(--ink-faint);
+  font-size: var(--fs-1);
+  font-weight: 600;
+}
+
+.routine-tile,
+.routine-activity-tile {
+  position: relative;
+  min-height: 130px;
+  border: 1px solid var(--line-tint-2);
+  border-radius: var(--r-4);
+  background: var(--surface);
+  box-shadow: 0 10px 26px var(--shadow-2);
+}
+
+.routine-tile {
+  padding: 0;
+}
+
+.routine-tile.editing {
+  width: 360px;
+  border-color: var(--accent-bright);
+  box-shadow: 0 16px 38px var(--shadow-4);
+}
+
+.tile-drag-area {
+  display: grid;
+  min-height: 130px;
+  gap: 8px;
+  align-content: center;
+  padding: 20px;
+  cursor: grab;
+}
+
+.tile-drag-area:active {
+  cursor: grabbing;
+}
+
+.tile-drag-area span,
+.tile-drag-area small {
+  color: var(--ink-faint);
+  font-size: var(--fs-2);
+}
+
+.tile-drag-area strong {
+  color: var(--ink-body);
+  font-size: 1.05rem;
+  overflow-wrap: anywhere;
+}
+
+.tile-edit {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+/* Only a hovering pointer hides the pencil; a touch screen always shows it. */
+@media (hover: hover) {
+  .tile-edit {
+    opacity: 0;
+  }
+
+  .routine-tile:hover .tile-edit,
+  .routine-tile:focus-within .tile-edit {
+    opacity: 1;
+  }
+}
+
+.tile-input-handle,
+.tile-output-handle {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  width: 28px;
+  min-width: 28px;
+  min-height: 34px;
+  padding: 5px;
+  transform: translateY(-50%);
+  border-radius: var(--r-1);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.tile-input-handle {
+  left: -14px;
+}
+
+.tile-output-handle {
+  right: -14px;
+  cursor: crosshair;
+}
+
+.tile-editor {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.tile-editor-heading,
+.tile-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.tile-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tile-editor fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 0;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+}
+
+.tile-editor legend {
+  color: var(--ink-muted);
+  font-size: var(--fs-2);
+  font-weight: 600;
+}
+
+.dependency-choice {
+  display: inline-flex !important;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 6px !important;
+  padding: 6px 9px;
+  border-radius: var(--r-1);
+  background: var(--neutral-faint);
+}
+
+.routine-activity-tile {
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  min-height: 130px;
+  padding: 20px;
+  border: 2px solid var(--accent-mid);
+  background: var(--accent-tint);
+}
+
+.routine-activity-tile > span:first-child {
+  color: var(--ink-soft);
+  font-size: var(--fs-1);
+  font-weight: 600;
+}
+
+.routine-activity-tile > input[readonly] {
+  display: none;
+}
+
+.activity-name-input {
+  font-weight: 600;
+}
+
+.routine-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--line-soft);
+  color: var(--ink-soft);
+  font-size: var(--fs-3);
+}
+
+.routine-empty-state {
+  display: grid;
+  min-height: 560px;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  padding: 30px;
+  text-align: center;
+}
+
+.routine-empty-state > div {
+  color: var(--accent-vivid);
+  font-size: 2rem;
+  letter-spacing: 0.2em;
+}
+
+.routine-empty-state h2,
+.routine-empty-state p {
+  margin: 0;
+}
+
+.modal-backdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--scrim);
+  backdrop-filter: blur(5px);
+}
+
+.routine-modal {
+  display: grid;
+  width: min(1280px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: hidden;
+  border: 1px solid var(--line-accent);
+  border-radius: 24px;
+  background: var(--surface-sunken);
+  box-shadow: 0 28px 90px var(--scrim-soft);
+}
+
+.routine-modal > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 20px 22px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.routine-modal > header h2,
+.routine-modal > header p {
+  margin: 4px 0;
+}
+
+.routine-modal > header p:last-child {
+  color: var(--ink-soft);
+}
+
+.routine-modal-board {
+  display: flex;
+  min-height: 420px;
+  overflow: auto;
+  align-items: flex-start;
+  gap: 72px;
+  padding: 28px 40px 60px;
+  background:
+    linear-gradient(var(--tint-veil-soft) 1px, transparent 1px),
+    linear-gradient(90deg, var(--tint-veil-soft) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.routine-modal > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.routine-modal > footer > div {
+  display: flex;
+  gap: 9px;
+}
+
+@media (max-width: 900px) {
+  .routine-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  /* Stacked, not a sideways scroller: in one row the Active and Archive switch was squeezed to a
+     sliver and the routines ran off the screen's edge. */
+  .routine-sidebar .section-heading {
+    border: 0;
+  }
+
+  .routine-toolbar {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .toolbar-actions {
+    grid-column: 1 / -1;
+  }
+
+  .routine-board,
+  .routine-modal-board {
+    flex-direction: column;
+    min-width: 100%;
+    gap: 58px;
+  }
+
+  .routine-level {
+    width: min(100%, 420px);
+    margin: 0 auto;
+  }
+
+  .routine-tile.editing {
+    width: 100%;
+  }
+
+  .routine-connections {
+    display: none;
+  }
+
+  .tile-input-handle,
+  .tile-output-handle {
+    top: auto;
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  .tile-input-handle {
+    top: -16px;
+  }
+
+  .tile-output-handle {
+    bottom: -16px;
+  }
+}
+@media (max-width: 560px) {
+  .routine-page-heading,
+  .routine-import-summary,
+  .calendar-selection-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .routine-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .toolbar-actions {
+    grid-column: auto;
+    flex-wrap: wrap;
+  }
+
+  .tile-field-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .routine-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .modal-backdrop {
+    padding: 8px;
+  }
+
+  .routine-modal {
+    max-height: calc(100vh - 16px);
+  }
+
+  .routine-modal > footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .routine-modal > footer > div {
+    display: grid;
+  }
+}
+.reference-selection-summary .section-heading {
+  margin: 0 0 8px;
+}
+
+.report-panel > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 20px 22px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.report-panel > header h2 {
+  margin: 4px 0;
+}
+
+.report-card h2 {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+  overflow-wrap: anywhere;
+}

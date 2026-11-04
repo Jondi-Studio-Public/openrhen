@@ -1,0 +1,243 @@
+{
+  "name": "Prep pace reports the shortfall when a commitment's getting-ready work no longer fits before it starts.",
+  "why": "Work starts at 20:00Z and five before-phase steps remain (15, 5, 30, 8 and 2 minutes) plus 10 minutes of setup and an assumed 30-minute journey, because a place with no journey figure is not zero travel: 100 minutes required against about 58 available. The engine reports prepPace once, as behind by 42 minutes for that commitment, and the directive is the earliest step. This pins today's behaviour; it asserts only the directive and prepPace, not health or the day plan.",
+  "capturedAt": "2027-01-07T18:57:21.904Z",
+  "request": {
+    "contractVersion": "1",
+    "requestId": "e143dd6d-5819-4fb1-bba9-fad090997ac8",
+    "inputVersion": "synthetic",
+    "calculatedAt": "2027-01-07T18:57:21.904Z",
+    "horizonEnd": "2027-07-06T18:57:21.904Z",
+    "state": {
+      "settings": {
+        "version": 226,
+        "timezone": "Etc/GMT-10",
+        "planningHorizonEnd": "20:00",
+        "defaultCapacityEnergy": "medium",
+        "capacityMode": "automatic",
+        "defaultUsableFraction": 0.75,
+        "defaultSetupBufferMinutes": 10,
+        "defaultTransitionBufferMinutes": 10,
+        "submissionBufferMinutes": 60,
+        "submissionBufferPercent": 0.1,
+        "energyMeanings": {
+          "high": "High",
+          "medium": "Medium",
+          "low": "Low",
+          "recovery": "Recovery"
+        },
+        "estimateBucketsMinutes": [
+          120
+        ],
+        "conditionCatalog": [],
+        "preferredBedtime": "20:50",
+        "preferredWakeTime": "06:00",
+        "desiredSleepMinutes": 540,
+        "minimumSleepMinutes": 300,
+        "maxAwakeHours": 20,
+        "lastWokeAt": "2027-01-07T05:02:38.582Z",
+        "bedtimeRoutinePresetId": "e50a66e8-2b75-409e-9c13-1d6416a16f2a",
+        "locationStaleAfterMinutes": 480,
+        "homeLocationId": "home",
+        "disruptionKindLabels": {
+          "work": "Work",
+          "family": "Household",
+          "life_admin": "Chores",
+          "other": "Misc"
+        },
+        "disruptionWhenPresets": [
+          {
+            "id": "later-60",
+            "label": "+60m",
+            "delayMinutes": 60
+          }
+        ],
+        "disruptionDurationPresets": [
+          {
+            "id": "unknown",
+            "label": "No idea",
+            "kind": "unknown"
+          }
+        ],
+        "disruptionRetroFallbackMinutes": 60,
+        "arrivalMarginMinutes": 5
+      },
+      "areas": [],
+      "outcomes": [],
+      "projects": [],
+      "actions": [],
+      "deliverables": [],
+      "capacityWindows": [],
+      "commitments": [
+        {
+          "id": "14c035a7-2423-424a-b32f-bd197afe6422",
+          "version": 1,
+          "title": "Work",
+          "startsAt": "2027-01-07T20:00:00.000Z",
+          "endsAt": "2027-01-07T23:45:00.000Z",
+          "status": "confirmed",
+          "location": "Office",
+          "locationId": "work",
+          "setupBeforeMinutes": 10,
+          "transitionAfterMinutes": 20,
+          "presence": "blocking",
+          "promptPolicy": "normal",
+          "routineSource": "custom",
+          "sourceType": "calendar_event",
+          "sourceTitle": "Work",
+          "createdAt": "2027-01-07T15:09:21.900Z",
+          "updatedAt": "2027-01-07T15:09:21.900Z"
+        }
+      ],
+      "commitmentRecurrenceRules": [],
+      "routineSteps": [
+        {
+          "id": "89ec284d-e960-4c22-8464-341289ffaf7c",
+          "version": 2,
+          "commitmentId": "14c035a7-2423-424a-b32f-bd197afe6422",
+          "title": "Have a morning meal",
+          "durationMinutes": 15,
+          "sequence": 1,
+          "timingRule": "contiguous",
+          "energy": "low",
+          "contexts": [],
+          "dependencyIds": [],
+          "phase": "before",
+          "status": "pending",
+          "scheduledStartAt": "2027-01-07T18:50:00.000Z",
+          "scheduledEndAt": "2027-01-07T19:05:00.000Z"
+        },
+        {
+          "id": "ac9b9861-9bcd-480e-925d-c9e42161fbeb",
+          "version": 2,
+          "commitmentId": "14c035a7-2423-424a-b32f-bd197afe6422",
+          "title": "Fill water bottle",
+          "durationMinutes": 5,
+          "sequence": 2,
+          "timingRule": "flexible",
+          "maxLeadMinutes": 900,
+          "energy": "low",
+          "contexts": [],
+          "dependencyIds": [],
+          "phase": "before",
+          "status": "pending",
+          "scheduledStartAt": "2027-01-07T19:05:00.000Z",
+          "scheduledEndAt": "2027-01-07T19:10:00.000Z"
+        },
+        {
+          "id": "f7b8bbd7-7ef5-4501-b129-e003c808708c",
+          "version": 2,
+          "commitmentId": "14c035a7-2423-424a-b32f-bd197afe6422",
+          "title": "Shower and dress",
+          "durationMinutes": 30,
+          "sequence": 3,
+          "timingRule": "contiguous",
+          "energy": "low",
+          "contexts": [],
+          "dependencyIds": [],
+          "phase": "before",
+          "status": "pending",
+          "scheduledStartAt": "2027-01-07T19:10:00.000Z",
+          "scheduledEndAt": "2027-01-07T19:40:00.000Z"
+        },
+        {
+          "id": "d992fbf5-97cd-4b4e-bfed-8900f1b418b5",
+          "version": 2,
+          "commitmentId": "14c035a7-2423-424a-b32f-bd197afe6422",
+          "title": "Clean teeth",
+          "durationMinutes": 8,
+          "sequence": 4,
+          "timingRule": "contiguous",
+          "energy": "low",
+          "contexts": [],
+          "dependencyIds": [
+            "89ec284d-e960-4c22-8464-341289ffaf7c"
+          ],
+          "phase": "before",
+          "actionWindowId": "c9bdf5b7-285c-4734-9d85-1ccb104c4d46",
+          "status": "pending",
+          "scheduledStartAt": "2027-01-07T19:40:00.000Z",
+          "scheduledEndAt": "2027-01-07T19:48:00.000Z"
+        },
+        {
+          "id": "ed436c8c-5cb6-4423-bd96-4d94542fd676",
+          "version": 1,
+          "commitmentId": "14c035a7-2423-424a-b32f-bd197afe6422",
+          "title": "Final check",
+          "durationMinutes": 2,
+          "sequence": 5,
+          "timingRule": "contiguous",
+          "energy": "low",
+          "contexts": [],
+          "dependencyIds": [],
+          "phase": "before",
+          "status": "pending",
+          "scheduledStartAt": "2027-01-07T19:48:00.000Z",
+          "scheduledEndAt": "2027-01-07T19:50:00.000Z"
+        }
+      ],
+      "routinePresets": [],
+      "occurrences": [],
+      "sleepPlans": [],
+      "captures": [],
+      "completedToday": [],
+      "assertedConditions": [],
+      "currentEnergy": "high",
+      "horizonEnd": "2027-01-14T16:10:11.673Z",
+      "conditionDefinitions": [
+        {
+          "id": "work",
+          "version": 5,
+          "name": "Office",
+          "kind": "location",
+          "status": "active",
+          "pathways": [],
+          "portability": "fixed",
+          "grants": [],
+          "latitude": -45.276194008811025,
+          "longitude": 112.56428173890019,
+          "setupBeforeMinutes": 10,
+          "transitionAfterMinutes": 20,
+          "defaultRoutinePresetId": "9624427c-ee7b-40fb-9fe7-f51dd39b660a",
+          "channels": []
+        }
+      ],
+      "currentSituation": {
+        "locationId": "home",
+        "locationSetAt": "2027-01-07T18:51:27.226Z",
+        "overrides": {},
+        "carrying": {
+          "phone": true,
+          "laptop": true,
+          "online": true
+        },
+        "transportModes": [],
+        "travel": {}
+      },
+      "pendingLocationSuggestion": null,
+      "activeSession": null,
+      "planningFocus": [],
+      "currentRecommendationId": "e833aa54-68b6-4ea5-b4c2-ededd26a8875"
+    },
+    "deliverables": []
+  },
+  "expect": {
+    "currentDirective": {
+      "kind": "routine_step",
+      "targetId": "89ec284d-e960-4c22-8464-341289ffaf7c",
+      "title": "Have a morning meal",
+      "recommendedMinutes": 15
+    },
+    "prepPace": {
+      "commitmentId": "14c035a7-2423-424a-b32f-bd197afe6422",
+      "commitmentTitle": "Work",
+      "commitmentStartsAt": "2027-01-07T20:00:00.000Z",
+      "requiredMinutes": 100,
+      "availableMinutes": 58,
+      "minutesBehind": 42,
+      "status": "behind",
+      "projectedArriveAt": "2027-01-07T20:37:21.904Z",
+      "projectedLateMinutes": 37
+    }
+  }
+}

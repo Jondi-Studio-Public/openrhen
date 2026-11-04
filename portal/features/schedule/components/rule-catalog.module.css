@@ -1,0 +1,20 @@
+.card {
+  overflow: hidden;
+  margin-top: var(--s6);
+}
+.count {
+  font-size: var(--fs-small);
+  color: var(--ink-3);
+}
+.group {
+  margin: 0;
+  padding: var(--s4) var(--s5) var(--s2);
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-small);
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.next {
+  color: var(--accent);
+  white-space: nowrap;
+}

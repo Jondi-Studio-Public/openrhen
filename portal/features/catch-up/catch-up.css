@@ -1,0 +1,95 @@
+/* Catch-up after a break (features/catch-up): the /catch-up screen. Single column so the screen is
+   usable one-handed on a phone; the bar docks above the nav. */
+.catch-up {
+  max-width: 640px;
+  display: grid;
+  gap: 14px;
+  padding-bottom: calc(var(--nav-clearance) + 72px);
+}
+
+.catch-up-conflicts {
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r-2);
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+}
+
+.catch-up-conflicts ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.catch-up-day-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.catch-up-day-head h2 {
+  margin: 0;
+  font-size: var(--fs-5);
+}
+
+.catch-up-entry {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  background: var(--surface);
+}
+
+.catch-up-entry[data-choice="done"] {
+  border-color: var(--line-accent);
+  background: var(--accent-tint);
+}
+
+.catch-up-entry h3 {
+  margin: 0 0 4px;
+  font-size: var(--fs-5);
+}
+
+.catch-up-kind {
+  margin: 0 0 8px;
+  color: var(--ink-muted);
+}
+
+.catch-up-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.catch-up-choices button {
+  min-height: 44px;
+}
+
+.catch-up-move,
+.catch-up-note {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  color: var(--ink-muted);
+}
+
+.catch-up-error {
+  margin: 0;
+  color: var(--warn-ink);
+}
+
+.catch-up-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: var(--nav-clearance);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px max(16px, calc((100% - 640px) / 2));
+  border-top: 1px solid var(--line);
+  background: var(--bg-veil);
+}

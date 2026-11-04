@@ -1,0 +1,122 @@
+.week-timeline {
+  --dt-gutter: 46px;
+  --wk-column: 120px;
+  font-size: var(--fs-3);
+}
+
+.week-timeline-scroll {
+  max-width: 100%;
+  max-height: min(70vh, 640px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: var(--surface);
+}
+
+/* The grid's floor is seven minimum columns, so a narrow screen scrolls rather than squeezes; on a
+   desk the floor is under the container's width and the columns share it out. Not `max-content`:
+   a long title in one column would widen that column past the card. */
+.week-timeline-grid {
+  display: grid;
+  grid-template-columns: var(--dt-gutter) repeat(7, minmax(var(--wk-column), 1fr));
+  min-width: calc(var(--dt-gutter) + 7 * var(--wk-column));
+  align-items: start;
+}
+
+/* The gutter stays put while the seven columns scroll under it on a narrow screen, and the headings
+   stay put while the day scrolls under them. The corner has to do both, so it outranks each. */
+.week-timeline-corner {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.week-timeline-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--s1);
+  padding: var(--s3) var(--s2);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.week-timeline-head.today {
+  background: var(--accent-soft);
+}
+
+.week-timeline-weekday,
+.week-timeline-date {
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.week-timeline-head.today .week-timeline-weekday,
+.week-timeline-head.today .week-timeline-date {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.week-timeline-count {
+  flex-basis: 100%;
+  color: var(--ink-3);
+  font-size: var(--fs-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.week-timeline-gutter {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface);
+}
+
+/* A stacking context per column, so a block's own z-index can never climb over a sticky heading. */
+.week-timeline-column {
+  position: relative;
+  z-index: 0;
+  min-width: 0;
+  overflow: clip;
+}
+
+/* A week column is too narrow for a marker's chip, which only ever covered the blocks around it: the
+   rule stays, and its title and label carry the words. */
+.week-timeline .day-timeline-marker span,
+.week-timeline .day-timeline-line span {
+  display: none;
+}
+
+/* A week block can be one 18px line tall, so it takes a caption on a tight line rather than the day
+   view's padding, which pushed the title half out of the block and read as blocks overlapping. */
+.week-timeline .day-timeline-block {
+  padding: 1px 6px;
+  font-size: var(--fs-caption);
+  line-height: 16px;
+}
+
+/* No room in a week column to say "planned" before a title; the fill already says it. */
+.week-timeline .day-timeline-tag {
+  display: none;
+}
+
+/* The column clips, so the now-line's dot starts at its edge instead of reaching into yesterday. */
+.week-timeline .day-timeline-now {
+  left: 0;
+}
+
+.week-timeline-column.today {
+  background: var(--accent-soft);
+}
+
+@media (min-width: 1024px) {
+  .week-timeline {
+    --dt-gutter: 52px;
+  }
+}

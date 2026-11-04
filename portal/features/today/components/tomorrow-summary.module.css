@@ -1,0 +1,19 @@
+.brief {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.brief p {
+  margin: 0;
+  font-size: var(--fs-small);
+  line-height: 20px;
+  color: var(--ink-2);
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin: var(--s1) 0 0;
+  padding: 0;
+  list-style: none;
+}

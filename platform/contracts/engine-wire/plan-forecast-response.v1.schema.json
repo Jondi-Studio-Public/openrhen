@@ -1,0 +1,1273 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openrhen.example/schemas/plan-forecast-response.v1.json",
+  "title": "OpenRhen engine plan-and-forecast response, contract version 1",
+  "description": "Structural schema for the engine wire, generated from the zod schemas. A valid schema is necessary, not sufficient: the server is the authority. It checks shape only; the rules in x-unconverted-rules (and the format keywords, which many validators treat as annotations) are enforced only by the server, so a document can pass this schema and still be refused with validation_failed.",
+  "x-unconverted-rules": [],
+  "type": "object",
+  "properties": {
+    "contractVersion": {
+      "type": "string",
+      "const": "1"
+    },
+    "requestId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "inputVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "engineVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "calculatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "validUntil": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "derivedState": {
+      "type": "object",
+      "properties": {
+        "sleepPlans": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        "occurrences": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        "routineSteps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        "commitmentRepeats": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        "commitmentTimelines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "setupStartsAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "leaveBy": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "arriveBy": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "startsAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "endsAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "effectiveEndsAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "freeAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "homeAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "protectedUntil": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "overtime": {
+                "type": "boolean"
+              },
+              "latenessMatters": {
+                "type": "boolean"
+              },
+              "journeyBefore": {
+                "type": "object",
+                "properties": {
+                  "fromLocationId": {
+                    "type": "string"
+                  },
+                  "toLocationId": {
+                    "type": "string"
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "car",
+                      "bike",
+                      "walk"
+                    ]
+                  },
+                  "minutes": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "typicalMinutes": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "live",
+                      "own",
+                      "typical",
+                      "fallback",
+                      "estimated",
+                      "assumed",
+                      "default",
+                      "measured"
+                    ]
+                  },
+                  "sampleCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "originAssumed": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "fromLocationId",
+                  "toLocationId",
+                  "minutes",
+                  "typicalMinutes",
+                  "source",
+                  "sampleCount"
+                ],
+                "additionalProperties": false
+              },
+              "journeyAfter": {
+                "type": "object",
+                "properties": {
+                  "fromLocationId": {
+                    "type": "string"
+                  },
+                  "toLocationId": {
+                    "type": "string"
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "car",
+                      "bike",
+                      "walk"
+                    ]
+                  },
+                  "minutes": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "typicalMinutes": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "live",
+                      "own",
+                      "typical",
+                      "fallback",
+                      "estimated",
+                      "assumed",
+                      "default",
+                      "measured"
+                    ]
+                  },
+                  "sampleCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "originAssumed": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "fromLocationId",
+                  "toLocationId",
+                  "minutes",
+                  "typicalMinutes",
+                  "source",
+                  "sampleCount"
+                ],
+                "additionalProperties": false
+              },
+              "travelGap": {
+                "type": "string",
+                "enum": [
+                  "no_place",
+                  "no_estimate"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "setupStartsAt",
+              "arriveBy",
+              "startsAt",
+              "endsAt",
+              "effectiveEndsAt",
+              "freeAt",
+              "protectedUntil",
+              "overtime",
+              "latenessMatters"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "stepPlacements": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "stepId": {
+                "type": "string"
+              },
+              "anchorKind": {
+                "type": "string",
+                "enum": [
+                  "commitment",
+                  "sleep_plan"
+                ]
+              },
+              "anchorId": {
+                "type": "string"
+              },
+              "placedStartAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "placedEndAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "waitStartsAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "waitEndsAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "startBy": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "earliestAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "bandId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "stepId",
+              "anchorKind",
+              "anchorId"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "sleepPlans",
+        "occurrences",
+        "routineSteps",
+        "commitmentRepeats",
+        "stepPlacements"
+      ],
+      "additionalProperties": false
+    },
+    "schedule": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "recommendation": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "currentDirective": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "action"
+            },
+            "targetId": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "recommendedMinutes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "notBefore": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": [
+            "kind",
+            "targetId",
+            "title",
+            "recommendedMinutes"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "sleep"
+            },
+            "targetId": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "recommendedMinutes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "kind",
+            "targetId",
+            "title",
+            "recommendedMinutes"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "routine_step"
+            },
+            "targetId": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "recommendedMinutes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "kind",
+            "targetId",
+            "title",
+            "recommendedMinutes"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "deliverable"
+            },
+            "targetId": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "recommendedMinutes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "notBefore": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": [
+            "kind",
+            "targetId",
+            "title",
+            "recommendedMinutes"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "travel"
+            },
+            "toLocationId": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "recommendedMinutes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "car",
+                "bike",
+                "walk"
+              ]
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "live",
+                "own",
+                "typical",
+                "fallback",
+                "estimated",
+                "assumed",
+                "default",
+                "measured"
+              ]
+            },
+            "typicalMinutes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "leaveBy": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "sampleCount": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "originAssumed": {
+              "type": "boolean"
+            },
+            "notBefore": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "then": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "action",
+                    "deliverable",
+                    "commitment",
+                    "sleep",
+                    "routine_step"
+                  ]
+                },
+                "targetId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "recommendedMinutes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "kind",
+                "targetId",
+                "title",
+                "recommendedMinutes"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "kind",
+            "toLocationId",
+            "title",
+            "recommendedMinutes",
+            "source"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "recovery"
+            },
+            "title": {
+              "type": "string"
+            },
+            "recommendedMinutes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "kind",
+            "title",
+            "recommendedMinutes"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "answer"
+            },
+            "title": {
+              "type": "string"
+            },
+            "recommendedMinutes": {
+              "type": "number",
+              "const": 0
+            },
+            "question": {
+              "type": "string"
+            },
+            "contextIds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "candidate": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "action",
+                        "deliverable"
+                      ]
+                    },
+                    "targetId": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "recommendedMinutes": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "targetId",
+                    "title",
+                    "recommendedMinutes"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "title",
+            "recommendedMinutes",
+            "question",
+            "contextIds",
+            "candidate"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "boundary"
+            },
+            "title": {
+              "type": "string"
+            },
+            "recommendedMinutes": {
+              "type": "number",
+              "const": 0
+            },
+            "boundaryAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "boundaryKind": {
+              "type": "string",
+              "enum": [
+                "daily_horizon",
+                "commitment",
+                "sleep",
+                "capacity"
+              ]
+            },
+            "boundaryTitle": {
+              "type": "string"
+            },
+            "boundaryEdge": {
+              "type": "string",
+              "enum": [
+                "start",
+                "end"
+              ]
+            },
+            "nextFit": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "action",
+                        "deliverable"
+                      ]
+                    },
+                    "targetId": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "recommendedMinutes": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "at": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "targetId",
+                    "title",
+                    "recommendedMinutes",
+                    "at"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "title",
+            "recommendedMinutes",
+            "boundaryAt",
+            "boundaryKind",
+            "nextFit"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "none"
+            },
+            "title": {
+              "type": "string"
+            },
+            "recommendedMinutes": {
+              "type": "number",
+              "const": 0
+            }
+          },
+          "required": [
+            "kind",
+            "title",
+            "recommendedMinutes"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "upcomingDirectives": {
+      "default": [],
+      "maxItems": 3,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "action",
+              "routine_step",
+              "commitment",
+              "travel"
+            ]
+          },
+          "targetId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "recommendedMinutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "kind",
+          "targetId",
+          "title",
+          "recommendedMinutes"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "continuation": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/__schema0"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "weekOutlook": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "dayPlan": {
+      "type": "object",
+      "properties": {
+        "through": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "policy_replay",
+            "full_replay"
+          ]
+        },
+        "blocks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "startsAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "endsAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "action",
+                  "deliverable",
+                  "commitment",
+                  "sleep",
+                  "routine_step",
+                  "recovery",
+                  "travel",
+                  "gap"
+                ]
+              },
+              "targetId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "title": {
+                "type": "string"
+              },
+              "projectId": {
+                "type": "string"
+              },
+              "toLocationId": {
+                "type": "string"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "car",
+                  "bike",
+                  "walk"
+                ]
+              },
+              "focusedMinutes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "wallClockMinutes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "tier": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "confidence": {
+                "type": "string",
+                "enum": [
+                  "firm",
+                  "projected"
+                ]
+              },
+              "gapKind": {
+                "type": "string",
+                "enum": [
+                  "boundary",
+                  "answer",
+                  "none"
+                ]
+              },
+              "boundaryKind": {
+                "type": "string",
+                "enum": [
+                  "daily_horizon",
+                  "commitment",
+                  "sleep",
+                  "capacity"
+                ]
+              }
+            },
+            "required": [
+              "startsAt",
+              "endsAt",
+              "kind",
+              "targetId",
+              "title",
+              "focusedMinutes",
+              "wallClockMinutes",
+              "reason",
+              "confidence"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "displaced": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "targetId": {
+                "type": "string"
+              },
+              "latestSafeStartAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "firstPlannedAt": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "targetId",
+              "latestSafeStartAt",
+              "firstPlannedAt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "locations": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "startsAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "endsAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "locationId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "label": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "startsAt",
+              "endsAt",
+              "locationId",
+              "label"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "through",
+        "mode",
+        "blocks",
+        "truncated",
+        "displaced",
+        "locations"
+      ],
+      "additionalProperties": false
+    },
+    "prepPace": {
+      "type": "object",
+      "properties": {
+        "commitmentId": {
+          "type": "string"
+        },
+        "commitmentTitle": {
+          "type": "string"
+        },
+        "commitmentStartsAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "requiredMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "availableMinutes": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "minutesBehind": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "on_track",
+            "tight",
+            "behind"
+          ]
+        },
+        "projectedArriveAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "projectedLateMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "commitmentId",
+        "commitmentTitle",
+        "commitmentStartsAt",
+        "requiredMinutes",
+        "availableMinutes",
+        "minutesBehind",
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "stayUpOffer": {
+      "type": "object",
+      "properties": {
+        "nightId": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "projectTitle": {
+          "type": "string"
+        },
+        "actionId": {
+          "type": "string"
+        },
+        "actionTitle": {
+          "type": "string"
+        },
+        "minutesBehind": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "opensAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "closesAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "choices": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "minutes": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "bedtimeAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "wakeAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "sleepMinutes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "minutes",
+              "bedtimeAt",
+              "wakeAt",
+              "sleepMinutes"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "nightId",
+        "projectId",
+        "projectTitle",
+        "actionId",
+        "actionTitle",
+        "minutesBehind",
+        "opensAt",
+        "closesAt",
+        "choices"
+      ],
+      "additionalProperties": false
+    },
+    "canDoNow": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "stepId": {
+            "type": "string"
+          },
+          "commitmentId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "durationMinutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "placedStartAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "startBy": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "stepId",
+          "commitmentId",
+          "title",
+          "durationMinutes",
+          "placedStartAt"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "startByWarnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "stepId": {
+            "type": "string"
+          },
+          "anchorId": {
+            "type": "string"
+          },
+          "anchorTitle": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "startBy": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "soon",
+              "missed"
+            ]
+          }
+        },
+        "required": [
+          "stepId",
+          "anchorId",
+          "anchorTitle",
+          "title",
+          "startBy",
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "softPlacements": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "actionId": {
+            "type": "string"
+          },
+          "startsAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endsAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "minutes": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "actionId",
+          "startsAt",
+          "endsAt",
+          "minutes"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "contractVersion",
+    "requestId",
+    "inputVersion",
+    "engineVersion",
+    "calculatedAt",
+    "validUntil",
+    "derivedState",
+    "schedule",
+    "recommendation",
+    "currentDirective",
+    "upcomingDirectives",
+    "continuation",
+    "softPlacements"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
+      "description": "Any JSON value."
+    }
+  }
+}

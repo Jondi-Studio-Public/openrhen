@@ -1,0 +1,64 @@
+/*
+ * The look of a card body reused inside another card (the Inbox's detail pane): no edge or padding of
+ * its own, its parts stacked, its actions in one row. A card takes these classes in place of its
+ * standalone ones when it is given its embedded mode, so no screen has to flatten it from outside.
+ */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  min-width: 0;
+}
+/* A change being decided fades as it leaves, before the pane closes up. */
+.card[data-leaving] {
+  opacity: 0;
+  transition: opacity 160ms var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1));
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0;
+  padding-top: var(--s1);
+}
+.note {
+  margin: 0;
+  padding: var(--s3) var(--s4);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 20px;
+}
+.source {
+  display: block;
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--fs-small);
+}
+.source a {
+  color: var(--accent-mid);
+  font-weight: 600;
+}
+.quote {
+  margin: 0;
+  border: 0;
+  font-style: normal;
+  padding: var(--s3) var(--s4);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--ink-2);
+}
+.reply {
+  display: grid;
+  gap: var(--s3);
+  margin: 0;
+  padding: 0;
+}
+/* Inside a form laid out as a grid (the capture editor on a desk), a note or the actions span every
+   column rather than sitting in one field's cell. */
+.span {
+  grid-column: 1 / -1;
+}

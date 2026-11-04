@@ -1,0 +1,27 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.meta,
+.next {
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+@media (max-width: 1023px) {
+  .actions > .primary {
+    flex: 1 0 100%;
+  }
+}

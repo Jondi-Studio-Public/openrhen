@@ -1,0 +1,35 @@
+{
+  "note": "Every error code engine/service/src/server.ts sends, as { error: { code, message } }. Generated from ERROR_CODES; do not edit.",
+  "errors": [
+    {
+      "status": 400,
+      "code": "invalid_json",
+      "meaning": "The request body was not valid JSON."
+    },
+    {
+      "status": 400,
+      "code": "validation_failed",
+      "meaning": "The body parsed but failed planForecastRequestSchema; the error carries zod `issues`."
+    },
+    {
+      "status": 401,
+      "code": "unauthorised",
+      "meaning": "The bearer token was missing or wrong."
+    },
+    {
+      "status": 404,
+      "code": "not_found",
+      "meaning": "No such route (only POST /v1/plan-and-forecast, GET /health and GET /ready exist)."
+    },
+    {
+      "status": 413,
+      "code": "payload_too_large",
+      "meaning": "The body exceeded the configured payload limit."
+    },
+    {
+      "status": 500,
+      "code": "calculation_failed",
+      "meaning": "The engine threw, or its result failed planForecastResponseSchema."
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+/* A due chip sits under the day's free time and never widens the column: a long name is cut short. */
+.due {
+  max-width: 100%;
+  margin-top: var(--s1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A week column is narrow, so a block's title wraps onto every line the block has room for (the track
+   sets --dt-title-lines) and ends in an ellipsis only then, instead of "Leave…" on a tall block. */
+.timeline :global(.day-timeline-block-title) {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--dt-title-lines, 1);
+  line-clamp: var(--dt-title-lines, 1);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

@@ -1,0 +1,172 @@
+{
+  "name": "tracked overtime keeps the homeward leg: commitmentTimelines and the return directive survive mid-journey",
+  "why": "The proving case for the overtime return leg, hand-built rather than promoted from a real snapshot. A shift scheduled 15:00-17:00 with a 20-minute transition and a 25-minute stored leg home is tracked to 17:15. `after-work-steps-follow-overtime-finish.json` never asserts `commitmentTimelines` or the return leg's own timing, only the after-phase routine steps; this fixture is the one that does. At 17:40 — mid the journey home — the return directive must still be 'Drive to Home' and the timeline's `homeAt`−`freeAt` minutes must still show the leg outstanding. Before `commitment-timeline.md`, the return leg's own arithmetic read the bare scheduled `endsAt` (17:00) instead of the effective end (17:15), so the leg's departure window had already closed by 17:15 and the journey home silently vanished from both the directive and the timeline the moment overtime began. A changed line here means the timeline's overtime edges (`effectiveEndsAt`, `freeAt`, `homeAt`) or the leg-matching they feed moved. Re-baselined for the journey store (the travel time model design note): the stored 25-minute fallback now carries padding — `max(3, 0.15 × 25)`, rounded up — to 29 minutes, since nothing about it is sampled; the mode (resolved from the single available `car`) and the typical/sample-count figures are new, always-emitted fields. Re-baselined for `ranking-consistency`'s maximum-session break: a run reaching its maximum session now owes a 15-minute rest before the day plan offers the same ordinary action again, so each `write` block is followed by a `none`-reason gap instead of running back to back; the return-leg behaviour this fixture pins is unaffected.",
+  "capturedAt": "2026-08-19T17:40:00.000Z",
+  "request": {
+    "contractVersion": "1",
+    "requestId": "00000000-0000-4000-8000-00000000c706",
+    "inputVersion": "tracked-overtime-keeps-return-leg-fixture",
+    "calculatedAt": "2026-08-19T17:40:00.000Z",
+    "horizonEnd": "2026-09-18T00:00:00.000Z",
+    "state": {
+      "settings": {
+        "timezone": "UTC",
+        "planningHorizonEnd": "22:00",
+        "defaultUsableFraction": 1,
+        "defaultSetupBufferMinutes": 0,
+        "defaultTransitionBufferMinutes": 0,
+        "submissionBufferMinutes": 0,
+        "submissionBufferPercent": 0,
+        "energyMeanings": {
+          "high": "high",
+          "medium": "medium",
+          "low": "low",
+          "recovery": "recovery"
+        },
+        "estimateBucketsMinutes": [15, 30, 60],
+        "preferredBedtime": "23:30",
+        "preferredWakeTime": "06:00",
+        "desiredSleepMinutes": 480,
+        "minimumSleepMinutes": 420,
+        "maxAwakeHours": 18,
+        "lastWokeAt": "2026-08-19T06:00:00.000Z",
+        "homeLocationId": "home",
+        "arrivalMarginMinutes": 0
+      },
+      "areas": [{ "id": "area", "name": "Everything", "status": "active", "sortOrder": 0 }],
+      "outcomes": [
+        {
+          "id": "outcome",
+          "areaId": "area",
+          "title": "Outcome",
+          "definitionOfDone": "Done.",
+          "value": 3,
+          "status": "active"
+        }
+      ],
+      "projects": [
+        {
+          "id": "proj",
+          "title": "proj",
+          "area": "Everything",
+          "outcomeId": "outcome",
+          "status": "active",
+          "uncertainty": "known",
+          "value": 3,
+          "consequence": 3,
+          "internalDeadlineAt": "2026-10-18T00:00:00.000Z"
+        }
+      ],
+      "actions": [
+        {
+          "id": "write",
+          "projectId": "proj",
+          "title": "write",
+          "status": "active",
+          "optimisticMinutes": 240,
+          "expectedMinutes": 240,
+          "pessimisticMinutes": 240,
+          "remainingMinutes": 240,
+          "splittable": true,
+          "setupMinutes": 0,
+          "energy": "medium",
+          "minimumSessionMinutes": 15,
+          "maximumSessionMinutes": 60,
+          "importance": 3,
+          "consequence": 3,
+          "contexts": [],
+          "dependencyIds": [],
+          "schedulingMode": "one_off",
+          "requirementPathways": [],
+          "preferences": []
+        }
+      ],
+      "deliverables": [],
+      "commitments": [
+        {
+          "id": "shift",
+          "title": "Shift",
+          "startsAt": "2026-08-19T15:00:00.000Z",
+          "endsAt": "2026-08-19T17:00:00.000Z",
+          "status": "confirmed",
+          "locationId": "work",
+          "setupBeforeMinutes": 0,
+          "transitionAfterMinutes": 20,
+          "trackedEndedAt": "2026-08-19T17:15:00.000Z"
+        }
+      ],
+      "commitmentRecurrenceRules": [],
+      "routineSteps": [],
+      "routinePresets": [],
+      "occurrences": [],
+      "sleepPlans": [],
+      "captures": [],
+      "completedToday": [],
+      "assertedConditions": ["work"],
+      "currentEnergy": "medium",
+      "horizonEnd": "2026-09-18T00:00:00.000Z",
+      "conditionDefinitions": [
+        {
+          "id": "home",
+          "name": "Home",
+          "kind": "location",
+          "status": "active",
+          "pathways": [],
+          "portability": "fixed",
+          "grants": [],
+          "setupBeforeMinutes": 0,
+          "transitionAfterMinutes": 0,
+          "channels": []
+        },
+        {
+          "id": "work",
+          "name": "Work",
+          "kind": "location",
+          "status": "active",
+          "pathways": [],
+          "portability": "fixed",
+          "grants": [],
+          "travelMinutes": 25,
+          "setupBeforeMinutes": 0,
+          "transitionAfterMinutes": 0,
+          "channels": []
+        }
+      ],
+      "currentSituation": {
+        "locationId": "work",
+        "locationSetAt": "2026-08-19T15:00:00.000Z",
+        "overrides": {},
+        "carrying": {},
+        "transportModes": ["car"],
+        "travel": {}
+      },
+      "pendingLocationSuggestion": null,
+      "activeSession": null,
+      "planningFocus": []
+    },
+    "deliverables": []
+  },
+  "expect": {
+    "currentDirective": {
+      "kind": "travel",
+      "toLocationId": "home",
+      "title": "Drive to Home",
+      "recommendedMinutes": 29,
+      "mode": "car",
+      "source": "assumed",
+      "typicalMinutes": 25,
+      "sampleCount": 0
+    },
+    "primaryActionId": null,
+    "dayPlan": [
+      "17:40-18:09 travel→home 0/29",
+      "18:09-19:09 action write 60/60 ordinary",
+      "19:09-19:24 gap 0/15 none",
+      "19:24-20:24 action write 60/60 ordinary",
+      "20:24-20:39 gap 0/15 none",
+      "20:39-21:39 action write 60/60 ordinary",
+      "21:39-21:54 gap 0/15 none",
+      "21:54-22:00 gap 0/6 boundary:daily_horizon"
+    ]
+  }
+}

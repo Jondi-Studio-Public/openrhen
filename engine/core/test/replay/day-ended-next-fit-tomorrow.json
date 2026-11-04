@@ -1,0 +1,17 @@
+{
+  "name": "After the daily horizon the directive names the ended day and tomorrow's first fit",
+  "why": "At 20:30 with a 20:00 horizon nothing is planned, by design. Saying so, with the horizon time and what fits first tomorrow, is the honest directive; 'only 0 compatible minutes are available' reads as a bug.",
+  "calculatedAt": "2026-08-07T10:30:00.000Z",
+  "horizonDays": 180,
+  "capacity": { "mode": "automatic", "usableFraction": 0.85, "timezone": "Australia/Sydney", "dayStartTime": "07:00", "dayEndTime": "22:00" },
+  "currentEnergy": "high",
+  "assertedConditions": [],
+  "dailyHorizonMinutes": -30,
+  "projects": [{ "id": "study", "deadlineDays": 5, "value": 3, "consequence": 3 }],
+  "actions": [{ "id": "draft", "projectId": "study", "minutes": 120 }],
+  "commitments": [],
+  "expect": {
+    "primaryActionId": null,
+    "noFit": { "kind": "boundary", "boundaryKind": "daily_horizon", "nextFitActionId": "draft" }
+  }
+}

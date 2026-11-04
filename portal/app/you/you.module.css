@@ -1,0 +1,61 @@
+.page {
+  display: flex;
+  flex-direction: column;
+}
+/* One grid for both sizes: a desk shows Records and People, Connections and Settings side by side;
+   a phone hides the first two columns behind its summary rows and keeps Settings. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s6);
+  align-items: start;
+}
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s6);
+}
+section.group {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.label {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.caption {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--fs-caption);
+}
+/* The badge column lines up down the list, whatever word each badge holds. */
+.connection > :first-child {
+  min-width: 72px;
+}
+.phone {
+  display: none;
+  flex-direction: column;
+  gap: var(--s4);
+}
+@media (max-width: 1100px) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 719px) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s4);
+  }
+  .desk {
+    display: none;
+  }
+  .phone {
+    display: flex;
+  }
+}

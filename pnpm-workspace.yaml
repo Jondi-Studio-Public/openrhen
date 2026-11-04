@@ -1,0 +1,13 @@
+packages:
+  - "engine/*"
+  - "integrations/*"
+  - "platform/*"
+  - "portal"
+  - "tools/*"
+
+allowBuilds:
+  esbuild: true
+  sharp: true
+
+verifyDepsBeforeRun: false
+confirmModulesPurge: false

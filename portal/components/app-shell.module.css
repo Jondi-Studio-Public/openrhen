@@ -1,0 +1,8 @@
+/* A bare page (first run) takes the whole width: no rail column, and no floating Capture to clear.
+   Two classes, so it outranks the global .app-shell grid on a desk. */
+.bare:global(.app-shell) {
+  display: block;
+}
+.bare > :global(.app-content) {
+  padding-bottom: var(--s8);
+}

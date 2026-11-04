@@ -1,0 +1,43 @@
+.head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s4);
+  margin-bottom: var(--s6);
+}
+.text {
+  min-width: 0;
+}
+.title {
+  margin: 0;
+  font-size: var(--fs-h1);
+  line-height: 38px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.answer {
+  margin: var(--s1) 0 0;
+  font-size: var(--fs-lead);
+  line-height: 26px;
+  color: var(--ink-2);
+}
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex: none;
+}
+@media (max-width: 719px) {
+  .head {
+    flex-direction: column;
+    align-items: stretch;
+    margin-bottom: var(--s4);
+  }
+  .title {
+    font-size: var(--fs-h2);
+    line-height: 30px;
+  }
+  .actions {
+    flex-wrap: wrap;
+  }
+}

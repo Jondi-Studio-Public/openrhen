@@ -1,0 +1,39 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "preserve",
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "incremental": true,
+    "noEmit": true,
+    "paths": {
+      "@/*": ["./*"]
+    },
+    "types": ["node"]
+  },
+  "include": [
+    "next-env.d.ts",
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "components/**/*.ts",
+    "components/**/*.tsx",
+    "drop-ins/**/*.ts",
+    "features/**/*.ts",
+    "features/**/*.tsx",
+    "integrations/**/*.ts",
+    "integrations/**/*.tsx",
+    "server/**/*.ts",
+    "server/**/*.tsx",
+    "shared/**/*.ts",
+    "shared/**/*.tsx",
+    "state/**/*.ts",
+    "state/**/*.tsx",
+    "test/**/*.ts",
+    "vite.config.ts",
+    "vitest.*.config.ts"
+  ],
+  "exclude": ["node_modules", ".next", ".vinext", "dist", "coverage"]
+}

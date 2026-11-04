@@ -1,0 +1,7 @@
+# Review is requested from the maintainer. Later rules win.
+*                      @jondihaynes
+/engine/core/          @jondihaynes
+/platform/database/    @jondihaynes
+/.github/              @jondihaynes
+/LICENSE               @jondihaynes
+/NOTICE                @jondihaynes

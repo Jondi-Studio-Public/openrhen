@@ -1,0 +1,23 @@
+.effect {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.effect .label {
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+}
+.text {
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  color: var(--ink);
+}
+.text p,
+.text ul {
+  margin: 0;
+}
+.text ul {
+  padding-left: var(--s5);
+  color: var(--ink-2);
+}
