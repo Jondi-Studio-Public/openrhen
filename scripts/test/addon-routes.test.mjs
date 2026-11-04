@@ -3,7 +3,14 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { findCollisions, listRoutes, loadAddonWriters, routeUrl, urlsOverlap } from "../repository/addon-routes.mjs";
+import {
+  findCollisions,
+  listRoutes,
+  loadAddonWriters,
+  routeUrl,
+  staticBeatsDynamic,
+  urlsOverlap
+} from "../repository/addon-routes.mjs";
 
 const tree = (files) => {
   const root = mkdtempSync(join(tmpdir(), "addon-routes-"));
@@ -98,4 +105,24 @@ test("an add-on registers its write paths as data, inside its own folder", () =>
 test("the repository's own tree passes", () => {
   assert.deepEqual(findCollisions(listRoutes()), []);
   assert.deepEqual(loadAddonWriters().errors, []);
+});
+
+test("a fixed segment beside a [param] is not a collision between add-on routes, but identical shapes and core overlaps are", () => {
+  assert.equal(staticBeatsDynamic("/people/[id]", "/people/messages"), true);
+  assert.equal(staticBeatsDynamic("/people/[id]", "/people/[slug]"), false);
+  assert.equal(staticBeatsDynamic("/docs/[...rest]", "/docs/a"), false);
+  const route = (url, file, addon = true) => ({ url, file, addon });
+  assert.deepEqual(
+    findCollisions([route("/people/[id]", "a/[id]/route.ts"), route("/people/messages", "a/messages/route.ts")]),
+    []
+  );
+  assert.equal(
+    findCollisions([route("/people/[id]", "a/[id]/route.ts"), route("/people/[slug]", "a/[slug]/route.ts")]).length,
+    1
+  );
+  assert.equal(
+    findCollisions([route("/people/[id]", "core/[id]/route.ts", false), route("/people/messages", "a/m/route.ts")])
+      .length,
+    1
+  );
 });
