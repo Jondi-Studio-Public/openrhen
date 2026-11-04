@@ -52,7 +52,7 @@ is still in play: a past appointment or a finished action needs `status` `any`, 
 - A date-time field such as `deadlineAt` is ISO 8601 with the owner's UTC offset (`rhen_status` names their
   `timezone`). Work a relative date out from `status.now`; if "next Friday" could mean two dates, ask. A
   `rhen_history` `from` and `to` take `YYYY-MM-DD` only, not offsets or `today`.
-- Removing is a status change (cancelled, archived, done), which undo also covers. There is no delete.
+- Removing is rhen_archive or rhen_cancel (do close, or restore), never a status set through rhen_save; marking work done is an ordinary write. Undo covers both. There is no delete; see the rhen skill for which verb takes which kind.
 
 ## Every write
 

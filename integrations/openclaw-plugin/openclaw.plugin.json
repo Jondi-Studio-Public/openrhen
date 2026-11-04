@@ -1,7 +1,7 @@
 {
   "id": "openrhen",
   "name": "OpenRhen",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Connects OpenClaw to the OpenRhen planner over remote MCP (OAuth), teaches the agent how to drive it, and reports agent time. Run stamp-url.mjs once to point it at your server.",
   "skills": ["skills"],
   "mcpServers": {

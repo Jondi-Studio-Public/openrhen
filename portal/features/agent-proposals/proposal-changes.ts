@@ -1,5 +1,6 @@
 import {
   entityCommandBatchPayloadSchema,
+  closeEntityPayloadSchema,
   entityCommandPayloadSchema,
   primarySourceLabel,
   settleCatchUpCommandSchema,
@@ -344,6 +345,22 @@ function settleGroups(payload: unknown, ctx: ZoneContext): ChangeGroup[] | null 
   return [{ title: `Settle ${n} catch-up ${n === 1 ? "entry" : "entries"}`, rows }];
 }
 
+/** A held close or restore: the row, the verb, why, and what else goes with it. */
+function closeGroups(payload: Record<string, unknown>): ChangeGroup[] | null {
+  const parsed = closeEntityPayloadSchema.safeParse(payload);
+  if (!parsed.success) return null;
+  const { type, verb, id, children, reason } = parsed.data;
+  const label = type.replace(/_/g, " ");
+  const word = parsed.data.do === "restore" ? "Restore" : verb === "archive" ? "Archive" : "Cancel";
+  const rows: ChangeGroup["rows"] = [{ field: label, value: clean(id) }];
+  if (reason) rows.push({ field: "reason", value: clean(reason) });
+  const counts = new Map<string, number>();
+  for (const child of children) counts.set(child.type, (counts.get(child.type) ?? 0) + 1);
+  for (const [childType, count] of counts)
+    rows.push({ field: `${childType.replace(/_/g, " ")} with it`, value: String(count) });
+  return [{ title: `${word} ${label}`, rows }];
+}
+
 /** What confirming this proposal will apply, in words; null when the portal cannot describe its kind. */
 export function proposalChanges(
   proposal: AgentProposal,
@@ -362,6 +379,8 @@ export function proposalChanges(
     }
     case "settle_catch_up":
       return settleGroups(proposal.payload, ctx);
+    case "close_entity":
+      return closeGroups(proposal.payload);
     default:
       return null;
   }

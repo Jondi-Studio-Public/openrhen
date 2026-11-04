@@ -442,16 +442,21 @@ describe("an agent's settle", () => {
   it("is applied only when the person confirms it, attributed to the agent", async () => {
     const { projectId } = await createProject("P");
     const occurrence = await createOccurrence(projectId, 2);
-    const { proposal } = await proposeAgentChange(sql as never, "companion", {
-      kind: "settle_catch_up",
-      summary: "Settle 1 catch-up entry",
-      payload: {
-        verdicts: [{ entryId: `occurrence:${occurrence}`, verdict: "skipped" }],
-        closeWindow: false,
+    const { proposal } = await proposeAgentChange(
+      sql as never,
+      "companion",
+      {
+        kind: "settle_catch_up",
+        summary: "Settle 1 catch-up entry",
+        payload: {
+          verdicts: [{ entryId: `occurrence:${occurrence}`, verdict: "skipped" }],
+          closeWindow: false,
+          basis: "inferred"
+        },
         basis: "inferred"
       },
-      basis: "inferred"
-    });
+      { origin: "server" }
+    );
     expect(await occurrenceStatus(occurrence)).toBe("pending");
     await resolveAgentProposal(sql as never, null, proposal.id, { decision: "confirm", revision: proposal.revision });
     expect(await occurrenceStatus(occurrence)).toBe("missed");
@@ -464,16 +469,21 @@ describe("an agent's settle", () => {
   it("goes stale when everything in it was already settled", async () => {
     const { projectId } = await createProject("P");
     const occurrence = await createOccurrence(projectId, 2);
-    const { proposal } = await proposeAgentChange(sql as never, "companion", {
-      kind: "settle_catch_up",
-      summary: "Settle 1 catch-up entry",
-      payload: {
-        verdicts: [{ entryId: `occurrence:${occurrence}`, verdict: "skipped" }],
-        closeWindow: false,
+    const { proposal } = await proposeAgentChange(
+      sql as never,
+      "companion",
+      {
+        kind: "settle_catch_up",
+        summary: "Settle 1 catch-up entry",
+        payload: {
+          verdicts: [{ entryId: `occurrence:${occurrence}`, verdict: "skipped" }],
+          closeWindow: false,
+          basis: "inferred"
+        },
         basis: "inferred"
       },
-      basis: "inferred"
-    });
+      { origin: "server" }
+    );
     await sql`UPDATE action_occurrences SET status='completed' WHERE id=${occurrence}`;
     await expect(
       resolveAgentProposal(sql as never, null, proposal.id, { decision: "confirm", revision: proposal.revision })

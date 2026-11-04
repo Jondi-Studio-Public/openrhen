@@ -114,6 +114,16 @@ const CORE_WRITERS = {
     class: "owner",
     reason: "Project commands call recordStateChange once per transaction."
   },
+  "portal/server/persistence/postgres/close-commands.ts": {
+    class: "owner",
+    reason: "closeEntity closes or restores one row per command and calls recordStateChange once per transaction."
+  },
+  "portal/server/persistence/postgres/close-cascade.ts": {
+    class: "helper",
+    reason:
+      "Writes the children, steps and prep actions of a close or restore only inside closeEntity's transaction, which calls recordStateChange once.",
+    owners: ["portal/server/persistence/postgres/close-commands.ts"]
+  },
   "portal/server/persistence/postgres/write-revert.ts": {
     class: "owner",
     reason:

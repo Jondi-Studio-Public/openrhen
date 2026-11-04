@@ -9,6 +9,7 @@
  */
 import { contractsExtensions, mergedList, mergedRecord } from "./extensions.js";
 import { HIDING_STATUS } from "./closed-status.js";
+import { isCloseType } from "./closed-entity.js";
 import "./private/index.js";
 
 export const SCOPE_VERBS = ["read", "propose", "write", "act", "admin"] as const;
@@ -148,7 +149,14 @@ function fixedToolScopes(): Record<string, readonly string[]> {
  * Every CLI tool that changes portal state (`mutates` in tools/cli/src/registry.ts, `mcp` excluded). A
  * test in tools/cli fails when the registry gains one that is not listed here.
  */
-export const AGENT_WRITE_TOOLS = [...Object.keys(fixedToolScopes()), "save", "bulk", "inbox-act"].sort();
+export const AGENT_WRITE_TOOLS = [
+  ...Object.keys(fixedToolScopes()),
+  "save",
+  "bulk",
+  "inbox-act",
+  "archive",
+  "cancel"
+].sort();
 
 export interface WriteCall {
   tool: string;
@@ -169,6 +177,12 @@ const INBOX_PLAN_MAP_ACTIONS = new Set(["link", "links-bulk", "finding"]);
 export function requiredScopes(call: WriteCall): string[] {
   if (call.tool === "save" || call.tool === "bulk") {
     const scope = call.entityType === undefined ? undefined : entityScope(call.entityType);
+    return scope === undefined ? [] : [scope];
+  }
+  if (call.tool === "archive" || call.tool === "cancel") {
+    // Per type like `save`, but only for the eight types a close can name (closed-entity.ts).
+    const scope =
+      call.entityType !== undefined && isCloseType(call.entityType) ? entityScope(call.entityType) : undefined;
     return scope === undefined ? [] : [scope];
   }
   if (call.tool === "inbox-act") {

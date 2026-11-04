@@ -1,7 +1,11 @@
 import {
   AGENT_PROPOSAL_SUMMARY_MAX,
+  closeEntityPayloadSchema,
+  isClosedStatus,
+  closeTarget,
   directWriteMode,
   downgradeScope,
+  entityScope,
   hardFloorInstead,
   hardFloorReason,
   primarySourceLabel,
@@ -65,6 +69,8 @@ export function decideWrite(decision: Scoped, principal: AgentPrincipal): WriteO
   const mayPropose = holds(held, required) || holds(held, downgradeScope(required));
   if (!mayPropose) return { action: "deny", missing: [required] };
   if (floor !== null) return { action: "propose", reason: floor, shadow: false };
+  // A close the stored rows say the owner must decide (or that could not be read) is one proposal whatever the token holds.
+  if (decision.mustPropose !== undefined) return { action: "propose", reason: decision.mustPropose, shadow: false };
   // A `propose:` scope in the table (a capture) is already a reviewable item: it is written as asked.
   if (required.startsWith("propose:")) return { action: "apply" };
   const what = (decision.entityClass ?? "this kind of record").replace(/_/g, " ");
@@ -74,6 +80,26 @@ export function decideWrite(decision: Scoped, principal: AgentPrincipal): WriteO
       reason: `this token may only propose changes to ${what}; the person can issue a token that writes them directly: ${NEW_TOKEN}`,
       shadow: false
     };
+  // A close reaches other types (children, a commitment's steps and prep): the token needs a direct write for each,
+  // else the whole call is one proposal rather than a partial apply (plan D10).
+  for (const type of decision.closeTypes ?? []) {
+    if (type === decision.entityClass) continue;
+    const need = entityScope(type);
+    const reach = type.replace(/_/g, " ");
+    if (need === undefined || !holds(held, need))
+      return {
+        action: "propose",
+        reason: `closing this also changes ${reach} records, and this token may not write ${reach} directly, so the whole call waits for the person`,
+        shadow: false
+      };
+    const reachMode = directWriteMode(principal.directWrites, type);
+    if (reachMode !== "on")
+      return {
+        action: "propose",
+        reason: `closing this also changes ${reach} records, and direct writes are ${reachMode === "shadow" ? "in shadow" : "off"} for them, so the whole call waits for the person`,
+        shadow: reachMode === "shadow"
+      };
+  }
   const mode = directWriteMode(principal.directWrites, decision.entityClass ?? "");
   if (mode === "on") return { action: "apply" };
   return {
@@ -292,7 +318,7 @@ export interface EnforceDeps {
   /** The stored record an update would change, so its summary can say before and after; the default reads the portal database. */
   current?: (kind: string, id: unknown, sent?: Record<string, unknown>) => Promise<Record<string, unknown> | undefined>;
   /** What the stored record says that the body cannot (`readStoredFacts`); the default reads the portal database. */
-  stored?: (method: string, route: string, body: unknown) => Promise<StoredFacts>;
+  stored?: (method: string, route: string, body: unknown, agent?: string) => Promise<StoredFacts>;
 }
 
 /**
@@ -306,8 +332,11 @@ export async function readStoredFacts(
   method: string,
   route: string,
   body: unknown,
-  env: Record<string, string | undefined> = process.env
+  env: Record<string, string | undefined> = process.env,
+  agent?: string
 ): Promise<StoredFacts> {
+  const closing = closeTarget(method, route, body);
+  if (closing !== undefined) return readCloseFacts(sql, body, closing, agent);
   const placeFacts = await readPlaceFacts(sql, method, route, body, env);
   const target = sharingTarget(method, route, body);
   if (target === undefined) return placeFacts;
@@ -332,6 +361,50 @@ export async function readStoredFacts(
     return { ...placeFacts, shared: rows[0]?.shared === true };
   } catch {
     return { ...placeFacts, shared: true };
+  }
+}
+
+/**
+ * What a close or restore touches and who closed the row, read from the stored rows with the same preview the handler
+ * plans from. A row that is not there reads as an ordinary call (the handler then refuses with the list that names the
+ * real ids); a read that fails reads as the owner's call, so a doubt files the close for the person.
+ */
+async function readCloseFacts(
+  sql: Sql,
+  body: unknown,
+  target: NonNullable<ReturnType<typeof closeTarget>>,
+  agent: string | undefined
+): Promise<StoredFacts> {
+  try {
+    const { previewClose } = await import("./persistence/postgres/close-commands");
+    const fields = asRecord(body) ?? {};
+    const preview = await previewClose(sql, {
+      type: target.type,
+      id: target.id,
+      verb: target.verb,
+      do: target.do,
+      ...(typeof fields.expectedVersion === "number" ? { expectedVersion: fields.expectedVersion } : {}),
+      ...(typeof fields.reason === "string" ? { reason: fields.reason } : {}),
+      ...(fields.includeChildren === true ? { includeChildren: true } : {})
+    } as never);
+    return {
+      closeTypes: preview.closeTypes,
+      needsOwner: preview.needsOwner,
+      shared: preview.shared,
+      rowCount: preview.rowCount,
+      // Only the agent's own direct close is the agent's to undo; the owner's, another agent's, an import's and a
+      // confirmed one (`agent:<name>:confirmed`) are not.
+      // A row that is missing or not closed has nothing to restore: that is the handler's refusal (with the exact next
+      // call), not a question for the owner, so it is let through.
+      restorableByAgent:
+        !preview.found ||
+        !isClosedStatus(preview.status) ||
+        (agent !== undefined && preview.closedBy === `agent:${agent}`),
+      ...(preview.version === null ? {} : { closeVersion: preview.version }),
+      closeChildren: preview.children.map((child) => ({ type: child.type, id: child.id, version: child.version }))
+    };
+  } catch {
+    return { needsOwner: true, shared: true };
   }
 }
 
@@ -369,9 +442,11 @@ async function readPlaceFacts(
 }
 
 /** `readStoredFacts` against the portal database; with none, nothing is stored to read. */
-async function defaultStored(method: string, route: string, body: unknown): Promise<StoredFacts> {
+async function defaultStored(method: string, route: string, body: unknown, agent?: string): Promise<StoredFacts> {
   const needsRead =
-    sharingTarget(method, route, body) !== undefined || placeNameTarget(method, route, body) !== undefined;
+    sharingTarget(method, route, body) !== undefined ||
+    placeNameTarget(method, route, body) !== undefined ||
+    closeTarget(method, route, body) !== undefined;
   if (!needsRead) return {};
   try {
     const [{ databaseUrl }, { sqlPool }] = await Promise.all([
@@ -379,8 +454,10 @@ async function defaultStored(method: string, route: string, body: unknown): Prom
       import("./persistence/postgres/sql-pool")
     ]);
     const url = databaseUrl();
-    return url ? await readStoredFacts(sqlPool(url), method, route, body) : {};
+    return url ? await readStoredFacts(sqlPool(url), method, route, body, process.env, agent) : {};
   } catch {
+    // A failed read is a doubt, and a doubt files the write for the person.
+    if (closeTarget(method, route, body) !== undefined) return { needsOwner: true, shared: true };
     return sharingTarget(method, route, body) !== undefined ? { shared: true } : { envNamedPlace: true };
   }
 }
@@ -393,7 +470,8 @@ async function defaultPropose(agent: string, input: ProposeAgentChange & { shado
   ]);
   const url = databaseUrl();
   if (!url) throw new NoDatabase();
-  return proposeAgentChange(sqlPool(url), agent, input);
+  // Filed by the portal on the agent's behalf, never by the agent itself (`SERVER_FILED_KINDS`).
+  return proposeAgentChange(sqlPool(url), agent, input, { origin: "server" });
 }
 
 class NoDatabase extends Error {}
@@ -460,6 +538,81 @@ function takeBackNote(proposalId: string, hasRecordId: boolean): string {
 }
 
 /**
+ * The `close_entity` proposal for a close the token may not apply directly: the call as sent plus the rows under it the
+ * server resolved just now (with their versions), so confirming closes exactly those or goes stale. The line the
+ * person reads is written from storage by the applier, never taken from the agent.
+ */
+function closeProposal(
+  payload: Record<string, unknown>,
+  facts: StoredFacts,
+  claim: WriteClaim,
+  shadow: boolean
+): (ProposeAgentChange & { shadow?: boolean }) | null {
+  const target = closeTarget("POST", "/api/commands/close", payload);
+  if (target === undefined) return null;
+  const expectedVersion = typeof payload.expectedVersion === "number" ? payload.expectedVersion : facts.closeVersion;
+  const children = facts.closeChildren ?? [];
+  const commandId =
+    typeof payload.commandId === "string" && UUID.test(payload.commandId) ? payload.commandId : undefined;
+  const reason = typeof payload.reason === "string" && payload.reason.trim() !== "" ? payload.reason.trim() : undefined;
+  return {
+    kind: "close_entity",
+    payload: {
+      type: target.type,
+      verb: target.verb,
+      id: target.id,
+      do: target.do,
+      ...(expectedVersion === undefined ? {} : { expectedVersion }),
+      ...(reason === undefined ? {} : { reason: reason.slice(0, 500) }),
+      ...(payload.includeChildren === true ? { includeChildren: true } : {}),
+      children,
+      cascadeTypes: (facts.closeTypes ?? []).filter((type) => type !== target.type)
+    },
+    basis: claim.basis ?? "inferred",
+    ...(claim.evidence ? { evidence: claim.evidence } : {}),
+    coalesceKey: `close:${target.type}:${target.id}`.slice(0, 200),
+    ...(commandId ? { commandId } : {}),
+    ...(shadow ? { shadow: true } : {})
+  };
+}
+
+async function fileClose(
+  payload: Record<string, unknown>,
+  facts: StoredFacts,
+  claim: WriteClaim,
+  outcome: Extract<WriteOutcome, { action: "propose" }>,
+  principal: AgentPrincipal,
+  deps: EnforceDeps
+): Promise<Response> {
+  const filing = closeProposal(payload, facts, claim, outcome.shadow);
+  if (filing === null || closeEntityPayloadSchema.safeParse(filing.payload).success === false)
+    return Response.json(
+      { error: "A close needs type, id, verb, do (close or restore) and, for a restore, expected-version." },
+      { status: 400 }
+    );
+  try {
+    const { proposal } = await (deps.propose ?? defaultPropose)(principal.name, filing);
+    const tool = payload.verb === "archive" ? "rhen_archive" : "rhen_cancel";
+    return Response.json(
+      {
+        proposal,
+        filedBecause: outcome.reason,
+        agentNote:
+          `Filed as proposal ${proposal.id}. The ${payload.do === "restore" ? "restore" : "close"} has NOT been applied: the owner must confirm it in ` +
+          "Inbox > Captured > From agents. Do not send it again unchanged. Check the outcome later with `rhen proposals` " +
+          `(status pending, confirmed, rejected or stale). Why it was filed: ${outcome.reason}. ` +
+          `You cannot take a proposal back. To change it, repeat the ${tool} call for the same row: a repeat replaces this card while it is pending. ` +
+          "If the owner already confirmed the first, the repeat is refused because the row is already closed."
+      },
+      { status: 202 }
+    );
+  } catch (error) {
+    if (error instanceof NoDatabase) return Response.json({ error: PROPOSALS_UNAVAILABLE }, { status: 503 });
+    return proposalErrorResponse(error);
+  }
+}
+
+/**
  * Returns the response that ends the request (a refusal, or the 202 for a write filed as a proposal), or null
  * when the handler should run. Environment tokens and anonymous callers never reach this.
  */
@@ -477,7 +630,7 @@ export async function enforceAgentRequest(
   // A decision that depends on the body is never made without one, and the handler never sees a body we could not read.
   if (needsBody && !asRecord(body))
     return Response.json({ error: "The request body must be a JSON object." }, { status: 400 });
-  const facts = isWrite ? await (deps.stored ?? defaultStored)(method, route, body) : {};
+  const facts = isWrite ? await (deps.stored ?? defaultStored)(method, route, body, principal.name) : {};
   const decision = scopesForRoute(method, route, body, facts);
   if (decision.kind === "public") return null;
   if (decision.kind === "refused") {
@@ -513,6 +666,7 @@ export async function enforceAgentRequest(
   const payload = asRecord(body);
   if (!payload || decision.command === undefined)
     return Response.json({ error: "The request body must be a JSON object." }, { status: 400 });
+  if (decision.command === "close_entity") return fileClose(payload, facts, claim, outcome, principal, deps);
   // A caller that files through its own `propose` (a test) reads no record unless it also supplies `current`.
   const lookup = deps.current ?? (deps.propose ? undefined : defaultCurrent);
   const saved = savedEntity(decision.command, payload);

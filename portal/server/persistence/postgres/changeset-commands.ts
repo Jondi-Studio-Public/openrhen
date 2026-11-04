@@ -380,13 +380,18 @@ async function floorWholeSet(tx: TxSql, command: ChangesetCommand): Promise<Chan
   const rows = commands.map(({ command: kind, body }) => proposalSummary(kind, body));
   try {
     const filed = await tx.savepoint((sp) =>
-      proposeAgentChange(nestedPool(sp), actor, {
-        kind: "entity_command_batch",
-        summary: summaryList(`Changeset: ${commands.length} changes, all or nothing`, rows),
-        payload: { atomic: true, commands },
-        basis: claim.basis ?? "inferred",
-        ...(claim.evidence ? { evidence: claim.evidence } : {})
-      })
+      proposeAgentChange(
+        nestedPool(sp),
+        actor,
+        {
+          kind: "entity_command_batch",
+          summary: summaryList(`Changeset: ${commands.length} changes, all or nothing`, rows),
+          payload: { atomic: true, commands },
+          basis: claim.basis ?? "inferred",
+          ...(claim.evidence ? { evidence: claim.evidence } : {})
+        },
+        { origin: "server" }
+      )
     );
     return {
       mode: command.mode,
@@ -444,10 +449,12 @@ async function runItems(tx: TxSql, command: ChangesetCommand): Promise<Changeset
     try {
       if (decision.action === "propose") {
         const kind = scopesForRoute("POST", item.path, item.payload);
-        const replay = kind.kind === "scopes" ? kind.command : undefined;
+        const replay = kind.kind === "scopes" && kind.command !== "close_entity" ? kind.command : undefined;
         if (replay === undefined) throw new InvalidCommandError("This write cannot be filed as a proposal.");
         const filed = await tx.savepoint((sp) =>
-          proposeAgentChange(nestedPool(sp), actor, entityProposal(replay, item.payload, claim, decision.shadow))
+          proposeAgentChange(nestedPool(sp), actor, entityProposal(replay, item.payload, claim, decision.shadow), {
+            origin: "server"
+          })
         );
         items.push({
           intent: item.intent,

@@ -1,0 +1,24 @@
+/**
+ * The served words for closing a record (archive-removals design 8a): which verb each kind takes, the restore recipe
+ * and what is filed for the owner. One owner for the prose; the skill, the guide and the server instructions read it,
+ * and a test holds every pair of the verb table to each served text. The kinds named here are the ones in
+ * `ARCHIVE_TYPES` and `CANCEL_TYPES` (`closed-entity.ts`), in the words a person says.
+ */
+
+/** The short form in `MCP_SERVER_INSTRUCTIONS` (byte-capped). */
+export const ARCHIVE_OR_CANCEL_BRIEF =
+  "Archive: area, preset, place, contact, capability, live; a finished outcome or project; a done action or " +
+  "deliverable. Cancel: appointment, shift, event; an abandoned outcome or project; an open action or deliverable you " +
+  "drop. rhen_archive and rhen_cancel take do close|restore and a reason; closed rows show " +
+  "their restore call. Never set status archived or cancelled with rhen_save.";
+
+/** The full section, as plain bullets, for the skill and the guide. */
+export const ARCHIVE_OR_CANCEL_FULL = [
+  "Archive or cancel. To remove a record from the plan use rhen_archive or rhen_cancel, each with `do` close or restore. Do not set status archived or cancelled with rhen_save.",
+  "ARCHIVE: an area, routine preset, place, contact, capability or live context; a finished or retired outcome or project; a done action or deliverable.",
+  "CANCEL: an appointment, shift or event (a commitment); an abandoned outcome or project; an open action or deliverable you drop.",
+  "Give a reason (an agent must). include-children also closes the open rows under an area, outcome or project; cancelling a commitment takes its preparation steps with it.",
+  "A call that reaches more than 20 rows, or a row the owner must decide (a deadline, a shared appointment), is filed as ONE proposal for the owner to confirm.",
+  "Restore: every closed row in rhen_list and rhen_show carries its restore call; send it as it stands (do restore, with the row's version). A legacy cancelled area is restored with rhen_cancel.",
+  "Ending a recurrence is unchanged: set its end date (guide recurrence)."
+] as const;

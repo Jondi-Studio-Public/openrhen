@@ -937,17 +937,22 @@ export {
   agentProposalConflictSchema,
   agentProposalSchema,
   agentProposalStatusSchema,
+  CLOSE_ENTITY_CHILDREN_MAX,
+  closeEntityPayloadSchema,
   ENTITY_COMMAND_BATCH_MAX,
   entityCommandBatchPayloadSchema,
   entityCommandPayloadSchema,
   proposeAgentChangeSchema,
-  resolveAgentProposalSchema
+  resolveAgentProposalSchema,
+  SERVER_FILED_KINDS,
+  SERVER_FILED_KIND_TOOLS
 } from "./agent-proposals.js";
 export type {
   AgentBasis,
   AgentProposal,
   AgentProposalConflict,
   AgentProposalStatus,
+  CloseEntityPayload,
   EntityCommandBatchPayload,
   EntityCommandPayload,
   ProposeAgentChange,
@@ -1141,6 +1146,7 @@ export {
   routeNeedsBody,
   scopesForRoute,
   sharingTarget,
+  closeTarget,
   placeNameTarget,
   workerRoute,
   workerRoutes
@@ -1420,6 +1426,38 @@ export type {
 export { CLOSED_STATUSES, CLOSED_TABLES, HIDING_STATUS, isClosedStatus } from "./closed-status.js";
 export type { ClosedTable, ClosedTableRule } from "./closed-status.js";
 export {
+  ARCHIVE_TYPES,
+  CANCEL_TYPES,
+  CLOSE_TABLE_OF,
+  CLOSE_TYPES,
+  alreadyClosedRefusal,
+  ancestorClosedRefusal,
+  childrenOpenRefusal,
+  closeCall,
+  closeEntityCommandSchema,
+  closeVerbRule,
+  isCloseType,
+  notClosableRefusal,
+  openSessionRefusal,
+  reasonRequiredRefusal,
+  restoreCall,
+  restoreStatus,
+  restoreToolFor,
+  toolForVerb,
+  verbFor,
+  wrongToolForRestoreRefusal,
+  wrongVerbRefusal
+} from "./closed-entity.js";
+export type {
+  CascadedRow,
+  CloseEntityCommand,
+  CloseEntityResult,
+  CloseType,
+  CloseVerb,
+  DependentRow,
+  SkippedRow
+} from "./closed-entity.js";
+export {
   ENERGY_COST_NEXT,
   buildEnergyCostAnswer,
   energyCostSchema,
@@ -1451,3 +1489,5 @@ export type {
   StretchOfferView,
   StretchResult
 } from "./planning/stretch.js";
+
+export { ARCHIVE_OR_CANCEL_BRIEF, ARCHIVE_OR_CANCEL_FULL } from "./archive-cancel-text.js";

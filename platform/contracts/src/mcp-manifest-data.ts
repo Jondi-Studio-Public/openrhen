@@ -19,7 +19,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       additionalProperties: false
     },
     annotations: {
-      title: "What to do now, what is running, and what is next",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -47,7 +46,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       additionalProperties: false
     },
     annotations: {
-      title: "How each live project is doing against its deadline, and what the plan rests on",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -76,7 +74,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       additionalProperties: false
     },
     annotations: {
-      title: "A daily rollup of a past window: focus by project, sessions, actions finished, sleep",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -88,7 +85,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
     name: "rhen_list",
     command: "list",
     description:
-      "Lists one kind of record (entity) from the plan, with ids you can pass to rhen_show, rhen_save and rhen_bulk. Returns rows; a filter that does not apply to the kind is refused with the ones that do. project, area, outcome, action, commitment and preset each take an id or an exact title. where is a list of tests such as `status=active`, `deadlineAt<+7d` or `area=a,b` (any of); `!=`, `<`, `>`, `<=`, `>=` also work, and a date-shaped field compares as a time (ISO, today, or an offset such as -7d or +7d). from and to filter on the kind's own time field. Page with limit and offset, narrow with fields, or set count (with by) for totals; always give limit on large kinds. Use rhen_search to find a record by words.",
+      "Lists one kind of record (entity) from the plan, with ids you can pass to rhen_show, rhen_save and rhen_bulk. Returns rows; a filter that does not apply to the kind is refused with the ones that do. project, area, outcome, action, commitment and preset each take an id or an exact title. where is a list of tests such as `status=active`, `deadlineAt<+7d` or `area=a,b` (any of); `!=`, `<`, `>`, `<=`, `>=` also work, and a date-shaped field compares as a time (ISO, today, or an offset such as -7d or +7d). from and to filter on the kind's own time field. Page with limit and offset, narrow with fields, or set count (with by) for totals; always give limit on large kinds. A closed row carries restore, the call that reopens it. Use rhen_search to find a record by words.",
     inputSchema: {
       type: "object",
       properties: {
@@ -228,7 +225,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       required: ["entity"]
     },
     annotations: {
-      title: "List entities of one kind, with filters",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -240,7 +236,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
     name: "rhen_show",
     command: "show",
     description:
-      "Returns every field of one entity and the records around it: a project's actions and deliverables, an action's project and dependencies, a commitment's place, series, and routine steps, and so on. The id may be shortened to a unique prefix. Relation lists longer than 20 rows are cut off with a note on how to see the rest (pass all: true, or call rhen_list with the matching filter); brief: true skips relations and returns just the record.",
+      "Returns every field of one entity and the records around it: a project's actions and deliverables, an action's project and dependencies, a commitment's place, series, and routine steps, and so on. The id may be shortened to a unique prefix. Relation lists longer than 20 rows are cut off with a note on how to see the rest (pass all: true, or call rhen_list with the matching filter); brief: true skips relations and returns just the record. A closed record carries restore, the call that reopens it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -265,7 +261,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       required: ["entity", "id"]
     },
     annotations: {
-      title: "Show one entity in full, with what it relates to",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -321,7 +316,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       additionalProperties: false
     },
     annotations: {
-      title: "Find plan records by words and meaning, best match first",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -367,7 +361,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       required: ["item"]
     },
     annotations: {
-      title: "Show one plan item and its neighbourhood: cards and the links between them",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -391,7 +384,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       additionalProperties: false
     },
     annotations: {
-      title: "Dump the whole portal state as JSON",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -447,7 +439,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       additionalProperties: false
     },
     annotations: {
-      title: "What changed in the plan, and who changed it",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -478,7 +469,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       additionalProperties: false
     },
     annotations: {
-      title: "Your proposed changes, and what the person decided",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -507,7 +497,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       additionalProperties: false
     },
     annotations: {
-      title: "What should have an outcome after a break, and has none",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -541,7 +530,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       additionalProperties: false
     },
     annotations: {
-      title: "Check the quality of the plan data and rank what to fix",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -567,7 +555,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       additionalProperties: false
     },
     annotations: {
-      title: "What needs you or the owner now, ranked, with the exact next step",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -598,7 +585,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       additionalProperties: false
     },
     annotations: {
-      title: "Show what happened between two days: sessions, sleep, closed occurrences and spans",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -623,7 +609,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       additionalProperties: false
     },
     annotations: {
-      title: "List everything open in the Inbox, by room",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -650,7 +635,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       additionalProperties: false
     },
     annotations: {
-      title: "The domain vocabulary and common workflows, for people and AI tools",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -675,7 +659,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       additionalProperties: false
     },
     annotations: {
-      title: "Print the agent skill (SKILL.md) for working with OpenRhen",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -687,7 +670,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
     name: "rhen_save",
     command: "save",
     description:
-      "WRITES DATA. Creates or updates ONE record. No id creates; an id updates that record, merging your fields over the stored ones. Prefer the typed tool for the kind (rhen_save_action, _project, _commitment, _capture) when it exists: its fields are checked. To update, read the record first (rhen_show) and pass its `version` as expected-version so a stale write is refused with a conflict. Returns the saved record and its version, `assumedFields` (defaults filled in), and whether the write applied (applied: true) or was filed as a proposal for the owner (filedAsProposal: true, applied: false, proposalId). A repeated command-id returns the record with replayed: true, applied: false. rhen_undo reverses it. entityType is the kind (its enum lists them); plurals and hyphens are accepted. An id that names no record is an error, not a new record: pass create: true to make one with an id you chose. A field the kind does not take is refused with the list it does. There is no delete: end a record by status (cancelled, archived, done); sleep_log_entry and span take remove: true, which is filed as a proposal. Settings: plan preferences apply, timezone and setup become proposals, data-flow fields are refused. Required fields and defaults for actions, projects, commitments and captures are in their typed tools. Use rhen_capture for a quick thought.",
+      "WRITES DATA. Creates or updates ONE record. No id creates; an id updates that record, merging your fields over the stored ones. Prefer the typed tool for the kind (rhen_save_action, _project, _commitment, _capture) when it exists: its fields are checked. To update, read the record first (rhen_show) and pass its `version` as expected-version so a stale write is refused with a conflict. Returns the saved record and its version, `assumedFields` (defaults filled in), and whether the write applied (applied: true) or was filed as a proposal for the owner (filedAsProposal: true, applied: false, proposalId). A repeated command-id returns the record with replayed: true, applied: false. rhen_undo reverses it. entityType is the kind (its enum lists them); plurals and hyphens are accepted. An id that names no record is an error, not a new record: pass create: true to make one with an id you chose. A field the kind does not take is refused with the list it does. To close a record use rhen_archive or rhen_cancel, not a status set here; sleep_log_entry and span take remove: true, which is filed as a proposal. Settings: plan preferences apply, timezone and setup become proposals, data-flow fields are refused. Required fields and defaults for actions, projects, commitments and captures are in their typed tools. Use rhen_capture for a quick thought.",
     inputSchema: {
       type: "object",
       properties: {
@@ -793,7 +776,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       required: ["entityType"]
     },
     annotations: {
-      title: "Create or update one entity through the portal's command routes",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -805,7 +787,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
     name: "rhen_save_action",
     command: "save",
     description:
-      "WRITES DATA. Creates or updates an action (a step of work under a project): rhen_save with entityType action, every field checked (same id, create, expected-version and removal rules). Required on create: projectId and title. Defaults: status planned, a 60-minute estimate (listed in assumedFields), importance and consequence 3 (1-5), medium energy. Minutes are whole numbers; times are ISO 8601 with an offset. contexts and dependencyIds are ids from rhen_list conditions and actions. Returns and undoes as rhen_save.",
+      "WRITES DATA. Creates or updates an action (a step of work under a project): rhen_save with entityType action, every field checked (same id, create and expected-version rules). Required on create: projectId and title. Defaults: status planned, a 60-minute estimate (listed in assumedFields), importance and consequence 3 (1-5), medium energy. Minutes are whole numbers; times are ISO 8601 with an offset. contexts and dependencyIds are ids from rhen_list conditions and actions. Returns and undoes as rhen_save.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1199,7 +1181,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       additionalProperties: false
     },
     annotations: {
-      title: "Create or update one entity through the portal's command routes",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -1214,7 +1195,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
     name: "rhen_save_project",
     command: "save",
     description:
-      "WRITES DATA. Creates or updates a project: rhen_save with entityType project, every field checked (same id, create, expected-version and removal rules). Required on create: outcomeId and title. Defaults: status active, uncertainty some (pads action estimates), consequence 3. internalDeadlineAt is the owner's own target (it can lapse); externalDeadlineAt is a real outside date. Returns and undoes as rhen_save.",
+      "WRITES DATA. Creates or updates a project: rhen_save with entityType project, every field checked (same id, create and expected-version rules). Required on create: outcomeId and title. Defaults: status active, uncertainty some (pads action estimates), consequence 3. internalDeadlineAt is the owner's own target (it can lapse); externalDeadlineAt is a real outside date. Returns and undoes as rhen_save.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1323,7 +1304,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       additionalProperties: false
     },
     annotations: {
-      title: "Create or update one entity through the portal's command routes",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -1338,7 +1318,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
     name: "rhen_save_commitment",
     command: "save",
     description:
-      "WRITES DATA. Creates or updates a commitment (a fixed time: an appointment, a shift, a class): rhen_save with entityType commitment, every field checked (same id, create, expected-version and removal rules). Required on create: title, startsAt and endsAt (ISO 8601 with an offset) and status. Defaults: Statuses are listed in rhen_guide writing-data. Returns and undoes as rhen_save.",
+      "WRITES DATA. Creates or updates a commitment (a fixed time: an appointment, a shift, a class): rhen_save with entityType commitment, every field checked (same id, create and expected-version rules). Required on create: title, startsAt and endsAt (ISO 8601 with an offset) and status. Defaults: Statuses are listed in rhen_guide writing-data. Returns and undoes as rhen_save.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1531,7 +1511,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       additionalProperties: false
     },
     annotations: {
-      title: "Create or update one entity through the portal's command routes",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -1546,7 +1525,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
     name: "rhen_save_capture",
     command: "save",
     description:
-      "WRITES DATA. Creates or updates a capture (an Inbox item waiting to be reviewed): rhen_save with entityType capture, every field checked (same id, create, expected-version and removal rules). Required on create: text. Defaults: status pending. To file a new one-line thought use rhen_capture; use this to edit or restore one. Returns and undoes as rhen_save.",
+      "WRITES DATA. Creates or updates a capture (an Inbox item waiting to be reviewed): rhen_save with entityType capture, every field checked (same id, create and expected-version rules). Required on create: text. Defaults: status pending. To file a new one-line thought use rhen_capture; use this to edit or restore one. Returns and undoes as rhen_save.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1682,7 +1661,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       additionalProperties: false
     },
     annotations: {
-      title: "Create or update one entity through the portal's command routes",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -1780,7 +1758,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       additionalProperties: false
     },
     annotations: {
-      title: "Preview, then apply, one message's facts as one write",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -1829,7 +1806,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       required: ["text"]
     },
     annotations: {
-      title: "Drop one line into the inbox",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -1897,7 +1873,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       required: ["kind"]
     },
     annotations: {
-      title: "Propose a change for the person to confirm",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -2009,7 +1984,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       additionalProperties: false
     },
     annotations: {
-      title: "Record what the person says happened to catch-up entries",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -2158,7 +2132,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       additionalProperties: false
     },
     annotations: {
-      title: "End a lapsed pulse: tell the plan where you are and settle the gap",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -2230,7 +2203,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       additionalProperties: false
     },
     annotations: {
-      title: "Record what you are doing instead of the plan, so the deviation stays on plan",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -2275,7 +2247,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       required: ["place"]
     },
     annotations: {
-      title: "Assert you have arrived at a saved place",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -2324,7 +2295,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       additionalProperties: false
     },
     annotations: {
-      title: "Answer a stretch offer: work on a cut action for a bounded time, or decline",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -2372,7 +2342,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       additionalProperties: false
     },
     annotations: {
-      title: "Record when the person woke and settle last night's sleep",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -2473,7 +2442,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       required: ["subcommand"]
     },
     annotations: {
-      title: "Start, pause, resume, finish, or block a work session",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -2551,7 +2519,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       required: ["subcommand"]
     },
     annotations: {
-      title: "Add, list, change, or remove a labelled block of days (a trip, a sick spell)",
       readOnlyHint: false,
       destructiveHint: true,
       idempotentHint: false,
@@ -2607,13 +2574,144 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       required: ["subcommand", "project"]
     },
     annotations: {
-      title: "Confirm a project is still wanted (the weekly review's Keep)",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
       openWorldHint: false
     },
     scopes: ["write:entity:project", "read:plan"]
+  },
+  {
+    name: "rhen_archive",
+    command: "archive",
+    description:
+      "WRITES DATA. Archives a row without deleting it: an area, routine_preset, condition_definition (place, contact, capability), or a finished outcome, project, action or deliverable. A dropped open one, or a commitment, is rhen_cancel. do restore reopens a closed row (rhen_list and rhen_show carry its restore call). Agents give a reason. include-children also archives the open rows under an area, outcome or project. Over 20 rows, or anything the owner decides (a deadline, a shared appointment), files ONE proposal. Never set status archived with rhen_save. Returns the new status and version, what closed with it and the restore call; rhen_undo reverses it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        type: {
+          type: "string",
+          description: "The kind of row.",
+          enum: ["area", "outcome", "project", "action", "deliverable", "routine_preset", "condition_definition"]
+        },
+        id: {
+          type: "string",
+          description: "Id or exact title."
+        },
+        do: {
+          type: "string",
+          description: "close or restore; always required.",
+          enum: ["close", "restore"]
+        },
+        reason: {
+          type: "string",
+          description: "Why; required for an agent."
+        },
+        "expected-version": {
+          type: "string",
+          description: "The version you read; restore defaults to the current one."
+        },
+        "include-children": {
+          type: "boolean",
+          description: "true also closes the open rows under it."
+        },
+        "dry-run": {
+          type: "boolean",
+          description: "true previews, saves nothing, checks only the shape (not ids, evidence or scopes)."
+        },
+        "command-id": {
+          type: "string",
+          description:
+            "A uuid made once per intended write. Resend the SAME one after a timeout, never after a conflict or validation error."
+        },
+        basis: {
+          type: "string",
+          enum: ["stated", "inferred", "observed"],
+          description:
+            "stated (the owner said it; quote them in evidence), observed (read from mail, a page or a file) or inferred (your guess; default)."
+        },
+        evidence: {
+          type: "string",
+          maxLength: 300,
+          description: "The owner's own words, required with basis stated (max 300)."
+        }
+      },
+      additionalProperties: false,
+      required: ["type", "id", "do"]
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: false
+    },
+    scopes: ["propose:entity", "read:plan"]
+  },
+  {
+    name: "rhen_cancel",
+    command: "cancel",
+    description:
+      "WRITES DATA. Cancels what will not happen: a commitment (appointment, shift, event), an abandoned outcome or project, or an open action or deliverable you drop. Finished work, an area, preset or place is rhen_archive. do restore reopens a closed row (rhen_list and rhen_show carry its restore call). Agents give a reason. include-children also cancels the open rows under an outcome or project; a commitment takes its preparation steps with it. Over 20 rows, or anything the owner decides (a deadline, a shared appointment), files ONE proposal. Never set status cancelled with rhen_save. Returns the new status and version, what closed with it and the restore call; rhen_undo reverses it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        type: {
+          type: "string",
+          description: "The kind of row (area only to restore a legacy cancelled one).",
+          enum: ["area", "outcome", "project", "action", "deliverable", "commitment"]
+        },
+        id: {
+          type: "string",
+          description: "Id or exact title."
+        },
+        do: {
+          type: "string",
+          description: "close or restore; always required.",
+          enum: ["close", "restore"]
+        },
+        reason: {
+          type: "string",
+          description: "Why; required for an agent."
+        },
+        "expected-version": {
+          type: "string",
+          description: "The version you read; restore defaults to the current one."
+        },
+        "include-children": {
+          type: "boolean",
+          description: "true also closes the open rows under it."
+        },
+        "dry-run": {
+          type: "boolean",
+          description: "true previews, saves nothing, checks only the shape (not ids, evidence or scopes)."
+        },
+        "command-id": {
+          type: "string",
+          description:
+            "A uuid made once per intended write. Resend the SAME one after a timeout, never after a conflict or validation error."
+        },
+        basis: {
+          type: "string",
+          enum: ["stated", "inferred", "observed"],
+          description:
+            "stated (the owner said it; quote them in evidence), observed (read from mail, a page or a file) or inferred (your guess; default)."
+        },
+        evidence: {
+          type: "string",
+          maxLength: 300,
+          description: "The owner's own words, required with basis stated (max 300)."
+        }
+      },
+      additionalProperties: false,
+      required: ["type", "id", "do"]
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: false
+    },
+    scopes: ["propose:entity", "read:plan"]
   },
   {
     name: "rhen_activity",
@@ -2698,7 +2796,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       required: ["subcommand"]
     },
     annotations: {
-      title: "Start, pause, resume, or finish an activity session",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -2758,7 +2855,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       required: ["status"]
     },
     annotations: {
-      title: "Answer the pending check-in",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -2852,7 +2948,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       required: ["subcommand"]
     },
     annotations: {
-      title: "Log, extend, finish, or check the day's disruption",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -2906,7 +3001,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       required: ["subcommand", "preset"]
     },
     annotations: {
-      title: "Run a routine preset now, outside any planned commitment or sleep",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -2950,7 +3044,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       additionalProperties: false
     },
     annotations: {
-      title: "Ask the engine to recalculate the plan",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -3009,7 +3102,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       required: ["subcommand", "action"]
     },
     annotations: {
-      title: "Record a cadence completion",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -3074,7 +3166,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       required: ["subcommand"]
     },
     annotations: {
-      title: "Create, update, or end a recurrence",
       readOnlyHint: false,
       destructiveHint: true,
       idempotentHint: false,
@@ -3165,7 +3256,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       required: ["room", "action"]
     },
     annotations: {
-      title: "Act on the Inbox rooms: captured, kept, map",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -3311,7 +3401,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       required: ["entity"]
     },
     annotations: {
-      title: "Apply the same patch to many records at once",
       readOnlyHint: false,
       destructiveHint: true,
       idempotentHint: false,
@@ -3487,7 +3576,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       required: ["subcommand"]
     },
     annotations: {
-      title: "Coordinate a deliverable's workspace from a desktop AI app or CLI agent",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -3535,7 +3623,6 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       additionalProperties: false
     },
     annotations: {
-      title: "Reverse your latest recorded write (--redo reapplies it)",
       readOnlyHint: false,
       destructiveHint: true,
       idempotentHint: false,

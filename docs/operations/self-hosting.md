@@ -71,6 +71,13 @@ The `backup` service writes a verified backup (it restores the backup into a scr
 
 A blank value is refused on purpose; `off` is the explicit opt-out. Back up now with `docker compose run --rm backup corepack pnpm db:backup`. Retention, restore and recovery are in [Database and backups](database-and-backups.md).
 
+## Calendar feed and agent wake
+
+Both are optional; leave them out and nothing changes.
+
+- **Calendar feed** (`CALENDAR_FEED_URL`): lets Priorities read events from a calendar you cannot sign in to (a roster, a school or club calendar) through its private iCal address, which only the outbound proxy sees. The address is the secret, so treat it like a password. It must be https. Google Calendar: Settings, pick the calendar, Integrate calendar, copy "Secret address in iCal format". Outlook.com: Settings, Calendar, Shared calendars, Publish a calendar, choose "Can view all details", copy the ICS link. iCloud: Calendar app, share the calendar as a public calendar and copy the link with `webcal://` changed to `https://`. Put it in `.env`; recreate the stack with `docker compose up -d`.
+- **Agent wake** (`OPENCLAW_HOOKS_URL`, `OPENCLAW_HOOKS_TOKEN`): lets the engine worker message your OpenClaw agent when a check-in goes unanswered. Turn hooks on in OpenClaw (`hooks.enabled`, and a new random `hooks.token`), set the URL to the gateway address the worker can reach (https, or http to loopback or a tailnet address) and the token to the same `hooks.token`. With either empty the sender does nothing.
+
 ## Running from source
 
 For development, use the bundled database from Docker and the apps on your machine. You need Node.js 22 or newer and pnpm 11 through corepack (if `corepack pnpm` fails with `Cannot find matching keyid`, run `npm install -g corepack@latest`).

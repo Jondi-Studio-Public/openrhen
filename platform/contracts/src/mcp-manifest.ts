@@ -1,4 +1,5 @@
 import { closestNames } from "./agent-error.js";
+import { ARCHIVE_OR_CANCEL_BRIEF } from "./archive-cancel-text.js";
 import { agentGoldenRules, agentPolicySentences } from "./agent-policy-text.js";
 import { scopeCovers } from "./agent-scopes.js";
 import { contractsExtensions } from "./extensions.js";
@@ -18,7 +19,8 @@ import "./private/index.js";
  */
 
 export interface McpToolAnnotations {
-  title: string;
+  /** The stdio server sends it; the remote list leaves it out (it repeated each tool's summary). */
+  title?: string;
   readOnlyHint: boolean;
   destructiveHint: boolean;
   idempotentHint: boolean;
@@ -104,7 +106,9 @@ export const MCP_SERVER_INSTRUCTIONS =
   "rhen_arrive. Work on an action: rhen_session; on a routine step, sleep or deliverable step: " +
   "rhen_activity. One record: rhen_save or its typed tools (rhen_save_action, _project, " +
   "_commitment, _capture); several facts from one message: rhen_changeset; one patch to many rows: " +
-  "rhen_bulk; a thought to sort later: rhen_capture; a mistake: rhen_undo. Inbox: rhen_inbox, " +
+  "rhen_bulk; a thought to sort later: rhen_capture; a mistake: rhen_undo. " +
+  ARCHIVE_OR_CANCEL_BRIEF +
+  " Inbox: rhen_inbox, " +
   "then rhen_inbox_act. Deliverable work: rhen_deliverable. Also writes: rhen_span, " +
   "rhen_review, rhen_routine, rhen_cadence, rhen_recurrence, rhen_recalculate. " +
   "Reads: rhen_list, rhen_show, rhen_search, rhen_map, rhen_state, rhen_forecast, " +

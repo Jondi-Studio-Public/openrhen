@@ -362,7 +362,7 @@ export const undoCommand: CommandSpec = {
   summary: "Reverse your latest recorded write (--redo reapplies it)",
   description:
     'Reverses your most recent write that said "undo with rhen undo" (a save, bulk edit, skip-step/unskip-step, pause/resume, arrive, review keep, recurrence, cadence ' +
-    "or activity write, wake, disrupt, disruption, re-entry, session, check-in, catch-up settle or Inbox confirm as an agent), restoring the rows it touched " +
+    "or activity write, wake, disrupt, disruption, re-entry, session, check-in, catch-up settle, archive, cancel or restore, or Inbox confirm as an agent), restoring the rows it touched " +
     "exactly as they were (a record the write added is removed, a field it added goes). The portal does it from the " +
     "rows it kept, only while nothing the write touched has changed since; --redo puts it back. A write made without " +
     "an agent token (the person's own, at a terminal) is restated from the record as it was instead: a new area, " +
