@@ -419,7 +419,7 @@ export function buildNowModel({
   const plannedEnd = recommendationAnswer.plannedEnd ? new Date(recommendationAnswer.plannedEnd) : now;
   const plannedDuration = session ? session.plannedMinutes : (primary?.recommendedMinutes ?? 0);
   const nextCommitment = state.commitments
-    .filter((item) => item.status !== "cancelled" && new Date(item.startsAt) > now)
+    .filter((item) => !isClosedStatus(item.status) && new Date(item.startsAt) > now)
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt))[0];
   // What is on the clock is decided once, in `planning/now-activity.ts` in contracts, and read here — the same call
   // the handheld device makes. Everything below maps that answer onto the page's view fields.
@@ -529,7 +529,7 @@ export function buildNowModel({
     : 0;
   const commitmentAfterWake = sleepDue
     ? state.commitments
-        .filter((item) => item.status !== "cancelled" && new Date(item.startsAt) > new Date(sleepDue.plannedWakeAt))
+        .filter((item) => !isClosedStatus(item.status) && new Date(item.startsAt) > new Date(sleepDue.plannedWakeAt))
         .sort((a, b) => a.startsAt.localeCompare(b.startsAt))[0]
     : undefined;
   const wakeToCommitmentMinutes =

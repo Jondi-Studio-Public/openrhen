@@ -1,7 +1,7 @@
 "use client";
 
 import { selectableProjects } from "@/features/plan/area-grouping";
-import { useState, type FormEvent } from "react";
+import type { FormEvent, ReactNode } from "react";
 import type { StoredCommitment, StoredProject } from "@/state/portal-state";
 import { formatZonedTime } from "@/shared/date-format";
 import { resolveCommitmentContact } from "@/features/commitments/commitment-contact";
@@ -13,6 +13,7 @@ import { iso } from "@/features/today/local-datetime";
 import { placeOptions, type ConditionDefinition } from "@/features/settings/context-summary";
 import { weekdayOfDate, type CommitmentEditorDraft } from "@/features/today/today-drafts";
 import { Field } from "@/components/field";
+import { StatusField } from "@/components/status-field";
 import { FormActions, useSubmitGuard } from "@/components/form-actions";
 import { LocationPicker, type GeocodeMatch } from "@/features/today/components/location-picker";
 import { CheckInAllowanceField } from "@/features/pulse/components/check-in-allowance-field";
@@ -49,14 +50,12 @@ export function CommitmentEditor({
   onSaveAnyway,
   timezone,
   open = Boolean(draft.id),
-  openPrep = [],
-  onCancelPrep,
-  storedStatus
+  closeControl,
+  cancelledNotice = false
 }: {
   draft: CommitmentEditorDraft;
   onChange: (draft: CommitmentEditorDraft) => void;
-  /** May resolve to `true` once the save succeeded; only then is the cancel-prep offer made. */
-  onSubmit: (event: FormEvent) => void | boolean | Promise<void | boolean>;
+  onSubmit: (event: FormEvent) => unknown;
   onCancel: () => void;
   /** Stores a picked place-search result as a quiet one-off place; resolves to what to select. */
   onCreatePlaceFromSearch: (match: GeocodeMatch) => Promise<{ id: string; name: string }>;
@@ -77,49 +76,20 @@ export function CommitmentEditor({
   timezone: string;
   /** Whether the card is unfolded; open while editing by default, and a sheet holds it open. */
   open?: boolean;
-  /** The commitment's prep that is still open, for the offer made when a save cancels it. */
-  openPrep?: { id: string; title: string }[];
-  /** **Cancel prep**: cancels the commitment's open prep; rejects with the reason it could not. */
-  onCancelPrep?: () => Promise<void>;
-  /** The status the commitment had when the editor was opened; the offer is made only on a change to cancelled. */
-  storedStatus?: string;
+  /**
+   * The Cancel commitment / Restore control, for a one-off or occurrence that exists. Cancelling is its own call (the
+   * server cancels the routine steps and prep with it and says what it left), not a status in this form.
+   */
+  closeControl?: ReactNode;
+  /** The commitment was just cancelled from `closeControl`: offers to let its contact know. */
+  cancelledNotice?: boolean;
 }) {
   const time = (value: string) => formatZonedTime(value, timezone);
   const editing = Boolean(draft.id);
   const summary = editing ? (draft.repeats ? "Edit recurring commitment" : "Edit commitment") : "Add commitment";
-  // "The editor is the only place a cancel happens": a save that
-  // turns a one-off or occurrence's status to Cancelled, with a contact that still resolves, keeps a
-  // confirmation on screen offering to open the disruption sheet with that contact already chosen.
-  // Nothing here reads whether the save actually succeeded — the caller's own error banner already
-  // covers that — so a failed save simply also shows this, which is no worse than the caller's own
-  // "closed either way" behaviour before this note.
-  const [confirmingCancel, setConfirmingCancel] = useState(false);
-  // "Cancel its N open prep actions too?" (email-reasoning §7): counted when the cancelling save is
-  // sent, then answered once; the count is what the person was shown, not a live figure.
-  const [prepOffer, setPrepOffer] = useState<{ count: number; state: "asking" | "busy" | "done" | "kept" } | null>(
-    null
-  );
-  const [prepError, setPrepError] = useState("");
   const places = placeOptions(definitions, draft.preferredLocationId);
   const cancelledContact = resolveCommitmentContact({ contactId: draft.contactId }, definitions);
-  async function handleSubmit(event: FormEvent) {
-    const willConfirm = !draft.repeats && draft.status === "cancelled" && Boolean(cancelledContact);
-    // Read before the save: the offer is about this save turning the commitment cancelled.
-    const cancelling =
-      !draft.repeats &&
-      draft.status === "cancelled" &&
-      storedStatus !== "cancelled" &&
-      openPrep.length > 0 &&
-      Boolean(onCancelPrep);
-    const count = openPrep.length;
-    const saved = onSubmit(event);
-    setConfirmingCancel(willConfirm);
-    setPrepOffer(null);
-    setPrepError("");
-    // Cancelling prep writes, so unlike the contact offer it waits for a save that actually succeeded.
-    if ((await saved) === true && cancelling) setPrepOffer({ count, state: "asking" });
-  }
-  const guard = useSubmitGuard(handleSubmit);
+  const guard = useSubmitGuard(onSubmit);
   return (
     <details className="editor-card" open={open}>
       <summary>{summary}</summary>
@@ -441,16 +411,12 @@ export function CommitmentEditor({
             </select>
           </Field>
         ) : (
-          <Field label="Status">
-            <select
-              value={draft.status}
-              onChange={(event) => onChange({ ...draft, status: event.target.value as StoredCommitment["status"] })}
-            >
-              <option value="confirmed">Confirmed</option>
-              <option value="tentative">Tentative</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
-          </Field>
+          <StatusField
+            value={draft.status}
+            options={["confirmed", "tentative"]}
+            labelOf={(status) => `${status[0]!.toUpperCase()}${status.slice(1)}`}
+            onChange={(status) => onChange({ ...draft, status: status as StoredCommitment["status"] })}
+          />
         )}
         {!draft.repeats && overlapCommitment && (
           <p className="form-warning">
@@ -473,49 +439,8 @@ export function CommitmentEditor({
           </p>
         )}
         <FormActions editing={editing} cancel={onCancel} pending={guard.pending} />
-        {prepOffer && prepOffer.state !== "kept" && (
-          <p className="reason" role="status">
-            {prepOffer.state === "done" ? (
-              "Prep cancelled."
-            ) : (
-              <>
-                Cancel its {prepOffer.count} open prep {prepOffer.count === 1 ? "action" : "actions"} too?{" "}
-                <button
-                  type="button"
-                  className="quiet"
-                  disabled={prepOffer.state === "busy"}
-                  onClick={async () => {
-                    setPrepOffer({ ...prepOffer, state: "busy" });
-                    try {
-                      await onCancelPrep?.();
-                      setPrepOffer({ ...prepOffer, state: "done" });
-                    } catch (cause) {
-                      setPrepError(cause instanceof Error ? cause.message : "The prep was not cancelled.");
-                      setPrepOffer({ ...prepOffer, state: "asking" });
-                    }
-                  }}
-                >
-                  Cancel prep
-                </button>{" "}
-                <button
-                  type="button"
-                  className="quiet"
-                  disabled={prepOffer.state === "busy"}
-                  onClick={() => setPrepOffer({ ...prepOffer, state: "kept" })}
-                >
-                  Keep it
-                </button>
-              </>
-            )}
-            {prepError && (
-              <span className="form-error" role="alert">
-                {" "}
-                {prepError}
-              </span>
-            )}
-          </p>
-        )}
-        {confirmingCancel && cancelledContact && (
+        {editing && !draft.repeats && closeControl}
+        {cancelledNotice && cancelledContact && (
           <p className="reason" role="status">
             Cancelled.{" "}
             <button

@@ -1,24 +1,26 @@
 "use client";
 
+import type { ReactNode } from "react";
 import type { RoutinePresetDraft } from "@/features/routines/routine-editor";
 
-/** Naming, archiving and the two ways to grow the board, above the canvas itself. */
+/** Naming, the status (archiving is its own button) and the two ways to grow the board, above the canvas itself. */
 export function RoutineToolbar({
   name,
   status,
   saving,
   dirty,
   onNameChange,
-  onStatusChange,
-  onAddStep
+  onAddStep,
+  closeControl
 }: {
   name: string;
   status: RoutinePresetDraft["status"];
   saving: boolean;
   dirty: boolean;
   onNameChange: (name: string) => void;
-  onStatusChange: (status: RoutinePresetDraft["status"]) => void;
   onAddStep: (phase: "before" | "after") => void;
+  /** The Archive / Restore control of a routine that exists. */
+  closeControl?: ReactNode;
 }) {
   return (
     <header className="routine-toolbar">
@@ -27,13 +29,11 @@ export function RoutineToolbar({
         <input value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="Campus morning" />
         <small>Use normal spaces. Technical IDs are generated automatically.</small>
       </label>
-      <label>
+      <div className="field">
         <span>Status</span>
-        <select value={status} onChange={(event) => onStatusChange(event.target.value as RoutinePresetDraft["status"])}>
-          <option value="active">Active</option>
-          <option value="archived">Archived</option>
-        </select>
-      </label>
+        <span className="field-value">{status === "archived" ? "Archived" : "Active"}</span>
+        {closeControl}
+      </div>
       <div className="toolbar-actions">
         <button type="button" className="quiet" onClick={() => onAddStep("before")}>
           Add tile

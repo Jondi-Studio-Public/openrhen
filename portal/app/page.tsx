@@ -66,6 +66,7 @@ import { HeroSkeleton } from "@/components/hero-skeleton";
 import { NowHero } from "@/features/now/components/now-hero";
 import { WelcomeBackBanner } from "@/features/now/components/welcome-back-banner";
 import { ReviewDueLine } from "@/features/review/components/review-due-line";
+import { ClosedByAgentLine } from "@/features/closed/components/closed-by-agent-line";
 import { AgentChangesLine } from "@/features/now/components/agent-changes-line";
 import { PulseBadge } from "@/features/pulse/components/pulse-badge";
 import { ReentryPanel } from "@/features/pulse/components/reentry-panel";
@@ -795,6 +796,7 @@ export default function NowPage() {
         neverLooked={welcomeBack.agentChangesNeverLooked}
         coveredByWelcomeBack={welcomeBack.show && welcomeBack.rows.some((row) => row.key === "agent-changes")}
       />
+      <ClosedByAgentLine />
       <CheckInBanner />
       {disruption && (
         <RenegotiationPanel

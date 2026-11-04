@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@/test/render";
+import { childrenOpenRefusal, closeEntityCommandSchema } from "@openrhen/contracts";
+import { resultFor } from "@/test/close-fixtures";
+import { CommandRefusal } from "@/shared/command-refusal";
 import { createSeedState } from "@/state/portal-state";
 import { freezeClock } from "@/shared/clock";
 import { periodFor } from "@/features/review/planning-focus-period";
@@ -15,7 +18,14 @@ function buildState(overrides: Partial<typeof seed> = {}) {
   return { ...seed, ...overrides };
 }
 
+// Stands in for the server's close route: a body it would refuse fails the test, and the result is the real helper's.
+const closeEntityCommand = vi.fn(async (command: unknown) => {
+  const parsed = closeEntityCommandSchema.parse(command);
+  return resultFor(parsed, { version: 3, ...(parsed.do === "restore" ? { closedFrom: "active" } : {}) });
+});
+
 const baseContext = {
+  closeEntityCommand,
   ready: true,
   capacityEnvelopes: [{ adjustedCapacityMinutes: 600 }],
   forecasts: [],
@@ -170,7 +180,7 @@ describe("Review page composition", () => {
     expect(screen.getByText("Review due 2026-08-31")).toBeTruthy();
   });
 
-  it("pauses or drops a stale project as a status change", async () => {
+  it("pauses a stale project as a status change, and drops it through the close route", async () => {
     const state = buildState({
       projects: [{ ...seed.projects[0]!, lastWorkedAt: now.toISOString() }, seed.projects[1]!]
     });
@@ -186,9 +196,14 @@ describe("Review page composition", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Drop" }));
     });
-    expect(
-      (context.saveProjectCommand.mock.calls as unknown as [{ project: { status: string } }][])[1]![0].project.status
-    ).toBe("cancelled");
+    // a drop is a cancel: it goes through the close route (stamped as the person, cascading like an agent's), not a status save
+    expect(context.saveProjectCommand).toHaveBeenCalledTimes(1);
+    expect(closeEntityCommandSchema.parse(closeEntityCommand.mock.calls.at(-1)![0])).toMatchObject({
+      type: "project",
+      id: seed.projects[1]!.id,
+      verb: "cancel",
+      do: "close"
+    });
     expect(context.confirmProjectWantedCommand).not.toHaveBeenCalled();
   });
 
@@ -375,12 +390,13 @@ describe("Review page composition", () => {
       expect(screen.getByRole("button", { name: "Pause" })).toBeTruthy();
     });
 
-    it("puts a dropped project back as it was with Undo", async () => {
+    it("puts a dropped project back with Undo, as a restore at the version the close left", async () => {
       context = {
         ...baseContext,
         state: buildState({ projects: staleProjects(1) }),
         saveProjectCommand: vi.fn(() => Promise.resolve())
       };
+      closeEntityCommand.mockClear();
       render(<ReviewPage />);
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: "Drop" }));
@@ -389,10 +405,64 @@ describe("Review page composition", () => {
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: "Undo" }));
       });
-      const calls = context.saveProjectCommand.mock.calls as unknown as [{ project: { id: string; status: string } }][];
-      expect(calls.map(([command]) => command.project.status)).toEqual(["cancelled", seed.projects[1]!.status]);
-      expect(calls[1]![0].project.id).toBe("stale-0");
+      const bodies = closeEntityCommand.mock.calls.map(([command]) => closeEntityCommandSchema.parse(command));
+      expect(bodies.map((body) => body.do)).toEqual(["close", "restore"]);
+      expect(bodies[1]).toMatchObject({ type: "project", id: "stale-0", verb: "cancel", expectedVersion: 4 });
+      expect(context.saveProjectCommand).not.toHaveBeenCalled();
       expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    });
+
+    it("asks before dropping a project that still has open actions, and closes them with it on Close all", async () => {
+      context = { ...baseContext, state: buildState({ projects: staleProjects(1) }) };
+      closeEntityCommand.mockClear();
+      const refusal = childrenOpenRefusal({
+        type: "project",
+        id: "stale-0",
+        verb: "cancel",
+        version: 3,
+        count: 2,
+        deadlined: ["Tax return"]
+      });
+      closeEntityCommand.mockRejectedValueOnce(
+        new CommandRefusal(refusal.message, { status: 400, nextCall: refusal.nextCall })
+      );
+      render(<ReviewPage />);
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Drop" }));
+      });
+      expect(screen.getByText(/still has 2 open items under it, with deadlines: "Tax return"/)).toBeTruthy();
+      expect(screen.queryByRole("alert")).toBeNull();
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Close all" }));
+      });
+      const bodies = closeEntityCommand.mock.calls.map(([command]) => closeEntityCommandSchema.parse(command));
+      expect(bodies).toHaveLength(2);
+      expect(bodies[1]).toMatchObject({ includeChildren: true });
+      expect(bodies[1]!.commandId).toBe(bodies[0]!.commandId);
+      expect(screen.getByRole("status").textContent).toContain("Dropped Stale project 1.");
+    });
+
+    it("keeps the project open when the question is declined", async () => {
+      context = { ...baseContext, state: buildState({ projects: staleProjects(1) }) };
+      closeEntityCommand.mockClear();
+      const refusal = childrenOpenRefusal({
+        type: "project",
+        id: "stale-0",
+        verb: "cancel",
+        version: 3,
+        count: 1,
+        deadlined: []
+      });
+      closeEntityCommand.mockRejectedValueOnce(
+        new CommandRefusal(refusal.message, { status: 400, nextCall: refusal.nextCall })
+      );
+      render(<ReviewPage />);
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Drop" }));
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Keep open" }));
+      expect(screen.queryByText(/still has 1 open item/)).toBeNull();
+      expect(closeEntityCommand).toHaveBeenCalledTimes(1);
     });
   });
 

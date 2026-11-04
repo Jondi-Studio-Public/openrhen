@@ -1,11 +1,12 @@
 "use client";
 
-import type { FormEvent } from "react";
+import { isClosedStatus } from "@openrhen/contracts";
+import type { FormEvent, ReactNode } from "react";
 import type { StoredArea, StoredOutcome } from "@/state/portal-state";
 import { statuses, type OutcomeDraft } from "@/features/plan/plan-drafts";
 import { Field } from "@/components/field";
 import { FormActions, useSubmitGuard } from "@/components/form-actions";
-import { statusOption } from "@/components/status-option";
+import { StatusField } from "@/components/status-field";
 
 /** Add or edit an outcome: the result an area is aiming at, and the sentence that decides it is done. */
 export function OutcomeEditor({
@@ -14,7 +15,8 @@ export function OutcomeEditor({
   onChange,
   onSubmit,
   onCancel,
-  open = Boolean(draft.id)
+  open = Boolean(draft.id),
+  closeControl
 }: {
   draft: OutcomeDraft;
   areas: StoredArea[];
@@ -23,6 +25,8 @@ export function OutcomeEditor({
   onCancel: () => void;
   /** Whether the card is unfolded; open while editing by default, and a sheet holds it open. */
   open?: boolean;
+  /** The Archive / Cancel / Restore control, shown only for a record that exists. */
+  closeControl?: ReactNode;
 }) {
   const guard = useSubmitGuard(onSubmit);
   return (
@@ -34,7 +38,7 @@ export function OutcomeEditor({
             <option value="">Choose area</option>
             {/* Archived areas are not offered for new work, but one the outcome already sits in stays listed. */}
             {areas
-              .filter((item) => item.status !== "archived" || item.id === draft.areaId)
+              .filter((item) => !isClosedStatus(item.status) || item.id === draft.areaId)
               .map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.name}
@@ -74,15 +78,13 @@ export function OutcomeEditor({
             onChange={(event) => onChange({ ...draft, reviewOn: event.target.value })}
           />
         </Field>
-        <Field label="Status">
-          <select
-            value={draft.status}
-            onChange={(event) => onChange({ ...draft, status: event.target.value as StoredOutcome["status"] })}
-          >
-            {statuses.map(statusOption)}
-          </select>
-        </Field>
+        <StatusField
+          value={draft.status}
+          options={statuses}
+          onChange={(status) => onChange({ ...draft, status: status as StoredOutcome["status"] })}
+        />
         <FormActions editing={Boolean(draft.id)} cancel={onCancel} pending={guard.pending} />
+        {draft.id && closeControl}
       </form>
     </details>
   );

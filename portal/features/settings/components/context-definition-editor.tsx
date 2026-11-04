@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Field } from "@/components/field";
 import { ContextChoices, MinuteInput } from "@/features/settings/components/settings-fields";
 import type { ConditionDefinition } from "@/features/settings/context-summary";
@@ -42,7 +43,8 @@ export function ConditionDefinitionEditor({
   lookup,
   onChange,
   onSave,
-  onCancel
+  onCancel,
+  closeControl
 }: {
   draft: Record<string, unknown>;
   creating: boolean;
@@ -58,6 +60,8 @@ export function ConditionDefinitionEditor({
   onChange: (patch: Record<string, unknown>) => void;
   onSave: () => void;
   onCancel: () => void;
+  /** The Archive / Restore control of a context that exists. */
+  closeControl?: ReactNode;
 }) {
   // Only on the way in. An existing place without coordinates has to stay editable, or the rows
   // that most need fixing would be the ones nobody could save.
@@ -90,15 +94,12 @@ export function ConditionDefinitionEditor({
           </small>
         </Field>
       )}
-      <Field label="Status">
-        <select value={String(draft.status ?? "active")} onChange={(event) => onChange({ status: event.target.value })}>
-          <option value="active">Active</option>
-          <option value="archived" disabled={homeLocked}>
-            Archived
-          </option>
-        </select>
+      <div className="field">
+        <span>Status</span>
+        <span className="field-value">{draft.status === "archived" ? "Archived" : "Active"}</span>
+        {!creating && !homeLocked && closeControl}
         {homeLocked && <small>This is your home base. Choose another home base first.</small>}
-      </Field>
+      </div>
       {draft.kind === "capability" && (
         <Field label="Portability">
           <select

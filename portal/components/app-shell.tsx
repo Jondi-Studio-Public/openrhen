@@ -19,6 +19,7 @@ import { usePlanMapOpenCountRefresh } from "@/features/plan-map/plan-map-open-co
 import { useRoomCounts } from "@/features/inbox/use-room-counts";
 import { inboxBadge } from "@/features/inbox/rooms";
 import { useConnectionLapses } from "@/features/connections/connection-lapses";
+import { CloseToastRegion } from "@/features/closed/components/close-toast";
 
 /**
  * Frames every page: the side rail on a desk, the bottom tab bar on a phone, the Go to palette, and the global `+` capture sheet. Pages render their own `<main>` inside `.app-content`, which
@@ -73,6 +74,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         <AppNav variant="tabs" pathname={pathname} onCapture={openCapture} inboxCount={badge} youAlert={youAlert} />
         <GoToPalette />
         <CaptureSheetDialog />
+        {/* Mounted here, not in a page, so the Undo after a close survives the navigation the close often causes. */}
+        <CloseToastRegion />
       </div>
     </ImportWorkflowProvider>
   );

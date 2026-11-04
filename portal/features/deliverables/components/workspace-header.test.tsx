@@ -41,4 +41,20 @@ describe("WorkspaceHeader", () => {
     const strip = screen.getByLabelText("Stage progress");
     expect(strip.querySelector(".active")?.textContent).toContain("Do the work");
   });
+
+  it("shows the close control it is given beside the way back", () => {
+    render(
+      <WorkspaceHeader
+        deliverable={deliverable()}
+        projectTitle={undefined}
+        phase="Carry out"
+        mode="session"
+        currentStepTitle={undefined}
+        dirty={false}
+        onBack={vi.fn()}
+        closeControl={<button type="button">Close slot</button>}
+      />
+    );
+    expect(screen.getByRole("button", { name: "Close slot" })).toBeTruthy();
+  });
 });

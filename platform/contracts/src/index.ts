@@ -1467,6 +1467,19 @@ export type {
   SkippedRow
 } from "./closed-entity.js";
 export {
+  CLOSED_BADGE_WINDOW_HOURS,
+  CLOSED_TABS,
+  canRestoreWithBatch,
+  classifyClosedBy,
+  closedPageSchema,
+  closedRowSchema,
+  closedSummarySchema,
+  isAgentCloseForBadge,
+  isHiddenFromClosedList,
+  restoreVerbFor
+} from "./closed-list.js";
+export type { ClosedByClass, ClosedByKind, ClosedPage, ClosedRow, ClosedSummary, ClosedTab } from "./closed-list.js";
+export {
   ENERGY_COST_NEXT,
   buildEnergyCostAnswer,
   energyCostSchema,

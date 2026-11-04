@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, render, waitFor } from "@testing-library/react";
 import "@/test/render";
@@ -56,5 +57,51 @@ describe("PortalProvider snapshot replay", () => {
 
     expect(view.getByTestId("timezone").textContent).toBe("Europe/Paris");
     expect(fetchMock.mock.calls.filter(([url]) => url === "/api/state")).toHaveLength(0);
+  });
+
+  it("refuses a close or restore while replaying, without sending anything", async () => {
+    window.history.pushState({}, "", "/?snapshot=abc&source=server");
+    const seed = createSeedState();
+    const fetchMock = vi.fn((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve(
+            url.startsWith("/api/snapshots/")
+              ? {
+                  id: "abc",
+                  description: "",
+                  capturedAt: new Date().toISOString(),
+                  warnings: [],
+                  client: { state: seed, observedAt: new Date().toISOString() },
+                  server: { state: seed }
+                }
+              : {}
+          )
+      } as Response)
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let latest!: ReturnType<typeof usePortal>;
+    function Probe() {
+      const current = usePortal();
+      useEffect(() => {
+        latest = current;
+      });
+      return <span data-testid="ready">{String(current.ready)}</span>;
+    }
+    const view = render(
+      <PortalProvider>
+        <Probe />
+      </PortalProvider>
+    );
+    await waitFor(() => expect(view.getByTestId("ready").textContent).toBe("true"));
+    let caught: unknown;
+    await act(async () => {
+      caught = await latest
+        .closeEntityCommand({ type: "action", id: "a1", verb: "cancel", do: "close", expectedVersion: 1 })
+        .catch((error: unknown) => error);
+    });
+    expect((caught as Error).message).toMatch(/read-only replay/);
+    expect(fetchMock.mock.calls.filter(([url]) => url === "/api/commands/close")).toHaveLength(0);
   });
 });

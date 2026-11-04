@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createSeedState } from "@/state/portal-state";
 import {
   UNASSIGNED_AREA_ID,
+  partitionArchivedAreas,
   projectsForArea,
   selectableProjects,
   resolveProjectAreaId,
@@ -83,5 +84,19 @@ describe("selectableProjects", () => {
       "done",
       "archived"
     ]);
+  });
+});
+
+describe("partitionArchivedAreas", () => {
+  it("folds a legacy cancelled area away with the archived ones", () => {
+    const [first] = seed().areas;
+    const areas = [
+      { ...first!, id: "live", status: "active" as const },
+      { ...first!, id: "old", status: "archived" as const },
+      { ...first!, id: "legacy", status: "cancelled" as never }
+    ];
+    const { live, archived } = partitionArchivedAreas(areas);
+    expect(live.map((area) => area.id)).toEqual(["live"]);
+    expect(archived.map((area) => area.id).sort()).toEqual(["legacy", "old"]);
   });
 });

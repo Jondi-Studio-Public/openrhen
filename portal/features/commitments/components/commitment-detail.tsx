@@ -9,8 +9,8 @@ import { Sheet } from "@/components/sheet";
 import { useNow } from "@/shared/clock";
 import { ConnectionsSection } from "@/features/plan-map/components/connections-section";
 import { CommitmentEditor } from "@/features/today/components/commitment-editor";
+import { CloseControl } from "@/features/closed/components/close-control";
 import type { GeocodeMatch } from "@/features/today/components/location-picker";
-import { useCommitmentPrep } from "@/features/commitments/use-commitment-prep";
 import { CommitmentHeader } from "@/features/commitments/components/commitment-header";
 import { CommitmentPlacePanel } from "@/features/commitments/components/commitment-place-panel";
 import { CommitmentProvenanceFooter } from "@/features/commitments/components/commitment-provenance-footer";
@@ -66,8 +66,9 @@ export function CommitmentDetail({ commitmentId }: { commitmentId: string }) {
   // Set only when a series save comes back with the `occurrence_in_progress` refusal: the question
   // replaces the form until it is answered or cancelled, but the draft itself is untouched either way.
   const [inProgressQuestion, setInProgressQuestion] = useState(false);
+  // Set when the commitment was just cancelled from the editor and has a contact to tell: the sheet stays open to ask.
+  const [cancelledNotice, setCancelledNotice] = useState(false);
   const now = useNow("minute");
-  const prep = useCommitmentPrep(commitmentId);
 
   const commitment = state.commitments.find((item) => item.id === commitmentId);
   const rule = commitment?.recurrenceRuleId
@@ -138,6 +139,7 @@ export function CommitmentDetail({ commitmentId }: { commitmentId: string }) {
     setDraft(null);
     setDraftVersion(null);
     setInProgressQuestion(false);
+    setCancelledNotice(false);
   }
 
   async function submitEditor(event: FormEvent): Promise<boolean> {
@@ -155,20 +157,20 @@ export function CommitmentDetail({ commitmentId }: { commitmentId: string }) {
     }
     setError(message);
     if (message) return false;
-    // "The editor is the only place a cancel happens": a save
-    // that just cancelled an occurrence or a one-off, with a contact that still resolves, leaves the
-    // sheet open so `CommitmentEditor`'s own "Cancelled. Let Sam know?" confirmation stays on screen
-    // instead of being closed out from under it. Every other save closes exactly as before.
-    // The same goes for "Cancel its N open prep actions too?", which the editor asks after such a save.
-    if (
-      editing === "occurrence" &&
-      draft.status === "cancelled" &&
-      (resolveCommitmentContact({ contactId: draft.contactId }, state.conditionDefinitions) ||
-        (commitment!.status !== "cancelled" && prep.openPrep.length > 0))
-    )
-      return true;
     closeEditor();
     return true;
+  }
+
+  /**
+   * The commitment was cancelled from the editor's button (the server cancelled its routine steps and prep with it, and
+   * the toast says which). With a contact that still resolves the sheet stays open for "Cancelled. Let Sam know?";
+   * otherwise it closes.
+   */
+  function afterCancel() {
+    if (draft && resolveCommitmentContact({ contactId: draft.contactId }, state.conditionDefinitions)) {
+      setDraft({ ...draft, status: "cancelled" });
+      setCancelledNotice(true);
+    } else closeEditor();
   }
 
   async function answerInProgressQuestion(applyToOccurrenceInProgress: boolean) {
@@ -314,8 +316,19 @@ export function CommitmentDetail({ commitmentId }: { commitmentId: string }) {
               definitions={state.conditionDefinitions}
               timezone={state.settings.timezone}
               open
-              storedStatus={commitment.status}
-              {...prep}
+              cancelledNotice={cancelledNotice}
+              closeControl={
+                <CloseControl
+                  type="commitment"
+                  id={commitment.id}
+                  dirty={
+                    editing === "occurrence" &&
+                    !cancelledNotice &&
+                    JSON.stringify(draft) !== JSON.stringify(commitmentEditorFrom(commitment, state.settings))
+                  }
+                  onDone={afterCancel}
+                />
+              }
             />
           )
         )}

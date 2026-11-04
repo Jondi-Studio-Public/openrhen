@@ -1,0 +1,64 @@
+/* The toast after a close sits above the phone's tab bar and rises 8px as it fades in. It never covers the page's
+   own controls beyond its own height, and a narrow screen lets its words wrap instead of overflowing. */
+.region {
+  position: fixed;
+  z-index: 30;
+  inset: auto 0 calc(var(--nav-clearance, 0px) + 16px) 0;
+  display: grid;
+  justify-items: center;
+  padding: 0 16px;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-inline-size: 100%;
+  padding: 6px 6px 6px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill, 999px);
+  background: var(--surface-raised);
+  box-shadow: 0 8px 30px var(--shadow-3);
+  font-weight: 600;
+  pointer-events: auto;
+  animation: rise 160ms var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1));
+}
+
+.text {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.error {
+  color: var(--danger, inherit);
+}
+
+.toast button {
+  min-block-size: 44px;
+}
+
+.close {
+  inline-size: 44px;
+  padding-inline: 0;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation-name: fade;
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}

@@ -253,7 +253,7 @@ describe("projectStatusCommand", () => {
       internalDeadlineAt: "2026-09-01T07:30:00.000Z"
     });
     expect("prerequisites" in command.project).toBe(false);
-    expect(projectStatusCommand(project, "cancelled").project.status).toBe("cancelled");
+    expect(projectStatusCommand(project, "active").project.status).toBe("active");
   });
 });
 

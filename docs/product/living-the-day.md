@@ -91,9 +91,11 @@ A fixed commitment removes time from capacity. Enter its title, start and end, p
 
 - **Confirmed**: occupied time.
 - **Tentative**: kept as a provisional "maybe".
-- **Cancelled**: no longer blocks the plan.
+- **Cancelled**: set with the **Cancel** button rather than the status choice; it no longer blocks the plan and can be restored from Review > Closed.
 
 The **place** is one of your saved places (naming it lets the planner work out the journey). You can also set the project the time belongs to, whether you are **fully occupied** or **free to do other things** while there, and how often check-ins interrupt. A commitment can **repeat**: every N days, every N weeks on chosen weekdays, or monthly. A single date in a series can be edited or cancelled without touching the rest.
+
+Now and Day show a line when an agent has closed (archived or cancelled) something in the last 24 hours; it links to **Review > Closed**, where each item can be restored. Opening that page on a device clears the line there.
 
 ## History
 

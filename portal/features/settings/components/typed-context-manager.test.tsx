@@ -4,6 +4,17 @@ import { act, fireEvent, render, screen, within } from "@/test/render";
 import { TypedConditionManager } from "@/features/settings/components/typed-context-manager";
 import type { ConditionDefinition } from "@/features/settings/context-summary";
 import type { PortalState } from "@/state/portal-state";
+import { closeEntityCommandSchema } from "@openrhen/contracts";
+import { resultFor } from "@/test/close-fixtures";
+
+// The Archive / Restore control reads the row from portal state and posts to the close route; stand in for both.
+let portalDefinitions: ConditionDefinition[] = [];
+const closeEntityCommand = vi.fn(async (command: unknown) =>
+  resultFor(closeEntityCommandSchema.parse(command), { version: 3 })
+);
+vi.mock("@/state/portal-provider", () => ({
+  usePortal: () => ({ state: { conditionDefinitions: portalDefinitions }, closeEntityCommand })
+}));
 
 type SaveMock = (entity: Record<string, unknown>, expectedVersion: number | null) => Promise<void>;
 
@@ -31,6 +42,7 @@ function renderManager(
     commitments?: PortalState["commitments"];
   } = {}
 ) {
+  portalDefinitions = definitions.map((entry) => ({ ...entry, version: 3 }));
   render(
     <TypedConditionManager
       definitions={definitions}
@@ -229,12 +241,12 @@ describe("TypedConditionManager", () => {
     expect(within(campusCard as HTMLElement).queryByText("Home", { selector: "span" })).toBeNull();
 
     fireEvent.click(within(homeCard as HTMLElement).getByRole("button", { name: "Edit" }));
-    expect((screen.getByRole("option", { name: "Archived" }) as HTMLOptionElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: /^Archive context/ })).toBeNull();
     expect(screen.getByText("This is your home base. Choose another home base first.")).toBeTruthy();
   });
 
-  it("leaves archiving alone for a place that is not home", () => {
-    renderManager(
+  it("archives a place that is not home through the close route, not a status save", async () => {
+    const onSave = renderManager(
       [
         definition({ id: "home", name: "Home", kind: "location" }),
         definition({ id: "campus", name: "Campus", kind: "location" })
@@ -242,9 +254,29 @@ describe("TypedConditionManager", () => {
       vi.fn<SaveMock>(),
       { homeLocationId: "home" }
     );
+    closeEntityCommand.mockClear();
     const cards = section("Locations").getAllByRole("article");
     fireEvent.click(within(cards[1] as HTMLElement).getByRole("button", { name: "Edit" }));
-    expect((screen.getByRole("option", { name: "Archived" }) as HTMLOptionElement).disabled).toBe(false);
+    expect(screen.queryByRole("option", { name: "Archived" })).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^Archive context/ }));
+    });
+    expect(closeEntityCommand).toHaveBeenCalledOnce();
+    expect(closeEntityCommandSchema.parse(closeEntityCommand.mock.calls[0]![0])).toMatchObject({
+      type: "condition_definition",
+      id: "campus",
+      verb: "archive",
+      do: "close",
+      expectedVersion: 3
+    });
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("offers Restore, not Archive, for an archived place", () => {
+    renderManager([definition({ id: "shed", name: "Old shed", kind: "location", status: "archived" })]);
+    fireEvent.click(within(section("Locations").getByRole("article")).getByRole("button", { name: "Edit" }));
+    expect(screen.getByRole("button", { name: /^Restore/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Archive context/ })).toBeNull();
   });
 
   it("puts a chosen match on the place being edited and saves that place alone", async () => {

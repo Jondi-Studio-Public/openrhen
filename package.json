@@ -18,6 +18,7 @@
     "dev:portal": "pnpm --filter @openrhen/portal dev",
     "build:portal": "pnpm --filter @openrhen/portal build",
     "smoke:production": "node scripts/smoke/production-click.mjs",
+    "smoke:closed": "node scripts/smoke/closed-flow.mjs",
     "dev:engine-service": "pnpm --filter @openrhen/engine-service dev",
     "dev:engine-worker": "pnpm --filter @openrhen/engine-worker dev",
     "dev:outbound-proxy": "pnpm --filter @openrhen/outbound-proxy dev",

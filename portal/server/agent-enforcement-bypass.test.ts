@@ -127,6 +127,17 @@ describe("owner-only routes refuse a database token through the real wrapper", (
     expect(handler).not.toHaveBeenCalled();
   });
 
+  it.each(["/api/closed", "/api/closed/summary"])(
+    "answers 403 to GET %s (OWNER_READS), whatever scopes the token holds",
+    async (route) => {
+      principal.scopes = everyScope;
+      const response = await request("GET", route);
+      expect(response.status).toBe(403);
+      expect(((await response.json()) as { error: string }).error).toContain("for the owner");
+      expect(handler).not.toHaveBeenCalled();
+    }
+  );
+
   it("is not a block on every route: a read the token's scopes cover still reaches the handler", async () => {
     principal.scopes = ["read:changes"];
     const response = await request("GET", "/api/changes");

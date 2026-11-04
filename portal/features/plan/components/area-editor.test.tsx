@@ -54,4 +54,23 @@ describe("AreaEditor", () => {
     fireEvent.click(screen.getByLabelText("Private"));
     expect(onChange).toHaveBeenCalledWith({ ...emptyArea(), private: true });
   });
+
+  it("offers no archived or cancelled status, and shows a closed area's status as text without a select", () => {
+    const props = { onChange: () => {}, onSubmit: () => {}, onCancel: () => {} };
+    const { rerender } = render(<AreaEditor draft={{ ...emptyArea(), id: "a1", name: "Home" }} {...props} />);
+    const statusSelect = screen.getByRole<HTMLSelectElement>("combobox", { name: "Status" });
+    expect(Array.from(statusSelect.options).map((option) => option.textContent)).toEqual(["active", "paused", "done"]);
+    rerender(<AreaEditor draft={{ ...emptyArea(), id: "a1", name: "Home", status: "archived" }} {...props} />);
+    expect(screen.queryByRole("combobox", { name: "Status" })).toBeNull();
+    expect(screen.getByText("archived")).toBeTruthy();
+  });
+
+  it("shows the close control only for an area that exists", () => {
+    const control = <button type="button">Archive area</button>;
+    const props = { onChange: () => {}, onSubmit: () => {}, onCancel: () => {}, closeControl: control };
+    const { rerender } = render(<AreaEditor draft={emptyArea()} {...props} />);
+    expect(screen.queryByRole("button", { name: "Archive area" })).toBeNull();
+    rerender(<AreaEditor draft={{ ...emptyArea(), id: "a1", name: "Home" }} {...props} />);
+    expect(screen.getByRole("button", { name: "Archive area" })).toBeTruthy();
+  });
 });

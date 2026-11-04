@@ -217,4 +217,33 @@ describe("ConditionDefinitionEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Harbor Mart Riverside" }));
     expect(onSelectMatch).toHaveBeenCalledWith(match);
   });
+
+  it("has no status select with an Archived option; the status is text and the close control sits beside it", () => {
+    renderEditor(
+      { kind: "capability", name: "Desk", status: "active" },
+      {
+        closeControl: <button type="button">Archive context</button>
+      }
+    );
+    expect(screen.queryByRole("combobox", { name: "Status" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "Archived" })).toBeNull();
+    expect(screen.getByText("Active")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Archive context" })).toBeTruthy();
+  });
+
+  it("shows an archived context as Archived, and offers no close control while creating or for the home base", () => {
+    const control = <button type="button">Archive context</button>;
+    const { unmount } = renderEditor(
+      { kind: "capability", name: "Desk", status: "archived" },
+      { closeControl: control }
+    );
+    expect(screen.getByText("Archived")).toBeTruthy();
+    unmount();
+    const creating = renderEditor({ kind: "capability", name: "Desk" }, { creating: true, closeControl: control });
+    expect(screen.queryByRole("button", { name: "Archive context" })).toBeNull();
+    creating.unmount();
+    renderEditor({ kind: "location", name: "Home" }, { homeLocked: true, closeControl: control });
+    expect(screen.queryByRole("button", { name: "Archive context" })).toBeNull();
+    expect(screen.getByText("This is your home base. Choose another home base first.")).toBeTruthy();
+  });
 });
