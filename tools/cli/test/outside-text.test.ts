@@ -1,5 +1,5 @@
 import { calendarSourceConnections, primarySourceConnection, registerConnectionManifest } from "@openrhen/contracts";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { buildLineContext, handleLine } from "../src/commands/mcp.js";
 import { fenceOutsideText, keepProvenance, outsideCommitments, outsideSourceOf } from "../src/outside-text.js";
 
@@ -320,6 +320,12 @@ describe("a commitment from the calendar feed", () => {
 });
 
 describe("the MCP result for the general read tools", () => {
+  // The first buildLineContext loads the whole command registry and CLI (a large module graph). Paid inside the first
+  // case it ate that case's 5 s budget on a loaded runner, so pay it here, under a budget sized for a cold load.
+  beforeAll(async () => {
+    await buildLineContext(async () => 0);
+  }, 60_000);
+
   async function run(name: string, args: Record<string, unknown>, output: unknown) {
     const ctx = await buildLineContext(async (_argv, capture) => {
       capture.stdout(JSON.stringify(output, null, 2));
