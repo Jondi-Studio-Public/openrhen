@@ -1,4 +1,4 @@
-import { hardFloorReason, type ImportRecord } from "@openrhen/contracts";
+import { hardFloorReason, isClosedStatus, type ImportRecord } from "@openrhen/contracts";
 import { fieldValue } from "@/features/imports/import-validation";
 import type { Sql } from "../sql-pool";
 
@@ -32,4 +32,17 @@ export async function agentImportFloor(
     touchesPeople = shared.length > 0;
   }
   return hardFloorReason({ tool: "import", action: "commit", rowCount: ready.length, touchesPeople });
+}
+
+/**
+ * How many of the ready records close a commitment: a delete of one, or an update that sets a closed status. Until the
+ * calendar cancel becomes a real cancel (design 7a) a delete is a hard delete, but it is counted now so the hourly brake
+ * covers it from the day it changes.
+ */
+export function closingRecordCount(ready: readonly ImportRecord[]): number {
+  return ready.filter((record) => {
+    if (record.entityType !== "fixed_commitment") return false;
+    if (record.operation === "delete") return true;
+    return record.operation === "update" && isClosedStatus(fieldValue(record, "status") as string | undefined);
+  }).length;
 }

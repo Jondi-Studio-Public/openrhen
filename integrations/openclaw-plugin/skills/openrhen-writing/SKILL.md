@@ -26,7 +26,7 @@ in what they said, ask. The portal shows it under Review > Agent changes.
   never applied around: re-read and preview again. An apply must repeat its preview's `changes`, `basis` and
   `evidence` unchanged, or it is refused as different from the preview.
 - Many existing records of one kind patched the same way: `rhen_bulk` (it cannot create). It always needs
-  `yes` unless `dry-run`, and a bulk over 20 rows is filed for them to confirm.
+  `yes` unless `dry-run`, and a bulk over 20 rows is filed for them to confirm. A bulk that sets status archived or cancelled is refused: use `rhen_archive` or `rhen_cancel`.
 
 Look up ids with `rhen_search` or `rhen_list` first; filters accept titles. Search finds only what
 is still in play: a past appointment or a finished action needs `status` `any`, or a listed time window.

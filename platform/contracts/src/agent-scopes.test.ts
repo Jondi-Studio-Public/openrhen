@@ -21,6 +21,7 @@ import {
   validateGrantableScopes,
   type HardFloorCall
 } from "./agent-scopes.js";
+import { ARCHIVE_TYPES, CANCEL_TYPES } from "./closed-entity.js";
 import { contractsExtensions } from "./extensions.js";
 import { actionStatusSchema, lifecycleStatusSchema } from "./core.js";
 import { planningEntityCommandSchema } from "./planning/commands.js";
@@ -218,10 +219,10 @@ describe("hardFloorReason", () => {
     );
     expect(hardFloorReason({ tool: "save", entityType: "action", remove: true })).toBe(
       "removal: deleting this action is the person's call; " +
-        "to take it out of the plan instead, run `rhen save action --id <id> --set status=cancelled`"
+        'to take it out of the plan instead, run `rhen cancel action <id> close --reason "<why>"`'
     );
     expect(hardFloorReason({ tool: "save", entityType: "routine_preset", remove: true })).toContain(
-      "--set status=archived`"
+      'rhen archive routine_preset <id> close --reason "<why>"`'
     );
     expect(hardFloorReason({ tool: "save", entityType: "capture", remove: true })).toContain(
       "`rhen inbox-act captured ignore <id>`"
@@ -380,7 +381,7 @@ describe("hardFloorInstead", () => {
       "rhen inbox-act kept reopen <id>"
     );
     expect(hardFloorInstead({ tool: "save", entityType: "project", remove: true })).toBe(
-      "rhen save project --id <id> --set status=cancelled"
+      'rhen cancel project <id> close --reason "<why>"'
     );
     expect(hardFloorInstead({ tool: "save", entityType: "settings", settingsFields: ["timezone"] })).toBe(
       "Settings > Planning"
@@ -413,7 +414,7 @@ describe("hardFloorInstead", () => {
   });
 
   it("gives a status that exists for every kind it tells the agent to set one on", () => {
-    // Mirrors the statuses `save` sets to take a record out of the plan; a rename in the schemas fails here.
+    // Mirrors the statuses the close tools write to take a record out of the plan; a rename in the schemas fails here.
     const statuses: Record<string, readonly string[]> = {
       area: lifecycleStatusSchema.options,
       outcome: lifecycleStatusSchema.options,
@@ -425,8 +426,11 @@ describe("hardFloorInstead", () => {
     };
     for (const [kind, allowed] of Object.entries(statuses)) {
       const instead = hardFloorInstead({ tool: "save", entityType: kind, remove: true }) as string;
-      const status = /--set status=(\w+)$/.exec(instead)?.[1];
-      expect(allowed, kind).toContain(status);
+      // Now the close tool for that kind, which must take the kind, and the status it writes must exist for it.
+      const verb = /^rhen (archive|cancel) /.exec(instead)?.[1];
+      expect(verb, kind).toBeDefined();
+      expect((verb === "archive" ? ARCHIVE_TYPES : CANCEL_TYPES) as readonly string[], kind).toContain(kind);
+      expect(allowed, kind).toContain(verb === "archive" ? "archived" : "cancelled");
     }
   });
 });

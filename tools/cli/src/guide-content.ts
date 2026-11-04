@@ -248,7 +248,7 @@ named like the flag without the leading --; each tool's input schema is the full
 
 3. Reschedule or cancel a commitment:
      rhen save commitment --id commitment-dentist --set startsAt=... --set endsAt=...   # reschedule one
-     rhen save commitment --id commitment-dentist --set status=cancelled                # cancel one
+     rhen cancel commitment commitment-dentist close --reason "moved to another clinic"   # cancel one
      rhen recurrence set --id rule-gym --set endDate=2026-12-31 --yes                    # end the series
 
 4. Start and finish work via session:
@@ -381,7 +381,7 @@ named like the flag without the leading --; each tool's input schema is the full
    status), skip-step / unskip-step, pause / resume, arrive, span add / set, an Inbox confirm, and a session,
    check-in or catch-up settle made as an agent, and each row of a bulk edit (one undo per row, newest first).
    An agent's write is undone from the rows the portal kept, exactly as they were. A deliverable, email or
-   import is not recorded; fix those by hand (e.g. save --set status=cancelled).
+   import is not recorded; fix those by hand (e.g. rhen cancel action <id> close).
    Undo reverses only your own writes (another owner's newer ones are skipped) and refuses (exit 3) if the record
    changed since ("changed since; not undone"): edit it by hand.
 <stdio>
@@ -395,10 +395,10 @@ named like the flag without the leading --; each tool's input schema is the full
       rhen bulk action --status planned --project Thesis --set energy=high --yes
       rhen bulk capture --ids capture-a,capture-b --set status=ignored --yes
 <stdio>
-      rhen bulk action --targets targets.json --set status=cancelled --yes  # [{id, expectedVersion?}, ...]
+      rhen bulk action --targets targets.json --set importance=2 --yes  # [{id, expectedVersion?}, ...]
 </stdio>
 <remote>
-      rhen bulk action --targets-json '[{"id":"action-a"}]' --set status=cancelled --yes  # [{id, expectedVersion?}, ...]
+      rhen bulk action --targets-json '[{"id":"action-a"}]' --set importance=2 --yes  # [{id, expectedVersion?}, ...]
 </remote>
     Selection is exactly one of: the same filters "list" takes (including --where's comparison operators,
     field<value/field>value/field<=value/field>=value), --ids a,b,c, or a list of targets (--targets-json). Always

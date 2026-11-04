@@ -376,7 +376,13 @@ async function readCloseFacts(
   agent: string | undefined
 ): Promise<StoredFacts> {
   try {
-    const { previewClose } = await import("./persistence/postgres/close-commands");
+    const [{ previewClose, storedIdFor }, { closedInWindow }, { verifyUndoOfCreate }, { ensureUser }] =
+      await Promise.all([
+        import("./persistence/postgres/close-commands"),
+        import("./persistence/postgres/close-budget"),
+        import("./persistence/postgres/close-undo"),
+        import("./persistence/postgres/ensure-user")
+      ]);
     const fields = asRecord(body) ?? {};
     const preview = await previewClose(sql, {
       type: target.type,
@@ -387,7 +393,38 @@ async function readCloseFacts(
       ...(typeof fields.reason === "string" ? { reason: fields.reason } : {}),
       ...(fields.includeChildren === true ? { includeChildren: true } : {})
     } as never);
+    const userId = await ensureUser(sql);
+    // A retry of a call that already landed is answered from its receipt by the handler: not asked of the budget again.
+    const commandId =
+      typeof fields.commandId === "string" && UUID.test(fields.commandId) ? fields.commandId : undefined;
+    const landed =
+      commandId !== undefined &&
+      (
+        await sql`SELECT 1 FROM writes WHERE id=${commandId} AND user_id=${userId} AND command_type='close_entity' LIMIT 1`
+      ).length > 0;
+    // An undo of the agent's own create is exempt from the brake; the same ledger test the handler makes.
+    const undoId =
+      typeof fields.undoOfCommandId === "string" && UUID.test(fields.undoOfCommandId)
+        ? fields.undoOfCommandId
+        : undefined;
+    const undoOfCreate =
+      undoId !== undefined &&
+      target.do === "close" &&
+      typeof fields.expectedVersion === "number" &&
+      fields.expectedVersion === preview.version &&
+      (await verifyUndoOfCreate(
+        sql,
+        userId,
+        target.type,
+        await storedIdFor(target.type as never, userId, target.id),
+        undoId,
+        agent ?? null
+      ));
+    const { used } = await closedInWindow(sql, userId);
     return {
+      closedInHour: used,
+      closeCommandLanded: landed,
+      undoOfCreate,
       closeTypes: preview.closeTypes,
       needsOwner: preview.needsOwner,
       shared: preview.shared,
@@ -399,7 +436,7 @@ async function readCloseFacts(
       restorableByAgent:
         !preview.found ||
         !isClosedStatus(preview.status) ||
-        (agent !== undefined && preview.closedBy === `agent:${agent}`),
+        (agent !== undefined && (preview.closedBy === `agent:${agent}` || preview.closedBy === `agent:${agent}:undo`)),
       ...(preview.version === null ? {} : { closeVersion: preview.version }),
       closeChildren: preview.children.map((child) => ({ type: child.type, id: child.id, version: child.version }))
     };

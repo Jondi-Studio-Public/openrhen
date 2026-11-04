@@ -5,7 +5,16 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { fileURLToPath } from "node:url";
 import { memoryJournal, runCli, type Journal } from "@openrhen/cli/in-process";
-import { planningEntityCommandSchema, saveActionCommandSchema, saveProjectCommandSchema } from "@openrhen/contracts";
+import {
+  closeEntityCommandSchema,
+  planningEntityCommandSchema,
+  saveActionCommandSchema,
+  saveProjectCommandSchema
+} from "@openrhen/contracts";
+import { enforceAgentRequest } from "@/server/agent-enforcement";
+import type { AgentPrincipal } from "@/server/agent-tokens";
+import { runWithActor } from "@/server/agent-actor";
+import { closeEntity } from "./close-commands";
 import { integrationDatabaseName } from "@openrhen/database";
 import { CommandConflictError, InvalidCommandError } from "./command-errors";
 import { ensureUser } from "./ensure-user";
@@ -48,6 +57,10 @@ const portalFetch: typeof fetch = async (input, init) => {
   try {
     if (url.pathname === "/api/state") return reply(200, { state: await readPortalState(sql) });
     const body: unknown = JSON.parse(String(init?.body));
+    if (url.pathname === "/api/commands/close") {
+      const { closed, state } = await closeEntity(sql, closeEntityCommandSchema.parse(body));
+      return reply(200, { state, closed });
+    }
     if (url.pathname === "/api/commands/entity")
       return reply(200, { state: await saveEntity(sql, planningEntityCommandSchema.parse(body)) });
     if (url.pathname === "/api/commands/project")
@@ -117,7 +130,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   journal = memoryJournal([], 200);
   await sql.unsafe(
-    "TRUNCATE TABLE writes, write_rows, routine_preset_steps, routine_presets, spans, commitments, actions, projects, outcomes, areas, captures, sources, condition_definitions RESTART IDENTITY CASCADE"
+    "TRUNCATE TABLE agent_proposals, writes, write_rows, routine_preset_steps, routine_presets, spans, commitments, actions, projects, outcomes, areas, captures, sources, condition_definitions RESTART IDENTITY CASCADE"
   );
 });
 
@@ -416,5 +429,144 @@ describe("undoing a create through the CLI against the real handlers", () => {
     const redone = await cli("undo", "--redo");
     expect(redone.exitCode, redone.stderr).toBe(0);
     expect(await spans()).toMatchObject([{ title: "Away" }]);
+  });
+});
+
+describe("25 creates and 25 undos through the CLI journal as a token agent", () => {
+  const principal: AgentPrincipal = {
+    name: "claude",
+    source: "db",
+    tokenId: "t1",
+    scopes: ["area", "outcome", "project", "action", "condition_definition"].map((type) => `write:entity:${type}`),
+    directWrites: { area: "on", outcome: "on", project: "on", action: "on", condition_definition: "on" }
+  };
+  /** The portal as a token agent meets it: the route's enforcement, then the handlers under the agent's name. */
+  const agentFetch: typeof fetch = async (input, init) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+    if (url.pathname === "/api/state") return portalFetch(input, init);
+    const request = new Request(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: String(init?.body)
+    });
+    const guard = await enforceAgentRequest(request, url.pathname, principal, { basis: "stated", evidence: "asked" });
+    if (guard !== null) return guard;
+    return runWithActor("claude", () => portalFetch(input, init), undefined, undefined, principal.scopes);
+  };
+  async function agentCli(...argv: string[]) {
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const exitCode = await runCli(argv, {
+      stdout: (text) => stdout.push(text),
+      stderr: (text) => stderr.push(text),
+      env: { OPENRHEN_URL: ORIGIN } as Record<string, string> as NodeJS.ProcessEnv,
+      fetchImpl: agentFetch,
+      readConfigFile: () => null,
+      journal
+    });
+    return { exitCode, stdout: stdout.join("\n"), stderr: stderr.join("\n") };
+  }
+
+  it("applies every undo with the hour already spent, then redoes the newest, and holds an ordinary close", async () => {
+    process.env.DATABASE_URL = testUrl.toString();
+    const userId = await ensureUser(sql);
+    const spent = crypto.randomUUID();
+    await sql`INSERT INTO writes (id,user_id,command_type,actor) VALUES (${spent},${userId},'close_entity','claude')`;
+    await sql`INSERT INTO write_rows (write_id,user_id,entity_type,entity_id,operation,evidence) VALUES (${spent},${userId},'action','seed','close',${sql.json({ closed: 20, counted: true } as never)})`;
+    const gym = await agentCli(
+      "save",
+      "condition_definition",
+      "--create",
+      "--set",
+      "id=Gym",
+      "--set",
+      "name=Gym",
+      "--set",
+      "kind=capability"
+    );
+    expect(gym.exitCode, gym.stderr).toBe(0);
+    const targets: [string, string][] = [["condition_definitions", newestTarget()]];
+    for (let i = 0; i < 6; i++) {
+      const area = await agentCli(
+        "save",
+        "area",
+        "--set",
+        `name=Area ${i}`,
+        "--set",
+        "status=active",
+        "--set",
+        "sortOrder=3"
+      );
+      expect(area.exitCode, area.stderr).toBe(0);
+      const areaId = newestTarget();
+      const outcome = await agentCli(
+        "save",
+        "outcome",
+        "--set",
+        `title=Outcome ${i}`,
+        "--set",
+        `areaId=${areaId}`,
+        "--set",
+        "definitionOfDone=Done",
+        "--set",
+        "value=3",
+        "--set",
+        "status=active"
+      );
+      expect(outcome.exitCode, outcome.stderr).toBe(0);
+      const outcomeId = newestTarget();
+      const project = await agentCli(
+        "save",
+        "project",
+        "--create",
+        "--set",
+        `id=project-${i}`,
+        "--set",
+        `title=Project ${i}`,
+        "--set",
+        `outcomeId=${outcomeId}`
+      );
+      expect(project.exitCode, project.stderr).toBe(0);
+      const projectId = newestTarget();
+      const action = await agentCli(
+        "save",
+        "action",
+        "--create",
+        "--set",
+        `id=action-${i}`,
+        "--set",
+        `title=Action ${i}`,
+        "--set",
+        `projectId=${projectId}`
+      );
+      expect(action.exitCode, action.stderr).toBe(0);
+      targets.push(["areas", areaId], ["outcomes", outcomeId], ["projects", projectId], ["actions", newestTarget()]);
+    }
+    expect(targets).toHaveLength(25);
+    expect(journal.read()).toHaveLength(25);
+    for (const [table, id] of [...targets].reverse()) {
+      const undone = await agentCli("undo");
+      expect(undone.exitCode, `${table} ${id}: ${undone.stderr}`).toBe(0);
+      const status = (await row(table, id))!.status;
+      expect(["archived", "cancelled"], `${table} ${id}`).toContain(status);
+    }
+    expect(await sql`SELECT 1 FROM agent_proposals`).toHaveLength(0);
+    const closedBy = await sql<{ closed_by: string }[]>`SELECT closed_by FROM actions WHERE status='cancelled' LIMIT 1`;
+    expect(closedBy[0]!.closed_by).toBe("agent:claude:undo");
+    // redo of the newest undone entry restores it directly
+    const redone = await agentCli("undo", "--redo");
+    expect(redone.exitCode, redone.stderr).toBe(0);
+    expect((await row("condition_definitions", targets[0]![1]))!.status).toBe("active");
+    // an ordinary close of a row the agent did not just create is held: the hour is spent
+    const areaId = (
+      await sql<
+        { id: string }[]
+      >`INSERT INTO areas (user_id,name,status,sort_order) VALUES (${userId},'Owner area','active',0) RETURNING id`
+    )[0]!.id;
+    const held = await agentFetch(`${ORIGIN}/api/commands/close`, {
+      method: "POST",
+      body: JSON.stringify({ type: "area", id: areaId, verb: "archive", do: "close", reason: "tidy" })
+    });
+    expect(held.status).toBe(202);
   });
 });

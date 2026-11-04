@@ -2,6 +2,8 @@ import {
   assumedFieldsAfterUpdate,
   entityFieldNames,
   HIDING_STATUS,
+  UNDO_VERB,
+  type CloseType,
   normalizeAssumedFields,
   normalizeStatus,
   SAVE_ENTITY_KINDS,
@@ -462,6 +464,37 @@ export function reverseOfCreate(def: EntityTypeDef, before: PortalState, now: Da
         : createdWithoutId(def, entity, sent, fresh);
     if (!created || typeof created.id !== "string") return undefined;
     const id = given ?? created.id;
+    // A record with a close verb is taken back with the close tool: the portal proves in its write ledger that this
+    // very agent made it, a moment ago, and that nobody else has touched it since (`undoOfCommandId`). The redo is a
+    // restore of that close, at the version the undo leaves.
+    const verb = UNDO_VERB[def.canonical as CloseType];
+    const createCommandId = typeof sent.commandId === "string" ? sent.commandId : undefined;
+    const createdVersion = typeof created.version === "number" ? created.version : undefined;
+    if (verb !== undefined && createCommandId !== undefined && createdVersion !== undefined) {
+      const close = (payload: Fields) => ({ path: "/api/commands/close", payload });
+      const text = displayText(entity);
+      return {
+        label: `create ${humanLabel(def.canonical)}${text ? ` "${text}"` : ""} (${created.id})`,
+        undo: close({
+          commandId: newCommandId(),
+          type: def.canonical,
+          id: created.id,
+          verb,
+          do: "close",
+          expectedVersion: createdVersion,
+          undoOfCommandId: createCommandId
+        }),
+        target: { stateKey, id: created.id },
+        redo: close({
+          commandId: newCommandId(),
+          type: def.canonical,
+          id: created.id,
+          verb,
+          do: "restore",
+          expectedVersion: createdVersion + 1
+        })
+      };
+    }
     const whole = def.canonical === "capture" ? completeCapture({ ...entity, id }) : { ...entity, id };
     const hidden: Fields = removes
       ? { id, remove: true }
@@ -589,7 +622,7 @@ export const saveCommand: CommandSpec = {
   examples: [
     'save capture --set "text=Book the dentist follow-up"',
     'save action --fields \'{"title":"Call the bank","projectId":"project-admin","expectedMinutes":20}\'',
-    "save commitment --id commitment-gym --set status=cancelled",
+    'save commitment --id commitment-gym --set title="Gym session"',
     "save action --from new-action.json --dry-run"
   ],
   async run(context, args) {

@@ -370,7 +370,7 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
       "replayed: true, applied: false. rhen_undo reverses it. " +
       "entityType is the kind (its enum lists them); plurals and hyphens are accepted. An id that names no record is an error, not a new record: pass create: true to make one with an id you " +
       "chose. A field the kind does not take is refused with the list it does. To close a record use " +
-      "rhen_archive or rhen_cancel, not a status set here; sleep_log_entry and span take remove: true, which is filed as a proposal. " +
+      "rhen_archive or rhen_cancel: a save that sets status archived or cancelled is refused; sleep_log_entry and span take remove: true, which is filed as a proposal. " +
       "Settings: plan preferences apply, timezone and setup become proposals, data-flow fields are refused. Required " +
       "fields and defaults for actions, projects, commitments and captures are in their typed tools. Use " +
       "rhen_capture for a quick thought.",
@@ -385,7 +385,7 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
   rhen_changeset: {
     description:
       "Writes several facts from ONE message as a single reviewed list of changes (use rhen_save for one record, " +
-      "rhen_bulk for the same patch on many rows, rhen_capture for a thought you cannot classify). Three steps. " +
+      "rhen_bulk for the same patch on many rows, rhen_capture for a thought you cannot classify). A save that sets status archived or cancelled is refused here too: use rhen_archive or rhen_cancel. Three steps. " +
       "1. Call with mode preview (the default; keeps nothing) and `changes`. 2. Read each intent's result: applies, filed for " +
       "the owner (and what instead), conflict or refused, with assumed fields, likely duplicates and undoable; if " +
       "checkWithOwner is set, ask the owner before step 3. 3. Call with mode apply, the same changes, the same command-id and " +
@@ -677,9 +677,9 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
       "Archives a row without deleting it: an area, routine_preset, condition_definition (place, contact, capability), " +
       "or a finished outcome, project, action or deliverable. A dropped open one, or a commitment, is rhen_cancel. " +
       "do restore reopens a closed row (rhen_list and rhen_show carry its restore call). Agents give a " +
-      "reason. include-children also archives the open rows under an area, outcome or project. Over 20 rows, or " +
-      "anything the owner decides (a deadline, a shared appointment), files ONE proposal. Never set status archived " +
-      "with rhen_save. Returns the new status and version, what closed with it and the restore call; " +
+      "reason. include-children also archives the open rows under an area, outcome or project. Over 20 rows in one " +
+      "call, or 20 closures in a rolling hour (counting this call), or anything the owner decides (a deadline, a " +
+      "shared appointment), files ONE proposal. A save that sets status archived (rhen_save) is refused. Returns the new status and version, what closed with it and the restore call; " +
       "rhen_undo reverses it.",
     params: {
       type: "The kind of row.",
@@ -697,8 +697,9 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
       "open action or deliverable you drop. Finished work, an area, preset or place is rhen_archive. " +
       "do restore reopens a closed row (rhen_list and rhen_show carry its restore call). Agents give a " +
       "reason. include-children also cancels the open rows under an outcome or project; a commitment takes its " +
-      "preparation steps with it. Over 20 rows, or anything the owner decides (a deadline, a shared appointment), " +
-      "files ONE proposal. Never set status cancelled with rhen_save. Returns the new status and version, what " +
+      "preparation steps with it. Over 20 rows in one call, or 20 closures in a rolling hour (counting this call), or " +
+      "anything the owner decides (a deadline, a shared appointment), files ONE proposal. A save that sets status " +
+      "cancelled (rhen_save) is refused. Returns the new status and version, what " +
       "closed with it and the restore call; rhen_undo reverses it.",
     params: {
       type: "The kind of row (area only to restore a legacy cancelled one).",
@@ -854,7 +855,7 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
       "that would change; then repeat with yes: true. Select with exactly one of: the rhen_list filters (project, area, " +
       'status, where, search, since/from/to), ids (comma-separated) or targets-json. The patch is set ["status=paused"]. ' +
       "Not atomic: a record changed since selection fails with a conflict while the rest apply; re-running the same call " +
-      "is safe. A batch over 20 rows is filed as one proposal for the owner. Returns a summary and the failures " +
+      "is safe. A batch over 20 rows is filed as one proposal for the owner. A save that sets status archived or cancelled is refused: use rhen_archive or rhen_cancel. Returns a summary and the failures " +
       "(verbose: true lists every result); rhen_undo reverses one row per call, newest first.",
     params: {
       project: "As rhen_list.",

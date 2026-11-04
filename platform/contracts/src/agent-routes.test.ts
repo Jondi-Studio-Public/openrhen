@@ -737,6 +737,22 @@ describe("scopesForRoute: archive and cancel (POST /api/commands/close)", () => 
     expect(decide(read({ restorableByAgent: true }), { do: "restore" }).mustPropose).toBeUndefined();
   });
 
+  it("applies the rolling-hour budget: the hour's closures plus this call, with retries and undo exempt", () => {
+    const decide = (facts: StoredFacts, extra: Record<string, unknown> = {}) =>
+      scoped(scopesForRoute("POST", "/api/commands/close", body("project", extra), facts));
+    expect(decide(read({ closedInHour: 19, rowCount: 1 })).mustPropose).toBeUndefined();
+    expect(decide(read({ closedInHour: 20, rowCount: 1 })).mustPropose).toMatch(/last hour.*20/);
+    expect(decide(read({ closedInHour: 19, rowCount: 2 })).mustPropose).toMatch(/21 closures/);
+    // a restore is never counted
+    expect(decide(read({ closedInHour: 20 }), { do: "restore" }).mustPropose).toBeUndefined();
+    // a retry of a call that already landed is answered from its receipt, not filed again
+    expect(decide(read({ closedInHour: 20, closeCommandLanded: true })).mustPropose).toBeUndefined();
+    // a verified undo of the agent's own create is exempt
+    expect(decide(read({ closedInHour: 20, undoOfCreate: true })).mustPropose).toBeUndefined();
+    // an unverified undo claim is an ordinary close
+    expect(decide(read({ closedInHour: 20 }), { undoOfCommandId: crypto.randomUUID() }).mustPropose).toMatch(/hour/);
+  });
+
   it("puts a call past 20 rows on the hard floor", () => {
     const decision = scoped(scopesForRoute("POST", "/api/commands/close", body("project"), read({ rowCount: 21 })));
     expect(decision.floor?.rowCount).toBe(21);

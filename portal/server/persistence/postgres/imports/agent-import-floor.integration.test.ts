@@ -64,4 +64,52 @@ describe("an agent's import commit", () => {
       "Lecture"
     );
   });
+
+  describe("the hourly close brake", () => {
+    const cancelRow = (key: string, title = "Lecture") => `${key},${title},${starts},${ends},cancelled,0,0`;
+    const asTokenAgent = <T>(fn: () => Promise<T>) =>
+      runWithActor("claude", fn, undefined, undefined, ["write:import"]);
+    const spend = async (closed: number) => {
+      const writeId = crypto.randomUUID();
+      const userId = (await sql<{ id: string }[]>`SELECT id FROM users LIMIT 1`)[0]!.id;
+      await sql`INSERT INTO writes (id,user_id,command_type,actor) VALUES (${writeId},${userId},'close_entity','claude')`;
+      await sql`INSERT INTO write_rows (write_id,user_id,entity_type,entity_id,operation,evidence) VALUES (${writeId},${userId},'action','seed','close',${sql.json({ closed, counted: true } as never)})`;
+    };
+    const seedCommitments = async (n: number) => {
+      const created = await commitments(
+        Array.from({ length: n }, (_, i) => row(`l-${i}`, `Lecture ${i}`)).join("\r\n")
+      );
+      await importStore.commit(created.id, created.version);
+    };
+
+    it("refuses a cancelling import that would pass 20 closures in the hour, and records one that fits", async () => {
+      await store.put(createSeedState(fixedNow));
+      await seedCommitments(4);
+      await spend(18);
+      const batch = await commitments(
+        Array.from({ length: 3 }, (_, i) => cancelRow(`l-${i}`, `Lecture ${i}`)).join("\r\n")
+      );
+      expect(batch.records.map((r) => r.operation)).toEqual(["update", "update", "update"]);
+      await expect(asTokenAgent(() => importStore.commit(batch.id, batch.version))).rejects.toThrow(
+        /21 closures by agents in the last hour/
+      );
+      expect(await status(batch.id)).not.toBe("committed");
+      // the owner is not held to it
+      await importStore.commit(batch.id, batch.version);
+      expect(await status(batch.id)).toBe("committed");
+    });
+
+    it("lets a small cancelling import through and counts it", async () => {
+      await store.put(createSeedState(fixedNow));
+      await seedCommitments(2);
+      const batch = await commitments(
+        Array.from({ length: 2 }, (_, i) => cancelRow(`l-${i}`, `Lecture ${i}`)).join("\r\n")
+      );
+      await asTokenAgent(() => importStore.commit(batch.id, batch.version));
+      const rows = await sql<
+        { evidence: { closed: number; via: string; counted: boolean } }[]
+      >`SELECT evidence FROM write_rows WHERE operation='close'`;
+      expect(rows.map((r) => r.evidence)).toMatchObject([{ closed: 2, via: "import", counted: true }]);
+    });
+  });
 });

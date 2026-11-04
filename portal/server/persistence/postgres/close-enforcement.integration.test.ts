@@ -38,7 +38,8 @@ testUrl.pathname = `/${testDatabaseName}`;
 let sql: postgres.Sql;
 let userId: string;
 
-const asAgent = <T>(run: () => Promise<T>, agent = "claude") => runWithActor(agent, run);
+const asAgent = <T>(run: () => Promise<T>, agent = "claude") =>
+  runWithActor(agent, run, undefined, undefined, ["write:entity:*"]);
 
 beforeAll(async () => {
   const admin = postgres(adminUrl!, { max: 1, connect_timeout: 10 });
@@ -315,5 +316,70 @@ describe("an agent's close through the default stored-facts path", () => {
       asAgent(() => closeEntity(sql as never, closeOf("commitment", commitment) as CloseEntityCommand))
     ).rejects.toBeInstanceOf(CommandConflictError);
     expect((await stored("commitments", commitment)).status).toBe("confirmed");
+  });
+});
+
+describe("the hourly close budget at the route", () => {
+  /** Twenty closures by agents in the last hour, as the ledger holds them. */
+  async function exhaust(n = 20) {
+    const writeId = crypto.randomUUID();
+    await sql`INSERT INTO writes (id,user_id,command_type,actor) VALUES (${writeId},${userId},'close_entity','claude')`;
+    await sql`INSERT INTO write_rows (write_id,user_id,entity_type,entity_id,operation,evidence) VALUES (${writeId},${userId},'action','seed','close',${sql.json({ closed: n, counted: true } as never)})`;
+  }
+
+  it("files a plain close as a proposal once the hour is spent, naming the hour", async () => {
+    await exhaust();
+    const action = await seedAction(await seedProject());
+    const held = await send(ACTIONS, closeOf("action", action));
+    expect(held.status).toBe(202);
+    const body = (await held.guard!.json()) as { filedBecause: string };
+    expect(body.filedBecause).toMatch(/21 closures by agents in the last hour, over the 20 allowed/);
+    expect((await stored("actions", action)).status).toBe("planned");
+    expect(await proposals()).toHaveLength(1);
+  });
+
+  it("applies while the hour has room and files the call that would pass 20", async () => {
+    await exhaust(19);
+    const first = await seedAction(await seedProject());
+    expect((await send(ACTIONS, closeOf("action", first))).guard).toBeNull();
+    const second = await seedAction(await seedProject());
+    expect((await send(ACTIONS, closeOf("action", second))).status).toBe(202);
+  });
+
+  it("answers a retry of a call that landed instead of filing it again", async () => {
+    await exhaust(19);
+    const action = await seedAction(await seedProject());
+    const commandId = crypto.randomUUID();
+    expect((await send(ACTIONS, closeOf("action", action, { commandId }))).guard).toBeNull();
+    // used is now 20; the identical retry reaches the handler's receipt, not a second batch
+    const retry = await send(ACTIONS, closeOf("action", action, { commandId }));
+    expect(retry.guard).toBeNull();
+    expect(await proposals()).toHaveLength(0);
+  });
+
+  it("applies the owner's confirmation of the filed close without spending the hour", async () => {
+    await exhaust();
+    const action = await seedAction(await seedProject());
+    await send(ACTIONS, closeOf("action", action));
+    const [filed] = await proposals();
+    await confirm(filed!);
+    expect(await stored("actions", action)).toMatchObject({ status: "cancelled", closed_by: "agent:claude:confirmed" });
+    const { closedInWindow } = await import("./close-budget");
+    expect((await closedInWindow(sql as never, userId)).used).toBe(20);
+  });
+
+  it("does not hold a restore for the hour", async () => {
+    const action = await seedAction(await seedProject());
+    await send(ACTIONS, closeOf("action", action));
+    await exhaust();
+    const back = await send(ACTIONS, {
+      type: "action",
+      id: action,
+      verb: "cancel",
+      do: "restore",
+      expectedVersion: (await stored("actions", action)).version
+    });
+    expect(back.guard).toBeNull();
+    expect((await stored("actions", action)).status).toBe("planned");
   });
 });

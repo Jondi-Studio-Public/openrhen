@@ -81,13 +81,13 @@ function closeSpec(verb: CloseVerb): CommandSpec {
         ? "Archive tidies a row away without losing it: an area, routine preset or place, a finished outcome or project, a done action or deliverable. " +
           "To drop an open outcome, project, action or deliverable, or an appointment, use rhen_cancel. " +
           "do is close or restore; a closed row shows its restore call. Give a reason when you are an agent. " +
-          "include-children also closes the open outcomes, projects and actions under an area, outcome or project; a call that reaches more than 20 rows, or anything the owner must decide (a deadline, a shared appointment), is filed as one proposal. " +
-          "Do not set status archived with rhen_save. Returns the closed row, what was closed with it and the restore call; rhen_undo reverses it."
+          "include-children also closes the open outcomes, projects and actions under an area, outcome or project; a call that reaches more than 20 rows, or would pass 20 closures in a rolling hour (counting this call), or anything the owner must decide (a deadline, a shared appointment), is filed as one proposal. " +
+          "A save that sets status archived is refused. Returns the closed row, what was closed with it and the restore call; rhen_undo reverses it."
         : "Cancel drops what will not happen: an appointment, shift or event, an abandoned outcome or project, an open action or deliverable you drop. " +
           "To tidy away something finished, an area, preset or place, use rhen_archive. " +
           "do is close or restore; a closed row shows its restore call. Give a reason when you are an agent. " +
-          "include-children also closes the open rows under an outcome or project; a cancelled appointment also closes its preparation steps. A call that reaches more than 20 rows, or anything the owner must decide, is filed as one proposal. " +
-          "Do not set status cancelled with rhen_save. Returns the closed row, what was closed with it and the restore call; rhen_undo reverses it.",
+          "include-children also closes the open rows under an outcome or project; a cancelled appointment also closes its preparation steps. A call that reaches more than 20 rows, or would pass 20 closures in a rolling hour (counting this call), or anything the owner must decide, is filed as one proposal. " +
+          "A save that sets status cancelled is refused. Returns the closed row, what was closed with it and the restore call; rhen_undo reverses it.",
     positionals: [
       {
         name: "type",
