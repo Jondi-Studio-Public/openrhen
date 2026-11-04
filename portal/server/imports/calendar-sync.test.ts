@@ -6,6 +6,7 @@ import {
   ImportRecord,
   PreviewImport
 } from "@openrhen/contracts";
+import { ImportConflictError } from "@/server/persistence/postgres/imports/import-conflict-error";
 
 // A provider-free calendar sink, so a commit has somewhere to publish to wherever no provider is registered.
 registerConnectionManifest({
@@ -708,6 +709,55 @@ describe("runCalendarSync (google_calendar)", () => {
         });
         expect(result).toMatchObject({ status: "needs_review", updated: 0, heldForReview: 2, committedBatchId: null });
         expect(fake.committed).toEqual([]);
+      });
+
+      it("holds both halves when the commit refuses them in the gap after the preview, instead of failing the run", async () => {
+        const fake = world();
+        fake.store.commitReady = async () => {
+          throw new ImportConflictError("A moved meeting is two changes that go together: ...");
+        };
+        useStore(fake);
+        const result = await runCalendarSync({
+          provider: "google_calendar",
+          trigger: "scheduled",
+          adapter: withMarked(pair("p1"))
+        });
+        expect(result).toMatchObject({ status: "needs_review", updated: 0, heldForReview: 2, committedBatchId: null });
+        // The preview that could not be committed is discarded; only the review batch of held records remains.
+        expect(fake.deleted).toHaveLength(1);
+      });
+
+      it("holds them as well when every record was deferred between preview and commit", async () => {
+        const fake = world();
+        fake.store.commitReady = async () => {
+          throw new Error("No records are ready to commit. Fix at least one blocker first.");
+        };
+        useStore(fake);
+        const result = await runCalendarSync({
+          provider: "google_calendar",
+          trigger: "scheduled",
+          adapter: withMarked(pair("p1"))
+        });
+        expect(result).toMatchObject({ status: "needs_review", heldForReview: 2, committedBatchId: null });
+      });
+
+      it("still fails the run for any other error, and for a refusal in a run with no pair halves", async () => {
+        const fake = world();
+        fake.store.commitReady = async () => {
+          throw new Error("connection lost");
+        };
+        useStore(fake);
+        expect(
+          await runCalendarSync({ provider: "google_calendar", trigger: "scheduled", adapter: withMarked(pair("p1")) })
+        ).toMatchObject({ status: "failed" });
+        const plain = world();
+        plain.store.commitReady = async () => {
+          throw new ImportConflictError("This import draft changed elsewhere.");
+        };
+        useStore(plain);
+        expect(await runCalendarSync({ provider: "google_calendar", trigger: "scheduled" })).toMatchObject({
+          status: "failed"
+        });
       });
     });
 

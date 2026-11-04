@@ -275,6 +275,12 @@ const CORE_WRITERS = {
       "insertFeedDate and touchFeedDates write a rule's exception rows (commitments) and the feed link's snapshot only inside import-store.ts's commit transaction, called from the calendar feed import extension's hooks.",
     owners: ["portal/server/persistence/postgres/import-store.ts"]
   },
+  "portal/server/persistence/postgres/imports/calendar-feed-lifecycle.ts": {
+    class: "helper",
+    reason:
+      "recordFeedChoices writes the feed's own links and dismissals inside import-store.ts's commit transaction (the extension's afterCommit); repairStaleFeedKeys, settleRuleEnds and forgetKeptEnds write only the feed's links, dismissals and stale import_entity_keys at diff time, never a plan-input table.",
+    owners: ["portal/server/persistence/postgres/import-store.ts"]
+  },
   "portal/server/persistence/postgres/imports/calendar-feed-import-extension.ts": {
     class: "helper",
     reason:

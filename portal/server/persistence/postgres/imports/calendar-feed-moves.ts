@@ -149,9 +149,16 @@ export function tagMoveRecord(
  * outside the read, the replacement was declined, the read was partial) is dropped, so the original is never cancelled
  * alone; a replacement's delete without the date's record is dropped, so the original is never left cancelled with no
  * meeting; a replacement's create without a date record (the original is already cancelled) stands as an ordinary create.
- * Records that are not half of a pair pass through.
+ * A replacement's delete that `orphanNote` explains (the feed cancelled the date, or the repeating event ended or vanished:
+ * there is no revert to pair it with, and the meeting really is going) is not dropped but kept as a held record with that
+ * note, so a cancelled moved meeting never lingers on the plan unseen. Records that are not half of a pair pass through.
  */
-export function keepWholeMovePairs(records: readonly ImportRecord[], eventPrefix: string): ImportRecord[] {
+export function keepWholeMovePairs(
+  records: readonly ImportRecord[],
+  eventPrefix: string,
+  /** The note that keeps a replacement's lone delete as a held record (why it is going), or null to drop it as before. */
+  orphanNote?: (record: ImportRecord) => string | null
+): ImportRecord[] {
   const pairs = new Map<string, { date: ImportRecord[]; replacement: ImportRecord[] }>();
   for (const record of records) {
     const pair = record.relationships.feedMove;
@@ -170,9 +177,13 @@ export function keepWholeMovePairs(records: readonly ImportRecord[], eventPrefix
     }
     const whole = entry.date.length > 0 && entry.replacement.length > 0;
     if (whole) out.push(record);
-    else if (record.importKey.startsWith(eventPrefix) && record.operation !== "delete") {
+    else if (record.importKey.startsWith(eventPrefix)) {
       const { feedMove: _pair, feedMoveSize: _size, ...rest } = record.relationships;
-      out.push({ ...record, relationships: rest });
+      if (record.operation !== "delete") out.push({ ...record, relationships: rest });
+      else {
+        const note = orphanNote?.(record);
+        if (note) out.push({ ...record, relationships: rest, warnings: [...record.warnings, note] });
+      }
     }
   }
   return out;

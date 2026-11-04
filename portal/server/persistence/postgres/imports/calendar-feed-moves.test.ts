@@ -35,6 +35,35 @@ describe("keepWholeMovePairs", () => {
   });
 });
 
+describe("a replacement's delete with no date to pair with", () => {
+  const lone = () => half(`${EVENT}w#move20261110`, "delete");
+
+  it("is kept as a held record, without the pair, carrying the note, when the caller can say why it is going", () => {
+    const [out] = keepWholeMovePairs(
+      [{ ...lone(), warnings: ["Confirming this row deletes it."] }],
+      EVENT,
+      () => "Cancelled."
+    );
+    expect(out!.relationships).toEqual({ feedSeries: "w" });
+    expect(out!.warnings).toEqual(["Confirming this row deletes it.", "Cancelled."]);
+  });
+
+  it("is still dropped when the caller has no reason, and a date's own lone cancel is never explained away", () => {
+    expect(keepWholeMovePairs([lone()], EVENT, () => null)).toEqual([]);
+    expect(keepWholeMovePairs([half("calendar_feed:occ:r:2026-11-10", "update")], EVENT, () => "Cancelled.")).toEqual(
+      []
+    );
+  });
+
+  it("is not asked about when the date's record is in the batch (a pair)", () => {
+    const out = keepWholeMovePairs([half("calendar_feed:occ:r:2026-11-10", "update"), lone()], EVENT, () => {
+      throw new Error("asked");
+    });
+    expect(out).toHaveLength(2);
+    expect(out[1]!.relationships.feedMove).toBe("mv:w:2026-11-10");
+  });
+});
+
 describe("tagMoveRecord", () => {
   const known = new Map([["w#move20261110", "2026-11-10"]]);
   it("pairs a create or delete, but not a change to a replacement already on the plan", () => {

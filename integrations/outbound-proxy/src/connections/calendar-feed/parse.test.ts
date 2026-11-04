@@ -516,9 +516,26 @@ describe("hostile rules and caps", () => {
 });
 
 describe("ids", () => {
+  it("gives an event whose UID begins series: or delete: an id the portal's own rows cannot share", () => {
+    const out = run(
+      cal(
+        vevent("UID:series:abc", "DTSTART:20261105T100000Z", "DTEND:20261105T110000Z", "SUMMARY:A"),
+        vevent("UID:delete:abc", "DTSTART:20261106T100000Z", "DTEND:20261106T110000Z", "SUMMARY:B")
+      )
+    );
+    expect(out.events.map((e) => e.id.replace(/#.*$/, ""))).toEqual(["%73eries:abc", "%64elete:abc"]);
+    expect(out.events.every((e) => !/^(series|delete):/.test(e.id))).toBe(true);
+  });
+
   it("encodes # and %, and hashes long UIDs behind a marker the encoder always escapes", () => {
     expect(encodeUid("a#b%c")).toBe("a%23b%25c");
     expect(encodeUid("x!y~z@h")).toBe("x%21y~z@h");
+    // A UID that would read as the portal's `series:<stem>` link name or `delete:<id>` dismissal name is escaped.
+    expect(encodeUid("series:abc@h")).toBe("%73eries:abc@h");
+    expect(encodeUid("delete:abc@h")).toBe("%64elete:abc@h");
+    expect(encodeUid("occ:r:2026-11-10")).toBe("%6Fcc:r:2026-11-10");
+    expect(encodeUid("xseries:abc@h")).toBe("xseries:abc@h");
+    expect(encodeUid("%73eries:abc@h")).toBe("%2573eries:abc@h");
     const long = encodeUid("u".repeat(2001));
     expect(long).toMatch(/^![0-9a-f]{32}$/);
     expect(encodeUid(`h-${"a".repeat(32)}`)).toBe(`h-${"a".repeat(32)}`);

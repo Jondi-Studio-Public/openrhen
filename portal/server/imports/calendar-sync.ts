@@ -22,6 +22,7 @@ import { calendarSyncAdapterFor as registeredAdapterFor, requestCalendarPublish 
 import { DEFAULT_MAX_DELETES } from "./publish-marker";
 import { listSelectedGoogleCalendars } from "@/server/persistence/postgres/calendar-source-selections";
 import { withImportStore, type PostgresImportStore } from "@/server/persistence/postgres/import-store";
+import { ImportConflictError } from "@/server/persistence/postgres/imports/import-conflict-error";
 import { sqlPool, type PoolSql } from "@/server/persistence/postgres/sql-pool";
 import { databaseUrl, runtimeEnv } from "@/server/runtime-env";
 
@@ -338,15 +339,31 @@ async function applyDiff(
       await store.delete(preview.id);
       held = [...held, ...preview.records.filter((record) => !record.removed)];
     } else {
-      const { batch, deferred } = await store.commitReady(preview.id, preview.version);
-      committedBatchId = batch.id;
-      const committed = batch.records.filter((record) => !record.removed);
-      updated = committed.filter((record) => record.operation === "update").length;
-      deleted = committed.filter((record) => record.operation === "delete").length;
-      if (deferred) {
-        // Rows that became blockers between the diff and the commit: hold them with the rest.
-        held = [...held, ...deferred.records.filter((record) => !record.removed)];
-        await store.delete(deferred.id);
+      let outcome: Awaited<ReturnType<typeof store.commitReady>> | null = null;
+      try {
+        outcome = await store.commitReady(preview.id, preview.version);
+      } catch (error) {
+        // A moved meeting's two halves can be split between the preview and this commit (one becomes a blocker in the
+        // gap). That is a decision for a person, not a failed run that would repeat every hour: hold the records. Only
+        // a run with pair halves in it falls back; any other failure is still the run's failure, as before.
+        const refused =
+          error instanceof ImportConflictError ||
+          (error instanceof Error && error.message.startsWith("No records are ready to commit"));
+        if (!refused || !auto.some((record) => pairOf(record) !== undefined)) throw error;
+        await store.delete(preview.id);
+        held = [...held, ...preview.records.filter((record) => !record.removed)];
+      }
+      if (outcome) {
+        const { batch, deferred } = outcome;
+        committedBatchId = batch.id;
+        const committed = batch.records.filter((record) => !record.removed);
+        updated = committed.filter((record) => record.operation === "update").length;
+        deleted = committed.filter((record) => record.operation === "delete").length;
+        if (deferred) {
+          // Rows that became blockers between the diff and the commit: hold them with the rest.
+          held = [...held, ...deferred.records.filter((record) => !record.removed)];
+          await store.delete(deferred.id);
+        }
       }
     }
   }

@@ -155,7 +155,8 @@ function dismissalInserts(provider: string) {
         if (event) out.push({ externalEventId: key, title: event.title, startsAt: event.startsAt });
       }
       if (record.entityType === "fixed_commitment_recurrence" && record.importKey.startsWith(seriesPrefix)) {
-        const stem = record.importKey.slice(seriesPrefix.length);
+        // The feed's rule records name their stem (a later generation's key carries a `.N` after it); anyone else's do not.
+        const stem = record.relationships.feedSeries ?? record.importKey.slice(seriesPrefix.length);
         const descriptor = series?.[stem];
         if (descriptor)
           out.push({
