@@ -88,7 +88,7 @@ export function openBlockers(deliverable: StoredDeliverable): StoredDeliverableB
 }
 
 export function stepProgress(deliverable: StoredDeliverable): { done: number; total: number; remaining: number } {
-  const live = deliverable.steps.filter((step) => step.status !== "cancelled");
+  const live = deliverable.steps.filter((step) => step.status !== "cancelled" && step.status !== "archived");
   return {
     done: live.filter((step) => step.status === "done").length,
     total: live.length,

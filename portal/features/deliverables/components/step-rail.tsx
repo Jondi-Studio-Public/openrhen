@@ -75,7 +75,7 @@ export function StepRail({
       steps: replaceAt(current.steps, index, { ...current.steps[index]!, ...patch })
     }));
   const progress = stepProgress(deliverable);
-  const live = deliverable.steps.filter((step) => step.status !== "cancelled");
+  const live = deliverable.steps.filter((step) => step.status !== "cancelled" && step.status !== "archived");
   const sorted = [...live].sort((a, b) => a.sortOrder - b.sortOrder);
   const current = currentStepId ? live.find((step) => step.id === currentStepId) : undefined;
   const rest = sorted.filter((step) => step.status !== "done" && step.id !== current?.id).slice(0, 3);

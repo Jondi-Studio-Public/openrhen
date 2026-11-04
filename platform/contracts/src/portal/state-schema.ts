@@ -398,7 +398,9 @@ export const deliverableActionSchema = z.object({
   title: z.string().min(1),
   details: z.string().optional(),
   completionCondition: z.string().optional(),
-  status: z.enum(["planned", "doing", "waiting", "blocked", "done", "cancelled"]),
+  // Read side only: closing a done step leaves it `archived`, and a cancelled one `cancelled`. The
+  // write-side schema (planning/entity-fields.ts) omits both so a save cannot move a step into them.
+  status: z.enum(["planned", "doing", "waiting", "blocked", "done", "cancelled", "archived"]),
   optimisticMinutes: nonNegativeMinutes,
   expectedMinutes: nonNegativeMinutes,
   pessimisticMinutes: nonNegativeMinutes,

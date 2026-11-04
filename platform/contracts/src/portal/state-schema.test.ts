@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   commitmentRecurrenceRuleSchema,
+  deliverableActionSchema,
   commitmentSchema,
   portalStateSchema,
   pulseWireSchema
@@ -163,5 +164,27 @@ describe("protected recovery window", () => {
     const parsed = portalStateSchema.safeParse(stateWith("14:00", "14:00"));
     expect(parsed.success).toBe(false);
     expect(JSON.stringify(parsed.error?.issues)).toContain("recoveryEndTime");
+  });
+});
+
+describe("deliverable step status on the read side", () => {
+  const step = {
+    id: "step-1",
+    title: "Write it up",
+    optimisticMinutes: 10,
+    expectedMinutes: 20,
+    pessimisticMinutes: 30,
+    remainingMinutes: 0,
+    energy: "low",
+    minimumSessionMinutes: 10,
+    maximumSessionMinutes: 30
+  };
+
+  it.each(["done", "cancelled", "archived"])("parses a %s step (closing a done step leaves it archived)", (status) => {
+    expect(deliverableActionSchema.parse({ ...step, status }).status).toBe(status);
+  });
+
+  it("still rejects a status that is not a step status", () => {
+    expect(() => deliverableActionSchema.parse({ ...step, status: "inbox" })).toThrow();
   });
 });

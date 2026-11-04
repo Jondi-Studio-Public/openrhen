@@ -99,7 +99,7 @@ export interface DeliverableReadiness {
 }
 
 const OPEN_BLOCKER_STATES = new Set(["open", "awaiting_response", "possibly_resolved"]);
-const FINISHED_STEP_STATES = new Set(["done", "cancelled"]);
+const FINISHED_STEP_STATES = new Set(["done", "cancelled", "archived"]);
 
 export function assessDeliverable(args: {
   deliverable: ReadinessDeliverable;
@@ -146,7 +146,7 @@ export function assessDeliverable(args: {
     const reason: StepBlockReason | undefined =
       step.status === "done"
         ? "complete"
-        : step.status === "cancelled"
+        : step.status === "cancelled" || step.status === "archived"
           ? "cancelled"
           : blockerIds.length || step.status === "blocked"
             ? "blocked"

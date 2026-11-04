@@ -1,6 +1,6 @@
 "use client";
 
-import type { DeliverableReadiness } from "@openrhen/contracts";
+import { isClosedStatus, type DeliverableReadiness } from "@openrhen/contracts";
 import type { StoredDeliverable } from "@/state/portal-state";
 import type { Phase } from "@/features/deliverables/deliverable-model";
 
@@ -30,7 +30,9 @@ export function WorkspaceActions({
   onBeginReview: () => void;
   onMarkComplete: () => void;
 }) {
-  const requiredOpen = deliverable.steps.some((step) => step.required && !["done", "cancelled"].includes(step.status));
+  const requiredOpen = deliverable.steps.some(
+    (step) => step.required && step.status !== "done" && !isClosedStatus(step.status)
+  );
   return (
     <footer className="workspace-actions">
       <button type="button" onClick={onSave} disabled={!dirty || saving}>

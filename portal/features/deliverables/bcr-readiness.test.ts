@@ -56,6 +56,20 @@ const assess = (value: StoredDeliverable) =>
   });
 
 describe("BCR readiness", () => {
+  it("treats an archived step like a finished one: not executable, not remaining, never blocking completion", () => {
+    const result = assess(
+      deliverable({
+        steps: [step("done", { status: "done", remainingMinutes: 0 }), step("closed", { status: "archived" })],
+        criteria: [{ id: "c", key: "c", title: "Done", required: true, state: "satisfied", stepIds: ["done"] } as never]
+      })
+    );
+    expect(result.executableStepIds).toEqual([]);
+    expect(result.stalled).toBe(false);
+    expect(result.remainingMinutes).toBe(0);
+    expect(result.steps.find((item) => item.stepId === "closed")?.executable).toBe(false);
+    expect(result.contractSatisfied).toBe(true);
+  });
+
   it("keeps the deliverable available while one blocked step leaves another executable", () => {
     const result = assess(
       deliverable({
