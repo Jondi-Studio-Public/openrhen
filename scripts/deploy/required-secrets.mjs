@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import "./private/index.mjs";
-import { deployServiceExtensions } from "./service-extensions.mjs";
+import { onDeployServiceRegistered } from "./service-extensions.mjs";
 
 /** The fallback `compose.yaml` gives the service tokens when the variable is unset. */
 export const PLACEHOLDER = "replace-before-lan-use";
@@ -24,10 +24,13 @@ export const SERVICE_SECRETS = {
     "WEB_PUSH_VAPID_PRIVATE_KEY",
     "WEB_PUSH_SUBJECT"
   ],
-  migrate: ["DATABASE_URL"],
-  // A service the export leaves out names its own (`service-extensions.mjs`).
-  ...Object.fromEntries(deployServiceExtensions().map((entry) => [entry.service, entry.secrets]))
+  migrate: ["DATABASE_URL"]
 };
+
+// A registered service names its own secrets (`service-extensions.mjs`); a core service keeps its own and gains the add-on's.
+onDeployServiceRegistered((entry) => {
+  SERVICE_SECRETS[entry.service] = [...new Set([...(SERVICE_SECRETS[entry.service] ?? []), ...entry.secrets])];
+});
 
 /** Parses a dotenv file into an object; a missing file gives an empty one. */
 export function readDotenv(path) {
@@ -46,8 +49,8 @@ export function readDotenv(path) {
  * Secrets the given services need that are unset, blank or still the placeholder. `env` should be
  * what compose will see: the shell environment layered over `.env`, shell winning, as compose does.
  */
-export function findUnusableSecrets(services, env) {
-  const names = [...new Set(services.flatMap((service) => SERVICE_SECRETS[service] ?? []))];
+export function findUnusableSecrets(services, env, secrets = SERVICE_SECRETS) {
+  const names = [...new Set(services.flatMap((service) => secrets[service] ?? []))];
   return names.filter((name) => {
     const value = env[name]?.trim();
     return !value || value === PLACEHOLDER;
