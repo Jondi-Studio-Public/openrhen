@@ -1,4 +1,5 @@
 import type { PortalState, StoredCommitment } from "@/state/portal-state";
+import { isClosedStatus } from "@openrhen/contracts";
 import { localDayKey } from "@/features/today/today-view";
 
 /**
@@ -17,7 +18,7 @@ export function activeDisruption(state: PortalState, now: Date): StoredCommitmen
   const landedToday = state.commitments.filter(
     (commitment) =>
       commitment.origin === "disruption" &&
-      commitment.status !== "cancelled" &&
+      !isClosedStatus(commitment.status) &&
       commitment.landedAt &&
       localDayKey(new Date(commitment.landedAt), timezone) === today
   );

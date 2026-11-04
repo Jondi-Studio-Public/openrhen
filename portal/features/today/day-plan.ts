@@ -6,8 +6,7 @@ import {
   type SoftPlacementWire,
   type StepPlacementWire,
   type TransportMode,
-  type TravelSource
-} from "@openrhen/contracts";
+  type TravelSource, isClosedStatus } from "@openrhen/contracts";
 import type { PortalState, StoredCommitment } from "@/state/portal-state";
 import type { ClientAllocation, ClientRecommendation, ClientSlot } from "@/state/portal-provider";
 import { criticalTierLabel } from "@/features/now/critical-tiers";
@@ -326,7 +325,7 @@ export function buildDayPlan(input: DayPlanInput): DayPlan {
     return entry;
   };
   for (const commitment of state.commitments) {
-    if (commitment.status === "cancelled") continue;
+    if (isClosedStatus(commitment.status)) continue;
     const startsAt = date(commitment.startsAt);
     const endsAt = date(commitment.endsAt);
     const timeline = timelineFor(commitment, startsAt);
@@ -503,7 +502,7 @@ export function buildDayPlan(input: DayPlanInput): DayPlan {
       continue;
     }
     const commitment = state.commitments.find((item) => item.id === step.commitmentId);
-    if (!commitment || commitment.status === "cancelled") continue;
+    if (!commitment || isClosedStatus(commitment.status)) continue;
     if (!clip({ startsAt: date(commitment.startsAt), endsAt: date(commitment.endsAt) }, bounds)) continue;
     untimed.push({
       id: `routine_step:${step.id}`,

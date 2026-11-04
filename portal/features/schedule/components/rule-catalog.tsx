@@ -1,5 +1,6 @@
 "use client";
 
+import { isClosedStatus } from "@openrhen/contracts";
 import type { StoredCommitment, StoredCommitmentRecurrenceRule, StoredProject } from "@/state/portal-state";
 import { useNow } from "@/shared/clock";
 import { describeCadence } from "@/features/commitments/commitment-routine";
@@ -46,7 +47,7 @@ export function RuleCatalog({
   const nextOf = (rule: StoredCommitmentRecurrenceRule): StoredCommitment | undefined =>
     commitments
       .filter(
-        (item) => item.recurrenceRuleId === rule.id && item.status !== "cancelled" && new Date(item.startsAt) >= at
+        (item) => item.recurrenceRuleId === rule.id && !isClosedStatus(item.status) && new Date(item.startsAt) >= at
       )
       .sort((a, b) => a.startsAt.localeCompare(b.startsAt))[0];
   const rows = (items: StoredCommitmentRecurrenceRule[]) => (

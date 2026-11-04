@@ -1,8 +1,9 @@
 "use client";
 
+import { ClosedByAgentLine } from "@/features/closed/components/closed-by-agent-line";
 import { dateTimeFormat, displayLocale } from "@/shared/locale";
 import Link from "next/link";
-import { primarySourceConnection } from "@openrhen/contracts";
+import { primarySourceConnection, isClosedStatus } from "@openrhen/contracts";
 import { useDraftId } from "@/components/form-actions";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { usePortal } from "@/state/portal-provider";
@@ -160,7 +161,7 @@ export default function TodayPage() {
       ? state.commitments.find(
           (item) =>
             item.id !== commitmentDraft.id &&
-            item.status !== "cancelled" &&
+            !isClosedStatus(item.status) &&
             overlaps(commitmentDraft.startsAt, commitmentDraft.endsAt, item.startsAt, item.endsAt)
         )
       : undefined;
@@ -544,6 +545,7 @@ export default function TodayPage() {
         <PageHeader title={title} answer={answer} actions={paging} />
       )}
       <PlaceTabs />
+      <ClosedByAgentLine />
       {rosterLine && (
         <p className={styles.small}>
           <Link href={`/connections#${primarySourceConnection()?.id ?? ""}`}>{rosterLine}</Link>

@@ -1,4 +1,5 @@
 import type { PortalState } from "@/state/portal-state";
+import { isClosedStatus } from "@openrhen/contracts";
 import { nextDayKey, zonedDayBounds, type ZonedDayBounds } from "./local-datetime";
 import { localDayKey } from "./today-view";
 
@@ -68,7 +69,7 @@ export function tomorrowBrief(state: TomorrowState, now: Date): TomorrowBrief {
   const touchesDay = (startsAt: Date, endsAt: Date) => startsAt < bounds.endsAt && endsAt > bounds.startsAt;
 
   const commitments = state.commitments
-    .filter((item) => item.status !== "cancelled")
+    .filter((item) => !isClosedStatus(item.status))
     .filter((item) => touchesDay(date(item.startsAt), date(item.endsAt)))
     .sort((a, b) => date(a.startsAt).getTime() - date(b.startsAt).getTime() || a.id.localeCompare(b.id));
   const first = commitments[0];

@@ -47,6 +47,7 @@ describe("activeTab", () => {
     ["/deliverables", "plan"],
     ["/map", "plan"],
     ["/review/focus", "plan"],
+    ["/review/closed", "plan"],
     ["/inbox/emails", "inbox"],
     ["/capture", "inbox"],
     ["/import", "inbox"],
