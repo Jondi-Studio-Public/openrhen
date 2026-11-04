@@ -1,8 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
-import { CLOSED_TABS, type ClosedPage, type ClosedRow as Row, type ClosedTab, type CloseType } from "@openrhen/contracts";
+import {
+  CLOSED_TABS,
+  type ClosedPage,
+  type ClosedRow as Row,
+  type ClosedTab,
+  type CloseType
+} from "@openrhen/contracts";
 import { Banner } from "@/components/ui/banner";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -18,10 +24,20 @@ import styles from "@/features/closed/components/closed-list.module.css";
 
 const TAB_LABEL: Record<ClosedTab, string> = { archived: "Archived", cancelled: "Cancelled" };
 
-function tabFromUrl(): ClosedTab {
-  const tab = new URLSearchParams(window.location.search).get("tab");
-  return tab === "cancelled" ? "cancelled" : "archived";
+const TAB_EVENT = "openrhen:closed-tab";
+
+/** The tab the address names (`?tab=`), as an external store so the server render and first client render agree. */
+function subscribeTab(onChange: () => void) {
+  window.addEventListener(TAB_EVENT, onChange);
+  window.addEventListener("popstate", onChange);
+  return () => {
+    window.removeEventListener(TAB_EVENT, onChange);
+    window.removeEventListener("popstate", onChange);
+  };
 }
+const tabFromUrl = (): ClosedTab =>
+  new URLSearchParams(window.location.search).get("tab") === "cancelled" ? "cancelled" : "archived";
+const serverTab = (): ClosedTab => "archived";
 
 /**
  * Review > Closed: everything archived or cancelled, with who closed it, when and why, and a Restore on each
@@ -33,47 +49,43 @@ export default function ClosedPageRoute() {
   const { state } = usePortal();
   const timeZone = state.settings?.timezone;
   const closer = useCloseEntity();
-  const [tab, setTab] = useState<ClosedTab | null>(null);
+  const tab = useSyncExternalStore(subscribeTab, tabFromUrl, serverTab);
   const [type, setType] = useState<CloseType | "">("");
   const [page, setPage] = useState<ClosedPage | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [older, setOlder] = useState(false);
   const [rowMessage, setRowMessage] = useState<{ key: string; text: string } | null>(null);
-  const firstNew = useRef<HTMLLIElement | null>(null);
-  const focusNew = useRef(false);
-  const pageStart = useRef(-1);
-  const requestId = useRef(0);
+  const [focusId, setFocusId] = useState<string | null>(null);
+  // Bumped to read the list again: after any restore, and for Try again.
+  const [reads, setReads] = useState(0);
+  const reload = () => setReads((count) => count + 1);
 
   useEffect(() => {
-    setTab(tabFromUrl());
     markClosedLooked();
   }, []);
 
-  const load = useCallback(async () => {
-    if (!tab) return;
-    const id = ++requestId.current;
-    try {
-      const next = await fetchClosed({ tab, ...(type ? { type } : {}) });
-      if (id !== requestId.current) return;
-      setPage(next);
-      setLoadFailed(false);
-    } catch {
-      if (id !== requestId.current) return;
-      setLoadFailed(true);
-    }
-  }, [tab, type]);
-
-  // Re-read on a tab or filter change, and whenever the portal state changes (a restore here, a live update).
+  // Re-read on a tab or filter change, whenever the portal state changes (a restore here, a live update), and on demand.
   useEffect(() => {
-    void load();
-  }, [load, state]);
+    let current = true;
+    fetchClosed({ tab, ...(type ? { type } : {}) })
+      .then((next) => {
+        if (!current) return;
+        setPage(next);
+        setLoadFailed(false);
+      })
+      .catch(() => {
+        if (current) setLoadFailed(true);
+      });
+    return () => {
+      current = false;
+    };
+  }, [tab, type, state, reads]);
 
   function chooseTab(next: ClosedTab) {
     setPage(null);
-    pageStart.current = -1;
-    setTab(next);
     setRowMessage(null);
     window.history.replaceState(null, "", `${window.location.pathname}?tab=${next}`);
+    window.dispatchEvent(new Event(TAB_EVENT));
   }
 
   async function restore(row: Row, includeChildren: boolean) {
@@ -90,17 +102,17 @@ export default function ClosedPageRoute() {
         text: "That item changed, so the list was refreshed. Check it and try again."
       });
     }
-    await load();
+    reload();
   }
 
   async function showOlder() {
-    if (!tab || !page?.nextCursor) return;
+    if (!page?.nextCursor) return;
     setOlder(true);
     try {
       const next = await fetchClosed({ tab, ...(type ? { type } : {}), before: page.nextCursor });
-      focusNew.current = true;
-      pageStart.current = page.rows.length;
+      const first = next.rows[0];
       setPage({ ...next, rows: [...page.rows, ...next.rows] });
+      if (first) setFocusId(`closed-row-${first.type}-${first.id}`);
     } catch {
       setLoadFailed(true);
     } finally {
@@ -108,12 +120,10 @@ export default function ClosedPageRoute() {
     }
   }
 
+  // After "Show older", the first new row takes focus so a keyboard user is not left at the top of a longer list.
   useEffect(() => {
-    if (focusNew.current && firstNew.current) {
-      firstNew.current.focus();
-      focusNew.current = false;
-    }
-  }, [page]);
+    if (focusId) document.getElementById(focusId)?.focus();
+  }, [focusId]);
 
   const counts = page?.counts;
   const total = counts ? counts.archived + counts.cancelled : 0;
@@ -130,7 +140,7 @@ export default function ClosedPageRoute() {
         <Banner
           tone="danger"
           action={
-            <Button size="sm" variant="secondary" onClick={() => void load()}>
+            <Button size="sm" variant="secondary" onClick={reload}>
               Try again
             </Button>
           }
@@ -162,7 +172,6 @@ export default function ClosedPageRoute() {
           value={type}
           onChange={(event) => {
             setPage(null);
-            pageStart.current = -1;
             setType(event.target.value as CloseType | "");
           }}
         >
@@ -191,14 +200,13 @@ export default function ClosedPageRoute() {
         ) : page ? (
           <>
             <ul className={styles.list}>
-              {page.rows.map((row, index) => (
+              {page.rows.map((row) => (
                 <ClosedRow
                   key={`${row.type}:${row.id}`}
                   row={row}
                   timeZone={timeZone}
                   busy={closer.busy}
                   message={rowMessage?.key === `${row.type}:${row.id}` ? rowMessage.text : undefined}
-                  rowRef={index === pageStart.current ? (element) => (firstNew.current = element) : undefined}
                   onRestore={(target, withChildren) => void restore(target, withChildren)}
                   onOpenBlocker={chooseTab}
                 />

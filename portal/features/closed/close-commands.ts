@@ -128,7 +128,8 @@ export function failureText(error: unknown, doing: "close" | "undo" | "restore")
   if (error instanceof CommandRefusal && error.status === 409 && error.currentVersion !== undefined) {
     if (doing === "close")
       return "Changed since you opened it, so nothing was closed. The page is up to date; try again.";
-    if (doing === "undo") return "Changed since you closed it, so it was not restored. Open Review > Closed to restore it.";
+    if (doing === "undo")
+      return "Changed since you closed it, so it was not restored. Open Review > Closed to restore it.";
     return "Changed since the list was loaded; it has been refreshed.";
   }
   // A fetch that never reached the server rejects with a bare TypeError ("Failed to fetch").

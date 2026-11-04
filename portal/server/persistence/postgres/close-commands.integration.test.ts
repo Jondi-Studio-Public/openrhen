@@ -862,15 +862,19 @@ describe("include-children", () => {
   it("a refused close then the same command id with includeChildren succeeds (the portal's Close all)", async () => {
     const t = await tree();
     const commandId = crypto.randomUUID();
-    const refused = await closeEntity(sql, close("project", t.project, "cancel", { commandId, expectedVersion: 1 })).catch(
-      (error: unknown) => error
-    );
+    const refused = await closeEntity(
+      sql,
+      close("project", t.project, "cancel", { commandId, expectedVersion: 1 })
+    ).catch((error: unknown) => error);
     expect(refused).toBeInstanceOf(InvalidCommandError);
     // the refusal rolled its receipt claim back: nothing is stored under the id, and nothing was closed
     expect(await writeRows(commandId)).toHaveLength(0);
     expect((await stored("project", t.project)).status).toBe("active");
     const result = (
-      await closeEntity(sql, close("project", t.project, "cancel", { commandId, expectedVersion: 1, includeChildren: true }))
+      await closeEntity(
+        sql,
+        close("project", t.project, "cancel", { commandId, expectedVersion: 1, includeChildren: true })
+      )
     ).closed;
     expect(result.cascaded).toHaveLength(3);
     expect(await stored("action", t.a1)).toMatchObject({ status: "cancelled", closed_by: "person" });
@@ -886,12 +890,18 @@ describe("include-children", () => {
     const back = (await closeEntity(sql, undo)).closed;
     expect(back.cascaded).toHaveLength(3);
     for (const id of [t.a1, t.a2])
-      expect(await stored("action", id)).toMatchObject({ status: expect.stringMatching(/planned|doing|active/), closed_at: null });
+      expect(await stored("action", id)).toMatchObject({
+        status: expect.stringMatching(/planned|doing|active/),
+        closed_at: null
+      });
     expect(await stored("deliverable", t.deliverable)).toMatchObject({ closed_at: null });
 
     // and without the flag only the parent comes back
     const second = (
-      await closeEntity(sql, close("project", t.project, "cancel", { includeChildren: true, expectedVersion: back.version }))
+      await closeEntity(
+        sql,
+        close("project", t.project, "cancel", { includeChildren: true, expectedVersion: back.version })
+      )
     ).closed;
     await closeEntity(sql, restore("project", t.project, "cancel", second.version));
     expect(await stored("project", t.project)).toMatchObject({ status: "active", closed_at: null });

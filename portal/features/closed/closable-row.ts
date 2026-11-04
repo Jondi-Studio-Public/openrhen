@@ -12,7 +12,12 @@ export interface ClosableRow {
 
 type Named = { id: string; status: string; version?: number | undefined };
 
-function pick(type: CloseType, items: readonly Named[], id: string, title: (item: never) => string): ClosableRow | null {
+function pick(
+  type: CloseType,
+  items: readonly Named[],
+  id: string,
+  title: (item: never) => string
+): ClosableRow | null {
   const item = id === "" ? undefined : items.find((candidate) => candidate.id === id);
   return item ? { type, id, title: title(item as never), status: item.status, version: item.version } : null;
 }

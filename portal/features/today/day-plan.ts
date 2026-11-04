@@ -6,7 +6,9 @@ import {
   type SoftPlacementWire,
   type StepPlacementWire,
   type TransportMode,
-  type TravelSource, isClosedStatus } from "@openrhen/contracts";
+  type TravelSource,
+  isClosedStatus
+} from "@openrhen/contracts";
 import type { PortalState, StoredCommitment } from "@/state/portal-state";
 import type { ClientAllocation, ClientRecommendation, ClientSlot } from "@/state/portal-provider";
 import { criticalTierLabel } from "@/features/now/critical-tiers";

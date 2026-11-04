@@ -255,11 +255,10 @@ export default function ReviewPage() {
     dropIds.current.set(key, commandId);
     try {
       const closed = await closeEntityCommand(
-        closeCommandFor(
-          { type: "project", id: project.id, version: project.version },
-          "cancel",
-          { commandId, includeChildren }
-        ),
+        closeCommandFor({ type: "project", id: project.id, version: project.version }, "cancel", {
+          commandId,
+          includeChildren
+        }),
         { handles: (refusal) => isChildrenRefusal(refusal) && !includeChildren }
       );
       dropIds.current.delete(key);
@@ -267,7 +266,8 @@ export default function ReviewPage() {
       setLastChange({ choice: "drop", id: project.id, title: project.title, closed });
       setDecided((count) => count + 1);
     } catch (error) {
-      if (isChildrenRefusal(error) && !includeChildren) return setDropQuestion({ projectId: project.id, message: error.message });
+      if (isChildrenRefusal(error) && !includeChildren)
+        return setDropQuestion({ projectId: project.id, message: error.message });
       throw new Error(failureText(error, "close"));
     }
   }

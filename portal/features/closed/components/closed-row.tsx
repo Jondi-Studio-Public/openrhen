@@ -26,7 +26,6 @@ export function ClosedRow({
   timeZone,
   busy,
   message,
-  rowRef,
   onRestore,
   onOpenBlocker
 }: {
@@ -34,7 +33,6 @@ export function ClosedRow({
   timeZone: string | undefined;
   busy: boolean;
   message: string | undefined;
-  rowRef?: ((element: HTMLLIElement | null) => void) | undefined;
   onRestore: (row: Row, includeChildren: boolean) => void;
   onOpenBlocker: (tab: "archived" | "cancelled") => void;
 }) {
@@ -43,7 +41,12 @@ export function ClosedRow({
   const withBatch = canRestoreWithBatch(row);
   const blocker = row.blockedBy;
   return (
-    <li className={styles.row} ref={rowRef} tabIndex={-1} aria-label={`${kindLine(row)}: ${row.title}`}>
+    <li
+      id={`closed-row-${row.type}-${row.id}`}
+      className={styles.row}
+      tabIndex={-1}
+      aria-label={`${kindLine(row)}: ${row.title}`}
+    >
       <div className={styles.text}>
         <p className={styles.title}>{row.title}</p>
         <p className={styles.meta}>{kindLine(row)}</p>
@@ -52,7 +55,11 @@ export function ClosedRow({
           {when ? `, ${when}` : ""}
           {row.reason ? `. Reason: ${row.reason}` : ""}
         </p>
-        {others > 0 && <p className={styles.meta}>Closed with {others} {others === 1 ? "other" : "others"}.</p>}
+        {others > 0 && (
+          <p className={styles.meta}>
+            Closed with {others} {others === 1 ? "other" : "others"}.
+          </p>
+        )}
         {message && (
           <p role="alert" className={styles.problem}>
             {message}

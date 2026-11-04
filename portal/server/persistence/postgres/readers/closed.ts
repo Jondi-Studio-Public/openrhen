@@ -106,11 +106,7 @@ function selectOf(table: keyof typeof SHAPES, tab: ClosedTab): string | undefine
 }
 
 /** The ancestors of a row as a name and status, top down, to find the first closed one. */
-async function blockedByOf(
-  sql: Sql,
-  type: CloseType,
-  id: string
-): Promise<NonNullable<ClosedRow["blockedBy"]> | null> {
+async function blockedByOf(sql: Sql, type: CloseType, id: string): Promise<NonNullable<ClosedRow["blockedBy"]> | null> {
   for (const ancestor of await ancestorsOf(sql, type, id)) {
     const table = CLOSE_TABLE_OF[ancestor.type];
     const shape = SHAPES[table];
@@ -129,10 +125,13 @@ async function blockedByOf(
 export async function readClosed(sql: Sql, userId: string, query: ClosedQuery): Promise<ClosedPage> {
   const limit = Math.min(Math.max(Math.trunc(query.limit ?? CLOSED_DEFAULT_LIMIT), 1), CLOSED_MAX_LIMIT);
   const cursor = query.before === undefined ? null : parseClosedCursor(query.before);
-  if (query.before !== undefined && cursor === null) throw new RangeError("before must be the nextCursor of an earlier page.");
+  if (query.before !== undefined && cursor === null)
+    throw new RangeError("before must be the nextCursor of an earlier page.");
 
   const tables = TABLES.filter((table) => query.type === undefined || SHAPES[table].type === query.type);
-  const selects = tables.map((table) => selectOf(table, query.tab)).filter((text): text is string => text !== undefined);
+  const selects = tables
+    .map((table) => selectOf(table, query.tab))
+    .filter((text): text is string => text !== undefined);
 
   let rows: Found[] = [];
   const batchSizes = new Map<string, number>();
@@ -149,7 +148,9 @@ export async function readClosed(sql: Sql, userId: string, query: ClosedQuery): 
        ORDER BY u.sort_text DESC, u.type || ':' || u.id DESC LIMIT $${params.length}`,
       params as never[]
     );
-    const batches = [...new Set(rows.map((row) => row.closed_batch).filter((batch): batch is string => batch !== null))];
+    const batches = [
+      ...new Set(rows.map((row) => row.closed_batch).filter((batch): batch is string => batch !== null))
+    ];
     if (batches.length > 0) {
       const counted = TABLES.map(
         (table) =>

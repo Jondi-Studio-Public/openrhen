@@ -79,10 +79,14 @@ export function CloseControl({
       <div className={styles.control}>
         <div className={styles.question} role="group" aria-label={`Close everything under ${row.title}?`}>
           <p>{closer.pending.message}</p>
-          <Button variant="danger" disabled={closer.busy} onClick={async () => {
-            const outcome = await closer.confirmChildren();
-            if (outcome.ok) onDone?.();
-          }}>
+          <Button
+            variant="danger"
+            disabled={closer.busy}
+            onClick={async () => {
+              const outcome = await closer.confirmChildren();
+              if (outcome.ok) onDone?.();
+            }}
+          >
             Close all
           </Button>
           <Button disabled={closer.busy} onClick={closer.dismissChildren}>

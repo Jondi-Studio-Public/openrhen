@@ -219,9 +219,12 @@ describe("ConditionDefinitionEditor", () => {
   });
 
   it("has no status select with an Archived option; the status is text and the close control sits beside it", () => {
-    renderEditor({ kind: "capability", name: "Desk", status: "active" }, {
-      closeControl: <button type="button">Archive context</button>
-    });
+    renderEditor(
+      { kind: "capability", name: "Desk", status: "active" },
+      {
+        closeControl: <button type="button">Archive context</button>
+      }
+    );
     expect(screen.queryByRole("combobox", { name: "Status" })).toBeNull();
     expect(screen.queryByRole("option", { name: "Archived" })).toBeNull();
     expect(screen.getByText("Active")).toBeTruthy();
@@ -230,7 +233,10 @@ describe("ConditionDefinitionEditor", () => {
 
   it("shows an archived context as Archived, and offers no close control while creating or for the home base", () => {
     const control = <button type="button">Archive context</button>;
-    const { unmount } = renderEditor({ kind: "capability", name: "Desk", status: "archived" }, { closeControl: control });
+    const { unmount } = renderEditor(
+      { kind: "capability", name: "Desk", status: "archived" },
+      { closeControl: control }
+    );
     expect(screen.getByText("Archived")).toBeTruthy();
     unmount();
     const creating = renderEditor({ kind: "capability", name: "Desk" }, { creating: true, closeControl: control });

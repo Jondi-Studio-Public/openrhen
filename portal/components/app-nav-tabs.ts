@@ -102,7 +102,12 @@ export const destinations: readonly Destination[] = withExtensionDestinations([
   { href: "/deliverables", label: "Deliverables", where: "Plan", keywords: "breakdown work" },
   { href: "/map", label: "Plan map", where: "Plan", keywords: "links connections graph subjects" },
   { href: "/review", label: "Weekly review", where: "Plan", keywords: "review weekly monthly stale agent changes" },
-  { href: "/review/closed", label: "Closed items", where: "Plan › Review", keywords: "closed archived cancelled restore undo" },
+  {
+    href: "/review/closed",
+    label: "Closed items",
+    where: "Plan › Review",
+    keywords: "closed archived cancelled restore undo"
+  },
   { href: "/review/focus", label: "Undated project focus", where: "Plan › Review", keywords: "undated focus" },
   { href: "/inbox", label: "Inbox", where: "Inbox", keywords: "decide review proposals" },
   { href: "/inbox/captured", label: "Captured", where: "Inbox", keywords: "capture thoughts" },

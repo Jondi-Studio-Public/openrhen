@@ -19,7 +19,8 @@ import { versionConflict } from "@/server/persistence/postgres/command-errors";
 
 export function parseCloseBody(init: RequestInit | undefined): CloseEntityCommand {
   const parsed = closeEntityCommandSchema.safeParse(JSON.parse(String(init?.body ?? "null")));
-  if (!parsed.success) throw new Error(`The posted body is not a close command: ${JSON.stringify(parsed.error.issues)}`);
+  if (!parsed.success)
+    throw new Error(`The posted body is not a close command: ${JSON.stringify(parsed.error.issues)}`);
   return parsed.data;
 }
 
@@ -32,7 +33,12 @@ const closedStatusOf = (command: CloseEntityCommand) => (command.verb === "archi
 /** The result of a close or restore as the handler builds it, for a row at `version` before the call. */
 export function resultFor(
   command: CloseEntityCommand,
-  options: { version: number; cascaded?: CloseEntityResult["cascaded"]; skipped?: CloseEntityResult["skipped"]; closedFrom?: string }
+  options: {
+    version: number;
+    cascaded?: CloseEntityResult["cascaded"];
+    skipped?: CloseEntityResult["skipped"];
+    closedFrom?: string;
+  }
 ): CloseEntityResult {
   const after = options.version + 1;
   if (command.do === "close") {
@@ -86,7 +92,10 @@ export function childrenRefusalReply(command: CloseEntityCommand, count: number,
 }
 
 /** The 400 for a restore under a closed parent. */
-export function ancestorRefusalReply(command: CloseEntityCommand, ancestor: { type: CloseType; id: string; status: string; version: number }): Response {
+export function ancestorRefusalReply(
+  command: CloseEntityCommand,
+  ancestor: { type: CloseType; id: string; status: string; version: number }
+): Response {
   const refusal = ancestorClosedRefusal({ type: command.type, id: command.id, ancestor });
   return jsonResponse({ error: refusal.message, nextCall: refusal.nextCall }, 400);
 }

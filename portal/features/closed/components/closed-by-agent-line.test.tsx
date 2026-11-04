@@ -7,7 +7,10 @@ const context = { state: {} };
 vi.mock("@/state/portal-provider", () => ({ usePortal: () => context }));
 
 function answer(body: unknown, ok = true) {
-  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(body), { status: ok ? 200 : 500 })));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify(body), { status: ok ? 200 : 500 }))
+  );
 }
 
 describe("ClosedByAgentLine", () => {

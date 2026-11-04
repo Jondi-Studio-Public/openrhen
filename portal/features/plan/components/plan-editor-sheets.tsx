@@ -47,7 +47,8 @@ export function PlanEditorSheets({
   const kind = editors.openEditor;
   // A close bumps the record's version, so it waits while the form holds edits that a save would then conflict with.
   const stored = <T extends { id: string }>(items: T[], id: string) => items.find((item) => item.id === id);
-  const changed = (draft: unknown, fresh: unknown) => fresh !== undefined && JSON.stringify(draft) !== JSON.stringify(fresh);
+  const changed = (draft: unknown, fresh: unknown) =>
+    fresh !== undefined && JSON.stringify(draft) !== JSON.stringify(fresh);
   const storedArea = stored(areas, editors.area.id);
   const storedOutcome = stored(outcomes, editors.outcome.id);
   const storedProject = stored(projects, editors.project.id);

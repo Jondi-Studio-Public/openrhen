@@ -48,7 +48,9 @@ describe("CloseToastRegion", () => {
   it("shows what closed with an Undo and a dismiss button", async () => {
     await mount();
     act(() => closeToasts.show({ kind: "closed", title: "Quarterly report", closed: closedProject() }));
-    expect(screen.getByRole("status", { name: "Archive and cancel results" }).textContent).toContain("Quarterly report archived.");
+    expect(screen.getByRole("status", { name: "Archive and cancel results" }).textContent).toContain(
+      "Quarterly report archived."
+    );
     expect(screen.getByRole("button", { name: "Undo" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     expect(closeToasts.get()).toBeNull();
@@ -64,7 +66,11 @@ describe("CloseToastRegion", () => {
     await act(async () => {
       fireEvent.click(undo);
     });
-    await waitFor(() => expect(screen.getByRole("status", { name: "Archive and cancel results" }).textContent).toContain("Restored Quarterly report as paused."));
+    await waitFor(() =>
+      expect(screen.getByRole("status", { name: "Archive and cancel results" }).textContent).toContain(
+        "Restored Quarterly report as paused."
+      )
+    );
     expect(posts).toHaveLength(1);
     expect(posts[0]).toMatchObject({ type: "project", id: "p1", verb: "archive", do: "restore", expectedVersion: 5 });
     expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
@@ -112,7 +118,10 @@ describe("CloseToastRegion", () => {
 
   it("shows the server's sentence when a parent was closed meanwhile", async () => {
     stubCloseServer(() =>
-      jsonResponse({ error: 'Project "p1" cannot be restored while outcome "o1" above it is cancelled. Restore that first.' }, 400)
+      jsonResponse(
+        { error: 'Project "p1" cannot be restored while outcome "o1" above it is cancelled. Restore that first.' },
+        400
+      )
     );
     await mount();
     act(() => closeToasts.show({ kind: "closed", title: "Quarterly report", closed: closedProject() }));
@@ -120,7 +129,11 @@ describe("CloseToastRegion", () => {
     await act(async () => {
       fireEvent.click(undo);
     });
-    await waitFor(() => expect(screen.getByRole("status", { name: "Archive and cancel results" }).textContent).toContain("Restore that first."));
+    await waitFor(() =>
+      expect(screen.getByRole("status", { name: "Archive and cancel results" }).textContent).toContain(
+        "Restore that first."
+      )
+    );
   });
 
   it("goes after ten seconds, but not while the pointer or focus is on it", async () => {
@@ -148,7 +161,9 @@ describe("CloseToastRegion", () => {
     await mount();
     act(() => closeToasts.show({ kind: "closed", title: "First", closed: closedProject() }));
     act(() => closeToasts.show({ kind: "notice", text: "Restored Second as active." }));
-    expect(screen.getByRole("status", { name: "Archive and cancel results" }).textContent).toContain("Restored Second as active.");
+    expect(screen.getByRole("status", { name: "Archive and cancel results" }).textContent).toContain(
+      "Restored Second as active."
+    );
     expect(screen.getByRole("status", { name: "Archive and cancel results" }).textContent).not.toContain("First");
     expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
   });

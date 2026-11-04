@@ -37,8 +37,15 @@ describe("closeCommandFor", () => {
 
 describe("restoreCommandFor", () => {
   it("builds a restore from the row's own fields", () => {
-    const command = restoreCommandFor({ type: "action", id: "a1", restoreVerb: "cancel", version: 7 }, { commandId: ID });
-    expect(closeEntityCommandSchema.parse(command)).toMatchObject({ do: "restore", verb: "cancel", expectedVersion: 7 });
+    const command = restoreCommandFor(
+      { type: "action", id: "a1", restoreVerb: "cancel", version: 7 },
+      { commandId: ID }
+    );
+    expect(closeEntityCommandSchema.parse(command)).toMatchObject({
+      do: "restore",
+      verb: "cancel",
+      expectedVersion: 7
+    });
   });
   it("asks for the rows closed with it when told to", () => {
     const command = restoreCommandFor(
@@ -99,9 +106,9 @@ describe("isChildrenRefusal", () => {
     const children = new CommandRefusal(refusal.message, { status: 400, nextCall: refusal.nextCall });
     expect(isChildrenRefusal(children)).toBe(true);
     expect(isChildrenRefusal(new CommandRefusal("Nope", { status: 400 }))).toBe(false);
-    expect(
-      isChildrenRefusal(new CommandRefusal(refusal.message, { status: 409, nextCall: refusal.nextCall }))
-    ).toBe(false);
+    expect(isChildrenRefusal(new CommandRefusal(refusal.message, { status: 409, nextCall: refusal.nextCall }))).toBe(
+      false
+    );
     expect(isChildrenRefusal(new Error("x"))).toBe(false);
   });
 });
@@ -148,22 +155,35 @@ describe("closeToastText", () => {
 describe("restoreToastText", () => {
   it("says where it landed and notes an assumed landing", () => {
     const restore = (assumed: boolean, extra = {}) =>
-      resultFor(restoreCommandFor({ type: "project", id: "p1", restoreVerb: "cancel", version: 4 }, { commandId: ID }), {
-        version: 4,
-        ...extra,
-        ...(assumed ? {} : { closedFrom: "paused" })
-      });
+      resultFor(
+        restoreCommandFor({ type: "project", id: "p1", restoreVerb: "cancel", version: 4 }, { commandId: ID }),
+        {
+          version: 4,
+          ...extra,
+          ...(assumed ? {} : { closedFrom: "paused" })
+        }
+      );
     expect(restoreToastText("Garden", restore(false))).toBe("Restored Garden as paused.");
     expect(restoreToastText("Garden", restore(true))).toBe(
       "Restored Garden as active; the old status was not recorded."
     );
   });
   it("mentions rows left as they were", () => {
-    const base = resultFor(restoreCommandFor({ type: "outcome", id: "o1", restoreVerb: "cancel", version: 4 }, { commandId: ID }), {
-      version: 4,
-      closedFrom: "active",
-      skipped: [{ type: "project", id: "p1", reason: "It was changed after it was closed, so it was left as it is.", call: null }]
-    });
+    const base = resultFor(
+      restoreCommandFor({ type: "outcome", id: "o1", restoreVerb: "cancel", version: 4 }, { commandId: ID }),
+      {
+        version: 4,
+        closedFrom: "active",
+        skipped: [
+          {
+            type: "project",
+            id: "p1",
+            reason: "It was changed after it was closed, so it was left as it is.",
+            call: null
+          }
+        ]
+      }
+    );
     expect(restoreToastText("Garden", base)).toBe("Restored Garden as active. 1 under it was left closed.");
   });
 });

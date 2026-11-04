@@ -17,7 +17,8 @@ const ALLOWED: Record<string, string> = {
   "app/setup/page.tsx": "context definitions: archived is their only closed status",
   "components/situation-panel.tsx": "context definitions: archived is their only closed status",
   "features/closed/components/close-control.tsx": "picks the restore verb from the status it is restoring",
-  "features/deliverables/components/requirement-pathways.tsx": "context definitions: archived is their only closed status",
+  "features/deliverables/components/requirement-pathways.tsx":
+    "context definitions: archived is their only closed status",
   "features/deliverables/components/step-rail.tsx": "deliverable steps",
   "features/deliverables/components/workspace-actions.tsx": "deliverable steps",
   "features/deliverables/deliverable-model.ts": "deliverable steps",
@@ -31,7 +32,8 @@ const ALLOWED: Record<string, string> = {
   "features/plan/components/area-overview.tsx": "the 'Archived' label on an area",
   "features/routines/components/routine-toolbar.tsx": "routine presets: archived is their only closed status",
   "features/routines/routine-editor.ts": "routine presets: archived is their only closed status",
-  "features/settings/components/context-definition-editor.tsx": "context definitions, and the commitments list in a picker",
+  "features/settings/components/context-definition-editor.tsx":
+    "context definitions, and the commitments list in a picker",
   "features/settings/components/typed-context-manager.tsx": "context definitions: archived is their only closed status",
   "features/settings/location-coordinates.ts": "context definitions: archived is their only closed status",
   "features/today/commitment-save.ts": "re-adding a contact reopens an archived one, on purpose",
@@ -58,7 +60,9 @@ describe("closed status literals", () => {
       }
     }
     const unexplained = [...found].filter((file) => !(file in ALLOWED)).sort();
-    const stale = Object.keys(ALLOWED).filter((file) => !found.has(file)).sort();
+    const stale = Object.keys(ALLOWED)
+      .filter((file) => !found.has(file))
+      .sort();
     expect({ unexplained, stale }).toEqual({ unexplained: [], stale: [] });
   });
 });

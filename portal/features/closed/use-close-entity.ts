@@ -21,9 +21,7 @@ export type CloseOutcome =
   | { ok: false; message: string };
 
 export type RestoreOutcome =
-  | { ok: true; closed: CloseEntityResult }
-  | { ok: false; busy: true }
-  | { ok: false; message: string; status?: number };
+  { ok: true; closed: CloseEntityResult } | { ok: false; busy: true } | { ok: false; message: string; status?: number };
 
 export interface PendingChildren {
   target: CloseTarget;
@@ -69,17 +67,20 @@ export function useCloseEntity() {
   };
 
   const close = useCallback(
-    async (target: CloseTarget, verb: CloseVerb, options: { includeChildren?: boolean } = {}): Promise<CloseOutcome> => {
+    async (
+      target: CloseTarget,
+      verb: CloseVerb,
+      options: { includeChildren?: boolean } = {}
+    ): Promise<CloseOutcome> => {
       if (inFlight.current) return { ok: false, busy: true };
       inFlight.current = true;
       setBusy(true);
       setError("");
       const key = `close:${target.type}:${target.id}:${target.version}:${verb}`;
       try {
-        const closed = await closeEntityCommand(
-          closeCommandFor(target, verb, { commandId: idFor(key), ...options }),
-          { handles: () => true }
-        );
+        const closed = await closeEntityCommand(closeCommandFor(target, verb, { commandId: idFor(key), ...options }), {
+          handles: () => true
+        });
         ids.current.delete(key);
         setPending(null);
         closeToasts.show({ kind: "closed", title: target.title, closed });
@@ -139,4 +140,3 @@ export function useCloseEntity() {
 
   return { close, restore, confirmChildren, dismissChildren, pending, busy, error };
 }
-

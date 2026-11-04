@@ -41,7 +41,9 @@ export function DirectionPanel({
           <select value={deferredAction} onChange={(event) => onDeferredActionChange(event.target.value)}>
             <option value="">None</option>
             {state.projects.map((project) => {
-              const items = state.actions.filter((item) => item.status !== "done" && !isClosedStatus(item.status) && item.projectId === project.id);
+              const items = state.actions.filter(
+                (item) => item.status !== "done" && !isClosedStatus(item.status) && item.projectId === project.id
+              );
               return items.length ? (
                 <optgroup key={project.id} label={project.title}>
                   {items.map((action) => (
@@ -54,7 +56,10 @@ export function DirectionPanel({
             })}
             {state.actions
               .filter(
-                (item) => item.status !== "done" && !isClosedStatus(item.status) && !state.projects.some((project) => project.id === item.projectId)
+                (item) =>
+                  item.status !== "done" &&
+                  !isClosedStatus(item.status) &&
+                  !state.projects.some((project) => project.id === item.projectId)
               )
               .map((action) => (
                 <option key={action.id} value={action.id}>

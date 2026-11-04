@@ -147,7 +147,12 @@ describe("readClosed", () => {
 
     const archived = closedPageSchema.parse(await readClosed(sql, userId, { tab: "archived" }));
     const cancelled = closedPageSchema.parse(await readClosed(sql, userId, { tab: "cancelled" }));
-    expect(archived.rows.map((row) => row.type).sort()).toEqual(["area", "condition_definition", "project", "routine_preset"]);
+    expect(archived.rows.map((row) => row.type).sort()).toEqual([
+      "area",
+      "condition_definition",
+      "project",
+      "routine_preset"
+    ]);
     expect(cancelled.rows.map((row) => row.type).sort()).toEqual(["action", "commitment", "deliverable", "outcome"]);
     expect(archived.counts).toEqual({ archived: 4, cancelled: 4 });
     for (const row of [...archived.rows, ...cancelled.rows]) {
@@ -252,8 +257,12 @@ describe("readClosed", () => {
       ids.push(id);
     }
     // two pairs share a closed time to the microsecond; one row has no closed_at at all
-    await sql.unsafe(`UPDATE actions SET closed_at = '2026-11-03T00:00:00.123456Z'::timestamptz WHERE title IN ('Row 0','Row 1')`);
-    await sql.unsafe(`UPDATE actions SET closed_at = '2026-11-02T00:00:00Z'::timestamptz WHERE title IN ('Row 2','Row 3')`);
+    await sql.unsafe(
+      `UPDATE actions SET closed_at = '2026-11-03T00:00:00.123456Z'::timestamptz WHERE title IN ('Row 0','Row 1')`
+    );
+    await sql.unsafe(
+      `UPDATE actions SET closed_at = '2026-11-02T00:00:00Z'::timestamptz WHERE title IN ('Row 2','Row 3')`
+    );
     await sql.unsafe(`UPDATE actions SET closed_at = NULL, updated_at = '2026-11-01T00:00:00Z' WHERE title = 'Row 4'`);
 
     const seen: string[] = [];
@@ -341,7 +350,8 @@ describe("readClosedSummary", () => {
     await sql`UPDATE actions SET status = 'cancelled' WHERE id = ${system}`;
     await sql`UPDATE actions SET status = 'cancelled', closed_at = ${NOW.toISOString()}::timestamptz WHERE id = ${legacy}`;
     await sql`UPDATE actions SET status = 'cancelled', closed_by = 'agent:claude:undo' WHERE id = ${undo}`;
-    for (const id of [agentNew, confirmed, person, system, undo]) await closedAtOf("action", id, "2026-11-04T10:00:00Z");
+    for (const id of [agentNew, confirmed, person, system, undo])
+      await closedAtOf("action", id, "2026-11-04T10:00:00Z");
     await closedAtOf("action", agentNewer, "2026-11-04T11:00:00Z");
     await closedAtOf("action", agentOld, "2026-11-03T11:59:59Z");
     await closedAtOf("action", agentRestored, "2026-11-04T09:00:00Z");
@@ -387,7 +397,9 @@ describe("parity with classifyClosedBy", () => {
       await sql`UPDATE actions SET status = 'cancelled', closed_by = ${closedBy}, closed_at = '2026-11-04T11:00:00Z'::timestamptz WHERE id = ${id}`;
       ids[closedBy] = id;
     }
-    const listed = new Set((await readClosed(sql, userId, { tab: "cancelled", limit: 50 })).rows.map((row) => row.title));
+    const listed = new Set(
+      (await readClosed(sql, userId, { tab: "cancelled", limit: 50 })).rows.map((row) => row.title)
+    );
     for (const closedBy of strings) expect(listed.has(closedBy)).toBe(classifyClosedBy(closedBy).kind !== "undo");
     const counted = (await readClosedSummary(sql, userId, NOW)).agentLast24h;
     expect(counted).toBe(strings.filter((closedBy) => classifyClosedBy(closedBy).kind === "agent").length);

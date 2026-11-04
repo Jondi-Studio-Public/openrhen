@@ -104,13 +104,10 @@ async function press(page, name, { timeout = 15_000 } = {}) {
       label.toString()
     )
     .catch(async () => {
-      const names = await page.evaluate(
-        (labelFn) => {
-          const read = new Function("el", `return (${labelFn})(el)`);
-          return [...document.querySelectorAll("button")].map(read).filter(Boolean).slice(0, 40);
-        },
-        label.toString()
-      );
+      const names = await page.evaluate((labelFn) => {
+        const read = new Function("el", `return (${labelFn})(el)`);
+        return [...document.querySelectorAll("button")].map(read).filter(Boolean).slice(0, 40);
+      }, label.toString());
       fail(`No enabled button named ${name} on ${page.url()}. Buttons: ${names.join(" | ")}`);
     });
   await handle.asElement().click();
@@ -151,7 +148,7 @@ async function open(page, path) {
 async function expandActions(page) {
   await page.evaluate(() => {
     for (const details of document.querySelectorAll("details")) {
-      if (/^Actions \(/.test(details.querySelector("summary")?.textContent ?? "")) details.open = true;
+      if ((details.querySelector("summary")?.textContent ?? "").startsWith("Actions (")) details.open = true;
     }
   });
 }
@@ -160,7 +157,9 @@ async function expandActions(page) {
 async function editRow(page, title) {
   await see(page, title);
   const clicked = await page.evaluate((needle) => {
-    const hits = [...document.querySelectorAll("strong, span, p, h2, h3")].filter((el) => el.textContent.trim() === needle);
+    const hits = [...document.querySelectorAll("strong, span, p, h2, h3")].filter(
+      (el) => el.textContent.trim() === needle
+    );
     for (const hit of hits) {
       let node = hit;
       for (let depth = 0; node && depth < 6; depth += 1, node = node.parentElement) {
@@ -192,9 +191,13 @@ function connect(url) {
 async function seed(sql) {
   const [{ id: userId }] = await sql`SELECT id FROM users ORDER BY created_at LIMIT 1`;
   const one = async (query) => (await query)[0].id;
-  const area = await one(sql`INSERT INTO areas (user_id,name,status,sort_order) VALUES (${userId},'Smoke area','active',0) RETURNING id`);
+  const area = await one(
+    sql`INSERT INTO areas (user_id,name,status,sort_order) VALUES (${userId},'Smoke area','active',0) RETURNING id`
+  );
   const outcome = (title) =>
-    one(sql`INSERT INTO outcomes (area_id,title,definition_of_done,status) VALUES (${area},${title},'Done','active') RETURNING id`);
+    one(
+      sql`INSERT INTO outcomes (area_id,title,definition_of_done,status) VALUES (${area},${title},'Done','active') RETURNING id`
+    );
   const project = (outcomeId, title) =>
     one(sql`INSERT INTO projects (outcome_id,title,status) VALUES (${outcomeId},${title},'active') RETURNING id`);
   const action = (projectId, title) =>
@@ -304,14 +307,17 @@ async function flows(browser, sql, ids, server, restartServer) {
   // 4 (second half): who and why for the agent's close, and the badge is gone now.
   await see(page, "Agent claude");
   await see(page, "Reason: Duplicate of Solo action");
-  if ((await page.evaluate(() => document.body.innerText)).includes("Undone create")) fail("The undo-of-create close is listed.");
+  if ((await page.evaluate(() => document.body.innerText)).includes("Undone create"))
+    fail("The undo-of-create close is listed.");
   pass("Closed page names the agent and the reason, and does not list the undo-of-create close");
   await open(page, "/");
   await sleep(1500);
-  if ((await page.evaluate(() => document.body.innerText)).includes("closed by an agent")) fail("The badge stayed after the Closed page was opened.");
+  if ((await page.evaluate(() => document.body.innerText)).includes("closed by an agent"))
+    fail("The badge stayed after the Closed page was opened.");
   await open(page, "/today");
   await sleep(1000);
-  if ((await page.evaluate(() => document.body.innerText)).includes("closed by an agent")) fail("The badge stayed on Today.");
+  if ((await page.evaluate(() => document.body.innerText)).includes("closed by an agent"))
+    fail("The badge stayed on Today.");
   pass("Opening Review > Closed on this device clears the badge on Now and Today");
 
   // 6: blocked restore, then the stale second tab.
@@ -319,7 +325,9 @@ async function flows(browser, sql, ids, server, restartServer) {
   await see(page, "Action under a retired project");
   await see(page, "Restore Retired project first");
   const blocked = await page.evaluate(() => {
-    const el = [...document.querySelectorAll("button")].find((b) => (b.getAttribute("aria-label") ?? "").includes("Action under a retired project"));
+    const el = [...document.querySelectorAll("button")].find((b) =>
+      (b.getAttribute("aria-label") ?? "").includes("Action under a retired project")
+    );
     return el ? el.disabled : null;
   });
   if (blocked !== true) fail("Restore under a closed parent is not disabled.");
@@ -341,7 +349,8 @@ async function flows(browser, sql, ids, server, restartServer) {
   await press(second, 'Restore commitment "Dentist visit"');
   await see(second, "the list was refreshed");
   await gone(second, "Dentist visit").catch(() => {});
-  if ((await second.evaluate(() => document.body.innerText)).includes("version")) fail("A server sentence about versions was shown.");
+  if ((await second.evaluate(() => document.body.innerText)).includes("version"))
+    fail("A server sentence about versions was shown.");
   await second.close();
   await page.bringToFront();
   pass("Stale second tab: Restore refreshes the list and shows no server sentence");
@@ -364,7 +373,7 @@ async function flows(browser, sql, ids, server, restartServer) {
   await open(page, "/review/closed?tab=cancelled");
   await see(page, "Action under a retired project");
   const tablist = await page.evaluate(() => {
-    const tabs = [...document.querySelectorAll('[role=tablist][aria-label] [role=tab]')];
+    const tabs = [...document.querySelectorAll("[role=tablist][aria-label] [role=tab]")];
     return tabs.map((tab) => ({ name: tab.textContent.trim(), selected: tab.getAttribute("aria-selected") }));
   });
   if (tablist.length !== 2) fail(`Expected two tabs, saw ${JSON.stringify(tablist)}`);
@@ -372,13 +381,18 @@ async function flows(browser, sql, ids, server, restartServer) {
   const focusVisible = await page.evaluate(() => document.activeElement && document.activeElement !== document.body);
   if (!focusVisible) fail("Tab moved focus nowhere.");
   const unnamed = await page.evaluate(
-    () => [...document.querySelectorAll("main button")].filter((b) => !(b.getAttribute("aria-label") || b.textContent).trim()).length
+    () =>
+      [...document.querySelectorAll("main button")].filter(
+        (b) => !(b.getAttribute("aria-label") || b.textContent).trim()
+      ).length
   );
   if (unnamed > 0) fail(`${unnamed} buttons on the Closed page have no accessible name.`);
   await page.setViewport({ width: 360, height: 740 });
   await open(page, "/review/closed?tab=cancelled");
   await see(page, "Action under a retired project");
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth
+  );
   if (overflow > 0) fail(`The Closed page scrolls sideways by ${overflow}px at 360px.`);
   const small = await page.evaluate(
     () => [...document.querySelectorAll("main li button")].filter((b) => b.getBoundingClientRect().height < 44).length
@@ -407,19 +421,17 @@ async function main() {
     await fetch(`${BASE}/api/state`).catch(() => {});
     const ids = await seed(sql);
     const { default: puppeteer } = await import("puppeteer-core");
-    const browser = await puppeteer.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+    const browser = await puppeteer.launch({
+      executablePath,
+      headless: true,
+      args: ["--no-sandbox", "--disable-dev-shm-usage"]
+    });
     setActiveBrowser(browser);
     try {
-      await flows(
-        browser,
-        sql,
-        ids,
-        server,
-        async () => {
-          server = startPortal({ databaseUrl: db.url, port: PORT });
-          await waitForReady(server, `${BASE}/`);
-        }
-      );
+      await flows(browser, sql, ids, server, async () => {
+        server = startPortal({ databaseUrl: db.url, port: PORT });
+        await waitForReady(server, `${BASE}/`);
+      });
     } finally {
       await browser.close();
       setActiveBrowser(null);

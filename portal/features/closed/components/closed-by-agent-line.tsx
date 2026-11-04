@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { Banner } from "@/components/ui/banner";
 import { ButtonLink } from "@/components/ui/button";
 import { readClosedLookedAt } from "../closed-seen";
@@ -15,9 +14,9 @@ export const CLOSED_BY_AGENT_HREF = "/review/closed?tab=cancelled";
  */
 export function ClosedByAgentLine() {
   const summary = useClosedSummary();
-  const [lookedAt, setLookedAt] = useState<string | null | undefined>(undefined);
-  useEffect(() => setLookedAt(readClosedLookedAt()), [summary]);
-  if (!summary || lookedAt === undefined || summary.agentLast24h <= 0) return null;
+  // Read at render, only once the summary has arrived (client side), so the server render and the first client render agree.
+  const lookedAt = summary ? readClosedLookedAt() : null;
+  if (!summary || summary.agentLast24h <= 0) return null;
   if (lookedAt && summary.latestAt && Date.parse(summary.latestAt) <= Date.parse(lookedAt)) return null;
   const n = summary.agentLast24h;
   return (

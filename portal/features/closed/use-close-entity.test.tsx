@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
+import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
 import "@/test/render";
 import { closeReply, childrenRefusalReply, conflictReply, jsonResponse, resultFor } from "@/test/close-fixtures";
 import { stubCloseServer } from "@/test/close-server";
@@ -15,15 +16,22 @@ import { useCloseEntity } from "./use-close-entity";
  */
 let hook!: ReturnType<typeof useCloseEntity>;
 function Harness() {
-  hook = useCloseEntity();
+  const current = useCloseEntity();
+  useEffect(() => {
+    hook = current;
+  });
   return null;
 }
-const mount = () =>
+/** Mounts the hook and waits until its first commit has published it (the provider reads before it shows children). */
+const mount = async () => {
+  hook = undefined as unknown as typeof hook;
   render(
     <PortalProvider>
       <Harness />
     </PortalProvider>
   );
+  await waitFor(() => expect(hook).toBeDefined());
+};
 
 const project = { type: "project", id: "p1", title: "Quarterly report", version: 4 } as const;
 const outcome = { type: "outcome", id: "o1", title: "Garden", version: 3 } as const;
@@ -37,7 +45,7 @@ afterEach(() => {
 describe("close", () => {
   it("closes with the row's version, shows the toast, and the Undo it carries restores at the version the close left", async () => {
     const { posts } = stubCloseServer((command) => closeReply(createSeedState(), resultFor(command, { version: 4 })));
-    mount();
+    await mount();
     let outcomeResult!: Awaited<ReturnType<typeof hook.close>>;
     await act(async () => {
       outcomeResult = await hook.close(project, "archive");
@@ -61,7 +69,7 @@ describe("close", () => {
           )
         : childrenRefusalReply(command, 1, ["Tax return"])
     );
-    mount();
+    await mount();
     await act(async () => {
       const first = await hook.close(outcome, "cancel");
       expect(first).toEqual({ ok: false, needsConfirm: true });
@@ -80,7 +88,7 @@ describe("close", () => {
 
   it("keeps everything open when the child question is declined", async () => {
     const { posts } = stubCloseServer((command) => childrenRefusalReply(command, 2));
-    mount();
+    await mount();
     await act(async () => {
       await hook.close(outcome, "cancel");
     });
@@ -91,7 +99,7 @@ describe("close", () => {
 
   it("says what happened on a stale version and leaves the button usable", async () => {
     stubCloseServer((command) => conflictReply(command, 8));
-    mount();
+    await mount();
     let result!: Awaited<ReturnType<typeof hook.close>>;
     await act(async () => {
       result = await hook.close(project, "archive");
@@ -106,10 +114,8 @@ describe("close", () => {
 
   it("ignores a second click while the first is in flight", async () => {
     let release!: (response: Response) => void;
-    const { posts } = stubCloseServer(
-      () => new Promise<Response>((resolve) => (release = resolve))
-    );
-    mount();
+    const { posts } = stubCloseServer(() => new Promise<Response>((resolve) => (release = resolve)));
+    await mount();
     let first!: Promise<unknown>;
     await act(async () => {
       first = hook.close(project, "archive");
@@ -134,7 +140,7 @@ describe("close", () => {
       if (calls === 1) throw new TypeError("Failed to fetch");
       return closeReply(createSeedState(), resultFor(command, { version: 4 }));
     });
-    mount();
+    await mount();
     await act(async () => {
       const lost = await hook.close(project, "archive");
       expect(lost.ok).toBe(false);
@@ -149,7 +155,7 @@ describe("close", () => {
 
   it("replaces the toast of the previous close", async () => {
     stubCloseServer((command) => closeReply(createSeedState(), resultFor(command, { version: 4 })));
-    mount();
+    await mount();
     await act(async () => {
       await hook.close(project, "archive");
       await hook.close({ ...project, id: "p2", title: "Second" }, "archive");
@@ -165,7 +171,7 @@ describe("restore", () => {
     const { posts } = stubCloseServer((command) =>
       closeReply(createSeedState(), resultFor(command, { version: 6, closedFrom: "planned" }))
     );
-    mount();
+    await mount();
     await act(async () => {
       expect((await hook.restore(row)).ok).toBe(true);
     });
@@ -177,7 +183,7 @@ describe("restore", () => {
     const { posts } = stubCloseServer((command) =>
       closeReply(createSeedState(), resultFor(command, { version: 6, closedFrom: "active" }))
     );
-    mount();
+    await mount();
     await act(async () => {
       await hook.restore({ ...row, type: "outcome", id: "o1" }, { includeChildren: true });
     });
@@ -186,7 +192,7 @@ describe("restore", () => {
 
   it("reports a stale restore as such, with the status so the page can refetch", async () => {
     stubCloseServer((command) => conflictReply(command, 9));
-    mount();
+    await mount();
     await act(async () => {
       expect(await hook.restore(row)).toEqual({
         ok: false,
@@ -203,7 +209,7 @@ describe("restore", () => {
         400
       )
     );
-    mount();
+    await mount();
     await act(async () => {
       const result = await hook.restore(row);
       expect(result).toMatchObject({ ok: false, status: 400 });

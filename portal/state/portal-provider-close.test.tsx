@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
+import { useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, render } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
 import type { CloseEntityCommand } from "@openrhen/contracts";
 import "@/test/render";
 import { CommandRefusal } from "@/shared/command-refusal";
@@ -23,12 +24,15 @@ import { PortalProvider, usePortal } from "./portal-provider";
 /** Every banner text the page showed, since the provider's own plan refresh clears it again soon after a refusal. */
 const banners = new Set<string>();
 
-function mount() {
-  let latest!: ReturnType<typeof usePortal>;
+async function mount() {
+  let latest: ReturnType<typeof usePortal> | undefined;
   banners.clear();
   function Probe() {
-    latest = usePortal();
-    banners.add(latest.bannerText);
+    const current = usePortal();
+    useEffect(() => {
+      latest = current;
+      banners.add(current.bannerText);
+    });
     return null;
   }
   render(
@@ -36,7 +40,8 @@ function mount() {
       <Probe />
     </PortalProvider>
   );
-  return () => latest;
+  await waitFor(() => expect(latest).toBeDefined());
+  return () => latest!;
 }
 
 /**
@@ -71,7 +76,7 @@ describe("PortalProvider closeEntityCommand", () => {
       posted.push(command);
       return closeReply(createSeedState(), resultFor(command, { version: 4 }));
     });
-    const portal = mount();
+    const portal = await mount();
     let result!: Awaited<ReturnType<ReturnType<typeof portal>["closeEntityCommand"]>>;
     await act(async () => {
       result = await portal().closeEntityCommand({ ...close, commandId: crypto.randomUUID() });
@@ -84,7 +89,7 @@ describe("PortalProvider closeEntityCommand", () => {
 
   it("rejects a refusal as a CommandRefusal that keeps the server's sentence, status and next call", async () => {
     server((command) => childrenRefusalReply(command, 3, ["Tax return"]));
-    const portal = mount();
+    const portal = await mount();
     let caught: unknown;
     await act(async () => {
       caught = await portal()
@@ -103,7 +108,7 @@ describe("PortalProvider closeEntityCommand", () => {
 
   it("does not light the global banner for a refusal the caller says it handles", async () => {
     server((command) => childrenRefusalReply(command, 2));
-    const portal = mount();
+    const portal = await mount();
     await act(async () => {
       await portal()
         .closeEntityCommand(
@@ -117,7 +122,7 @@ describe("PortalProvider closeEntityCommand", () => {
 
   it("carries the current version of a stale close and still refetches the state", async () => {
     const fetchMock = server((command) => conflictReply(command, 9));
-    const portal = mount();
+    const portal = await mount();
     let caught: unknown;
     await act(async () => {
       caught = await portal()
@@ -130,7 +135,7 @@ describe("PortalProvider closeEntityCommand", () => {
 
   it("carries a restore refusal's next call (the closed ancestor)", async () => {
     server((command) => ancestorRefusalReply(command, { type: "project", id: "p9", status: "cancelled", version: 3 }));
-    const portal = mount();
+    const portal = await mount();
     let caught: unknown;
     await act(async () => {
       caught = await portal()
@@ -147,10 +152,12 @@ describe("PortalProvider closeEntityCommand", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((_url: string, init?: RequestInit) =>
-        init?.method === "POST" ? Promise.reject(new TypeError("Failed to fetch")) : Promise.resolve(jsonResponse({ state: null }))
+        init?.method === "POST"
+          ? Promise.reject(new TypeError("Failed to fetch"))
+          : Promise.resolve(jsonResponse({ state: null }))
       )
     );
-    const portal = mount();
+    const portal = await mount();
     let caught: unknown;
     await act(async () => {
       caught = await portal()

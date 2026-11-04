@@ -2,7 +2,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@/test/render";
 import type { CloseType } from "@openrhen/contracts";
-import { ancestorRefusalReply, childrenRefusalReply, closeReply, conflictReply, resultFor } from "@/test/close-fixtures";
+import {
+  ancestorRefusalReply,
+  childrenRefusalReply,
+  closeReply,
+  conflictReply,
+  resultFor
+} from "@/test/close-fixtures";
 import { stubCloseServer } from "@/test/close-server";
 import { createSeedState, type PortalState } from "@/state/portal-state";
 import { PortalProvider } from "@/state/portal-provider";
@@ -19,7 +25,11 @@ function stateWith(rows: Partial<PortalState>): PortalState {
 }
 const row = (extra: object) => ({ id: "r1", version: 4, ...extra });
 
-async function mount(type: CloseType, state: PortalState, props: { id?: string; dirty?: boolean; onDone?: () => void } = {}) {
+async function mount(
+  type: CloseType,
+  state: PortalState,
+  props: { id?: string; dirty?: boolean; onDone?: () => void } = {}
+) {
   render(
     <PortalProvider>
       <CloseControl type={type} id={props.id ?? "r1"} dirty={props.dirty ?? false} onDone={props.onDone} />
@@ -36,7 +46,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const ok = (command: Parameters<typeof resultFor>[0]) => closeReply(createSeedState(), resultFor(command, { version: 4 }));
+const ok = (command: Parameters<typeof resultFor>[0]) =>
+  closeReply(createSeedState(), resultFor(command, { version: 4 }));
 
 describe("which button each row gets", () => {
   const cases: [CloseType, Partial<PortalState>, string][] = [
@@ -47,8 +58,16 @@ describe("which button each row gets", () => {
     ["area", { areas: [row({ name: "Finance", status: "active" })] as never }, "Archive area"],
     ["commitment", { commitments: [row({ title: "Dentist", status: "confirmed" })] as never }, "Cancel commitment"],
     ["commitment", { commitments: [row({ title: "Dentist", status: "tentative" })] as never }, "Cancel commitment"],
-    ["routine_preset", { routinePresets: [row({ name: "Morning", status: "active", steps: [] })] as never }, "Archive routine"],
-    ["condition_definition", { conditionDefinitions: [row({ name: "Office", status: "active" })] as never }, "Archive context"],
+    [
+      "routine_preset",
+      { routinePresets: [row({ name: "Morning", status: "active", steps: [] })] as never },
+      "Archive routine"
+    ],
+    [
+      "condition_definition",
+      { conditionDefinitions: [row({ name: "Office", status: "active" })] as never },
+      "Archive context"
+    ],
     // finished work can only be archived, even for the types that otherwise take either verb
     ["outcome", { outcomes: [row({ title: "Garden", status: "done" })] as never }, "Archive outcome"],
     ["project", { projects: [row({ title: "Beds", status: "done" })] as never }, "Archive project"]
@@ -192,7 +211,9 @@ describe("closing", () => {
       fireEvent.click(await screen.findByRole("button", { name: /^Cancel action/ }));
     });
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toBe("Changed since you opened it, so nothing was closed. The page is up to date; try again.");
+    expect(alert.textContent).toBe(
+      "Changed since you opened it, so nothing was closed. The page is up to date; try again."
+    );
     expect(posts).toHaveLength(1);
     expect(((await screen.findByRole("button", { name: /^Cancel action/ })) as HTMLButtonElement).disabled).toBe(false);
   });
@@ -227,6 +248,8 @@ describe("restoring a closed row", () => {
     await act(async () => {
       fireEvent.click(await screen.findByRole("button", { name: /^Restore/ }));
     });
-    expect((await screen.findByRole("alert")).textContent).toMatch(/cannot be restored while project "p9" above it is cancelled\. Restore that first\.$/);
+    expect((await screen.findByRole("alert")).textContent).toMatch(
+      /cannot be restored while project "p9" above it is cancelled\. Restore that first\.$/
+    );
   });
 });

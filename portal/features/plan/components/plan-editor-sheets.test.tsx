@@ -159,7 +159,9 @@ describe("PlanEditorSheets", () => {
       if (kind === "area") {
         fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
         fireEvent.click(screen.getByRole("button", { name: "Open area create" }));
-        expect(within(screen.getByRole("dialog", { name: "Add an area" })).queryByRole("button", { name: /^Archive area/ })).toBeNull();
+        expect(
+          within(screen.getByRole("dialog", { name: "Add an area" })).queryByRole("button", { name: /^Archive area/ })
+        ).toBeNull();
       }
     });
 
@@ -167,7 +169,9 @@ describe("PlanEditorSheets", () => {
       render(<Harness />);
       fireEvent.click(screen.getByRole("button", { name: "Open area edit" }));
       await act(async () => {
-        fireEvent.click(within(screen.getByRole("dialog", { name: "Edit area" })).getByRole("button", { name: /^Archive area/ }));
+        fireEvent.click(
+          within(screen.getByRole("dialog", { name: "Edit area" })).getByRole("button", { name: /^Archive area/ })
+        );
       });
       expect(closeEntityCommand).toHaveBeenCalledOnce();
       expect(closeEntityCommandSchema.parse(closeEntityCommand.mock.calls[0]![0])).toMatchObject({

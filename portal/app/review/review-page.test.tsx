@@ -423,7 +423,9 @@ describe("Review page composition", () => {
         count: 2,
         deadlined: ["Tax return"]
       });
-      closeEntityCommand.mockRejectedValueOnce(new CommandRefusal(refusal.message, { status: 400, nextCall: refusal.nextCall }));
+      closeEntityCommand.mockRejectedValueOnce(
+        new CommandRefusal(refusal.message, { status: 400, nextCall: refusal.nextCall })
+      );
       render(<ReviewPage />);
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: "Drop" }));
@@ -443,8 +445,17 @@ describe("Review page composition", () => {
     it("keeps the project open when the question is declined", async () => {
       context = { ...baseContext, state: buildState({ projects: staleProjects(1) }) };
       closeEntityCommand.mockClear();
-      const refusal = childrenOpenRefusal({ type: "project", id: "stale-0", verb: "cancel", version: 3, count: 1, deadlined: [] });
-      closeEntityCommand.mockRejectedValueOnce(new CommandRefusal(refusal.message, { status: 400, nextCall: refusal.nextCall }));
+      const refusal = childrenOpenRefusal({
+        type: "project",
+        id: "stale-0",
+        verb: "cancel",
+        version: 3,
+        count: 1,
+        deadlined: []
+      });
+      closeEntityCommand.mockRejectedValueOnce(
+        new CommandRefusal(refusal.message, { status: 400, nextCall: refusal.nextCall })
+      );
       render(<ReviewPage />);
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: "Drop" }));

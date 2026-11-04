@@ -1,6 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { closeEntityCommandSchema, type ClosedPage, type ClosedRow, type CloseEntityCommand } from "@openrhen/contracts";
+import {
+  closeEntityCommandSchema,
+  type ClosedPage,
+  type ClosedRow,
+  type CloseEntityCommand
+} from "@openrhen/contracts";
 import { fireEvent, render, screen, waitFor, within } from "@/test/render";
 import { resultFor } from "@/test/close-fixtures";
 import { createSeedState } from "@/state/portal-state";
@@ -64,7 +69,13 @@ describe("Closed page", () => {
     answers = [
       ok(
         page([
-          row({ closedBy: "agent:codex", reason: "Duplicate of another", type: "project", title: "Old plan", batchSize: 3 })
+          row({
+            closedBy: "agent:codex",
+            reason: "Duplicate of another",
+            type: "project",
+            title: "Old plan",
+            batchSize: 3
+          })
         ])
       )
     ];
@@ -132,15 +143,13 @@ describe("Closed page", () => {
 
   it("disables Restore under a closed parent and names it, switching to its tab", async () => {
     answers = [
-      ok(
-        page([
-          row({ blockedBy: { type: "project", id: "p1", title: "Parent project", status: "archived" } })
-        ])
-      ),
+      ok(page([row({ blockedBy: { type: "project", id: "p1", title: "Parent project", status: "archived" } })])),
       ok(page([], { counts: { archived: 1, cancelled: 1 } }))
     ];
     render(<ClosedPageRoute />);
-    const restore = await screen.findByRole("button", { name: /Restore action "Write the intro" \(restore Parent project first\)/ });
+    const restore = await screen.findByRole("button", {
+      name: /Restore action "Write the intro" \(restore Parent project first\)/
+    });
     expect((restore as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Restore Parent project first" }));
     await waitFor(() => expect(urls.some((url) => url.includes("tab=archived"))).toBe(true));

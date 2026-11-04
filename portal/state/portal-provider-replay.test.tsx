@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, render, waitFor } from "@testing-library/react";
 import "@/test/render";
@@ -82,8 +83,11 @@ describe("PortalProvider snapshot replay", () => {
     vi.stubGlobal("fetch", fetchMock);
     let latest!: ReturnType<typeof usePortal>;
     function Probe() {
-      latest = usePortal();
-      return <span data-testid="ready">{String(latest.ready)}</span>;
+      const current = usePortal();
+      useEffect(() => {
+        latest = current;
+      });
+      return <span data-testid="ready">{String(current.ready)}</span>;
     }
     const view = render(
       <PortalProvider>

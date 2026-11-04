@@ -85,7 +85,13 @@ describe("OutcomeEditor", () => {
 
   it("shows the close control only for an outcome that exists", () => {
     const control = <button type="button">Close outcome…</button>;
-    const props = { areas: seed().areas, onChange: () => {}, onSubmit: () => {}, onCancel: () => {}, closeControl: control };
+    const props = {
+      areas: seed().areas,
+      onChange: () => {},
+      onSubmit: () => {},
+      onCancel: () => {},
+      closeControl: control
+    };
     const { rerender } = render(<OutcomeEditor draft={emptyOutcome()} {...props} />);
     expect(screen.queryByRole("button", { name: "Close outcome…" })).toBeNull();
     rerender(<OutcomeEditor draft={{ ...emptyOutcome(), id: "o1", title: "Tidy" }} {...props} />);

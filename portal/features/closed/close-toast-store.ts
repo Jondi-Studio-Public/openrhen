@@ -9,9 +9,7 @@ export type CloseToast =
   | { key: number; kind: "closed"; title: string; closed: CloseEntityResult }
   | { key: number; kind: "notice"; text: string };
 
-type NewToast =
-  | { kind: "closed"; title: string; closed: CloseEntityResult }
-  | { kind: "notice"; text: string };
+type NewToast = { kind: "closed"; title: string; closed: CloseEntityResult } | { kind: "notice"; text: string };
 
 let current: CloseToast | null = null;
 let counter = 0;

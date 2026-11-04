@@ -372,7 +372,9 @@ describe("Commitment detail surface", () => {
       const toast = closeToasts.get();
       if (toast?.kind !== "closed") throw new Error("expected the close toast");
       expect(toast.title).toBe("Swim squad");
-      expect(closeToastText("Swim squad", toast.closed)).toBe("Swim squad cancelled, with 2 actions and 1 routine step.");
+      expect(closeToastText("Swim squad", toast.closed)).toBe(
+        "Swim squad cancelled, with 2 actions and 1 routine step."
+      );
       // no contact to tell: the editor closes
       await vi.waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit commitment" })).toBeNull());
       expect(screen.queryByText(/open prep/)).toBeNull();
@@ -395,7 +397,9 @@ describe("Commitment detail surface", () => {
       fireEvent.click(screen.getByRole("button", { name: "Edit" }));
       const sheet = screen.getByRole("dialog", { name: "Edit commitment" });
       fireEvent.change(within(sheet).getByLabelText("Title"), { target: { value: "Swim squad (new)" } });
-      expect((within(sheet).getByRole("button", { name: /^Cancel commitment/ }) as HTMLButtonElement).disabled).toBe(true);
+      expect((within(sheet).getByRole("button", { name: /^Cancel commitment/ }) as HTMLButtonElement).disabled).toBe(
+        true
+      );
     });
 
     it("shows a cancelled commitment's status as text with Restore, and no close button", () => {

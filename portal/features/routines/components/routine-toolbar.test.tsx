@@ -26,12 +26,26 @@ describe("RoutineToolbar", () => {
 
   it("has no status select: archiving is its own button, and the status is shown as text", () => {
     const { rerender } = render(
-      <RoutineToolbar name="Campus morning" status="active" saving={false} dirty onNameChange={() => {}} onAddStep={() => {}} />
+      <RoutineToolbar
+        name="Campus morning"
+        status="active"
+        saving={false}
+        dirty
+        onNameChange={() => {}}
+        onAddStep={() => {}}
+      />
     );
     expect(screen.queryByRole("combobox", { name: "Status" })).toBeNull();
     expect(screen.getByText("Active")).toBeTruthy();
     rerender(
-      <RoutineToolbar name="Campus morning" status="archived" saving={false} dirty onNameChange={() => {}} onAddStep={() => {}} />
+      <RoutineToolbar
+        name="Campus morning"
+        status="archived"
+        saving={false}
+        dirty
+        onNameChange={() => {}}
+        onAddStep={() => {}}
+      />
     );
     expect(screen.getByText("Archived")).toBeTruthy();
   });
