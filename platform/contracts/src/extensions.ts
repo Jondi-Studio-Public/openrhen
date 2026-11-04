@@ -108,6 +108,15 @@ export function contractsExtensions(): readonly ContractsExtension[] {
   return [...extensions.values()];
 }
 
+/** Empties the registry and returns the function that puts it back (see `withoutContractsExtensions`). */
+export function suspendContractsExtensions(): () => void {
+  const held = [...extensions];
+  extensions.clear();
+  return () => {
+    for (const [id, extension] of held) extensions.set(id, extension);
+  };
+}
+
 /** The record entries of one field across every extension, merged. */
 export function mergedRecord<T>(
   pick: (extension: ContractsExtension) => Record<string, T> | undefined
