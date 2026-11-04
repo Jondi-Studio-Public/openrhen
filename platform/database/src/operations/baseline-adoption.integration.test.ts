@@ -138,6 +138,8 @@ async function runMigrator(pgDump: string, folder: string, extra: Record<string,
         MIGRATE_BACKUP_DIR: backupDir,
         MIGRATIONS_FOLDER: folder,
         PG_DUMP_PATH: pgDump,
+        // These suites are about core's set; a composed tree's add-on set has its own (addon-migrations.integration.test.ts).
+        ADDON_MIGRATIONS_FOLDER: resolve(process.cwd(), "no-addon-drizzle"),
         ...extra
       }
     });
