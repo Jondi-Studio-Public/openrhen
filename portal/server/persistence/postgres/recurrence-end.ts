@@ -170,6 +170,14 @@ export async function restoreEndedOccurrences(
   }
   if (ids.length === 0) return { rows: 0, steps: 0 };
   const restored = new Set(ids);
+  // Steps the tuples may not cover (past the cap, or no ledger row): the cancelled steps this end wrote. A step the
+  // person had cancelled before the end was last written before the dates were closed (the end writes its steps and
+  // the dates in one transaction, so their `updated_at` is not earlier than the date's `closed_at`), so it is not one.
+  // Read before the dates reopen, which clears `closed_at`.
+  const closedByEnd = await tx<{ id: string }[]>`
+    SELECT s.id FROM routine_steps s JOIN commitments c ON c.id=s.commitment_id
+    WHERE c.id IN ${tx(ids)} AND s.status='cancelled' AND s.updated_at >= c.closed_at
+    FOR NO KEY UPDATE OF s`;
   await options.snap?.before("commitments", ids);
   await tx`UPDATE commitments SET status=COALESCE(closed_from_status,'confirmed'), version=version+1, updated_at=CURRENT_TIMESTAMP WHERE id IN ${tx(ids)}`;
   // The steps (and prep actions) come back from the recorded tuples: whatever of them is still cancelled returns to the
@@ -191,9 +199,13 @@ export async function restoreEndedOccurrences(
       await tx`UPDATE routine_steps SET status=${from}, version=version+1, updated_at=CURRENT_TIMESTAMP WHERE id=${rowId} AND status='cancelled'`;
     revived += done.count;
   }
-  // A step the tuples do not cover (past the cap, or changed since the end) falls back to pending.
-  const rest = await tx<{ id: string }[]>`
-    SELECT id FROM routine_steps WHERE commitment_id IN ${tx(ids)} AND status='cancelled' FOR NO KEY UPDATE`;
+  // A step the end closed that the tuples do not cover (past the cap, or no ledger row) falls back to pending. A step that
+  // was already cancelled before the end stays cancelled.
+  const rest = closedByEnd.length
+    ? await tx<
+        { id: string }[]
+      >`SELECT id FROM routine_steps WHERE id IN ${tx(closedByEnd.map((step) => step.id))} AND status='cancelled'`
+    : [];
   if (rest.length > 0) {
     await options.snap?.before(
       "routine_steps",

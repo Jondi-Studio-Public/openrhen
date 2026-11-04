@@ -476,6 +476,39 @@ describe("setting an ended rule active again", () => {
     );
   }, 30_000);
 
+  it("leaves a step the person cancelled before the rule ended cancelled, and a prep action likewise", async () => {
+    const { f1 } = await seed();
+    const own = await step(f1, "Cancelled by me", "cancelled");
+    const projectId = (
+      await sql<{ id: string }[]>`
+        WITH a AS (INSERT INTO areas (user_id,name,status,sort_order) VALUES (${userId},${"Area " + crypto.randomUUID()},'active',0) RETURNING id),
+             o AS (INSERT INTO outcomes (area_id,title,definition_of_done,status) SELECT id,'O','D','active' FROM a RETURNING id)
+        INSERT INTO projects (outcome_id,title,status) SELECT id,'P','active' FROM o RETURNING id`
+    )[0]!.id;
+    const prepId = (
+      await sql<{ id: string }[]>`
+        INSERT INTO actions (project_id,title,scheduling_mode,status,optimistic_minutes,expected_minutes,pessimistic_minutes,remaining_minutes,energy,minimum_session_minutes,maximum_session_minutes,prep_for_commitment_id)
+        VALUES (${projectId},'Cancelled prep','one_off','cancelled',10,20,30,20,'low',5,30,${f1}) RETURNING id`
+    )[0]!.id;
+    const before = await stepRow(own);
+    await setStatus("ended")();
+    await setStatus("active")();
+    expect(await stepRow(own)).toEqual(before);
+    expect(
+      (await sql<{ status: string }[]>`SELECT status::text AS status FROM actions WHERE id=${prepId}`)[0]!.status
+    ).toBe("cancelled");
+  });
+
+  it("past the cap or with no ledger row, only the steps the end closed fall back to pending, not one cancelled earlier", async () => {
+    const { f1, steps } = await seed();
+    const own = await step(f1, "Cancelled by me", "cancelled");
+    await setStatus("ended")();
+    await sql`DELETE FROM write_rows WHERE entity_type='commitment_recurrence_rule' AND operation='close'`;
+    await setStatus("active")();
+    expect((await stepRow(steps.pending)).status).toBe("pending");
+    expect((await stepRow(own)).status).toBe("cancelled");
+  });
+
   it("brings a tentative date back as tentative", async () => {
     await createRule();
     const date = await occurrence(3, "tentative");
