@@ -432,17 +432,95 @@ describe("status", () => {
     expect(JSON.parse(json.stdout).directive.boundaryEdge).toBe("end");
   });
 
-  it("never sends a POST, and reads exactly the five GET routes", async () => {
+  it("never sends a POST, and reads exactly the six GET routes", async () => {
     const { calls } = await runStatus(["status"], {});
     expect(calls.some((call) => call.method === "POST")).toBe(false);
     const paths = calls.map((call) => call.path).sort();
     expect(paths).toEqual([
+      "/api/attention",
       "/api/catch-up",
       "/api/check-ins/current",
       "/api/plan-map",
       "/api/pulse/reentry",
       "/api/state"
     ]);
+    // The block asks for the counts only, never the whole feed.
+    expect(new URL(calls.find((call) => call.path === "/api/attention")!.url).search).toBe("?counts=1");
+  });
+});
+
+describe("status attention block", () => {
+  const counts = (over: Record<string, unknown> = {}) => ({
+    viewer: "agent",
+    healthBlocking: 0,
+    sourcesFailed: 0,
+    decided: 0,
+    ...over
+  });
+  const feed = (body: unknown) => ({ "/api/attention": { body } });
+
+  it("adds now (blocking items plus failed sources), decided and the tool to call, in full and brief answers", async () => {
+    const routes = feed(counts({ healthBlocking: 2, sourcesFailed: 1, decided: 4 }));
+    const expected = { now: 3, decided: 4, call: "rhen_attention" };
+    expect(JSON.parse((await runStatus(["status", "--json"], routes)).stdout).attention).toEqual(expected);
+    expect(JSON.parse((await runStatus(["status", "--brief", "--json"], routes)).stdout).attention).toEqual(expected);
+    expect((await runStatus(["status"], routes)).stdout).toContain("3 need action now, 4 decided");
+  });
+
+  it("is present when only one count is above zero", async () => {
+    const decidedOnly = await runStatus(["status", "--json"], feed(counts({ decided: 1 })));
+    expect(JSON.parse(decidedOnly.stdout).attention).toEqual({ now: 0, decided: 1, call: "rhen_attention" });
+    const failedOnly = await runStatus(["status", "--json"], feed(counts({ sourcesFailed: 1 })));
+    expect(JSON.parse(failedOnly.stdout).attention).toEqual({ now: 1, decided: 0, call: "rhen_attention" });
+  });
+
+  it("is absent when both counts are zero", async () => {
+    const quiet = await runStatus(["status", "--json"], feed(counts()));
+    expect(JSON.parse(quiet.stdout)).not.toHaveProperty("attention");
+    expect(quiet.stdout).not.toContain("rhen_attention");
+    expect((await runStatus(["status"], feed(counts()))).stdout).not.toContain("Attention");
+  });
+
+  it("is absent for the owner view, which has no agent and so no outcomes", async () => {
+    const owner = await runStatus(["status", "--json"], feed(counts({ viewer: "owner", healthBlocking: 2 })));
+    expect(JSON.parse(owner.stdout)).not.toHaveProperty("attention");
+  });
+
+  it("leaves the block out, and still answers, when the counts read fails or is unreadable", async () => {
+    for (const route of [
+      { status: 500, body: { error: "boom" } },
+      { status: 428, body: { error: "reentry_required" } },
+      { status: 403, body: { error: "insufficientScopes" } },
+      { body: { unexpected: true } },
+      { body: counts({ healthBlocking: -1 }) },
+      { body: counts({ decided: "3" }) }
+    ]) {
+      const run = await runStatus(["status", "--json"], { "/api/attention": route });
+      expect(run.exitCode).toBe(0);
+      expect(JSON.parse(run.stdout)).not.toHaveProperty("attention");
+      expect(JSON.parse(run.stdout).directive).toBeDefined();
+    }
+  });
+
+  it("carries a decided count of 0 from a token without read:proposals as the portal sent it", async () => {
+    const run = await runStatus(["status", "--json"], feed(counts({ healthBlocking: 1, decided: 0 })));
+    expect(JSON.parse(run.stdout).attention).toEqual({ now: 1, decided: 0, call: "rhen_attention" });
+  });
+
+  it("is skipped for a --state-file snapshot, which has no portal to ask", async () => {
+    const calls: RecordedCall[] = [];
+    const out: string[] = [];
+    const exitCode = await runCli(["status", "--json", "--state-file", "snapshot.json"], {
+      stdout: (text) => out.push(text),
+      stderr: () => undefined,
+      env: {},
+      now: () => fixtureNow,
+      readStateFile: () => JSON.stringify(fixtureRawState()),
+      fetchImpl: fakeFetch(feed(counts({ healthBlocking: 5 })), calls)
+    });
+    expect(exitCode).toBe(0);
+    expect(calls).toEqual([]);
+    expect(JSON.parse(out.join("\n"))).not.toHaveProperty("attention");
   });
 });
 
@@ -679,5 +757,89 @@ describe("status pulse: the disruption in force", () => {
     expect(table.stdout).toContain("takes all of you");
     const json = await runStatus(["status", "--json"], {}, withPulse);
     expect(JSON.parse(json.stdout).pulseRecord.disruption).toMatchObject({ doing: "Hospital visit", exclusive: true });
+  });
+});
+
+describe("status energy cost", () => {
+  const energyCost = {
+    declaredEnergy: "low",
+    blockedCount: 2,
+    dueSoon: [{ actionId: "action-draft", title: "Draft chapter 3", deadlineAt: "2026-09-04T09:00:00+10:00" }]
+  };
+  const withCost = (raw: Record<string, unknown>) => {
+    const planning = raw.planning as { result: { recommendation: object } };
+    return { ...raw, planning: { ...planning, result: { ...planning.result, recommendation: { energyCost } } } };
+  };
+
+  it("carries the note with its sentence and the exact calls, in json, table and brief", async () => {
+    const json = JSON.parse((await runStatus(["status", "--json"], {}, withCost)).stdout);
+    expect(json.energyCost).toMatchObject({ blockedCount: 2 });
+    expect(json.energyCost.text).toMatch(/^Low energy is holding back 2 actions, 1 due /);
+    expect(json.energyCost.next).toContain("rhen_session with subcommand start");
+    expect(json.energyCost.next).toContain("never set or raise it yourself");
+    const table = await runStatus(["status"], {}, withCost);
+    expect(table.stdout).toMatch(/^Energy\s+Low energy is holding back 2 actions/m);
+    const brief = JSON.parse((await runStatus(["status", "--brief", "--json"], {}, withCost)).stdout);
+    expect(brief.energyCost.blockedCount).toBe(2);
+  });
+
+  it("is null and absent from the brief when nothing is held back", async () => {
+    expect(JSON.parse((await runStatus(["status", "--json"], {})).stdout).energyCost).toBeNull();
+    expect(JSON.parse((await runStatus(["status", "--brief", "--json"], {})).stdout)).not.toHaveProperty("energyCost");
+  });
+});
+
+describe("status stretch", () => {
+  const offer = {
+    actionId: "action-draft",
+    title: "Draft chapter 3",
+    declaredEnergy: "low",
+    requiredEnergy: "high",
+    energyGap: 2,
+    minutes: 45,
+    cappedAtMinutes: 45,
+    reason: "external_within_48h",
+    externalDeadlineAt: "2026-09-04T09:00:00+10:00",
+    latestSafeStartAt: null
+  };
+  const withOffer = (raw: Record<string, unknown>) => {
+    const planning = raw.planning as { result: { recommendation: object } };
+    return {
+      ...raw,
+      planning: { ...planning, result: { ...planning.result, recommendation: { stretchOffer: offer } } }
+    };
+  };
+
+  it("carries the offer with its sentence and what an agent does with it", async () => {
+    const { stdout } = await runStatus(["status", "--json"], {}, withOffer);
+    const json = JSON.parse(stdout);
+    expect(json.stretchOffer).toMatchObject({ actionId: "action-draft", minutes: 45 });
+    expect(json.stretchOffer.text).toContain("Draft chapter 3 has an outside deadline");
+    expect(json.stretchOffer.text).toContain("Both are reasonable.");
+    expect(json.stretchOffer.next).toContain("Call rhen_stretch only on their own answer");
+    expect(json.stretchOffer.next).toContain("Never raise declared energy");
+    expect(json.stretch).toBeNull();
+  });
+
+  it("prints the offer in the table and in the brief, and nothing when there is none", async () => {
+    const table = await runStatus(["status"], {}, withOffer);
+    expect(table.stdout).toMatch(/^Stretch\s+Draft chapter 3 has an outside deadline/m);
+    const brief = await runStatus(["status", "--brief", "--json"], {}, withOffer);
+    expect(JSON.parse(brief.stdout).stretchOffer.actionId).toBe("action-draft");
+    const none = await runStatus(["status", "--json"], {});
+    expect(JSON.parse(none.stdout).stretchOffer).toBeNull();
+    const noneBrief = await runStatus(["status", "--brief", "--json"], {});
+    expect(JSON.parse(noneBrief.stdout)).not.toHaveProperty("stretchOffer");
+  });
+
+  it("stops offering once the person has said no to every stretch today", async () => {
+    const { stdout } = await runStatus(["status", "--json"], {}, (raw) => ({
+      ...withOffer(raw),
+      currentSituation: {
+        ...(raw.currentSituation as object),
+        stretch: { accepted: [], declined: [], declinedAllAt: new Date(fixtureNow.getTime() - 60_000).toISOString() }
+      }
+    }));
+    expect(JSON.parse(stdout).stretchOffer).toBeNull();
   });
 });

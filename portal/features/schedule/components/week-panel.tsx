@@ -1,5 +1,6 @@
 "use client";
 
+import { isClosedStatus } from "@openrhen/contracts";
 import { dateTimeFormat, displayLocale } from "@/shared/locale";
 import { useMemo, useState } from "react";
 import { usePortal } from "@/state/portal-provider";
@@ -196,7 +197,7 @@ export function dueOn(
   bounds: { startsAt: Date; endsAt: Date }
 ): Array<{ id: string; label: string }> {
   return deliverables
-    .filter((item) => !["completed", "cancelled", "archived"].includes(item.status))
+    .filter((item) => !(item.status === "completed" || isClosedStatus(item.status)))
     .flatMap((item) => {
       const deadline = item.externalDeadlineAt ?? item.internalDeadlineAt;
       if (!deadline) return [];

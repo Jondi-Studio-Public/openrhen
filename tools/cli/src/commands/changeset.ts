@@ -841,7 +841,7 @@ export const changesetCommand: CommandSpec = {
   idempotent: false,
   examples: [
     'changeset preview --changes \'[{"op":"complete","kind":"action","id":"action-bill","at":"2026-10-26"},{"op":"create","kind":"action","ref":"mum","fields":{"title":"Call mum","projectId":"project-family"}}]\'',
-    'changeset preview --changes \'[{"op":"observe","kind":"sleep","fields":{"sleepAt":"2026-10-27T23:40:00+10:00","wakeAt":"2026-10-28T07:30:00+10:00"}},{"op":"observe","kind":"place","fields":{"place":"Home"}}]\'',
+    'changeset preview --changes \'[{"op":"observe","kind":"sleep","fields":{"sleepAt":"2026-10-27T23:40:00<offset>","wakeAt":"2026-10-28T07:30:00<offset>"}},{"op":"observe","kind":"place","fields":{"place":"Home"}}]\'',
     "changeset apply --changes '[...]' --command-id <id the preview printed> --expect <previewHash>"
   ],
   async run(context, args) {

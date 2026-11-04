@@ -1140,3 +1140,55 @@ describe("the one Back on plan? push", () => {
     expect(await pushes()).toHaveLength(2);
   });
 });
+
+describe("the pulse_lapsed agent wake", () => {
+  // Every earlier lapse in this file queued a wake of its own; this block counts only its own.
+  beforeEach(async () => {
+    await sql`DELETE FROM agent_wakes WHERE user_id=${userId}`;
+  });
+
+  const wakes = () =>
+    sql<
+      { target_id: string; status: string; last_error: string | null; expires_at: Date; created_at: Date }[]
+    >`SELECT target_id, status, last_error, expires_at, created_at FROM agent_wakes WHERE user_id=${userId} AND event='pulse_lapsed'`;
+
+  it("queues one wake when the pulse lapses, none for unknown, and none again for the same lapse", async () => {
+    const t0 = new Date("2026-10-28T02:00:00.000Z");
+    await seedHistory(t0);
+    await createInForceStep(t0, "Prep", 600, 120);
+    await runPulseRecorderTick(sql, t0);
+    await tickThrough(t0, at(t0, 55));
+    expect(await wakes()).toHaveLength(0);
+
+    await tickThrough(at(t0, 55), at(t0, 60));
+    const queued = await wakes();
+    expect(queued).toHaveLength(1);
+    expect(queued[0]).toMatchObject({ status: "pending", last_error: null });
+    expect(new Date(queued[0]!.target_id).toISOString()).toBe(queued[0]!.target_id);
+    expect(queued[0]!.expires_at.getTime() - at(t0, 60).getTime()).toBe(60 * 60_000);
+
+    await tickThrough(at(t0, 60), at(t0, 180));
+    await Promise.all([runPulseRecorderTick(sql, at(t0, 181)), runPulseRecorderTick(sql, at(t0, 181))]);
+    expect(await wakes()).toHaveLength(1);
+  });
+
+  it("marks a still-pending wake dead as cancelled when the pulse is re-entered, and leaves a sent one alone", async () => {
+    const t0 = new Date("2026-10-28T02:00:00.000Z");
+    await seedHistory(t0);
+    await createInForceStep(t0, "Prep", 600, 120);
+    await runPulseRecorderTick(sql, t0);
+    await tickThrough(t0, at(t0, 60));
+    expect((await wakes())[0]).toMatchObject({ status: "pending", last_error: null });
+    await sql`INSERT INTO agent_wakes (user_id,event,target_id,dedupe_key,expires_at,status)
+      VALUES (${userId},'pulse_lapsed','earlier','pulse_lapsed:earlier',${at(t0, 120).toISOString()}::timestamptz,'sent')`;
+
+    await sql.begin((tx) => writeReentrySegment(tx, userId, { at: at(t0, 61), confirmedBy: "person", snapshot: null }));
+    const after = await sql<
+      { target_id: string; status: string; last_error: string | null }[]
+    >`SELECT target_id, status, last_error FROM agent_wakes WHERE user_id=${userId} ORDER BY target_id`;
+    expect(after.find((w) => w.target_id === "earlier")).toMatchObject({ status: "sent", last_error: null });
+    expect(after.filter((w) => w.target_id !== "earlier")).toEqual([
+      expect.objectContaining({ status: "dead", last_error: "cancelled" })
+    ]);
+  });
+});

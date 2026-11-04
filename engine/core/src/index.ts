@@ -3,6 +3,8 @@ export * from "./scheduling/time.js";
 export * from "./forecasting/forecast.js";
 export * from "./recommendation/recommend.js";
 export * from "./recommendation/score.js";
+export * from "./recommendation/energy-cost.js";
+export * from "./recommendation/stretch.js";
 export * from "./scheduling/effort.js";
 export * from "./scheduling/dependencies.js";
 export * from "./scheduling/slots.js";

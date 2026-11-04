@@ -4,7 +4,7 @@ Every version number the app writes, with the file that holds it. The values bel
 
 | Surface | Constant and file | Version | What bumps it | Stability today |
 |---|---|---|---|---|
-| Agent contract | `AGENT_CONTRACT_VERSION` in `platform/contracts/src/agent-contract.ts` | `8` | A served tool added, removed or renamed, or a required argument changed. By hand, in the same change that regenerates the committed snapshot. The maintainer decides. | v0; names and required arguments are snapshot-tested; a renamed tool aliases for one version |
+| Agent contract | `AGENT_CONTRACT_VERSION` in `platform/contracts/src/agent-contract.ts` | `10` | A served tool added, removed or renamed, or a required argument changed. By hand, in the same change that regenerates the committed snapshot. The maintainer decides. | v0; names and required arguments are snapshot-tested; a renamed tool aliases for one version |
 | Plan contract | `PLAN_FORECAST_CONTRACT_VERSION` in `platform/contracts/src/planning/plan-forecast.ts` | `1` | A breaking change to the engine request or response shape. The service rejects a request carrying another value. | v0; tested in `engine/service/src/server.test.ts` |
 | Engine | `PLAN_FORECAST_ENGINE_VERSION` in `engine/core/src/engine.ts` | `1.8.1` | A change to what the engine calculates. Returned as `engineVersion` on every response. | v0; pinned in `engine/core/test/system/fact-freshness.test.ts` |
 | Backup format number | `CURRENT_BACKUP_FORMAT_VERSION` in `platform/database/src/operations/backup-format.ts` | `19` | A change to what a backup file contains. One constant; older numbers stay readable. | v0; tested in `backup-format.test.ts` |

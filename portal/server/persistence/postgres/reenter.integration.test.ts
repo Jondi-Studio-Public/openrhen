@@ -14,6 +14,7 @@ import { ReentryIncompleteError, readPulseReentryView, reenter } from "./reenter
 import { runRevertCommand } from "./write-revert";
 import { runPulseRecorderTick } from "@/server/pulse/pulse-recorder";
 import { reentryGate } from "@/server/pulse/reentry-gate";
+import { waitUntilBlocked } from "./wait-until-blocked";
 
 /**
  * Re-entry: the tiered ledger from the pulse window, the all-or-nothing
@@ -459,7 +460,7 @@ describe("reenter", () => {
     await lockTaken;
     let finished = false;
     const done = reenter(sql as never, command(), NOW).then(() => (finished = true));
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    await waitUntilBlocked(sql);
     expect(finished).toBe(false);
     release();
     await tick;

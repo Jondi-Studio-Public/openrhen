@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// The calendar feed is registered (PR 4 of the feed plan) but has no adapter, no schedule and no card: its sync route
-// must never reach the connection host, whether or not the provider list names it.
+// The calendar feed is registered (PR 4 of the feed plan) with no schedule and no card: its sync route must never
+// reach the connection host unless the provider list names it (PR 6 added its adapter; see the test below).
 const state = vi.hoisted(() => ({ env: {} as Record<string, string | undefined> }));
 const readCalendarEvents = vi.fn();
 const proveCalendarSource = vi.fn();
@@ -10,7 +10,11 @@ const outbound = vi.fn(async () => {
   throw new Error("the feed must not reach the network");
 });
 
-vi.mock("@/integrations/calendar-source-client", () => ({ readCalendarEvents, proveCalendarSource }));
+vi.mock("@/integrations/calendar-source-client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/integrations/calendar-source-client")>()),
+  readCalendarEvents,
+  proveCalendarSource
+}));
 vi.mock("@/integrations/google-calendar/google-calendar-proxy-client", () => ({
   fetchGoogleCalendarEvents: vi.fn(),
   fetchGoogleCalendarProof: vi.fn(),
@@ -39,6 +43,7 @@ vi.mock("@/server/persistence/postgres/sql-pool", () => ({
 }));
 vi.mock("@/server/runtime-env", () => ({ databaseUrl: () => "postgres://test", runtimeEnv: () => state.env }));
 
+const { CalendarSourceError } = await import("@/integrations/calendar-source-client");
 const { syncPostHandler, proofGetHandler } = await import("@/server/connections/route-handlers");
 const { connectionExtensions } = await import("@/features/connections/connection-extensions");
 const { intervalCalendarSourceIds } = await import("@openrhen/contracts");
@@ -83,15 +88,18 @@ describe("the dormant calendar feed", () => {
     expect(readCalendarEvents).not.toHaveBeenCalled();
   });
 
-  it("has no adapter, so even a provider list that names it fails without reading anything", async () => {
+  // PR 6 of the feed plan gives the feed an adapter (core, registered against the `fixed_blocks` profile). It changes
+  // exactly this expectation and no other: the feed still reads only when the provider list names it, and it is not in
+  // the default list, so nothing schedules it and the manual route above stays `not_enabled`.
+  it("has an adapter now, but only a provider list that names it reaches the proxy, and then only through the generic client", async () => {
     state.env = { CALENDAR_SYNC_PROVIDERS: "calendar_feed" };
+    readCalendarEvents.mockRejectedValue(
+      new CalendarSourceError("The calendar feed is not configured.", "not_configured", 400)
+    );
     const response = await syncPostHandler("calendar_feed", post(), {}, log);
-    expect(await response.json()).toMatchObject({
-      status: "failed",
-      provider: "calendar_feed",
-      message: expect.stringContaining("not available")
-    });
-    expect(readCalendarEvents).not.toHaveBeenCalled();
+    expect(await response.json()).toEqual({ status: "not_configured", missing: ["CALENDAR_FEED_URL"] });
+    expect(readCalendarEvents).toHaveBeenCalledTimes(1);
+    expect(readCalendarEvents.mock.calls[0]![0]).toBe("calendar_feed");
     expect(proveCalendarSource).not.toHaveBeenCalled();
     expect(withImportStore).not.toHaveBeenCalled();
     expect(outbound).not.toHaveBeenCalled();

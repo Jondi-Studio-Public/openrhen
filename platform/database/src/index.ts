@@ -6,6 +6,8 @@ export * from "./planning/plan-retention.js";
 export * from "./planning/journey-summary.js";
 export * from "./planning/routine-inheritance.js";
 export * from "./planning/check-in-scheduler.js";
+export * from "./planning/agent-wake.js";
+export * from "./planning/agent-wake-sender.js";
 export * from "./planning/state-changed.js";
 export * from "./planning/plan-nudge-shadow.js";
 export * from "./operations/integration-database.js";

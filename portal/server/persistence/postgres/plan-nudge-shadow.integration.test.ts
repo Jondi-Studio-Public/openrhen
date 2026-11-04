@@ -195,6 +195,26 @@ describe("plan map nudge shadow pass", () => {
     expect(later.ran).toBe(false);
   });
 
+  it("stops boosting for a deliverable once it is archived, as it does once cancelled", async () => {
+    const project = await createProject("Maths unit", null);
+    const practice = await createAction(project, "Practice paper");
+    const other = await createAction(await createProject("Garden", null), "Weed beds");
+    const due = new Date(NOW.getTime() + 2 * 86_400_000);
+    const deliverable = await sql<{ id: string }[]>`
+      INSERT INTO deliverables (project_id,title,external_deadline_at) VALUES (${project},'Report',${due}) RETURNING id`;
+    await link("about", ["deliverable", deliverable[0]!.id], ["subject", "maths"]);
+    await link("prepares", ["action", practice], ["deliverable", deliverable[0]!.id]);
+    await setSwitch(sql, userId, "nudge", "shadow");
+    const result = resultFor([
+      { id: other, projectId: project, score: 60 },
+      { id: practice, projectId: project, score: 55 }
+    ]);
+    expect((await recordNudgeShadow(sql, userId, result, NOW)).ran).toBe(true);
+
+    await sql`UPDATE deliverables SET status = 'archived' WHERE id = ${deliverable[0]!.id}`;
+    expect((await recordNudgeShadow(sql, userId, result, new Date(NOW.getTime() + 60 * 60_000))).ran).toBe(false);
+  });
+
   it("throttles a burst of recalculations to one comparison", async () => {
     const { uni, other, practice, garden } = await seed();
     await setSwitch(sql, userId, "nudge", "shadow");

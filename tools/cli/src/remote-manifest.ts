@@ -70,11 +70,9 @@ export interface RemoteTool {
  * fresh write: repeating the call reverses the next older entry, so a retry names the entry by `id`.
  */
 const UNDO_DESCRIPTION =
-  "Reverses your latest recorded write (redo: true reapplies the one you just undid). Covers your saves (new " +
-  "records included), skip-step/unskip-step, pause/resume, arrive, review keep, span add/set, recurrence, cadence " +
-  "and activity writes, a deliverable move, an Inbox confirm, a wake, a disrupt, a disruption and a re-entry, and a session, check-in or catch-up settle: the portal restores the rows " +
-  "the write touched exactly as they were, and removes a record it added, spans included. list: true shows what is " +
-  "recorded, with each entry's id. Without id this reverses your newest write, so repeating the call goes one write " +
+  "Reverses your latest recorded write (redo: true reapplies the one you just undid). Covers every recorded " +
+  "write (a stretch answer too): the portal restores the rows the write touched exactly as they were, and " +
+  "removes a record it added. list: true shows what is recorded, with each entry's id. Without id this reverses your newest write, so repeating the call goes one write " +
   "further back; to retry after a timeout or a doubtful answer, pass id (from list) so the same entry is not " +
   "reversed twice. Only your own writes are reversed. If anything the write touched changed since, nothing is " +
   "overwritten and the answer says so: leave it to the person. Writes of other kinds (email, imports, " +
@@ -139,9 +137,9 @@ const TYPED_SAVE_KINDS: { kind: SaveEntityKind; what: string; required: string; 
 
 function typedSaveDescription(kind: SaveEntityKind, what: string, required: string, defaults: string): string {
   return (
-    `Creates or updates ${what}: rhen_save with entityType ${kind}, every field checked (its rules for id, ` +
-    `create, expected-version and removal by status apply). Required on create: ${required}. Defaults: ${defaults}. ` +
-    "Returns and undoes as rhen_save does."
+    `Creates or updates ${what}: rhen_save with entityType ${kind}, every field checked (same id, create, ` +
+    `expected-version and removal rules). Required on create: ${required}. Defaults: ${defaults}. ` +
+    "Returns and undoes as rhen_save."
   );
 }
 
@@ -175,6 +173,23 @@ function withoutFormatPatterns(value: unknown): unknown {
   );
 }
 
+/** The safe-integer bounds, which zod prints on every integer (`maximum`, or `minimum` for a signed one); no JSON number can exceed it, so it only costs bytes. */
+function withoutSafeIntegerMaximum(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutSafeIntegerMaximum);
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(
+        ([key, item]) =>
+          !(
+            (key === "maximum" && item === Number.MAX_SAFE_INTEGER) ||
+            (key === "minimum" && item === Number.MIN_SAFE_INTEGER)
+          )
+      )
+      .map(([key, item]) => [key, withoutSafeIntegerMaximum(item)])
+  );
+}
+
 /** The kind's fields as a JSON Schema object property. Nothing is required: an update names only what changes. */
 export function fieldsProperty(kind: SaveEntityKind): Record<string, unknown> {
   const generated = z.toJSONSchema(ENTITY_FIELD_SCHEMAS[kind], { io: "input", unrepresentable: "any" }) as Record<
@@ -185,7 +200,7 @@ export function fieldsProperty(kind: SaveEntityKind): Record<string, unknown> {
     $schema: _schema,
     required: _required,
     ...rest
-  } = withoutFormatPatterns(generated) as Record<string, unknown>;
+  } = withoutSafeIntegerMaximum(withoutFormatPatterns(generated)) as Record<string, unknown>;
   const properties = Object.fromEntries(
     Object.entries((rest.properties ?? {}) as Record<string, Record<string, unknown>>).map(([field, schema]) => [
       field,
@@ -227,6 +242,7 @@ export const REMOTE_TOOLS: RemoteTool[] = [
   { command: "proposals", scopes: ["read:proposals"], rewrite: [SNAPSHOT_REWRITE] },
   { command: "catch-up", scopes: ["read:plan"], rewrite: [SNAPSHOT_REWRITE] },
   { command: "doctor", scopes: ["read:plan"] },
+  { command: "attention", scopes: ["read:plan"] },
   { command: "history", scopes: ["read:plan"] },
   // Each room reads what its source allows; a room the token cannot read reports an error and the rest still show.
   { command: "inbox", scopes: ["read:plan"] },
@@ -310,6 +326,8 @@ export const REMOTE_TOOLS: RemoteTool[] = [
   },
   { command: "disrupt", scopes: ["write:check-in", "read:plan"] },
   { command: "arrive", scopes: ["write:arrival", "write:entity:current_availability", "read:plan"] },
+  // The answer to the stretch offer in status: it waives the energy cut, so it takes the availability scope energy is set with.
+  { command: "stretch", scopes: ["write:entity:current_availability", "read:plan"] },
   // Settles last night around a wake: finishes a running sleep, completes the planned one or logs the night, all
   // under the sleep log's scope. It reads nothing first; the portal does it in one transaction.
   { command: "wake", scopes: ["write:entity:sleep_log_entry"] },

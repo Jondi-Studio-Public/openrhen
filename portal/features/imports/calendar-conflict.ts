@@ -70,5 +70,6 @@ export function conflictedFields(record: Pick<ImportRecord, "importKey" | "relat
 
 /** A relationship the provider owns for its own bookkeeping, never offered as an editable text box. */
 export function isCalendarProviderRelationship(name: string) {
-  return calendarSources().some((source) => name.startsWith(source.provider));
+  // `feedSeries`, `feedDate`, `feedCancel`, ... are the calendar feed series pass's own markers on its records.
+  return /^feed[A-Z]/.test(name) || calendarSources().some((source) => name.startsWith(source.provider));
 }

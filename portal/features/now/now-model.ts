@@ -1,6 +1,10 @@
+import { isClosedStatus } from "@openrhen/contracts";
 import {
   buildNeeds,
   buildRecommendationAnswer,
+  buildEnergyCostAnswer,
+  buildStretchAnswer,
+  resolveLocale,
   resolveNowActivity,
   type CanDoNowItem,
   type CurrentDirective,
@@ -10,7 +14,10 @@ import {
   type Pulse,
   type RecommendationAnswer,
   type StartByWarning,
-  type StayUpOffer
+  type StayUpOffer,
+  type StretchBlock,
+  type StretchOfferAnswer,
+  type EnergyCostAnswer
 } from "@openrhen/contracts";
 import { assessDeliverable } from "@openrhen/contracts/readiness";
 import type {
@@ -262,6 +269,12 @@ export interface NowModel {
    * behind `NowAnswer.needs`, so Now and `status` list the same needs in the same words.
    */
   needs: Need[];
+  /** A stretch on offer now, shown as a calm card with equal choices. Built by `buildStretchAnswer`, the call behind `status`. */
+  stretchOffer: StretchOfferAnswer | null;
+  /** The running stretch, today's count and the morning-after loan line; null when there is nothing to say. */
+  stretch: StretchBlock | null;
+  /** What declared low energy is holding back, as one plain sentence; null when nothing is. Built by `buildEnergyCostAnswer`. */
+  energyCost: EnergyCostAnswer | null;
 }
 
 /** Which hero Now is showing, for the needs it already asks in its own words. */
@@ -307,8 +320,7 @@ export function recommendedActionFinished(state: PortalState, primary: NowCandid
   if (!primary) return false;
   const id = primary.action.id;
   const action = state.actions.find((item) => item.id === id);
-  if (action && (action.status === "done" || action.status === "cancelled" || action.status === "archived"))
-    return true;
+  if (action && (action.status === "done" || isClosedStatus(action.status))) return true;
   return state.occurrences.some(
     (item) => item.id === id && (item.status === "completed" || item.status === "cancelled")
   );
@@ -636,6 +648,30 @@ export function buildNowModel({
     new Map(state.conditionDefinitions.map((entry) => [entry.id, entry.name]))
   );
 
+  // The raw stored recommendation, not the hydrated one: hydration turns ISO instants into Dates, which the offer's
+  // schema (strings) does not take, and `status` reads it raw too.
+  const stretchAnswer = buildStretchAnswer({
+    recommendation: state.planning?.result?.recommendation,
+    stretch: state.currentSituation.stretch,
+    energySetAt: state.currentSituation.energySetAt,
+    planCalculatedAt: state.planning?.lastSuccessfulAt ?? undefined,
+    planCurrent: planningDecisionCurrent,
+    now: new Date(now.getTime() + serverClockOffsetMs),
+    timeZone: timezone,
+    locale: resolveLocale(state.settings.locale)
+  });
+
+  const energyCost = buildEnergyCostAnswer({
+    recommendation: state.planning?.result?.recommendation,
+    energySetAt: state.currentSituation.energySetAt,
+    planCalculatedAt: state.planning?.lastSuccessfulAt ?? undefined,
+    planCurrent: planningDecisionCurrent,
+    stretchOfferActionId: stretchAnswer.stretchOffer?.actionId,
+    now: new Date(now.getTime() + serverClockOffsetMs),
+    timeZone: timezone,
+    locale: resolveLocale(state.settings.locale)
+  });
+
   return {
     timezone,
     planningDecisionCurrent,
@@ -694,6 +730,9 @@ export function buildNowModel({
     canDoNow,
     stayUpOffer,
     recommendationAnswer,
-    needs
+    needs,
+    stretchOffer: stretchAnswer.stretchOffer,
+    stretch: stretchAnswer.stretch,
+    energyCost
   };
 }

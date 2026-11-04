@@ -383,10 +383,20 @@ export const TRACKED_COLUMNS: Partial<Record<SnapshotKind, Partial<Record<Snapsh
 };
 
 /**
+ * A stretch answer touches one key of the settings row's `current_situation` jsonb, which a phone location ping and
+ * unrelated saves rewrite all day. Its image is that sub-key alone (`stretch`, JSON null when absent) with the key and
+ * the version and `updated_at` the revert bumps; `restoreStretchKey` in `write-revert.ts` puts just that key back, so
+ * an undo neither refuses after a ping nor replaces the rest of the situation.
+ */
+const STRETCH_IMAGE = (alias: string) =>
+  `jsonb_build_object('user_id', ${alias}.user_id, 'stretch', ${alias}.current_situation->'stretch', 'version', ${alias}.version, 'updated_at', ${alias}.updated_at)`;
+
+/**
  * The SQL expression for a row's image on `alias`: the whole row as jsonb, or the columns `TRACKED_COLUMNS` names for
  * this kind of write. The names are this module's own constants, so they are written into the query.
  */
 export function imageExpression(table: SnapshotTable, alias: string, kind?: SnapshotKind): string {
+  if (kind === "stretch" && table === "user_preferences") return STRETCH_IMAGE(alias);
   const tracked = kind === undefined ? undefined : TRACKED_COLUMNS[kind]?.[table];
   if (!tracked) return `to_jsonb(${alias})`;
   const names = tracked.map((name) => `'${name}'`).join(", ");
@@ -443,6 +453,7 @@ export type SnapshotKind =
   | "cadence"
   | "wake"
   | "reenter"
+  | "stretch"
   | "disruption";
 
 /** The most snapshots kept per user; older ones are dropped on insert, so their writes can no longer be undone. */

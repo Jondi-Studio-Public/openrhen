@@ -72,13 +72,20 @@ function formatAdded(iso: string): string {
 }
 
 export function NotificationsSection() {
+  const { ready } = usePortal();
+  // The lead-time box starts from the stored value, which is not there until the state has loaded.
+  return <NotificationsForm key={ready ? "ready" : "loading"} />;
+}
+
+function NotificationsForm() {
   const { state, saving, saveEntityCommand } = usePortal();
   const [status, setStatus] = useState<Status>("checking");
   const [devices, setDevices] = useState<DeviceRow[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [testResult, setTestResult] = useState<"idle" | "sent" | "failed">("idle");
-  const [leadMinutes, setLeadMinutes] = useState(state.settings.leaveByLeadMinutes);
+  const [leadMinutes, setLeadMinutes] = useState(String(state.settings.leaveByLeadMinutes));
+  const [leadError, setLeadError] = useState("");
   const [leadSaved, setLeadSaved] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -156,11 +163,16 @@ export function NotificationsSection() {
       const registration = await navigator.serviceWorker.getRegistration("/push-sw.js");
       const subscription = registration ? await registration.pushManager.getSubscription() : null;
       if (subscription) {
-        await fetch("/api/push/subscriptions", {
+        const response = await fetch("/api/push/subscriptions", {
           method: "DELETE",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ endpoint: subscription.endpoint })
         });
+        if (!response.ok) {
+          // Keep the local subscription so the device and the server row stay in step; retry removes both.
+          setError("This device could not be removed. Try again.");
+          return;
+        }
         await subscription.unsubscribe();
       }
       await refresh();
@@ -187,9 +199,16 @@ export function NotificationsSection() {
 
   async function removeDevice(id: string) {
     setBusy(true);
+    setError("");
     try {
-      await fetch(`/api/push/subscriptions/${id}`, { method: "DELETE" });
+      const response = await fetch(`/api/push/subscriptions/${id}`, { method: "DELETE" });
+      if (!response.ok) {
+        setError("This device could not be removed. Try again.");
+        return;
+      }
       await refresh();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "This device could not be removed. Try again.");
     } finally {
       setBusy(false);
     }
@@ -197,14 +216,25 @@ export function NotificationsSection() {
 
   async function saveLead(event: React.FormEvent) {
     event.preventDefault();
-    await saveEntityCommand({
-      commandId: createClientId(),
-      expectedVersion: state.settings.version ?? null,
-      type: "save_entity",
-      entityType: "settings",
-      entity: { leaveByLeadMinutes: leadMinutes }
-    });
-    setLeadSaved(true);
+    setLeadSaved(false);
+    const minutes = Number(leadMinutes);
+    if (leadMinutes.trim() === "" || !Number.isInteger(minutes) || minutes < 0 || minutes > 60) {
+      setLeadError("Enter a whole number of minutes from 0 to 60.");
+      return;
+    }
+    setLeadError("");
+    try {
+      await saveEntityCommand({
+        commandId: createClientId(),
+        expectedVersion: state.settings.version ?? null,
+        type: "save_entity",
+        entityType: "settings",
+        entity: { leaveByLeadMinutes: minutes }
+      });
+      setLeadSaved(true);
+    } catch (reason) {
+      setLeadError(reason instanceof Error ? reason.message : "The reminder time could not be saved.");
+    }
   }
 
   return (
@@ -278,7 +308,7 @@ export function NotificationsSection() {
           </tbody>
         </table>
       )}
-      <form className="settings-form" onSubmit={(event) => void saveLead(event)}>
+      <form className="settings-form" noValidate onSubmit={(event) => void saveLead(event)}>
         <label htmlFor="leave-by-lead-minutes">Remind me before leaving (minutes)</label>
         <input
           id="leave-by-lead-minutes"
@@ -289,7 +319,8 @@ export function NotificationsSection() {
           value={leadMinutes}
           onChange={(event) => {
             setLeadSaved(false);
-            setLeadMinutes(Number(event.target.value));
+            setLeadError("");
+            setLeadMinutes(event.target.value);
           }}
         />
         <div className="settings-save">
@@ -297,6 +328,11 @@ export function NotificationsSection() {
             {saving ? "Saving…" : "Save"}
           </button>
           {leadSaved && <span className="save-notice">Saved</span>}
+          {leadError && (
+            <span className="form-error" role="alert">
+              {leadError}
+            </span>
+          )}
         </div>
       </form>
     </section>

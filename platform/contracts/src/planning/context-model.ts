@@ -180,6 +180,37 @@ export const travelEstimateSchema = z.object({
 });
 export type TravelEstimate = z.infer<typeof travelEstimateSchema>;
 
+/**
+ * A stretch the person said yes to: work on one action despite the energy cut, for a bounded time.
+ * Server-written only; the server sets `until` from the offer it recomputed.
+ */
+export const stretchRecordSchema = z.object({
+  /** Engine candidate id (action, occurrence or deliverable unit). */
+  actionId: z.string().min(1).max(200),
+  /** So Now can name it with no join. */
+  title: z.string().min(1).max(200),
+  acceptedAt: z.string().datetime({ offset: true }),
+  /** Server-set: `acceptedAt` plus the offered minutes. */
+  until: z.string().datetime({ offset: true }),
+  minutes: z.number().int().min(1).max(1440),
+  /** Who accepted; an agent's name is in the evidence log, not here. */
+  by: z.enum(["person", "agent"])
+});
+export type StretchRecord = z.infer<typeof stretchRecordSchema>;
+
+export const stretchDeclineSchema = z.object({
+  actionId: z.string().min(1).max(200),
+  at: z.string().datetime({ offset: true })
+});
+
+/** Answers to stretch offers: the loan record (last 7 days) and today's declines. */
+export const stretchStateSchema = z.object({
+  accepted: z.array(stretchRecordSchema).max(30).default([]),
+  declined: z.array(stretchDeclineSchema).max(50).default([]),
+  declinedAllAt: z.string().datetime({ offset: true }).optional()
+});
+export type StretchState = z.infer<typeof stretchStateSchema>;
+
 export const currentSituationSchema = z.object({
   locationId: z.string().min(1).nullable().default(null),
   locationSetAt: z.string().datetime({ offset: true }).optional(),
@@ -189,6 +220,8 @@ export const currentSituationSchema = z.object({
    * stale, so the engine plans on the window's energy until it is said.
    */
   energySetAt: z.string().datetime({ offset: true }).optional(),
+  /** Stretch answers. Carried from the stored value by the server; a client-supplied value is ignored. */
+  stretch: stretchStateSchema.optional(),
   overrides: z.record(z.string().min(1), z.enum(["available", "unavailable"])).default({}),
   carrying: z.record(z.string().min(1), z.boolean()).default({}),
   /**

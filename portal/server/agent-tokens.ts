@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { rateLimitMessage, type DirectWrites } from "@openrhen/contracts";
-import { newTokenFor } from "./agent-token-recipe";
+import { replaceExpiredTokenFor } from "./agent-token-recipe";
 import { remoteAddress, sharedFailureThrottle, type FailureThrottle } from "./agent-token-throttle";
 
 /** The header an agent sends its token in. Not `Authorization`: the location ping and the device-registration routes already use that for their own keys. */
@@ -243,7 +243,7 @@ export async function identifyRequest(
           401,
           `The agent token "${stored.name}" expired on ${stored.expiresAt.toISOString().slice(0, 10)}, so nothing was ` +
             `done. Do not retry. Tell the owner: "This agent's token has expired; please issue a replacement (in a ` +
-            `terminal: ${newTokenFor(stored.scopes, stored.name)})." If the owner is not in this conversation, put ` +
+            `terminal: ${replaceExpiredTokenFor(stored.scopes, stored.name)})." If the owner is not in this conversation, put ` +
             `that in your next report.`
         )
       };

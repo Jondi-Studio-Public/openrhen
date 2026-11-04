@@ -51,6 +51,7 @@ const REGISTRY_WRITE_TOOLS = [
   "save",
   "session",
   "span",
+  "stretch",
   "undo",
   "wake"
 ];

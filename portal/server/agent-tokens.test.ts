@@ -153,7 +153,7 @@ describe("identifyRequest with database tokens", () => {
     expect(expired.refusal?.status).toBe(401);
     expect(await expired.refusal?.json()).toEqual({
       error:
-        'The agent token "companion" expired on 2026-10-18, so nothing was done. Do not retry. Tell the owner: "This agent\'s token has expired; please issue a replacement (in a terminal: `rhen agent-token create --name companion --scopes read:plan,write:entity:action`)." If the owner is not in this conversation, put that in your next report.'
+        'The agent token "companion" expired on 2026-10-18, so nothing was done. Do not retry. Tell the owner: "This agent\'s token has expired; please issue a replacement (in a terminal: `rhen agent-token revoke companion`, then `rhen agent-token create --name companion --scopes read:plan,write:entity:action`)." If the owner is not in this conversation, put that in your next report.'
     });
   });
 

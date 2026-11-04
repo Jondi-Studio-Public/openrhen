@@ -8,6 +8,7 @@
  * `agent-routes.ts` refuses only a plain capture saved as confirmed and a contract review, not here.
  */
 import { contractsExtensions, mergedList, mergedRecord } from "./extensions.js";
+import { HIDING_STATUS } from "./closed-status.js";
 import "./private/index.js";
 
 export const SCOPE_VERBS = ["read", "propose", "write", "act", "admin"] as const;
@@ -111,6 +112,8 @@ const FIXED_TOOL_SCOPES = {
   capture: ["propose:capture"],
   propose: ["propose:agent-change"],
   arrive: ["write:arrival"],
+  // The person's answer to a stretch offer: it waives the energy cut, so it takes the availability scope energy is set with.
+  stretch: ["write:entity:current_availability"],
   // When the person woke is a fact about last night's sleep, so it takes the sleep log's scope, as the wake-only
   // settings save does (`WAKE_SETTINGS_FIELDS`). Applied directly with no proposal: it records what happened.
   wake: ["write:entity:sleep_log_entry"],
@@ -392,20 +395,6 @@ export function settingsPlace(field: string): string {
   return PERSON_SETTINGS_WHERE[field] ?? "Settings";
 }
 
-/**
- * The status that takes a record out of the plan without deleting it, for the kinds that have one: a field change,
- * not a removal, so it is not on the floor (the CLI's `save` sets the same ones to hide a record it created).
- */
-const STATUS_THAT_HIDES: Record<string, string> = {
-  area: "archived",
-  outcome: "cancelled",
-  project: "cancelled",
-  action: "cancelled",
-  commitment: "cancelled",
-  routine_preset: "archived",
-  condition_definition: "archived"
-};
-
 /** A floored call: why it is the person's, and the one path the reason names for what to do instead. */
 interface HardFloor {
   reason: string;
@@ -485,12 +474,12 @@ function hardFloorOf(call: HardFloorCall): HardFloor | null {
       (path) => `removal: deleting a logged night is the person's call; to correct its times instead, run \`${path}\``
     );
   if (call.remove === true) {
-    const status = STATUS_THAT_HIDES[type];
+    const status = HIDING_STATUS[type];
     const path =
-      status !== undefined
-        ? `rhen save ${type} --id <id> --set status=${status}`
-        : type === "capture"
-          ? "rhen inbox-act captured ignore <id>"
+      type === "capture"
+        ? "rhen inbox-act captured ignore <id>"
+        : status !== undefined
+          ? `rhen save ${type} --id <id> --set status=${status}`
           : undefined;
     return path !== undefined
       ? floor(

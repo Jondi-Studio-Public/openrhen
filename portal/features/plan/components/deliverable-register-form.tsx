@@ -1,5 +1,6 @@
 "use client";
 
+import { selectableProjects } from "@/features/plan/area-grouping";
 import { useState, type FormEvent } from "react";
 import type { StoredAction, StoredDeliverable, StoredProject } from "@/state/portal-state";
 import { deliverableDraftFrom, deliverableDraftFromStored, type DeliverableDraft } from "@/features/plan/plan-drafts";
@@ -85,7 +86,7 @@ export function DeliverableRegisterForm({
         <Field label="Project">
           <select name="projectId" defaultValue={defaults?.projectId ?? presetProjectId ?? ""}>
             <option value="">Choose project</option>
-            {projects.map((item) => (
+            {selectableProjects(projects, defaults?.projectId ?? presetProjectId ?? "").map((item) => (
               <option value={item.id} key={item.id}>
                 {item.title}
               </option>

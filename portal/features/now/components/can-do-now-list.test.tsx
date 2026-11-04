@@ -70,6 +70,19 @@ describe("CanDoNowList", () => {
     );
   });
 
+  it("separates the title from the minutes with a space", () => {
+    const { container } = render(
+      <CanDoNowList
+        items={[{ ...item, startBy: undefined }]}
+        state={state}
+        timezone={timezone}
+        saving={false}
+        runActivityCommand={vi.fn()}
+      />
+    );
+    expect(container.querySelector("li")!.textContent).toContain("Prepare uniform 10 min");
+  });
+
   it("omits the start-by span when the item has none", () => {
     const { queryByText } = render(
       <CanDoNowList

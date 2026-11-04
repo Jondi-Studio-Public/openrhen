@@ -16,6 +16,7 @@ const POSITIONALS: Readonly<Record<string, readonly string[]>> = {
   recurrence: ["subcommand", "target"],
   deliverable: ["subcommand", "deliverable"],
   wake: [],
+  stretch: [],
   undo: [],
   status: []
 };

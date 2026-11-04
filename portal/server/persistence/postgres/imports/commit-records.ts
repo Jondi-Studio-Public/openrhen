@@ -6,6 +6,8 @@ import type { Sql } from "../sql-pool";
 import { googleSeriesKey, linkGoogleCalendarCommitment, type GoogleCalendarSource } from "./calendar-profiles/calendar";
 import { extensionOfLinkSource, type ExtensionLinkSource } from "./import-extensions";
 import "./private/index";
+// The calendar feed is core, so it registers beside the private seam, not inside it.
+import "./calendar-feed-import-extension";
 import { maskToApplyFields } from "./source-match-records";
 import { linkSourceToRule, recordSourceAlias, unlinkSource, type LinkSourceArgs } from "./source-links";
 import {

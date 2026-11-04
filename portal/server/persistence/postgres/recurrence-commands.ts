@@ -1,3 +1,4 @@
+import { isClosedStatus } from "@openrhen/contracts";
 import {
   OCCURRENCE_IN_PROGRESS_MESSAGE,
   commitmentTimelineSchema,
@@ -311,7 +312,7 @@ export async function recordCadenceCompletion(
     if (!action[0]) throw notFound("action", command.actionId);
     if (action[0].scheduling_mode !== "cadence")
       throw new InvalidCommandError("Only cadence can be marked done for the day.");
-    if (["done", "cancelled", "archived"].includes(action[0].status))
+    if (action[0].status === "done" || isClosedStatus(action[0].status))
       throw new InvalidCommandError("This cadence is already closed.");
     const rule = await lockRecurrenceRule(tx, actionId);
     if (!rule)

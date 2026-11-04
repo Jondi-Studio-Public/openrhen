@@ -455,13 +455,13 @@ export const sessionCommand: CommandSpec = {
   examples: [
     "session start",
     'session start --action "Fix citations" --minutes 30',
-    'session start --action "Fix citations" --minutes 30 --started-at 2026-09-03T09:00:00+10:00',
+    'session start --action "Fix citations" --minutes 30 --started-at 2026-09-03T09:00:00<offset>',
     'session alternative --action "Weed the beds" --minutes 20 --reason lower_energy',
-    "session set-start --started-at 2026-09-03T09:00:00+10:00",
+    "session set-start --started-at 2026-09-03T09:00:00<offset>",
     "session pause",
     "session continue --minutes 15",
     "session finish --outcome progress --remaining 30",
-    "session finish --outcome completed --ended-at 2026-09-03T09:45:00+10:00",
+    "session finish --outcome completed --ended-at 2026-09-03T09:45:00<offset>",
     'session block --reason waiting_on_someone --status waiting --note "Waiting on supervisor"'
   ],
   async run(context, args) {

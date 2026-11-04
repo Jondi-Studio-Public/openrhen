@@ -1,5 +1,6 @@
 "use client";
 
+import { selectableProjects } from "@/features/plan/area-grouping";
 import { useState, type FormEvent } from "react";
 import type { StoredCommitment, StoredProject } from "@/state/portal-state";
 import { formatZonedTime } from "@/shared/date-format";
@@ -129,7 +130,7 @@ export function CommitmentEditor({
         <Field label="Project">
           <select value={draft.projectId} onChange={(event) => onChange({ ...draft, projectId: event.target.value })}>
             <option value="">None</option>
-            {projects.map((item) => (
+            {selectableProjects(projects, draft.projectId).map((item) => (
               <option key={item.id} value={item.id}>
                 {item.title}
               </option>

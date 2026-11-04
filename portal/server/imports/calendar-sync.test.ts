@@ -530,6 +530,41 @@ describe("runCalendarSync (google_calendar)", () => {
       expect(fake.committed).toEqual([]);
     });
 
+    it("holds a series rule create for review, whatever else applies on its own (the feed's series pass relies on it)", async () => {
+      const fake = editedWorld();
+      useStore(fake);
+      const ruleCreate = (record: ImportRecord): ImportRecord => ({
+        ...record,
+        importKey: "calendar_feed:series:weekly",
+        entityType: "fixed_commitment_recurrence",
+        operation: "create",
+        matchedEntityId: null,
+        expectedVersion: null,
+        errors: []
+      });
+      const adapter = {
+        ...googleCalendarAdapter,
+        async read(args: Parameters<typeof googleCalendarAdapter.read>[0]) {
+          const read = await googleCalendarAdapter.read(args);
+          if (read.status !== "read") return read;
+          return {
+            ...read,
+            diff: async (store: Parameters<typeof read.diff>[0]) => {
+              const diff = await read.diff(store);
+              return { ...diff, records: [...diff.records, ruleCreate(diff.records[0]!)] };
+            }
+          };
+        }
+      };
+      expect(await runCalendarSync({ provider: "google_calendar", trigger: "scheduled", adapter })).toMatchObject({
+        status: "needs_review",
+        updated: 1,
+        heldForReview: 1
+      });
+      const heldKeys = fake.created.at(-1)!.records.map((record) => record.importKey);
+      expect(heldKeys).toEqual(["calendar_feed:series:weekly"]);
+    });
+
     it("counts a date cancel against the same budget as deletes", async () => {
       state.env.CALENDAR_SYNC_MAX_DELETES = "2";
       const deletes = [cancelled("d1", 1)];
@@ -561,6 +596,144 @@ describe("runCalendarSync (google_calendar)", () => {
       ).toMatchObject({ updated: 0, deleted: 0, heldForReview: 3, committedBatchId: null });
     });
 
+    it("applies a date cancel on its own, whether the date already has a row (update) or the commit inserts it (create)", async () => {
+      const prior = event({ externalEventId: "upd" });
+      fetchGoogleCalendarEvents.mockResolvedValue([{ ...prior, title: "Moved" }]);
+      const toCancel =
+        (shape: (record: ImportRecord) => ImportRecord) =>
+        (record: ImportRecord): ImportRecord =>
+          shape({ ...record, relationships: { ...record.relationships, feedCancel: "true", feedSeries: "w" } });
+      const asCreate = (record: ImportRecord): ImportRecord => ({
+        ...record,
+        operation: "create",
+        matchedEntityId: null
+      });
+      for (const shape of [(record: ImportRecord) => record, asCreate]) {
+        const fake = fakeStore({ links: [linkRow(prior)] });
+        useStore(fake);
+        const adapter = withMarked(toCancel(shape), (record) => record.relationships.feedCancel !== "true");
+        expect(await runCalendarSync({ provider: "google_calendar", trigger: "scheduled", adapter })).toMatchObject({
+          heldForReview: 0,
+          committedBatchId: expect.any(String)
+        });
+        expect(fake.committed).toHaveLength(1);
+      }
+    });
+
+    it("holds a cancel that is a conflict or carries errors, and one past the shared budget, as before", async () => {
+      const prior = event({ externalEventId: "upd" });
+      fetchGoogleCalendarEvents.mockResolvedValue([{ ...prior, title: "Moved" }]);
+      const fake = fakeStore({ links: [linkRow(prior)] });
+      useStore(fake);
+      const adapter = withMarked((record) => ({
+        ...record,
+        errors: ["both changed it"],
+        relationships: { ...record.relationships, feedCancel: "true", feedSeries: "w" }
+      }));
+      expect(await runCalendarSync({ provider: "google_calendar", trigger: "scheduled", adapter })).toMatchObject({
+        status: "needs_review",
+        heldForReview: 1,
+        committedBatchId: null
+      });
+    });
+
+    describe("a moved meeting's two halves", () => {
+      const world = () => {
+        const a = event({ externalEventId: "a" });
+        const b = event({
+          externalEventId: "b",
+          startsAt: "2026-10-11T09:00:00.000Z",
+          endsAt: "2026-10-11T10:00:00.000Z"
+        });
+        fetchGoogleCalendarEvents.mockResolvedValue([
+          { ...a, title: "Moved" },
+          { ...b, title: "Moved" }
+        ]);
+        return fakeStore({ links: [linkRow(a), linkRow(b)] });
+      };
+      const pair = (id: string) => (record: ImportRecord) =>
+        record.importKey.endsWith(":a") || record.importKey.endsWith(":b")
+          ? { ...record, relationships: { ...record.relationships, feedMove: id } }
+          : record;
+
+      it("holds both halves when the adapter would hold only one", async () => {
+        const fake = world();
+        useStore(fake);
+        const adapter = withMarked(pair("p1"), (record) => record.importKey.endsWith(":a"));
+        expect(await runCalendarSync({ provider: "google_calendar", trigger: "scheduled", adapter })).toMatchObject({
+          status: "needs_review",
+          updated: 0,
+          heldForReview: 2,
+          committedBatchId: null
+        });
+        expect(fake.committed).toEqual([]);
+      });
+
+      it("holds a half whose partner is not in the diff (it names its pair's size), even one the adapter would apply", async () => {
+        const a = event({ externalEventId: "a" });
+        fetchGoogleCalendarEvents.mockResolvedValue([{ ...a, title: "Moved" }]);
+        const fake = fakeStore({ links: [linkRow(a)] });
+        useStore(fake);
+        const adapter = withMarked((record) => ({
+          ...record,
+          relationships: { ...record.relationships, feedMove: "p1", feedMoveSize: "2" }
+        }));
+        expect(await runCalendarSync({ provider: "google_calendar", trigger: "scheduled", adapter })).toMatchObject({
+          status: "needs_review",
+          heldForReview: 1,
+          committedBatchId: null
+        });
+        expect(fake.committed).toEqual([]);
+      });
+
+      it("holds the partner when one half turns out a blocker once resolved, so commitReady never sees a half pair", async () => {
+        const fake = world();
+        const plainPreview = fake.store.preview;
+        let first = true;
+        fake.store.preview = async (input: PreviewImport) => {
+          const out = await plainPreview(input);
+          if (!first) return out;
+          first = false;
+          // The database says half "a" conflicts: its partner "b" must not be committed alone.
+          const records = out.records.map((record) =>
+            record.importKey.endsWith(":a") ? { ...record, operation: "conflict" as const } : record
+          );
+          return { ...out, records } as typeof out;
+        };
+        useStore(fake);
+        const result = await runCalendarSync({
+          provider: "google_calendar",
+          trigger: "scheduled",
+          adapter: withMarked(pair("p1"))
+        });
+        expect(result).toMatchObject({ status: "needs_review", updated: 0, heldForReview: 2, committedBatchId: null });
+        expect(fake.committed).toEqual([]);
+      });
+    });
+
+    it("asks the store about exactly the matched commitments of a provider that emits no date records", async () => {
+      const prior = event({ externalEventId: "upd" });
+      const gone = event({
+        externalEventId: "del",
+        startsAt: "2026-10-11T09:00:00.000Z",
+        endsAt: "2026-10-11T10:00:00.000Z"
+      });
+      fetchGoogleCalendarEvents.mockResolvedValue([
+        { ...prior, title: "Moved" },
+        { ...gone, status: "cancelled" as const }
+      ]);
+      const fake = fakeStore({ links: [linkRow(prior), linkRow(gone)] });
+      const asked: string[][] = [];
+      const original = fake.store.commitmentsFedByOtherSources;
+      fake.store.commitmentsFedByOtherSources = async (ids: string[]) => {
+        asked.push(ids);
+        return original(ids);
+      };
+      useStore(fake);
+      await runCalendarSync({ provider: "google_calendar", trigger: "scheduled" });
+      expect(asked).toEqual([["commitment-upd", "commitment-del"]]);
+    });
+
     it("leaves a provider without the hooks exactly as it was (spy on the store boundary)", async () => {
       expect("holds" in googleCalendarAdapter).toBe(false);
       const run = async (adapter?: typeof googleCalendarAdapter) => {
@@ -580,6 +753,39 @@ describe("runCalendarSync (google_calendar)", () => {
       expect(inert.created).toEqual(baseline.created);
       expect(inert.committed).toEqual(baseline.committed);
       expect(baseline.result).toMatchObject({ updated: 1, heldForReview: 0 });
+    });
+  });
+
+  describe("what a run left out", () => {
+    const editedWorld = () => {
+      const prior = event({ externalEventId: "upd" });
+      fetchGoogleCalendarEvents.mockResolvedValue([{ ...prior, title: "Moved" }]);
+      return fakeStore({ links: [linkRow(prior)] });
+    };
+    const notImported = {
+      unrepresentableSeries: 2,
+      seriesPending: 1,
+      seriesChanged: 5,
+      unreadable: 3,
+      droppedForSize: 4
+    };
+    const withNotes = (): typeof googleCalendarAdapter => ({
+      ...googleCalendarAdapter,
+      async read(args) {
+        const read = await googleCalendarAdapter.read(args);
+        return read.status === "read"
+          ? { ...read, diff: async (store) => ({ ...(await read.diff(store)), notImported }) }
+          : read;
+      }
+    });
+
+    it("reports it on the run when the provider's diff says so, and not at all for a provider that does not", async () => {
+      useStore(editedWorld());
+      const plain = await runCalendarSync({ provider: "google_calendar", trigger: "scheduled" });
+      expect("notImported" in plain).toBe(false);
+      useStore(editedWorld());
+      const noted = await runCalendarSync({ provider: "google_calendar", trigger: "scheduled", adapter: withNotes() });
+      expect(noted).toMatchObject({ status: "synced", notImported });
     });
   });
 

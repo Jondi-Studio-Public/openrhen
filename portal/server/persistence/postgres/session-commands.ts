@@ -1,3 +1,4 @@
+import { isClosedStatus } from "@openrhen/contracts";
 import { requestAgent } from "@/server/agent-actor";
 import type { SessionCommand } from "@openrhen/contracts";
 import type { PortalState, StoredAction } from "@/state/portal-state";
@@ -52,7 +53,7 @@ export function unstartableActionMessage(status: string): string | null {
   // Read on the portal and through the CLI alike, so it names the fix, not one surface's way to it.
   if (status === "waiting" || status === "blocked")
     return `This action is ${status}, so it cannot be started; set its status back to active first.`;
-  if (status === "done" || status === "cancelled" || status === "archived")
+  if (status === "done" || isClosedStatus(status))
     return `This action is ${status}, so it cannot be started; reopen it by setting its status back to active.`;
   return null;
 }

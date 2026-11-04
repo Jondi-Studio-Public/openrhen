@@ -37,6 +37,8 @@ export const proposeCommand: CommandSpec = {
     "person reads from the payload itself (--summary is accepted and ignored). --basis says where the claim comes from: stated (the person said it; put their words in " +
     "--evidence), inferred (default) or observed (read from mail, a page, a file). Proposals with the same " +
     "--coalesce-key replace each other while pending; an identical pending payload is not stored twice. " +
+    "There is no withdraw: to retract one, or one for a new record, tell the owner to reject it (only the owner " +
+    "can reject or confirm). " +
     "An agent may hold 50 pending proposals; past that the write is refused. Needs a named agent (--agent or " +
     "OPENRHEN_AGENT). See the outcome later with `proposals`.",
   positionals: [{ name: "kind", required: true, description: "What confirming does, such as entity_command" }],

@@ -502,6 +502,21 @@ describe("refusal wording", () => {
   });
 });
 
+describe("scopesForRoute: stretch answers", () => {
+  it("is an agent write under the availability scope, never owner-only, for every answer", () => {
+    for (const body of [
+      undefined,
+      { choice: "accept", actionId: "a", basis: "stated", evidence: "yes" },
+      { choice: "decline_all" }
+    ]) {
+      const decision = scopesForRoute("POST", "/api/commands/stretch", body);
+      expect(decision).toMatchObject({ kind: "scopes", scopes: ["write:entity:current_availability"] });
+      expect(decision.kind === "scopes" && decision.floor ? hardFloorReason(decision.floor) : "none").toBeNull();
+    }
+    expect(classifiedRoutes()).toContain("POST /api/commands/stretch");
+  });
+});
+
 describe("scopesForRoute: reads", () => {
   it("classifies reads into plan, mail, files, changes and proposals", () => {
     const read = (route: string) => {

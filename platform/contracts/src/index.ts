@@ -16,7 +16,13 @@ export {
   planCodePatternProblem
 } from "./planning/plan-code-pattern.js";
 
-export { commitmentOccurrenceId, wallClockFormat, zonedDateTime } from "./zoned-time.js";
+export {
+  commitmentOccurrenceId,
+  commitmentOccurrenceRowId,
+  deterministicUuid,
+  wallClockFormat,
+  zonedDateTime
+} from "./zoned-time.js";
 
 export { recoveryOccurrence } from "./planning/recovery-window.js";
 export type { RecoveryOccurrence } from "./planning/recovery-window.js";
@@ -292,6 +298,9 @@ export {
   conditionStatusSchema,
   currentSituationSchema,
   requirementPathwaySchema,
+  stretchDeclineSchema,
+  stretchRecordSchema,
+  stretchStateSchema,
   transportModeSchema,
   travelEstimateSchema,
   travelEstimateSourceSchema,
@@ -308,6 +317,8 @@ export type {
   ConditionStatus,
   CurrentSituation,
   RequirementPathway,
+  StretchRecord,
+  StretchState,
   TransportMode,
   TravelEstimate,
   TravelEstimateSource,
@@ -530,6 +541,7 @@ export type {
   NowPanelView
 } from "./diagnostics/issue-snapshot.js";
 export {
+  calendarSyncNotImportedSchema,
   calendarSyncProviderSchema,
   calendarSyncResultSchema,
   googleCalendarEventSchema,
@@ -541,6 +553,7 @@ export {
   googleCalendarSummarySchema
 } from "./integrations/google-calendar.js";
 export type {
+  CalendarSyncNotImported,
   CalendarSyncProvider,
   CalendarSyncResult,
   GoogleCalendarEvent,
@@ -1071,6 +1084,7 @@ export type { AgentCall, AgentError, AgentErrorCode, AgentErrorInput } from "./a
 export { AGENT_CONTRACT_VERSION, agentContractLine, agentContractSnapshot } from "./agent-contract.js";
 export type { AgentContractSnapshot } from "./agent-contract.js";
 export { AGENT_CONTRACT_SNAPSHOT } from "./agent-contract-committed.js";
+export * from "./agent-wake.js";
 export { agentGoldenRules, agentPolicyBullets, agentPolicyLines, agentPolicySentences } from "./agent-policy-text.js";
 export type { AgentPolicyLine, PolicyDetail } from "./agent-policy-text.js";
 export {
@@ -1336,6 +1350,8 @@ export type {
 } from "./planning/doctor-duplicates.js";
 export { recordingItems, DOCTOR_BACKUP_STALE_HOURS, DOCTOR_PING_SILENT_HOURS } from "./planning/doctor-recording.js";
 export type { DoctorRecordingSlice } from "./planning/doctor-recording.js";
+export { closedStampItems } from "./planning/doctor-closed.js";
+export type { DoctorClosedSlice } from "./planning/doctor-closed.js";
 export { prerequisiteItems } from "./planning/doctor-prerequisites.js";
 export type { DoctorPrerequisitesSlice } from "./planning/doctor-prerequisites.js";
 export { publishingItems } from "./planning/doctor-publishing.js";
@@ -1400,3 +1416,38 @@ export type {
   ConnectionStatus,
   ConnectionsResponse
 } from "./connections/wire.js";
+
+export { CLOSED_STATUSES, CLOSED_TABLES, HIDING_STATUS, isClosedStatus } from "./closed-status.js";
+export type { ClosedTable, ClosedTableRule } from "./closed-status.js";
+export {
+  ENERGY_COST_NEXT,
+  buildEnergyCostAnswer,
+  energyCostSchema,
+  energyCostText,
+  parseEnergyCost
+} from "./planning/energy-cost.js";
+export type { EnergyCostAnswer, EnergyCostAnswerInput, EnergyCostView } from "./planning/energy-cost.js";
+export {
+  STRETCH_CHOICES,
+  STRETCH_NEXT_CALL,
+  STRETCH_OFFER_NEXT,
+  STRETCH_REASK_NEXT,
+  agentStretchProblems,
+  buildStretchAnswer,
+  parseStretchOffer,
+  stretchClock,
+  stretchCommandSchema,
+  stretchNextStep,
+  stretchOfferSchema,
+  stretchOfferText
+} from "./planning/stretch.js";
+export type {
+  StretchAnswerInput,
+  StretchBlock,
+  StretchChoice,
+  StretchCommand,
+  StretchOfferAnswer,
+  StretchOfferTextOptions,
+  StretchOfferView,
+  StretchResult
+} from "./planning/stretch.js";

@@ -1,5 +1,6 @@
 "use client";
 
+import { isClosedStatus } from "@openrhen/contracts";
 import { PlaceTabs } from "@/components/place-tabs";
 import { useState } from "react";
 import { useNow } from "@/shared/clock";
@@ -65,7 +66,7 @@ export default function ReviewFocusPage() {
       sum +
       (project?.remainingEffortOverrideMinutes ??
         state.actions
-          .filter((action) => action.projectId === id && !["done", "cancelled", "archived"].includes(action.status))
+          .filter((action) => action.projectId === id && !(action.status === "done" || isClosedStatus(action.status)))
           .reduce((value, action) => value + action.remainingMinutes, 0))
     );
   }, 0);

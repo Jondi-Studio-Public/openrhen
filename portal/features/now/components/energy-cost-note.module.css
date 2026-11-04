@@ -1,0 +1,7 @@
+/* A plain neutral line: no card, no colour, no buttons. */
+.note {
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+  line-height: 1.5;
+}

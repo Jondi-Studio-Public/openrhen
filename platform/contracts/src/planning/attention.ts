@@ -172,7 +172,7 @@ export function attentionCallProblem(
 ): string | undefined {
   const entry = mcpManifestTool(call.tool);
   if (!entry) return `${call.tool} is not a served tool.`;
-  if (call.tool === "openrhen_attention") return "an item never points back at the feed.";
+  if (call.tool === "rhen_attention") return "an item never points back at the feed.";
   if (call.tool === TOOL.status && !options.allowStatus) return "a nextCall never names rhen_status.";
   if (!entry.annotations.readOnlyHint) return `${call.tool} is not read-only.`;
   if (held !== undefined && !mcpToolAllowed(entry, held)) return `${call.tool} is not allowed for this token.`;
@@ -486,6 +486,14 @@ export const ATTENTION_DOCTOR_TEMPLATES: Record<DoctorCheck, AttentionDoctorTemp
   location_ping_silent: {
     title: "Place changes are not being reported",
     why: "Travel and what can be done here are planned from an old place."
+  },
+  closed_stamp_stray: {
+    title: "Open records carry a closed stamp",
+    why: "A closed time on an open record would put it on the Closed list and hide its real state."
+  },
+  closed_stamp_missing: {
+    title: "Closed records have no closed time",
+    why: "The Closed list sorts and restores by the closed time, so these would be missing from it."
   }
 };
 

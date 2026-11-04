@@ -1,3 +1,4 @@
+import { isClosedStatus } from "@openrhen/contracts";
 import type { StoredArea, StoredOutcome, StoredProject } from "@/state/portal-state";
 
 /**
@@ -42,6 +43,14 @@ export function projectsForArea(
   areas: StoredArea[]
 ): StoredProject[] {
   return projects.filter((project) => resolveProjectAreaId(project, outcomes, areas) === areaId);
+}
+
+/**
+ * The projects a picker offers: closed ones (archived or cancelled) are left out so new work does not land in
+ * them, except the one already chosen, which stays listed so an existing record still shows where it sits.
+ */
+export function selectableProjects<T extends { id: string; status: string }>(projects: T[], selectedId: string): T[] {
+  return projects.filter((project) => project.id === selectedId || !isClosedStatus(project.status));
 }
 
 /** Areas in the order `/plan` shows them: `sortOrder` first, then name for anything tied. */

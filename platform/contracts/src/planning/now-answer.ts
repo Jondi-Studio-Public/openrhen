@@ -1,5 +1,8 @@
 import type { CurrentDirective, DayPlan, DayPlanBlock } from "./plan-forecast.js";
 import type { PortalStateContract } from "../portal/state-schema.js";
+import { buildEnergyCostAnswer, type EnergyCostAnswer } from "./energy-cost.js";
+import { buildStretchAnswer, type StretchBlock, type StretchOfferAnswer } from "./stretch.js";
+import { DEFAULT_TIMEZONE, resolveLocale } from "../locale.js";
 import { resolveNowActivity, type NowActivityState } from "./now-activity.js";
 import {
   endsAtPause,
@@ -259,6 +262,12 @@ export interface NowAnswer {
   anchors: NowAnswerAnchors;
   /** What has gone stale, blocking needs first. Empty when every fact is current. */
   needs: Need[];
+  /** A stretch on offer now (the energy cut is waived for this action if the person says yes), or null. */
+  stretchOffer: StretchOfferAnswer | null;
+  /** The running stretch, today's count and the morning-after loan line; null when there is nothing to say. */
+  stretch: StretchBlock | null;
+  /** What declared low energy is holding back: `text` is the sentence to tell the person once, `next` what to do. Null when nothing is. */
+  energyCost: EnergyCostAnswer | null;
 }
 
 /** The most aged-effort questions Now raises at once, so a long backlog of old estimates cannot flood it. */
@@ -267,7 +276,13 @@ export const MAX_EFFORT_NEEDS = 3;
 export interface NowAnswerInput {
   state: NowActivityState & {
     projects: ReadonlyArray<{ id: string; title: string }>;
-    settings: { preferredWakeTime: string; maxAwakeHours: number; lastWokeAt?: string | undefined };
+    settings: {
+      preferredWakeTime: string;
+      maxAwakeHours: number;
+      lastWokeAt?: string | undefined;
+      timezone?: string | undefined;
+      locale?: string | undefined;
+    };
     currentEnergy?: string;
     /**
      * Names the open session when it carries no title of its own. With `remainingSetAt` and the stored plan's
@@ -284,6 +299,9 @@ export interface NowAnswerInput {
    * which projects are at risk. Absent means no effort need is raised.
    */
   schedule?: unknown;
+  /** When the stored plan was calculated and whether it is still current; both default to "no objection". */
+  planCalculatedAt?: string | undefined;
+  planCurrent?: boolean | undefined;
   now: Date;
 }
 
@@ -515,9 +533,32 @@ export function buildNowAnswer(input: NowAnswerInput, locationNameById: Readonly
         brain.currentBedtimeStep
       )
     : null;
+  const timeZone = state.settings.timezone || DEFAULT_TIMEZONE;
+  const locale = resolveLocale(state.settings.locale);
+  const stretchAnswer = buildStretchAnswer({
+    recommendation: input.recommendation,
+    stretch: state.currentSituation.stretch,
+    energySetAt: state.currentSituation.energySetAt,
+    planCalculatedAt: input.planCalculatedAt,
+    planCurrent: input.planCurrent,
+    now,
+    timeZone,
+    locale
+  });
   return {
     directive,
     anchors: runningAnchors(state, now),
-    needs: buildNeeds(input, locationNameById)
+    needs: buildNeeds(input, locationNameById),
+    ...stretchAnswer,
+    energyCost: buildEnergyCostAnswer({
+      recommendation: input.recommendation,
+      energySetAt: state.currentSituation.energySetAt,
+      planCalculatedAt: input.planCalculatedAt,
+      planCurrent: input.planCurrent,
+      stretchOfferActionId: stretchAnswer.stretchOffer?.actionId,
+      now,
+      timeZone,
+      locale
+    })
   };
 }

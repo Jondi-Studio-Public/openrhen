@@ -1,9 +1,10 @@
+import { isClosedStatus } from "@openrhen/contracts";
 import type { PlanningFocus, PortalState } from "@/state/portal-state";
 import type { ClientForecast } from "@/state/portal-provider";
 import { focusableProjects, focusSelection, periodFor } from "./planning-focus-period";
 import { isStaleProject, overdueSeenThisWeek } from "./stale-projects";
 
-const OPEN_ACTION = (status: string) => !["done", "cancelled", "archived"].includes(status);
+const OPEN_ACTION = (status: string) => !(status === "done" || isClosedStatus(status));
 const DAY_MS = 24 * 60 * 60_000;
 
 /** A `YYYY-MM-DD` date in `timeZone`. */

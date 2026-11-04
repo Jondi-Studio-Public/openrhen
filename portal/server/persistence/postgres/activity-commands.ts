@@ -1,3 +1,4 @@
+import { isClosedStatus } from "@openrhen/contracts";
 import { requestAgent } from "@/server/agent-actor";
 import type { ActivityCommand } from "@openrhen/contracts";
 import type { PortalState } from "@/state/portal-state";
@@ -207,7 +208,7 @@ export async function applyActivityCommand(
       if (!target[0]) throw notFound("deliverable", command.targetId);
       if (command.expectedVersion !== target[0].version)
         throw versionConflict("deliverable", command.targetId, command.expectedVersion, target[0].version);
-      if (["completed", "cancelled", "archived"].includes(target[0].status))
+      if (target[0].status === "completed" || isClosedStatus(target[0].status))
         throw alreadyClosed("deliverable", command.targetId, target[0].status, {
           tool: "rhen_show",
           arguments: { entity: "deliverable", id: command.targetId }

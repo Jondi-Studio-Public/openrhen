@@ -1,5 +1,5 @@
 import type postgres from "postgres";
-import { deriveCompletionRatios, type PortalStateContract } from "@openrhen/contracts";
+import { deriveCompletionRatios, type PortalStateContract, isClosedStatus } from "@openrhen/contracts";
 
 type StoredProject = PortalStateContract["projects"][number];
 type StoredAction = PortalStateContract["actions"][number];
@@ -47,7 +47,7 @@ function scopeOf(projectId: string, actions: StoredAction[]): ProjectScope {
     if (action.projectId !== projectId || action.schedulingMode === "recurring") continue;
     const estimate = action.expectedMinutes ?? action.remainingMinutes ?? 0;
     if (action.status === "done") completedMinutes += estimate;
-    else if (action.status !== "cancelled" && action.status !== "archived") remainingMinutes += action.remainingMinutes;
+    else if (!isClosedStatus(action.status)) remainingMinutes += action.remainingMinutes;
   }
   return { completedMinutes, remainingMinutes };
 }

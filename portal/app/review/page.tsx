@@ -1,5 +1,6 @@
 "use client";
 
+import { isClosedStatus } from "@openrhen/contracts";
 import { dateTimeFormat, displayLocale } from "@/shared/locale";
 import { useState } from "react";
 import { usePortal } from "@/state/portal-provider";
@@ -51,7 +52,7 @@ import { attentionCount } from "@/features/doctor/doctor-model";
 import { hoursText } from "@/features/plan/components/time-ahead";
 import styles from "./review.module.css";
 
-const OPEN_ACTION = (status: string) => !["done", "cancelled", "archived"].includes(status);
+const OPEN_ACTION = (status: string) => !(status === "done" || isClosedStatus(status));
 const plural = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
 /**

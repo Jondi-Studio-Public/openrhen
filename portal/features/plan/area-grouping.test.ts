@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { createSeedState } from "@/state/portal-state";
-import { UNASSIGNED_AREA_ID, projectsForArea, resolveProjectAreaId, sortedAreas } from "./area-grouping";
+import {
+  UNASSIGNED_AREA_ID,
+  projectsForArea,
+  selectableProjects,
+  resolveProjectAreaId,
+  sortedAreas
+} from "./area-grouping";
 
 const seed = () => createSeedState(new Date("2026-08-18T09:00:00.000Z"));
 
@@ -57,5 +63,25 @@ describe("sortedAreas", () => {
       { id: "a", name: "Alpha", status: "active" as const, sortOrder: 0 }
     ];
     expect(sortedAreas(areas).map((item) => item.id)).toEqual(["a", "z", "b"]);
+  });
+});
+
+describe("selectableProjects", () => {
+  it("leaves closed projects out of a picker, but keeps the one already chosen", () => {
+    const base = seed().projects[0]!;
+    const projects = [
+      { ...base, id: "open", status: "active" as const },
+      { ...base, id: "paused", status: "paused" as const },
+      { ...base, id: "done", status: "done" as const },
+      { ...base, id: "archived", status: "archived" as const },
+      { ...base, id: "cancelled", status: "cancelled" as const }
+    ];
+    expect(selectableProjects(projects, "").map((item) => item.id)).toEqual(["open", "paused", "done"]);
+    expect(selectableProjects(projects, "archived").map((item) => item.id)).toEqual([
+      "open",
+      "paused",
+      "done",
+      "archived"
+    ]);
   });
 });

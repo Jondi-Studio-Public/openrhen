@@ -1,4 +1,4 @@
-import { EFFORT_STALE_DAYS, atRiskHealth, effortAge, type EnergyType } from "@openrhen/contracts";
+import { EFFORT_STALE_DAYS, atRiskHealth, effortAge, type EnergyType, CLOSED_STATUSES } from "@openrhen/contracts";
 import { computeProjectAdherence, isMaintenanceProject } from "./adherence.js";
 import { analyzeDependencies } from "./dependencies.js";
 import { projectEffort } from "./effort.js";
@@ -35,7 +35,7 @@ const MINUTE_MS = 60_000;
 /** Below this, a shortfall is float dust from summing many small slot consumes, not real minutes. */
 const RESERVE_EPSILON = 1e-6;
 const DAY_MS = 86_400_000;
-const terminalStatuses = new Set(["done", "cancelled", "archived"]);
+const terminalStatuses = new Set(["done", ...CLOSED_STATUSES]);
 
 export interface ScheduleArguments {
   now: Date;

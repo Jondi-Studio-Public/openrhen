@@ -125,7 +125,7 @@ async function loadTriggers(sql: Sql, userId: string, now: Date): Promise<NudgeT
     SELECT d.id::text AS id, d.title, d.external_deadline_at AS external, d.internal_deadline_at AS internal
     FROM deliverables d JOIN projects p ON p.id = d.project_id
       JOIN outcomes o ON o.id = p.outcome_id JOIN areas a ON a.id = o.area_id
-    WHERE a.user_id = ${userId} AND p.status = 'active' AND d.status NOT IN ('completed', 'cancelled')
+    WHERE a.user_id = ${userId} AND p.status = 'active' AND d.status NOT IN ('completed', 'cancelled', 'archived')
       AND LEAST(COALESCE(d.external_deadline_at, 'infinity'), COALESCE(d.internal_deadline_at, 'infinity'))
         BETWEEN ${now} AND ${horizon}`;
   // A link on a recurring series sits on its rule, so an exam occurrence is keyed by its rule when it has one.

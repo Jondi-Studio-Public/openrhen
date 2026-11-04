@@ -45,7 +45,7 @@ export const catchUpCommand: CommandSpec = {
     }
   },
   mutates: false,
-  examples: ["catch-up", "catch-up --json", "catch-up --since 2026-10-01T00:00:00+10:00 --offset 50"],
+  examples: ["catch-up", "catch-up --json", "catch-up --since 2026-10-01T00:00:00<offset> --offset 50"],
   async run(context, args) {
     if (args.values["state-file"] !== undefined)
       throw new CliError("catch-up reads the portal's ledger; it needs the live portal.", EXIT.usage);

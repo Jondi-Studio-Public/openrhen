@@ -1139,12 +1139,22 @@ export async function saveEntity(sql: PoolSql, command: EntityCommandWithHash): 
         await tx`UPDATE routine_presets SET name=${name},activity_name=${activityName},status=${status},replaces_wake_routine=${replacesWakeRoutine},version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=${id}`;
       else
         await tx`INSERT INTO routine_presets(id,user_id,name,activity_name,status,replaces_wake_routine) VALUES(${id},${userId},${name},${activityName},${status},${replacesWakeRoutine})`;
-      await tx`DELETE FROM routine_preset_steps WHERE preset_id=${id}`;
+      // Steps are upserted under their stable ids and only the ones this save drops are deleted:
+      // `routine_steps.preset_step_id` is ON DELETE SET NULL, so deleting and re-inserting every step
+      // would sever the link on every instantiated routine step across all commitments.
       const stepIds = new Map<string, string>();
-      for (const [sequence, step] of steps.entries()) {
+      for (const step of steps) {
         const rawStepId = requiredText(step.id, "Routine step id");
-        const stepId = await stableUuid(`routine-preset-step:${id}`, rawStepId);
-        stepIds.set(rawStepId, stepId);
+        stepIds.set(rawStepId, await stableUuid(`routine-preset-step:${id}`, rawStepId));
+      }
+      const keptStepIds = [...stepIds.values()];
+      await tx`DELETE FROM routine_preset_steps WHERE preset_id=${id} AND id NOT IN ${tx(keptStepIds)}`;
+      await tx`DELETE FROM routine_preset_step_dependencies WHERE step_id IN ${tx(keptStepIds)}`;
+      // (preset_id, sequence) is unique and not deferrable, so park the kept rows out of the way before
+      // a reorder writes their new positions.
+      await tx`UPDATE routine_preset_steps SET sequence=-sequence-1 WHERE preset_id=${id}`;
+      for (const [sequence, step] of steps.entries()) {
+        const stepId = stepIds.get(requiredText(step.id, "Routine step id"))!;
         const timing = requiredText(step.timingRule, "Timing rule");
         const contexts = stringList(step.contexts);
         const linked = await linkedActionWindow(tx, userId, step.actionWindowId);
@@ -1154,7 +1164,7 @@ export async function saveEntity(sql: PoolSql, command: EntityCommandWithHash): 
           throw new InvalidCommandError("A routine step cannot link both a recurring occurrence and a cadence action.");
         const duration = linked ? linked.minutes : positiveInt(step.durationMinutes, "Duration");
         const timingFields = routineStepTimingFields(step as Record<string, unknown>);
-        await tx`INSERT INTO routine_preset_steps(id,preset_id,title,duration_minutes,sequence,timing_rule,max_lead_minutes,energy,phase,contexts,action_window_id,cadence_action_id,wait_after_minutes,must_start_by_minutes,preferred_bands) VALUES(${stepId},${id},${requiredText(step.title, "Routine step")},${duration},${sequence},${timing},${timing === "flexible" ? positiveInt(step.maxLeadMinutes, "Maximum lead time") : null},${requiredText(step.energy, "Energy")},${stepPhase(step)},${tx.json(contexts as never)},${actionWindowId},${cadenceActionId},${timingFields.waitAfterMinutes},${timingFields.mustStartByMinutes},${tx.json(timingFields.preferredBands as never)})`;
+        await tx`INSERT INTO routine_preset_steps(id,preset_id,title,duration_minutes,sequence,timing_rule,max_lead_minutes,energy,phase,contexts,action_window_id,cadence_action_id,wait_after_minutes,must_start_by_minutes,preferred_bands) VALUES(${stepId},${id},${requiredText(step.title, "Routine step")},${duration},${sequence},${timing},${timing === "flexible" ? positiveInt(step.maxLeadMinutes, "Maximum lead time") : null},${requiredText(step.energy, "Energy")},${stepPhase(step)},${tx.json(contexts as never)},${actionWindowId},${cadenceActionId},${timingFields.waitAfterMinutes},${timingFields.mustStartByMinutes},${tx.json(timingFields.preferredBands as never)}) ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title,duration_minutes=EXCLUDED.duration_minutes,sequence=EXCLUDED.sequence,timing_rule=EXCLUDED.timing_rule,max_lead_minutes=EXCLUDED.max_lead_minutes,energy=EXCLUDED.energy,phase=EXCLUDED.phase,contexts=EXCLUDED.contexts,action_window_id=EXCLUDED.action_window_id,cadence_action_id=EXCLUDED.cadence_action_id,wait_after_minutes=EXCLUDED.wait_after_minutes,must_start_by_minutes=EXCLUDED.must_start_by_minutes,preferred_bands=EXCLUDED.preferred_bands`;
       }
       for (const step of steps) {
         const stepId = stepIds.get(requiredText(step.id, "Routine step id"))!;

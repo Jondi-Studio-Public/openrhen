@@ -44,7 +44,10 @@ const action = (id: string, projectId: string, energy: Action["energy"]): Action
   setupMinutes: 0
 });
 
-function run(extra: { energyWaivedActionIds?: string[] } = {}, currentEnergy: "low" | "high" = "low") {
+function run(
+  extra: { energyWaivedActionIds?: string[]; energyWaivedUntil?: Record<string, Date> } = {},
+  currentEnergy: "low" | "high" = "low"
+) {
   const projects = [project("p1"), project("p2")];
   const actions = [action("hard-a", "p1", "high"), action("hard-b", "p2", "high"), action("easy", "p2", "low")];
   const capacityWindows = resolvePlanningCapacity({ now, horizonEnd, usableFraction: 0.85, ...dayBounds });
@@ -147,5 +150,22 @@ describe("per-action energy waiver", () => {
     const withWaiver = titles(waived.args);
     expect(withWaiver).toContain("hard-a");
     expect(withWaiver).not.toContain("hard-b");
+  });
+
+  it("the day plan replay stops waiving an action at the instant its stretch ends", () => {
+    const startsOf = (extra: Parameters<typeof run>[0]) =>
+      dayPlanFor(run({ energyWaivedActionIds: ["hard-a"], ...extra }).args, { timezone: dayBounds.timezone })
+        .blocks.filter((block) => block.kind === "action" && block.title === "hard-a")
+        .map((block) => new Date(block.startsAt).getTime());
+    const open = startsOf({});
+    expect(open).toHaveLength(1);
+    const start = open[0]!;
+    // Still waived at the block's own start: the stretch ends after it.
+    expect(startsOf({ energyWaivedUntil: { "hard-a": new Date(start + 1) } })).toEqual(open);
+    // Ended at that instant (and so before it): the replay no longer waives it, so the block is gone.
+    expect(startsOf({ energyWaivedUntil: { "hard-a": new Date(start) } })).toEqual([]);
+    expect(startsOf({ energyWaivedUntil: { "hard-a": new Date(now.getTime() + 60_000) } })).toEqual([]);
+    // An id with no entry stays waived throughout.
+    expect(startsOf({ energyWaivedUntil: {} })).toEqual(open);
   });
 });

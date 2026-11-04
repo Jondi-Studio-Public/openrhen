@@ -9,6 +9,8 @@ import type {
   TravelSource,
   Uncertainty
 } from "@openrhen/contracts";
+import type { EnergyCost } from "../recommendation/energy-cost.js";
+import type { StretchOffer } from "../recommendation/stretch.js";
 import { commitmentTimeline } from "./commitment-timeline.js";
 import type { CommitmentTimeline } from "./commitment-timeline.js";
 
@@ -1125,6 +1127,18 @@ export interface Recommendation {
    * conditions; the engine lists every offerable step (this one included) under `canDoNow`.
    */
   earlyStep?: { stepId: string; totalScore: number };
+  /**
+   * Low energy is the only thing between the person and an action with a near external deadline:
+   * a bounded stretch they may choose (or refuse). Absent in every other case, and never alters the
+   * ranking above. See `deriveStretchOffer`.
+   */
+  stretchOffer?: StretchOffer;
+  /**
+   * What declared low energy is holding back: how many actions only the energy check keeps out, and
+   * which of them have a near external date. Absent when nothing is blocked, energy is stale or
+   * recovery. Describes only; never alters the ranking above. See `deriveEnergyCost`.
+   */
+  energyCost?: EnergyCost;
 }
 
 export interface WeekOutlookProject {

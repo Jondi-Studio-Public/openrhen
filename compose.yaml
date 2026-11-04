@@ -236,6 +236,9 @@ services:
       APP_TIMEZONE: ${APP_TIMEZONE:-UTC}
       # Sent as X-OpenRhen-Worker so OPENRHEN_OWNER_AUTH=require accepts the worker's calls (the portal holds WORKER_TOKEN_HASH).
       OPENRHEN_WORKER_TOKEN: ${OPENRHEN_WORKER_TOKEN:-}
+      # Proactive agent wake: empty means the sender does nothing.
+      OPENCLAW_HOOKS_URL: ${OPENCLAW_HOOKS_URL:-}
+      OPENCLAW_HOOKS_TOKEN: ${OPENCLAW_HOOKS_TOKEN:-}
     depends_on:
       engine-service:
         condition: service_healthy

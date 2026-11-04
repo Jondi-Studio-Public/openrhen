@@ -542,7 +542,7 @@ export const inboxActCommand: CommandSpec = {
   outward: true,
   get examples() {
     return [
-      "inbox-act captured confirm 6f1e… --type action --set projectId=… --answer deadlineAt=2026-10-09T15:00:00+10:00",
+      "inbox-act captured confirm 6f1e… --type action --set projectId=… --answer deadlineAt=2026-10-09T15:00:00<offset>",
       "inbox-act kept reopen 6f1e…",
       ...registeredInboxActRooms().flatMap((room) => [...(room.examples ?? [])]),
       "inbox-act map link 8d2a… confirm"

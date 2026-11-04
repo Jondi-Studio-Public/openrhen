@@ -326,7 +326,7 @@ export const activityCommand: CommandSpec = {
   examples: [
     "activity start --type fixed_commitment --target 'Gym session' --minutes 60 --phase setup",
     "activity start --type deliverable --target 'Chapter 3 draft' --step step-write --minutes 45",
-    "activity start --type deliverable --target 'Chapter 3 draft' --minutes 45 --started-at 2026-09-03T09:00:00+10:00",
+    "activity start --type deliverable --target 'Chapter 3 draft' --minutes 45 --started-at 2026-09-03T09:00:00<offset>",
     "activity switch-step --step step-outline",
     "activity pause --note 'Kid needs help with homework'",
     "activity finish --outcome completed --note 'All done'",

@@ -5,6 +5,7 @@ import {
   PROPOSE_ONLY_SETTINGS_FIELDS,
   WAKE_SETTINGS_FIELDS
 } from "./agent-scopes.js";
+import { AGENT_WAKE_POLICY_EXCEPTION } from "./agent-wake.js";
 import { calendarSinkLabel } from "./connections/registry.js";
 import { mergedList } from "./extensions.js";
 import "./private/index.js";
@@ -178,6 +179,6 @@ export function agentGoldenRules(owner = "the owner"): string {
     `${owner} knows (where they are, their energy, what happened, what they meant): ask them, then write what they said. ` +
     "Resend a write with the same command-id only after a timeout; a conflict or validation error is not a timeout, so " +
     "fix its cause and never resend it unchanged under any id. startFresh and drop_all discard many items: send them " +
-    `only on ${owner}'s own words, with basis stated and those words in evidence.`
+    `only on ${owner}'s own words, with basis stated and those words in evidence. ${AGENT_WAKE_POLICY_EXCEPTION}`
   );
 }

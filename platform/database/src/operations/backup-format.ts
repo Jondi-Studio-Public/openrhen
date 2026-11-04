@@ -166,6 +166,9 @@ const CORE_REGENERABLE_TABLES = [
   // device costs one tap. The queue is disposable output, not authored data, either way.
   "push_subscriptions",
   "push_outbox",
+  // Wakes for the owner's OpenClaw agent: a short-lived queue; a restore must not
+  // send an old wake.
+  "agent_wakes",
   // The recorder's and publisher's own bookkeeping: fully
   // recomputable from `pulse_segments` (in BACKUP_TABLES above) and the live plan state. It also holds the
   // pulse state machine's memory: a restore without it resumes from the open

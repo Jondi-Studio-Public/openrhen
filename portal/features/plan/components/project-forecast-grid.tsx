@@ -1,5 +1,6 @@
 "use client";
 
+import { CLOSED_STATUSES } from "@openrhen/contracts";
 import type { ReactNode } from "react";
 import type { ActiveSession, StoredAction, StoredDeliverable, StoredProject } from "@/state/portal-state";
 import type { ClientForecast, ClientProjectEnvelope } from "@/state/portal-provider";
@@ -7,7 +8,7 @@ import type { UnmetPrerequisite } from "@openrhen/contracts";
 import { ProjectForecastCard } from "@/features/plan/components/project-forecast-card";
 
 /** Cancelled and archived actions are gone from the plan: not counted, not listed (done ones are listed). */
-const CLOSED_ACTION_STATUSES: readonly string[] = ["done", "cancelled", "archived"];
+const CLOSED_ACTION_STATUSES: readonly string[] = ["done", ...CLOSED_STATUSES];
 
 /**
  * Every project beside its forecast. Finished actions are left out of the forecast math — they cannot

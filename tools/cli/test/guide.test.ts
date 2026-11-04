@@ -1,3 +1,4 @@
+import { MCP_TOOL_MANIFEST } from "@openrhen/contracts";
 import { describe, expect, it } from "vitest";
 import { runCli } from "../src/cli.js";
 import { EXIT } from "../src/errors.js";
@@ -104,6 +105,22 @@ describe("guide", () => {
     expect(stdout).toContain("status --json");
     expect(stdout).toContain("state --key");
     expect(stdout).toContain("schema");
+  });
+
+  it("reading-data says what an empty wouldChangeIf means and that a what-if is not an instruction", async () => {
+    const { exitCode, stdout } = await runGuide(["guide", "reading-data"]);
+    expect(exitCode).toBe(EXIT.ok);
+    const flat = stdout.replace(/\s+/g, " ");
+    expect(flat).toContain("wouldChangeIf");
+    expect(flat).toContain("`[]` is normal");
+    expect(flat).toContain("never change energy or capacity to get a different answer");
+  });
+
+  it("the status help names wouldChangeIf and points at reading-data, on the CLI and on the remote", () => {
+    const status = commands.find((command) => command.name === "status")!;
+    expect(status.description).toMatch(/wouldChangeIf, often empty; guide topic reading-data/);
+    const remote = MCP_TOOL_MANIFEST.find((tool) => tool.name === "rhen_status")!;
+    expect(remote.description).toMatch(/wouldChangeIf, often empty; call rhen_guide with topic reading-data/);
   });
 
   it("recurrence distinguishes commitment, recurring-action, and cadence recurrence", async () => {

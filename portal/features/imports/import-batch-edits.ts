@@ -303,6 +303,12 @@ export function patchRecordRoutineSteps(batch: ImportBatch, recordId: string, st
   }));
 }
 
+/** The chosen side of a conflict as a field. A list (weekdays) keeps its elements; typed text would flatten it to a string. */
+function resolvedField(value: unknown, name: string) {
+  if (Array.isArray(value)) return { ...userField("x", name), value };
+  return userField(value === null || value === undefined ? "" : String(value), name);
+}
+
 /**
  * Resolving one conflicted field clears that field's remote copy and its error. The record stays a
  * conflict until nothing is left to decide, at which point it becomes an ordinary update.
@@ -350,7 +356,7 @@ export function resolveRecordSharedCalendarConflict(
       ...record,
       operation: remaining.length ? ("conflict" as const) : ("update" as const),
       relationships,
-      fields: { ...record.fields, [name]: userField(value === null ? "" : String(value), name) },
+      fields: { ...record.fields, [name]: resolvedField(value, name) },
       errors: record.errors.filter((item) => !item.startsWith(`${name} changed in both`))
     };
   });

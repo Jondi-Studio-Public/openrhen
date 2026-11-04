@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AgentBasis } from "@openrhen/contracts";
+import { renderCommandsForMcp, type AgentBasis } from "@openrhen/contracts";
 import {
   decideWrite,
   enforceAgentRequest,
@@ -273,6 +273,61 @@ describe("the enforcement matrix for entity saves", () => {
       evidence: "the owner: dentist at 3",
       commandId: ID,
       coalesceKey: "commitment:c1"
+    });
+  });
+
+  describe("agentNote says plainly that a proposal cannot be taken back", () => {
+    const note = async (entityType: string, entity: Record<string, unknown>, scope: string) => {
+      const response = await call(
+        "POST",
+        "/api/commands/entity",
+        principal([scope]),
+        entityBody(entityType, entity),
+        {},
+        { propose: fakePropose() }
+      );
+      return ((await response!.json()) as { agentNote: string }).agentNote;
+    };
+
+    it("with a record id: how to replace the card, and what to do if the correction is applied instead", async () => {
+      const text = await note("commitment", { id: "c1", title: "Dentist" }, "propose:entity:commitment");
+      expect(text).toContain("Do not send it again unchanged");
+      expect(text).toContain("You cannot take a proposal back");
+      expect(text).toContain("same save call you just used");
+      expect(text).toContain("same record id");
+      expect(text).toContain("new commandId");
+      expect(text).toContain("revision is above 1");
+      expect(text).toContain(`proposal ${ID} is still pending`);
+      expect(text).toContain("tell the owner to reject it in Inbox > Captured > From agents");
+      expect(text).toContain("does not prove the owner had not already confirmed");
+      expect(text).toContain("`rhen save`");
+      expect(text).toContain("`rhen proposals`");
+    });
+
+    it("with no record id (settings, delete, new record): do not resend, ask the owner to reject", async () => {
+      const text = await note("settings", { timezone: "x" }, "propose:entity:settings");
+      expect(text).toContain("Do not send it again unchanged");
+      expect(text).toContain("You cannot take a proposal back");
+      expect(text).toContain("A different second call files a second card");
+      expect(text).toContain("an identical copy returns the same card");
+      expect(text).toContain(`Please reject proposal ${ID} in Inbox > Captured > From agents.`);
+      expect(text).not.toContain("revision is above 1");
+      expect(text).not.toContain("same record id");
+    });
+
+    it("renders for stdio as tool calls, never shell syntax, and keeps the CLI form raw", async () => {
+      for (const [type, entity, scope] of [
+        ["commitment", { id: "c1", title: "Dentist" }, "propose:entity:commitment"],
+        ["settings", { timezone: "x" }, "propose:entity:settings"]
+      ] as const) {
+        const raw = await note(type, entity, scope);
+        expect(raw).toContain("`rhen proposals`");
+        const rendered = renderCommandsForMcp(raw);
+        // The owner-only agent-token command in the floor reason keeps its flags on purpose (the agent relays it as written).
+        expect(rendered).not.toMatch(/`rhen (?!agent-token)/);
+        if (type === "commitment") expect(rendered).toContain("call rhen_save");
+        expect(rendered).toContain("call rhen_proposals");
+      }
     });
   });
 

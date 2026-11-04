@@ -1,3 +1,4 @@
+import { CLOSED_STATUSES } from "../closed-status.js";
 /**
  * Prep is an action attached to one commitment (`CONTEXT.md` "Prep"; `actions.prep_for_commitment_id`).
  * This is the one place that says which of a commitment's prep is still open, so the offer made when
@@ -14,9 +15,11 @@ export interface PrepCandidate {
 }
 
 /** Statuses after which an action is no longer open work. */
-const CLOSED_STATUSES: ReadonlySet<string> = new Set(["done", "cancelled", "archived"]);
+const FINISHED_STATUSES: ReadonlySet<string> = new Set(["done", ...CLOSED_STATUSES]);
 
 /** The prep for `commitmentId` that has not been finished or cancelled, in the order given. */
 export function openPrepFor<T extends PrepCandidate>(actions: readonly T[], commitmentId: string): T[] {
-  return actions.filter((action) => action.prepForCommitmentId === commitmentId && !CLOSED_STATUSES.has(action.status));
+  return actions.filter(
+    (action) => action.prepForCommitmentId === commitmentId && !FINISHED_STATUSES.has(action.status)
+  );
 }

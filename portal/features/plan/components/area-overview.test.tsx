@@ -79,6 +79,25 @@ describe("AreaOverview", () => {
     expect(screen.getByRole("link", { name: /Home and administration/ }).textContent).not.toMatch(/overdue/i);
   });
 
+  it("does not count closed outcomes or projects in an area's tally", () => {
+    const { state, projects } = twoStudyProjects();
+    render(
+      overview({
+        areas: state.areas,
+        outcomes: [...state.outcomes, { ...state.outcomes[0]!, id: "gone-outcome", status: "cancelled" }],
+        projects: projects.map((project) =>
+          project.id === "second" ? { ...project, status: "archived" as const } : project
+        ),
+        actions: state.actions,
+        forecasts: []
+      })
+    );
+    expect(studyRow().textContent).toContain("1 outcome");
+    expect(studyRow().textContent).not.toContain("2 outcomes");
+    expect(studyRow().textContent).toContain("1 project");
+    expect(studyRow().textContent).not.toContain("2 projects");
+  });
+
   it("shows the worst health among an area's projects", () => {
     const { state, projects } = twoStudyProjects();
     render(

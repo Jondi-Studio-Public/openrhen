@@ -1,6 +1,7 @@
-import { DEFAULT_LOCATION_STALE_AFTER_MINUTES } from "@openrhen/contracts";
+import { DEFAULT_LOCATION_STALE_AFTER_MINUTES, isClosedStatus } from "@openrhen/contracts";
 import type postgres from "postgres";
 import { currentFreshLocationId } from "./routine-step-mootness.js";
+import { enqueueAgentWake } from "./agent-wake.js";
 import { notifyStateChanged } from "./state-changed.js";
 
 /**
@@ -297,6 +298,23 @@ export function checkInCooldownUntil(input: CheckInCooldownInput): Date {
 }
 
 /**
+ * Queues the `check_in_unanswered` wake unless the previous one has gone unanswered: no new wake while
+ * no check-in has been answered (on track or deviated) since the previous wake was queued.
+ */
+async function enqueueCheckInWake(sql: postgres.Sql, userId: string, checkInId: string, now: Date): Promise<void> {
+  const unansweredBefore = await sql<{ id: string }[]>`
+    SELECT w.id FROM agent_wakes w
+    WHERE w.user_id=${userId} AND w.event='check_in_unanswered'
+      AND w.created_at = (SELECT max(created_at) FROM agent_wakes WHERE user_id=${userId} AND event='check_in_unanswered')
+      AND NOT EXISTS (
+        SELECT 1 FROM check_in c
+        WHERE c.user_id=${userId} AND c.status IN ('on_track','deviated') AND c.answered_at > w.created_at
+      )`;
+  if (unansweredBefore.length > 0) return;
+  await enqueueAgentWake(sql, { userId, event: "check_in_unanswered", targetId: checkInId, now });
+}
+
+/**
  * One user's tick: resolve a timed-out pending slot, wait on one still in its window, or decide
  * whether a new one is due — gated by sleep, a silenced commitment, the post-transition cooldown, and
  * there being anything meaningful to ask about.
@@ -470,7 +488,15 @@ export async function runCheckInSchedulerTick(sql: postgres.Sql, userId: string,
   });
 
   if (decision.action === "timeout") {
-    await sql`UPDATE check_in SET status='unknown', updated_at=CURRENT_TIMESTAMP WHERE id=${decision.rowId} AND status='pending'`;
+    const flipped = await sql<{ id: string }[]>`
+      UPDATE check_in SET status='unknown', updated_at=CURRENT_TIMESTAMP
+      WHERE id=${decision.rowId} AND status='pending' RETURNING id`;
+    // Wake the owner's agent only when this tick made the flip
+    // (a racing answer makes none), the owner is not asleep, and the commitment does not ask for silence.
+    // Not in a transaction with the flip: a crash between them loses one wake, which is harmless.
+    if (flipped.length > 0 && !sleeping && activeCommitmentPromptPolicy !== "silent") {
+      await enqueueCheckInWake(sql, userId, flipped[0]!.id, now);
+    }
     // A timed-out slot flips straight to 'unknown' — still a status `/api/check-ins/current` reports
     // and a banner worth showing — so a listening tab should learn about this the same way it learns
     // about a freshly created slot below.
@@ -538,7 +564,7 @@ export async function runCheckInSchedulerTick(sql: postgres.Sql, userId: string,
       WHERE ac.id=${target.targetId} AND a.user_id=${userId}
     `;
     const status = rows[0]?.status;
-    if (!rows[0] || status === "done" || status === "cancelled" || status === "archived") return;
+    if (!rows[0] || status === "done" || isClosedStatus(status)) return;
   }
   if (target.kind === "deliverable" && target.targetId) {
     const rows = await sql<{ status: string }[]>`
@@ -549,7 +575,7 @@ export async function runCheckInSchedulerTick(sql: postgres.Sql, userId: string,
       WHERE d.id=${target.targetId} AND a.user_id=${userId}
     `;
     const status = rows[0]?.status;
-    if (!rows[0] || status === "completed" || status === "cancelled" || status === "archived") return;
+    if (!rows[0] || status === "completed" || isClosedStatus(status)) return;
   }
   if (target.kind === "travel" && target.toLocationId) {
     const arrivedLocationId = await currentlyArrivedLocationId(sql, userId, now);

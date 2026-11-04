@@ -50,7 +50,8 @@ describe("untrusted output over MCP", () => {
     expect(flagged).toEqual({
       inbox: inboxLabel ?? "mail",
       deliverable: "file",
-      doctor: "file"
+      doctor: "file",
+      attention: "file"
     });
   });
 

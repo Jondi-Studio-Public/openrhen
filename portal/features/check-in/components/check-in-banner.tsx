@@ -164,7 +164,12 @@ function CheckInPrompt() {
     <section className="check-in-banner" role="status">
       <p className="reason">
         {pulseUnknown
-          ? stillDoingQuestion(state.pulse, checkIn.directiveTitle)
+          ? stillDoingQuestion(state.pulse, checkIn.directiveTitle) +
+            // Unknown carries no live "doing", so the title is the one saved when the slot was
+            // scheduled and may no longer be what Now recommends: say when it was true.
+            (!state.pulse?.doing?.title && checkIn.directiveTitle
+              ? ` The plan had you on it at ${clock(new Date(checkIn.slotAt), state.settings.timezone)}.`
+              : "")
           : catchUp
             ? `What were you doing around ${clock(new Date(checkIn.slotAt), state.settings.timezone)}?` +
               (checkIn.directiveTitle ? ` At the time, the plan had you on: ${checkIn.directiveTitle}.` : "")

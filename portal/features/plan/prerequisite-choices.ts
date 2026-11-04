@@ -1,3 +1,4 @@
+import { CLOSED_STATUSES } from "@openrhen/contracts";
 import {
   firstPrerequisiteCycle,
   prerequisiteKey,
@@ -66,10 +67,6 @@ export interface PrerequisiteGroup {
   options: { ref: PrerequisiteRef; title: string }[];
 }
 
-const CLOSED_PROJECT = new Set(["archived", "cancelled"]);
-const CLOSED_DELIVERABLE = new Set(["cancelled", "archived"]);
-const CLOSED_ACTION = new Set(["cancelled", "archived"]);
-
 /**
  * Every other project, deliverable and action, grouped by kind. Cancelled or archived work is left
  * out unless it is already chosen, so an existing edge can still be seen and removed.
@@ -80,28 +77,29 @@ export function prerequisiteGroups(
   selected: PrerequisiteRef[] = []
 ): PrerequisiteGroup[] {
   const chosen = new Set(selected.map(prerequisiteKey));
-  const keep = (kind: PrerequisiteKind, id: string, status: string, closed: Set<string>) =>
-    !(kind === self.kind && id === self.id) && (!closed.has(status) || chosen.has(prerequisiteKey({ kind, id })));
+  const keep = (kind: PrerequisiteKind, id: string, status: string) =>
+    !(kind === self.kind && id === self.id) &&
+    (!CLOSED_STATUSES.has(status) || chosen.has(prerequisiteKey({ kind, id })));
   const groups: PrerequisiteGroup[] = [
     {
       kind: "project",
       label: "Projects",
       options: plan.projects
-        .filter((item) => keep("project", item.id, item.status, CLOSED_PROJECT))
+        .filter((item) => keep("project", item.id, item.status))
         .map((item) => ({ ref: { kind: "project", id: item.id }, title: item.title }))
     },
     {
       kind: "deliverable",
       label: "Deliverables",
       options: plan.deliverables
-        .filter((item) => keep("deliverable", item.id, item.status, CLOSED_DELIVERABLE))
+        .filter((item) => keep("deliverable", item.id, item.status))
         .map((item) => ({ ref: { kind: "deliverable", id: item.id }, title: item.title }))
     },
     {
       kind: "action",
       label: "Actions",
       options: plan.actions
-        .filter((item) => keep("action", item.id, item.status, CLOSED_ACTION))
+        .filter((item) => keep("action", item.id, item.status))
         .map((item) => ({ ref: { kind: "action", id: item.id }, title: item.title }))
     }
   ];

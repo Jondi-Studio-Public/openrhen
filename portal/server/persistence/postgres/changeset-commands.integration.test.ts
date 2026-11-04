@@ -13,6 +13,7 @@ import { CommandConflictError, CommandIdReusedError, NotFoundCommandError } from
 import { readAgentChangeDetail } from "./agent-change-detail";
 import { ensureUser } from "./ensure-user";
 import { runRevertCommand } from "./write-revert";
+import { waitUntilBlocked } from "./wait-until-blocked";
 
 /**
  * Changeset ingest: a preview runs every command and keeps nothing; an apply keeps
@@ -218,12 +219,15 @@ describe("alongside other writers", () => {
     let release!: () => void;
     const released = new Promise<void>((resolve) => (release = resolve));
     // A browser save: it locks its row, then reads the user (as recording its change does), then commits.
+    let rowLocked!: () => void;
+    const lockTaken = new Promise<void>((resolve) => (rowLocked = resolve));
     const save = sql.begin(async (tx) => {
       await tx`SELECT id FROM actions WHERE id=${held.id} FOR UPDATE`;
+      rowLocked();
       await released;
       await ensureUser(tx);
     });
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await lockTaken;
     const preview = asAgent(() =>
       runChangeset(
         sql,
@@ -234,7 +238,7 @@ describe("alongside other writers", () => {
       )
     );
     // The changeset is now waiting on the held row, having been through the first command's handler.
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await waitUntilBlocked(sql);
     release();
     await save;
     expect((await preview).items.map((entry) => entry.outcome)).toEqual(["applies", "applies"]);
