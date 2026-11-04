@@ -156,16 +156,83 @@ describe("Closed page", () => {
     expect(window.location.search).toBe("?tab=archived");
   });
 
-  it("reads the list again after any failed restore and never shows the server's sentence", async () => {
+  async function failRestore(error: Error, expected: string) {
     answers = [ok(page([row()])), ok(page([row({ version: 5 })]))];
-    closeEntityCommand.mockRejectedValue(
-      new CommandRefusal("Version 3 is stale; the current version is 5.", { status: 409, currentVersion: 5 })
-    );
+    closeEntityCommand.mockRejectedValue(error);
     render(<ClosedPageRoute />);
     fireEvent.click(await screen.findByRole("button", { name: 'Restore action "Write the intro"' }));
-    const alert = await screen.findByText(/the list was refreshed/);
-    expect(alert.textContent).not.toContain("stale");
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe(expected);
+    // The list is read again whatever went wrong.
     await waitFor(() => expect(urls.length).toBe(2));
+  }
+
+  it("reads the list again after a stale restore and says the list changed, not the server's sentence", async () => {
+    await failRestore(
+      new CommandRefusal("Version 3 is stale; the current version is 5.", { status: 409, currentVersion: 5 }),
+      "Changed since the list was loaded; it has been refreshed."
+    );
+  });
+
+  it("says the server could not be reached, not that the item changed, after a network error", async () => {
+    await failRestore(
+      new TypeError("Failed to fetch"),
+      "The server could not be reached; the change may not have been saved. Check and try again."
+    );
+  });
+
+  it("shows the closed-parent sentence when another tab closed the parent meanwhile", async () => {
+    const sentence = 'Action "a1" cannot be restored while project "p1" above it is cancelled. Restore that first.';
+    await failRestore(new CommandRefusal(sentence, { status: 400 }), sentence);
+  });
+
+  it("moves between the tabs with the arrow keys, Home and End, keeping one tab in the tab order", async () => {
+    answers = [ok(page([row()]))];
+    render(<ClosedPageRoute />);
+    const archived = await screen.findByRole("tab", { name: /Archived/ });
+    const cancelled = screen.getByRole("tab", { name: /Cancelled/ });
+    expect(archived.getAttribute("tabindex")).toBe("0");
+    expect(cancelled.getAttribute("tabindex")).toBe("-1");
+    fireEvent.keyDown(archived, { key: "ArrowRight" });
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: /Cancelled/ }).getAttribute("aria-selected")).toBe("true")
+    );
+    expect(document.activeElement).toBe(screen.getByRole("tab", { name: /Cancelled/ }));
+    expect(screen.getByRole("tab", { name: /Archived/ }).getAttribute("tabindex")).toBe("-1");
+    fireEvent.keyDown(screen.getByRole("tab", { name: /Cancelled/ }), { key: "ArrowRight" });
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: /Archived/ }).getAttribute("aria-selected")).toBe("true")
+    );
+    fireEvent.keyDown(screen.getByRole("tab", { name: /Archived/ }), { key: "End" });
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: /Cancelled/ }).getAttribute("aria-selected")).toBe("true")
+    );
+    fireEvent.keyDown(screen.getByRole("tab", { name: /Cancelled/ }), { key: "Home" });
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: /Archived/ }).getAttribute("aria-selected")).toBe("true")
+    );
+    fireEvent.keyDown(screen.getByRole("tab", { name: /Archived/ }), { key: "ArrowLeft" });
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: /Cancelled/ }).getAttribute("aria-selected")).toBe("true")
+    );
+  });
+
+  it("keeps the rows 'Show older' loaded when the list is read again", async () => {
+    const second = page([row({ id: "2", title: "Second" })], { counts: { archived: 0, cancelled: 2 } });
+    const firstPage = page([row({ id: "1", title: "First" })], {
+      nextCursor: "2026-11-01T00:00:00.000000Z|action:1",
+      counts: { archived: 0, cancelled: 2 }
+    });
+    answers = [ok(firstPage), ok(second), ok(firstPage), ok(second)];
+    closeEntityCommand.mockRejectedValue(new TypeError("Failed to fetch"));
+    render(<ClosedPageRoute />);
+    fireEvent.click(await screen.findByRole("button", { name: "Show older" }));
+    await screen.findByText("Second");
+    // A failed restore reads the list again; both rows must still be there afterwards.
+    fireEvent.click(screen.getAllByRole("button", { name: /^Restore action/ })[0]!);
+    await waitFor(() => expect(urls.length).toBeGreaterThanOrEqual(4));
+    expect(screen.getByText("Second")).toBeTruthy();
+    expect(screen.getByText("First")).toBeTruthy();
   });
 
   it("says so when the list cannot be read and tries again", async () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { type KeyboardEvent, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import {
   CLOSED_TABS,
@@ -58,6 +58,7 @@ export default function ClosedPageRoute() {
   const [focusId, setFocusId] = useState<string | null>(null);
   // Bumped to read the list again: after any restore, and for Try again.
   const [reads, setReads] = useState(0);
+  const loadedCount = useRef(0);
   const reload = () => setReads((count) => count + 1);
 
   useEffect(() => {
@@ -67,7 +68,18 @@ export default function ClosedPageRoute() {
   // Re-read on a tab or filter change, whenever the portal state changes (a restore here, a live update), and on demand.
   useEffect(() => {
     let current = true;
-    fetchClosed({ tab, ...(type ? { type } : {}) })
+    // Read the first page again, then follow the cursor until as many rows are back as were showing, so a live update
+    // does not throw away what "Show older" loaded.
+    const want = loadedCount.current;
+    const readAll = async () => {
+      let next = await fetchClosed({ tab, ...(type ? { type } : {}) });
+      while (next.rows.length < want && next.nextCursor) {
+        const more = await fetchClosed({ tab, ...(type ? { type } : {}), before: next.nextCursor });
+        next = { ...more, rows: [...next.rows, ...more.rows] };
+      }
+      return next;
+    };
+    readAll()
       .then((next) => {
         if (!current) return;
         setPage(next);
@@ -81,11 +93,37 @@ export default function ClosedPageRoute() {
     };
   }, [tab, type, state, reads]);
 
+  useEffect(() => {
+    loadedCount.current = page?.rows.length ?? 0;
+  }, [page]);
+
   function chooseTab(next: ClosedTab) {
+    loadedCount.current = 0;
     setPage(null);
     setRowMessage(null);
     window.history.replaceState(null, "", `${window.location.pathname}?tab=${next}`);
     window.dispatchEvent(new Event(TAB_EVENT));
+  }
+
+  /** Left/Right (wrapping), Home and End move to a tab, select it and focus it, as the tabs pattern asks. */
+  function onTabKey(event: KeyboardEvent<HTMLButtonElement>, from: ClosedTab) {
+    const at = CLOSED_TABS.indexOf(from);
+    const last = CLOSED_TABS.length - 1;
+    const target =
+      event.key === "ArrowRight"
+        ? (at + 1) % CLOSED_TABS.length
+        : event.key === "ArrowLeft"
+          ? (at + last) % CLOSED_TABS.length
+          : event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? last
+              : -1;
+    if (target < 0) return;
+    event.preventDefault();
+    const next = CLOSED_TABS[target]!;
+    chooseTab(next);
+    document.getElementById(`closed-tab-${next}`)?.focus();
   }
 
   async function restore(row: Row, includeChildren: boolean) {
@@ -95,12 +133,9 @@ export default function ClosedPageRoute() {
       { includeChildren }
     );
     if (!outcome.ok && !("busy" in outcome)) {
-      // Whatever the server said, the list is the truth: read it again instead of repeating a sentence about a
-      // version the person cannot see.
-      setRowMessage({
-        key: `${row.type}:${row.id}`,
-        text: "That item changed, so the list was refreshed. Check it and try again."
-      });
+      // The hook's own words (a stale version, an unreachable server, a closed parent), and the list is read again
+      // either way since it is the truth.
+      setRowMessage({ key: `${row.type}:${row.id}`, text: outcome.message });
     }
     reload();
   }
@@ -157,8 +192,10 @@ export default function ClosedPageRoute() {
             id={`closed-tab-${name}`}
             aria-selected={tab === name}
             aria-controls="closed-panel"
+            tabIndex={tab === name ? 0 : -1}
             className={styles.tab}
             onClick={() => chooseTab(name)}
+            onKeyDown={(event) => onTabKey(event, name)}
           >
             {TAB_LABEL[name]}
             {counts ? ` (${counts[name]})` : ""}
@@ -171,6 +208,7 @@ export default function ClosedPageRoute() {
           id="closed-type"
           value={type}
           onChange={(event) => {
+            loadedCount.current = 0;
             setPage(null);
             setType(event.target.value as CloseType | "");
           }}

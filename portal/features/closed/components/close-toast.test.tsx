@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen, waitFor } from "@/test/render";
 import { closeReply, conflictReply, jsonResponse, resultFor } from "@/test/close-fixtures";
 import { stubCloseServer } from "@/test/close-server";
 import { createSeedState } from "@/state/portal-state";
-import { PortalProvider } from "@/state/portal-provider";
+import { PortalProvider, usePortal } from "@/state/portal-provider";
 import { closeCommandFor } from "../close-commands";
 import { closeToasts } from "../close-toast-store";
 import { CloseToastRegion } from "./close-toast";
@@ -17,14 +17,22 @@ const closedProject = (extra = {}) =>
     ...extra
   });
 
-/** The provider shows a loading page until its first read answers, so wait for the region. */
+/** Renders only once the provider's first read has settled, which is when its subtree stops being replaced. */
+function SettledMarker() {
+  const { ready } = usePortal();
+  return ready ? <span data-testid="settled" /> : null;
+}
+
+/** The region is there before the provider settles, and a toast shown into that early region is lost, so wait for the marker too. */
 const mount = async () => {
   render(
     <PortalProvider>
       <CloseToastRegion />
+      <SettledMarker />
     </PortalProvider>
   );
   await screen.findByRole("status", { name: "Archive and cancel results" });
+  await screen.findByTestId("settled");
 };
 
 beforeEach(() => {
@@ -108,6 +116,10 @@ describe("CloseToastRegion", () => {
         "Changed since you closed it, so it was not restored. Open Review > Closed to restore it."
       )
     );
+    // Nothing holds the card now: focus and pointer are away, so only the failed Undo keeps it on screen.
+    const card = screen.getByRole("button", { name: "Undo" }).parentElement!;
+    fireEvent.blur(card);
+    fireEvent.pointerLeave(card);
     await act(async () => {
       vi.advanceTimersByTime(60_000);
     });
