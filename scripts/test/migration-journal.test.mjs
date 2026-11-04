@@ -210,3 +210,13 @@ test("checkMigrationsDir flags a .sql file with no journal entry", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("baselineProblems: a core-ledger baseline may list core's whole legacy history at baselineIdx 0", () => {
+  const legacy = [10, 20, 30].map((when, idx) => ({ idx: idx + 5, when, hashes: ["h"] }));
+  const addon = { baselineIdx: 0, legacyLedger: "core", legacy };
+  assert.deepEqual(baselineProblems(addon, [entry(0, 10, "0000_baseline")]), []);
+  assert.match(
+    baselineProblems({ ...addon, legacyLedger: undefined }, [entry(0, 10, "0000_baseline")]).join("\n"),
+    /legacy entry 0 has idx 5/
+  );
+});
