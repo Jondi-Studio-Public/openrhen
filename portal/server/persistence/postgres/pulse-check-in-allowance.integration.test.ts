@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createSeedState } from "@/state/portal-state";
 import { InvalidCommandError } from "./command-errors";
-import { fixedNow, setupStateStoreSuite, sql, store } from "./state-store-harness";
+import { fixedNow, pinClockToSeedZoneHour, setupStateStoreSuite, sql, store } from "./state-store-harness";
 
 /**
  * The pulse on plan design note: the three pulse lapse thresholds are settings (null = default, an agent may
@@ -111,7 +111,14 @@ describe("commitment check-in allowance", () => {
 });
 
 describe("recurrence rule check-in allowance", () => {
-  it("persists on the rule and reads back", async () => {
+  /**
+   * The rule recurs weekly at 09:00-10:00 Sydney time from a fixed date, so on the Sydney weekday it lands on
+   * an occurrence is live for an hour, and the store reads the clock to decide whether it is. Run at an instant
+   * inside that hour, a scenario that takes its time from the wall clock refuses the series save with "Part of
+   * this series is happening now" (issue #36). The scenario therefore sets its own time of day.
+   */
+  const persistsOnRule = async () => {
+    pinClockToSeedZoneHour(12);
     await store.put(createSeedState(fixedNow));
     const ruleId = crypto.randomUUID();
     const rule = {
@@ -145,5 +152,16 @@ describe("recurrence rule check-in allowance", () => {
       rule: { ...rule, checkInExtraMinutes: null }
     });
     expect(state.commitmentRecurrenceRules.find((item) => item.id === ruleId)!.checkInExtraMinutes).toBeUndefined();
-  });
+  };
+
+  it("persists on the rule and reads back", persistsOnRule);
+
+  // 2026-11-04T22:04Z is Thursday 09:04 in Sydney: the 2026-10-01 rule's occurrence is live then.
+  it.each(["2026-11-04T22:04:00Z", "2026-11-04T21:00:00Z", "2026-11-04T22:59:00Z", "2026-11-05T13:05:00Z"])(
+    "persists on the rule when the real clock reads %s",
+    async (instant) => {
+      vi.useFakeTimers({ toFake: ["Date"], now: new Date(instant) });
+      await persistsOnRule();
+    }
+  );
 });
