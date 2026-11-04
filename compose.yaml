@@ -149,7 +149,8 @@ services:
   # are recreated (platform/database/src/operations/migrate-on-deploy.ts). When something is pending it first
   # writes a pg_dump to /backups, the newest five kept. portal and engine-worker wait for it
   # to exit 0. Compose has already recreated them by then, so a failed
-  # migration or dump leaves them created but not started (the database unchanged) until a fixed or
+  # migration or dump leaves them created but not started (the database unchanged, or partly migrated: the log
+  # says which) until a fixed or
   # previous-tag deploy; see docs/operations/self-hosting.md.
   # Only a deploy migrates: a local `--profile planning up` builds `dev` images against your real database, so with
   # IMAGE_TAG=dev and no MIGRATE_ON_DEPLOY=apply it logs and exits 0 untouched (src/operations/migrate-skip.ts).
@@ -169,6 +170,8 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       IMAGE_TAG: ${IMAGE_TAG:-latest}
       MIGRATE_ON_DEPLOY: ${MIGRATE_ON_DEPLOY:-apply}
+      # Only for an add-on that was removed: lets core run while its ledger rows remain (migrate-on-deploy.ts).
+      ADDON_MIGRATIONS_OPTOUT: ${ADDON_MIGRATIONS_OPTOUT:-}
     # The dumps hold the whole database, so like photos they live under the gitignored var/, never in git
     # or an image. Pre-migration dumps are for restoring after a bad migration (docs/operations/database-and-backups.md).
     volumes:
