@@ -19,7 +19,9 @@ export async function assertNoClosedTransition(
   userId: string,
   entityType: string,
   rawId: string,
-  incomingStatus: unknown
+  incomingStatus: unknown,
+  /** An import commit may close an open row (the brake counts it); everything else is held as for a save. */
+  options: { allowClose?: boolean } = {}
 ): Promise<void> {
   if (requestAgent() === null || changeLogConfirmedBy() === "owner") return;
   if (!isCloseType(entityType)) return;
@@ -27,6 +29,7 @@ export async function assertNoClosedTransition(
   if (incoming === undefined) return;
   const stored = await lockedStatusOf(tx, userId, entityType, rawId);
   if (stored !== undefined && stored.status === incoming) return;
+  if (options.allowClose === true && stored !== undefined && !isClosedStatus(stored.status)) return;
   // An open status only matters when it reopens a closed row; a create or an open-to-open save passes.
   if (!isClosedStatus(incoming) && (stored === undefined || !isClosedStatus(stored.status))) return;
   throw refused(closedBySaveRefusal({ type: entityType, id: rawId, incoming, stored }));

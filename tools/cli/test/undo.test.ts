@@ -1414,6 +1414,26 @@ describe("undoing a create takes the record out of the plan and redo puts it bac
     expect(row()?.status).toBe("cancelled");
   });
 
+  it("says the exact retry call, with a reason, when the portal wants a reason for an undo it could not prove", async () => {
+    const journal = memoryJournal();
+    const portal = createPortal();
+    const go = (argv: string[]) => run(argv, journal, portal.raw, { routes: portal.routes });
+    expect((await go(newAction)).exitCode).toBe(EXIT.ok);
+    const entry = journal.read()[0]!;
+    const stateId = entry.target.id!;
+    const reasonRoutes = {
+      ...portal.routes,
+      "/api/commands/close": () => ({
+        status: 400,
+        body: { error: 'A reason is required. Say why, for example "finished the quarter".' }
+      })
+    };
+    const undone = await run(["undo"], journal, portal.raw, { routes: reasonRoutes });
+    expect(undone.exitCode).not.toBe(EXIT.ok);
+    expect(undone.stderr).toContain(`rhen cancel action ${stateId} close --reason "undo of create"`);
+    expect(journal.read()[0]).toMatchObject({ status: "applied" });
+  });
+
   it("refuses to undo a create that was edited since, and changes nothing", async () => {
     const journal = memoryJournal();
     const portal = createPortal();

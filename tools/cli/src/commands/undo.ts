@@ -311,6 +311,22 @@ async function apply(context: CommandContext, flags: Flags, dryRun: boolean, dir
         EXIT.conflict,
         error.details
       );
+    // An undo of a create sent without its version cannot be proved from the ledger, so the portal treats it as an
+    // ordinary close and asks an agent for a reason: say the exact call that does it.
+    const sent = request.payload as Record<string, unknown>;
+    if (
+      error instanceof CliError &&
+      request.path === "/api/commands/close" &&
+      sent.do === "close" &&
+      /reason/i.test(error.message)
+    )
+      throw new CliError(
+        `Not ${past}: "${entry.label}". The portal could not prove this was the create it made (the version was not recorded), ` +
+          `so closing it needs a reason. Retry with: rhen ${String(sent.verb)} ${String(sent.type)} ${String(sent.id)} close --reason "undo of create". (${error.message})`,
+        error.exitCode,
+        error.details,
+        error.agent
+      );
     throw error;
   }
   if (isFiledProposal(response)) {

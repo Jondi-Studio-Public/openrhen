@@ -33,7 +33,7 @@ import { assertNotHomeLocation } from "./close-rules";
 import { firstClosedAncestor } from "./close-ancestors";
 import { applyClose, batchEntries, planClose, restoreBatch, type CascadeContext } from "./close-cascade";
 import { assertCloseBudget, closeBudgetApplies, lockCloseBudget } from "./close-budget";
-import { verifyUndoOfCreate } from "./close-undo";
+import { cascadeIsOwnCreate, verifyUndoOfCreate } from "./close-undo";
 import { claimCommandReceipt, commandRequestHash, hasCommandReceipt } from "./command-receipt";
 import { CommandConflictError, notFound, refused, versionConflict } from "./command-errors";
 import { stableUuid } from "./command-values";
@@ -350,11 +350,23 @@ async function close(
   if (allowed === null) throw refused(notClosableRefusal({ type, id: command.id, status: row.status }));
   // An undo of the actor's own create, proved in the write ledger and sent with the version it left (plan B2). It takes
   // the verb the row's state allows, needs no reason, is not counted by the brake and is stamped `:undo`.
+  // The exemption also needs everything the close takes with it to be the actor's own create: a prep action the owner
+  // made, linked to the agent's commitment, is not the agent's to close past the brake without a reason.
   const undo =
     command.undoOfCommandId !== undefined &&
     typeof command.expectedVersion === "number" &&
     command.includeChildren !== true &&
-    (await verifyUndoOfCreate(tx, userId, type, id, command.undoOfCommandId, row.version));
+    (await verifyUndoOfCreate(tx, userId, type, id, command.undoOfCommandId, row.version)) &&
+    (await cascadeIsOwnCreate(
+      tx,
+      userId,
+      (
+        await planClose(tx, cascadeContext(userId, type, id, command, row.version, command.reason), {
+          lock: false,
+          refuse: false
+        })
+      ).rows
+    ));
   const verb: CloseVerb = undo && allowed !== "either" ? allowed : command.verb;
   if (!undo && allowed !== "either" && allowed !== verb)
     throw refused(wrongVerbRefusal({ type, id: command.id, status: row.status, version: row.version, asked: verb }));

@@ -149,4 +149,57 @@ describe("an agent's import commit", () => {
       expect(await areaStatus("Trip")).toBe("archived");
     });
   });
+
+  describe("conditions and commitments under the same floor", () => {
+    const conditions = (csv: string) =>
+      importStore.preview({
+        sourceType: "csv",
+        inputKind: "capacity_commitments",
+        timezone: "Australia/Sydney",
+        templateVersion: "1",
+        records: parseImportCsv("conditions", `import_key,name,kind,status\r\n${csv}`),
+        source: {}
+      });
+    const conditionStatus = async () =>
+      (await sql<{ status: string }[]>`SELECT status::text AS status FROM condition_definitions WHERE id='gym'`)[0]
+        ?.status;
+
+    it("refuses a blank status cell on an archived condition, which the import would write as active", async () => {
+      await store.put(createSeedState(fixedNow));
+      const first = await conditions("gym,Gym,capability,active");
+      await importStore.commit(first.id, first.version);
+      const archive = await conditions("gym,Gym,capability,archived");
+      await importStore.commit(archive.id, archive.version);
+      expect(await conditionStatus()).toBe("archived");
+      const blank = await conditions("gym,Gym,capability,");
+      expect(blank.records[0]?.operation).toBe("update");
+      await expect(asAgent(() => importStore.commit(blank.id, blank.version))).rejects.toThrow(/restore/);
+      expect(await conditionStatus()).toBe("archived");
+      // the person's own import of the same sheet reopens it
+      await importStore.commit(blank.id, blank.version);
+      expect(await conditionStatus()).toBe("active");
+    });
+
+    const cancelled = (key: string, state: string) => `${key},Talk,${starts},${ends},${state},0,0`;
+
+    it("refuses a commitment born cancelled and a cancelled one reopened, but still lets one be cancelled", async () => {
+      await store.put(createSeedState(fixedNow));
+      const born = await commitments(cancelled("talk", "cancelled"));
+      await expect(asAgent(() => importStore.commit(born.id, born.version))).rejects.toThrow(
+        /cannot be created already cancelled/
+      );
+      const open = await commitments(cancelled("talk", "confirmed"));
+      await importStore.commit(open.id, open.version);
+      const cancel = await commitments(cancelled("talk", "cancelled"));
+      await asAgent(() => importStore.commit(cancel.id, cancel.version));
+      expect(
+        (await sql<{ status: string }[]>`SELECT status::text AS status FROM commitments WHERE title='Talk'`)[0]?.status
+      ).toBe("cancelled");
+      const reopen = await commitments(cancelled("talk", "tentative"));
+      await expect(asAgent(() => importStore.commit(reopen.id, reopen.version))).rejects.toThrow(/restore/);
+      expect(
+        (await sql<{ status: string }[]>`SELECT status::text AS status FROM commitments WHERE title='Talk'`)[0]?.status
+      ).toBe("cancelled");
+    });
+  });
 });

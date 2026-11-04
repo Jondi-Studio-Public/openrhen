@@ -369,20 +369,24 @@ export async function readStoredFacts(
  * plans from. A row that is not there reads as an ordinary call (the handler then refuses with the list that names the
  * real ids); a read that fails reads as the owner's call, so a doubt files the close for the person.
  */
-async function readCloseFacts(
+export async function readCloseFacts(
   sql: Sql,
   body: unknown,
   target: NonNullable<ReturnType<typeof closeTarget>>,
   agent: string | undefined
 ): Promise<StoredFacts> {
   try {
-    const [{ previewClose, storedIdFor }, { closedInWindow }, { verifyUndoOfCreate }, { ensureUser }] =
-      await Promise.all([
-        import("./persistence/postgres/close-commands"),
-        import("./persistence/postgres/close-budget"),
-        import("./persistence/postgres/close-undo"),
-        import("./persistence/postgres/ensure-user")
-      ]);
+    const [
+      { previewClose, storedIdFor },
+      { closedInWindow },
+      { cascadeIsOwnCreate, verifyUndoOfCreate },
+      { ensureUser }
+    ] = await Promise.all([
+      import("./persistence/postgres/close-commands"),
+      import("./persistence/postgres/close-budget"),
+      import("./persistence/postgres/close-undo"),
+      import("./persistence/postgres/ensure-user")
+    ]);
     const fields = asRecord(body) ?? {};
     const preview = await previewClose(sql, {
       type: target.type,
@@ -420,7 +424,9 @@ async function readCloseFacts(
         undoId,
         preview.version,
         agent ?? null
-      ));
+      )) &&
+      // and what the close takes with it is the agent's own create too (the handler makes the same test)
+      (await cascadeIsOwnCreate(sql, userId, preview.children, agent ?? null));
     const { used } = await closedInWindow(sql, userId);
     return {
       closedInHour: used,

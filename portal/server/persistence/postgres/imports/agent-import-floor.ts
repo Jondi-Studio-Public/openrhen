@@ -1,5 +1,5 @@
 import { hardFloorReason, isClosedStatus, type ImportRecord } from "@openrhen/contracts";
-import { fieldValue } from "@/features/imports/import-validation";
+import { fieldValue, isAbsentColumn } from "@/features/imports/import-validation";
 import { assertNoClosedTransition } from "../close-floor";
 import { ForbiddenCommandError } from "../command-errors";
 import type { Sql } from "../sql-pool";
@@ -56,8 +56,13 @@ const CLOSEABLE_IMPORT_TYPES: ReadonlySet<ImportRecord["entityType"]> = new Set(
   "project",
   "deliverable",
   "action",
-  "condition_definition"
+  "condition_definition",
+  // closing one is counted by the brake instead, so only a born-closed create and a reopen are refused
+  "fixed_commitment"
 ]);
+
+/** The close type a closeable import kind is stored as. */
+const CLOSE_TYPE_OF: Partial<Record<ImportRecord["entityType"], string>> = { fixed_commitment: "commitment" };
 
 /**
  * The save floor for an agent's import commit: a record that would create a row closed, close an open one, move a
@@ -73,10 +78,22 @@ export async function assertImportNoClosedTransition(
   for (const record of ready) {
     if (!CLOSEABLE_IMPORT_TYPES.has(record.entityType)) continue;
     if (record.operation !== "create" && record.operation !== "update") continue;
-    const status = fieldValue(record, "status");
+    const sent = fieldValue(record, "status");
+    // The condition upsert writes a carried but blank status cell as `active` (an absent column keeps the row's own).
+    const status =
+      record.entityType === "condition_definition" && !isAbsentColumn(record, "status") && !String(sent ?? "").trim()
+        ? "active"
+        : sent;
     if (typeof status !== "string" || !status.trim()) continue;
     try {
-      await assertNoClosedTransition(tx, userId, record.entityType, record.matchedEntityId ?? record.id, status);
+      await assertNoClosedTransition(
+        tx,
+        userId,
+        CLOSE_TYPE_OF[record.entityType] ?? record.entityType,
+        record.matchedEntityId ?? record.id,
+        status,
+        { allowClose: record.entityType === "fixed_commitment" }
+      );
     } catch (error) {
       if (error instanceof ForbiddenCommandError) throw error;
       const message = error instanceof Error ? error.message : String(error);

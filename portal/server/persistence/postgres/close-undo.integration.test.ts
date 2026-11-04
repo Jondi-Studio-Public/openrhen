@@ -1079,3 +1079,62 @@ describe("the undo exemption", () => {
     expect(row!.evidence.createdVersion).toBe(1);
   });
 });
+
+describe("the undo exemption and what a close takes with it", () => {
+  const link = async (actionId: string, commitmentId: string) =>
+    sql`UPDATE actions SET prep_for_commitment_id = ${await storedIdFor("commitment", userId, commitmentId)} WHERE id = ${await storedIdFor("action", userId, actionId)}`;
+  const statusOf = async (id: string) =>
+    (
+      await sql<
+        { status: string }[]
+      >`SELECT status::text AS status FROM actions WHERE id=${await storedIdFor("action", userId, id)}`
+    )[0]!.status;
+
+  it("does not exempt the undo of a commitment whose cascade includes a row the owner made", async () => {
+    const commitment = await makeCommitment(asAgent);
+    const project = await makeProject(asOwner, (await makeOutcome(asOwner, (await makeArea(asOwner)).id)).id);
+    const ownerAction = await makeAction(asOwner, project.id);
+    await link(ownerAction.id, commitment.id);
+    const err = await asAgent(() => closeEntity(sql, undoCommand(commitment))).catch((e) => e);
+    expect(err.message).toMatch(/reason/i);
+    expect(await statusOf(ownerAction.id)).toBe("planned");
+    expect((await stored("commitment", commitment.id)).status).toBe("confirmed");
+  });
+
+  it("counts the cascade against the brake when the exemption is declined", async () => {
+    const commitment = await makeCommitment(asAgent);
+    const project = await makeProject(asOwner, (await makeOutcome(asOwner, (await makeArea(asOwner)).id)).id);
+    for (let i = 0; i < 20; i++) await link((await makeAction(asOwner, project.id)).id, commitment.id);
+    const err = await asAgent(() => closeEntity(sql, undoCommand(commitment, { reason: "tidy up" } as never))).catch(
+      (e) => e
+    );
+    expect(err.message).toMatch(/over the 20 allowed/);
+  });
+
+  it("still exempts the undo when every row it takes with it is the agent's own create", async () => {
+    const commitment = await makeCommitment(asAgent);
+    const project = await makeProject(asAgent, (await makeOutcome(asAgent, (await makeArea(asAgent)).id)).id);
+    const own = await makeAction(asAgent, project.id);
+    await link(own.id, commitment.id);
+    await asAgent(() => closeEntity(sql, undoCommand(commitment)));
+    expect((await stored("commitment", commitment.id)).closed_by).toBe("agent:claude:undo");
+    expect(await statusOf(own.id)).toBe("cancelled");
+  });
+
+  it("agrees in the route: the facts say the cascade-laundering undo is not an undo", async () => {
+    const commitment = await makeCommitment(asAgent);
+    const project = await makeProject(asOwner, (await makeOutcome(asOwner, (await makeArea(asOwner)).id)).id);
+    const ownerAction = await makeAction(asOwner, project.id);
+    await link(ownerAction.id, commitment.id);
+    const { readCloseFacts } = await import("@/server/agent-enforcement");
+    const facts = await asAgent(() =>
+      readCloseFacts(
+        sql,
+        { ...undoCommand(commitment) },
+        { type: "commitment", id: commitment.id, verb: "cancel", do: "close" } as never,
+        "claude"
+      )
+    );
+    expect(facts.undoOfCreate).toBe(false);
+  });
+});
