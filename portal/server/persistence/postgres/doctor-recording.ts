@@ -34,7 +34,19 @@ export async function readRecordingSlice(sql: Sql, userId: string): Promise<Doct
   };
 }
 
-/** True when the run's summary jsonb has `key: true`. Older rows and failed runs lack the key. */
+/**
+ * True when the run's summary jsonb has `key: true`. Older rows and failed runs lack the key. scripts/backup/record-run.mjs
+ * passes the summary as a JSON string cast to jsonb, which postgres.js can store as a jsonb string rather than an object,
+ * so a string is parsed first.
+ */
 function summaryFlag(summary: unknown, key: string): boolean {
-  return typeof summary === "object" && summary !== null && (summary as Record<string, unknown>)[key] === true;
+  let value = summary;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return false;
+    }
+  }
+  return typeof value === "object" && value !== null && (value as Record<string, unknown>)[key] === true;
 }

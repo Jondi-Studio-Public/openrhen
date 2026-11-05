@@ -73,6 +73,17 @@ describe("readRecordingSlice", () => {
     expect(slice.backup).toMatchObject({ localOnly: true, restoreSkipped: true });
   });
 
+  it("reads the flags whether the summary was stored as an object or as a JSON string", async () => {
+    await sql`DELETE FROM integration_sync_runs`;
+    await sql`INSERT INTO integration_sync_runs (user_id, provider, trigger, started_at, finished_at, status, summary)
+      VALUES (${userId}, 'backup', 'scheduled', '2026-10-17T03:00:00Z', '2026-10-17T03:00:00Z', 'synced', ${sql.json({ localOnly: true })})`;
+    expect((await readRecordingSlice(sql, userId)).backup).toMatchObject({ localOnly: true });
+    await sql`DELETE FROM integration_sync_runs`;
+    await sql`INSERT INTO integration_sync_runs (user_id, provider, trigger, started_at, finished_at, status, summary)
+      VALUES (${userId}, 'backup', 'scheduled', '2026-10-17T03:00:00Z', '2026-10-17T03:00:00Z', 'synced', to_jsonb(${JSON.stringify({ localOnly: true })}::text))`;
+    expect((await readRecordingSlice(sql, userId)).backup).toMatchObject({ localOnly: true });
+  });
+
   it("reports the latest backup run and the last success separately", async () => {
     await backupRun("synced", "2026-10-16T03:00:00Z");
     await backupRun("failed", "2026-10-17T03:00:00Z");
