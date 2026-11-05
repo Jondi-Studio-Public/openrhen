@@ -33,11 +33,16 @@ export interface RemoteTool {
   /** The tool's name when it is not the command's own: a typed save tool is `rhen_save_<kind>`. */
   name?: string;
   /**
-   * Earlier names of this tool, kept for one contract version after a rename (`AGENT_CONTRACT_VERSION`). Each is served
-   * as an extra tool that runs the same command with the same schema and scopes, whose description says it was renamed;
-   * delete the alias when the contract version is next bumped.
+   * Earlier names of this tool, kept for one contract version after a rename (`AGENT_CONTRACT_VERSION`). Each is
+   * callable by name and runs the same command with the same schema and scopes, but is unlisted (`tools/list` does not
+   * show it, so it costs no tokens); delete the alias when the contract version is next bumped.
    */
   aliases?: string[];
+  /**
+   * A tool that is still called by name but never listed: one folded into another tool. Keep its old definition here
+   * (its own fixed arguments and schema) so a client that learned it keeps working until the contract version moves.
+   */
+  unlisted?: boolean;
   /** Arguments always sent and left out of the schema (a typed save tool's entity kind). */
   fixed?: Record<string, string>;
   /** For a typed save tool: the kind whose zod field schema types its `fields` argument. */
@@ -544,12 +549,14 @@ export function buildRemoteManifest(
       scopes: remote.scopes,
       ...(remote.readableWithAnyOf ? { readableWithAnyOf: remote.readableWithAnyOf } : {}),
       ...(remote.fixed ? { fixedArguments: remote.fixed } : {}),
-      ...(spec.untrustedOutput === undefined ? {} : { untrustedOutput: spec.untrustedOutput })
+      ...(spec.untrustedOutput === undefined ? {} : { untrustedOutput: spec.untrustedOutput }),
+      ...(remote.unlisted ? { unlisted: true } : {})
     };
     const renamed = (alias: string): McpToolManifestEntry => ({
       ...entry,
       name: alias,
-      description: `Renamed to ${entry.name}; this name goes away in the next contract version. ${entry.description}`
+      description: `Renamed to ${entry.name}; this name goes away in the next contract version.`,
+      unlisted: true
     });
     return [entry, ...(remote.aliases ?? []).map(renamed)];
   });

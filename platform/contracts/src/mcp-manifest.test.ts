@@ -12,6 +12,24 @@ import { fenceUntrusted } from "./untrusted-fence.js";
 const names = (held: string[]) => mcpToolsForScopes(held).map((tool) => tool.name);
 
 describe("the remote MCP manifest", () => {
+  it("leaves an unlisted tool out of tools/list but still finds it by name", () => {
+    const folded = {
+      ...MCP_TOOL_MANIFEST.find((tool) => tool.name === "rhen_status")!,
+      name: "rhen_folded",
+      unlisted: true
+    };
+    const mutable = MCP_TOOL_MANIFEST as unknown as unknown[];
+    mutable.push(folded);
+    try {
+      expect(names(["read:plan"])).not.toContain("rhen_folded");
+      expect(names(["read:plan"])).toContain("rhen_status");
+      expect(mcpManifestTool("rhen_folded")).toBe(folded);
+      expect(mcpToolAllowed(folded, ["read:plan"])).toBe(true);
+    } finally {
+      mutable.pop();
+    }
+  });
+
   it("names each tool once, under the stdio server's naming, with annotations and scopes", () => {
     expect(new Set(MCP_TOOL_MANIFEST.map((tool) => tool.name)).size).toBe(MCP_TOOL_MANIFEST.length);
     for (const tool of MCP_TOOL_MANIFEST) {

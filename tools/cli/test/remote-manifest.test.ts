@@ -19,12 +19,14 @@ describe("the remote MCP manifest", () => {
     // 82,416 bytes when the budget was set (about 5% headroom). Basis, evidence and command-id are described once, on
     // their own parameters, not again in each write tool's description; a new tool or a longer description should
     // justify raising this. Raised from 86,500 on 2026-10-28 for a new tool, rhen_wake (about 1.7 KB): 88,010. Raised to 92,000 on 2026-10-29 for rhen_reenter (about 1.3 KB): 90,833. Raised to 94,500 on 2026-10-29 for rhen_doctor (about 2.2 KB), on top of it. Raised to 97,000 on 2026-10-29 for rhen_disrupt (about 2.1 KB, its shared basis, evidence and command-id parameters included). Raised to 103,000 on 2026-10-30 for rhen_deliverable (about 3.5 KB: 15 arguments, and its description is the only place the subcommands are listed): 100,384. Raised to 110,000 on 2026-11-03 for the agent-facing rewrite (every description says when to call, what it returns and what to do next; real schemas and one worked example for the six JSON arguments; enums for fixed value sets; the common arguments shortened to pay for part of it): 108,816. Raised to 114,000 on 2026-11-03 for the tool-schema findings F11-F27 of the agent end-to-end review (activity preconditions and outcomes, disruption source and duration, propose withdrawal, the week-ahead pointers on summary and history, the fence notes on doctor and inbox): 112,579, 113,001 after merging main. Raised to 116,500 on 2026-11-03 for the wording findings F2, F5 and F10 (what a dry run does and does not check, on every write tool; why an update must send all three estimates; the complete-action shape and the path-naming refusals of rhen_propose): 115,677. The 117,000 cap was already on main after the call-in-answer text (116,746). The true-text pass on proposals (the status line naming wouldChangeIf and the reading-data guide, one sentence on rhen_proposals, and rhen_propose saying to ask the owner to reject instead of restating a record) adds 187 and measures 116,933, so the cap is not raised for it; the next text must shorten existing tool text first. Done on 2026-11-04 for rhen_stretch (about 1.7 KB): shortening the week-ahead pointer, undo, reenter, propose, activity and a few enum-argument texts took main's 115,566 to 115,522 with the tool added, so the cap is unchanged. The close brake and save floor (2026-11-04) took 109,913 to 110,303 (the rolling-hour and refused-save sentences on the two close tools, save, bulk and changeset); the cap is unchanged. Lowered to 108,500 on 2026-11-05 by the tool-list trim (shared-parameter wording, the typed save tools pointing at rhen_save for id, create and expected-version, the enum-restating hints, rhen_propose's action field list, two descriptions): 110,301 to 108,274. Never raise it; a new tool or longer text must shorten existing text first.
-    const listed = MCP_TOOL_MANIFEST.map(({ name, description, inputSchema, annotations }) => ({
-      name,
-      description,
-      inputSchema,
-      annotations
-    }));
+    const listed = MCP_TOOL_MANIFEST.filter((tool) => !tool.unlisted).map(
+      ({ name, description, inputSchema, annotations }) => ({
+        name,
+        description,
+        inputSchema,
+        annotations
+      })
+    );
     expect(Buffer.byteLength(JSON.stringify({ tools: listed }), "utf8")).toBeLessThan(108_500);
   });
 
@@ -254,7 +256,7 @@ describe("the remote MCP manifest", () => {
       { command: "list", scopes: ["read:plan"], aliases: ["rhen_ls", "rhen_old_list"] }
     ];
 
-    it("are extra manifest entries running the same command, with the same schema and scopes", () => {
+    it("are extra manifest entries running the same command, with the same schema and scopes, and are unlisted", () => {
       const built = buildRemoteManifest(commands, table);
       expect(built.map((tool) => tool.name)).toEqual(["rhen_status", "rhen_list", "rhen_ls", "rhen_old_list"]);
       const [, current, alias] = built;
@@ -262,12 +264,20 @@ describe("the remote MCP manifest", () => {
         command: "list",
         inputSchema: current!.inputSchema,
         scopes: current!.scopes,
-        annotations: current!.annotations
+        annotations: current!.annotations,
+        unlisted: true
       });
-      expect(alias!.description).toBe(
-        `Renamed to rhen_list; this name goes away in the next contract version. ${current!.description}`
-      );
+      expect(alias!.description).toBe("Renamed to rhen_list; this name goes away in the next contract version.");
       expect(current!.description).not.toContain("Renamed to");
+      expect(current!.unlisted).toBeUndefined();
+    });
+
+    it("keep a whole folded-in tool callable but unlisted", () => {
+      const built = buildRemoteManifest(commands, [
+        ...REMOTE_TOOLS.filter((tool) => tool.command === "status"),
+        { command: "list", scopes: ["read:plan"], unlisted: true }
+      ]);
+      expect(built.find((tool) => tool.name === "rhen_list")?.unlisted).toBe(true);
     });
 
     it("refuse a name that is already served", () => {
