@@ -149,7 +149,6 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
   },
   rhen_summary: {
     rewrite: [
-      ["Check-in answers are not in the state and are not summarised. ", ""],
       [
         "For each local day from --from to --to (YYYY-MM-DD in the planning time zone, or an offset such as -7d; both default to today; at most 31 days)",
         "For each local day from `from` to `to` (YYYY-MM-DD in the planning time zone, or an offset such as -7d or today; both default to today; at most 31 days)"
@@ -217,10 +216,6 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
   rhen_map: {
     rewrite: [
       ["--budget", "budget"],
-      [
-        "Neighbours are ranked before budget trims them: confirmed links before suggested, judgement before derived, open before done, nearer dates first. ",
-        ""
-      ],
       [
         "; until then the map is derived links only and --json says so under storedLinks",
         "; until then the map is derived links only and the answer says so under storedLinks"
@@ -374,7 +369,7 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
       "chose. A field the kind does not take is refused with the list it does. To close a record use " +
       "rhen_archive or rhen_cancel: a save that sets status archived or cancelled is refused; sleep_log_entry and span take remove: true, which is filed as a proposal. " +
       "Settings: plan preferences apply, timezone and setup become proposals, data-flow fields are refused. Required " +
-      "fields and defaults are in the typed tools.",
+      "fields and defaults are in the typed tools. Use rhen_capture for a quick thought.",
     params: {
       fields:
         'The record\'s fields as one object, e.g. {"title":"Book dentist","projectId":"project-health","expectedMinutes":15}.',
