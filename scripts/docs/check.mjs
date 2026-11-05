@@ -165,12 +165,14 @@ const specificationDocuments = publicLayout
 const guideDocuments = publicLayout
   ? []
   : [
-      // The front door settled at about 1,500 words once the surfaces moved out; a ceiling far above
-      // that would be the inert kind the specification comment above warns about.
-      { path: "docs/product/user-guide.md", limit: 2_000 },
-      { path: "docs/product/guide-living-the-day.md", limit: 5_950 },
-      { path: "docs/product/guide-building-the-plan.md", limit: 7_200 },
-      { path: "docs/product/guide-settings-and-connections.md", limit: 4_050 }
+      // The 2026-11-05 restructure cut the front door to one daily path and moved opt-in detail into two
+      // reference pages; each ceiling sits about 150 words above the page so growth is paid for by replacement.
+      { path: "docs/product/user-guide.md", limit: 700 },
+      { path: "docs/product/guide-living-the-day.md", limit: 2_450 },
+      { path: "docs/product/reference-day-and-travel.md", limit: 4_980 },
+      { path: "docs/product/guide-building-the-plan.md", limit: 3_540 },
+      { path: "docs/product/guide-settings-and-connections.md", limit: 2_820 },
+      { path: "docs/product/reference-import-and-agents.md", limit: 4_050 }
     ];
 /**
  * Tracking, which grows and shrinks by design.
