@@ -4,6 +4,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Added
+
+- **The agent is woken when attention items appear**: when a blocking data-health item or a due catch-up shows up after the feed was empty, the worker sends the agent one `[OpenRhen wake]` message (at most one an hour, none while the owner is asleep, cancelled if the feed is read first), so it no longer waits for someone to look. Adds migration 0143 (one more `agent_wakes` event); no new tool text.
+
 ### Changed
 
 - **Agents reading status no longer count as the owner seeing a check-in**: `status` peeks at the open check-in without marking it shown (so it cannot push the pulse toward a lapse), and its attention count now includes an open check-in and a due catch-up, matching `rhen_attention`.

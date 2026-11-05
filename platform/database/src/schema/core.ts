@@ -1975,7 +1975,10 @@ export const agentWakes = pgTable(
   (table) => [
     uniqueIndex("agent_wakes_user_dedupe_unique").on(table.userId, table.dedupeKey),
     index("agent_wakes_status_created_idx").on(table.status, table.createdAt),
-    check("agent_wakes_event_check", sql`${table.event} IN ('check_in_unanswered','pulse_lapsed','pulse_unknown')`),
+    check(
+      "agent_wakes_event_check",
+      sql`${table.event} IN ('check_in_unanswered','pulse_lapsed','pulse_unknown','attention_waiting')`
+    ),
     check("agent_wakes_status_check", sql`${table.status} IN ('pending','sent','dead')`)
   ]
 );

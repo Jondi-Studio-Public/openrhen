@@ -198,6 +198,17 @@ describe("sendNextAgentWake", () => {
     expect(await wake()).toMatchObject({ status: "dead", last_error: "stale" });
   });
 
+  it("sends an attention_waiting wake that names the feed tool", async () => {
+    await enqueueAgentWake(sql, { userId, event: "attention_waiting", targetId: now.toISOString(), now });
+    const call = okFetch();
+    expect((await sendNextAgentWake(sql, { url: URL_BASE, token: TOKEN, fetchImpl: call.impl, now })).outcome).toBe(
+      "sent"
+    );
+    expect(call.calls).toHaveLength(1);
+    expect(String(call.calls[0]!.init.body)).toContain("rhen_attention");
+    expect(await wake()).toMatchObject({ status: "sent" });
+  });
+
   it("marks an expired pending row dead without sending", async () => {
     const id = await makeCheckIn("unknown");
     await enqueueAgentWake(sql, { userId, event: "check_in_unanswered", targetId: id, now });

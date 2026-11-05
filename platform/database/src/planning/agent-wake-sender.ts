@@ -111,6 +111,9 @@ async function isStale(sql: postgres.Sql, row: WakeRow & { user_id: string }): P
       WHERE user_id = ${row.user_id} AND ended_at IS NULL AND state = 'unknown' LIMIT 1`;
     return rows.length === 0;
   }
+  // Waiting attention is not re-derived here: reading the feed cancels a pending wake, and the producer closes the
+  // episode when the count falls to 0.
+  if (row.event === "attention_waiting") return false;
   throw new Error(`Unknown agent wake event: ${String(row.event satisfies never)}`);
 }
 
