@@ -150,7 +150,6 @@ const FIELD_HINTS: Record<string, string> = {
   energy: "high, medium, low or recovery: the energy the work needs.",
   contexts: "Ids of the conditions that must hold (rhen_list conditions).",
   dependencyIds: "Ids of actions that must finish first (rhen_list actions).",
-  schedulingMode: "one_off, recurring or cadence.",
   uncertainty: "known, some or high: how unsure the estimates are; pads them.",
   internalDeadlineAt: "The owner's own target date; it can lapse. ISO 8601 with offset.",
   externalDeadlineAt: "A real outside deadline. ISO 8601 with offset.",
@@ -288,7 +287,9 @@ export const REMOTE_TOOLS: RemoteTool[] = [
     fieldsOf: kind,
     scopes: ["propose:entity", "read:plan"],
     omit: ["from", "set"],
-    description: typedSaveDescription(kind, what, required, defaults)
+    description: typedSaveDescription(kind, what, required, defaults),
+    // The id, create and expected-version rules are rhen_save's; the description above says so.
+    text: { params: { id: "As rhen_save.", create: "As rhen_save.", "expected-version": "As rhen_save." } }
   })),
   // One message of facts: each write inside is held to its own route's scope by the portal.
   { command: "changeset", scopes: ["propose:entity", "read:plan"] },
