@@ -1,5 +1,6 @@
 import {
   findCompositeCycles,
+  parseRequirementKey,
   type ConditionDefinition,
   type ImportEntityType,
   type ImportRecord,
@@ -314,7 +315,7 @@ export async function resolveOperations(sql: Sql, userId: string, input: ImportR
   });
 }
 
-function unknownConditionReferences(record: ImportRecord, availableConditionIds: Set<string>): string[] {
+export function unknownConditionReferences(record: ImportRecord, availableConditionIds: Set<string>): string[] {
   const pathways = Array.isArray(fieldValue(record, "requirementPathways"))
     ? (fieldValue(record, "requirementPathways") as { contextIds?: unknown }[])
     : [];
@@ -325,7 +326,10 @@ function unknownConditionReferences(record: ImportRecord, availableConditionIds:
     ...pathways.flatMap((pathway) => (Array.isArray(pathway.contextIds) ? pathway.contextIds : [])),
     ...preferences
   ].filter((value): value is string => typeof value === "string" && value.length > 0);
-  const unknown = [...new Set(referenced)].filter((id) => !availableConditionIds.has(id));
+  // `pete@with` and `pete@remote` name the contact `pete`; a defined id that happens to end that way still wins.
+  const unknown = [...new Set(referenced)].filter(
+    (key) => !availableConditionIds.has(parseRequirementKey(key, (id) => availableConditionIds.has(id)).id)
+  );
   return unknown.length
     ? [
         `requirements or prefers references a condition that does not exist: ${unknown.join(", ")}. Use one of: ${[...availableConditionIds].sort().join(", ") || "(none defined yet)"}.`

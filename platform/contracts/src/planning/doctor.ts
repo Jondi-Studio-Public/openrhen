@@ -8,6 +8,7 @@ import { cadenceItems, type DoctorCadenceSlice } from "./doctor-cadence.js";
 import { duplicateItems, type DoctorDuplicatesSlice } from "./doctor-duplicates.js";
 import { closedStampItems, type DoctorClosedSlice } from "./doctor-closed.js";
 import { recordingItems, type DoctorRecordingSlice } from "./doctor-recording.js";
+import { doctorPeopleItems, type DoctorPeopleSlice } from "./doctor-people.js";
 import { prerequisiteItems, type DoctorPrerequisitesSlice } from "./doctor-prerequisites.js";
 import { publishingItems, type DoctorPublishingSlice } from "./doctor-publishing.js";
 import type { Freshness } from "./freshness.js";
@@ -68,6 +69,8 @@ export const DOCTOR_CHECKS = [
   "duplicate_proposal",
   "link_to_finished",
   "unmet_prerequisite",
+  "person_waiting_deadline",
+  "requirement_unresolvable",
   "prerequisite_cycle",
   "blocker_no_person",
   "empty_assessment",
@@ -218,6 +221,7 @@ export interface DoctorSnapshot {
   proposalsWaiting: { id: string; waitingSince: string }[];
   /** Slices owned by their own check files (`doctor-*.ts`). */
   prerequisites: DoctorPrerequisitesSlice;
+  people?: DoctorPeopleSlice;
   publishing: DoctorPublishingSlice;
   cadence: DoctorCadenceSlice;
   duplicates: DoctorDuplicatesSlice;
@@ -659,6 +663,7 @@ export function runDoctor(snapshot: DoctorSnapshot): DoctorReport {
 
   items.push(
     ...prerequisiteItems(snapshot.prerequisites, now),
+    ...(snapshot.people ? doctorPeopleItems(snapshot.people, now) : []),
     ...publishingItems(snapshot.publishing, now),
     ...cadenceItems(snapshot.cadence, now),
     ...duplicateItems(snapshot.duplicates, now),

@@ -9,6 +9,7 @@ import { assumableValuesOfRow, nextAssumedFields, pgNameArray } from "./assumed-
 import { assertNoPrerequisiteCycle, replacePrerequisites, resolvePrerequisiteRefs } from "./prerequisites";
 import { assertNoClosedTransition } from "./close-floor";
 import { changedFieldsBefore, recordStateChange } from "./planning-evidence";
+import { readRequirementDefinitions, readStoredRoutes, routesFromRequires } from "./requires-write";
 import { pathwaysToStore } from "./requirement-pathways";
 import { readStateAfterCommit } from "./read-after-commit";
 import { watchActionWrite, watchProjectWrite } from "./entity-snapshot";
@@ -175,6 +176,16 @@ export async function saveAction(sql: PoolSql, command: SaveActionCommand): Prom
     if (existing[0] && command.expectedVersion !== existing[0].version)
       throw versionConflict("action", action.id, command.expectedVersion, existing[0].version);
     if (!existing[0] && command.expectedVersion !== null) throw notFoundConflict("action", action.id);
+    // `requires` is checked first, before any row is written, so a refusal leaves the stored routes alone.
+    const requiredRoutes =
+      action.requires === undefined
+        ? undefined
+        : routesFromRequires(
+            action.requires,
+            await readRequirementDefinitions(tx, userId),
+            existing[0] ? ((await readStoredRoutes(tx, [id])).get(id) ?? []) : [],
+            { id: action.id, title: action.title, tool: "action" }
+          );
     const dependencyIds = await Promise.all(
       action.dependencyIds.map((dependencyId) => stableUuid(`action:${userId}`, dependencyId))
     );
@@ -291,7 +302,8 @@ export async function saveAction(sql: PoolSql, command: SaveActionCommand): Prom
               WHERE rp.action_id=${id} AND rp.sort_order=(SELECT MIN(sort_order) FROM action_requirement_pathways WHERE action_id=${id})`
           ).map((row) => row.context_key)
         : undefined;
-    const pathwaysInput = pathwaysToStore(action.requirementPathways, action.contexts, storedFirstRoute);
+    const pathwaysInput =
+      requiredRoutes ?? pathwaysToStore(action.requirementPathways, action.contexts, storedFirstRoute);
     if (pathwaysInput) {
       await tx`DELETE FROM action_requirement_pathways WHERE action_id=${id}`;
       for (const [sortOrder, route] of pathwaysInput.entries()) {

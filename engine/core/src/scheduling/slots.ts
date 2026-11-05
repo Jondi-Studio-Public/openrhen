@@ -1,4 +1,10 @@
-import { evaluateConditions, type ConditionDefinition, type ResolvedSituation, type Truth } from "@openrhen/contracts";
+import {
+  evaluateConditions,
+  parseRequirementKey,
+  type ConditionDefinition,
+  type ResolvedSituation,
+  type Truth
+} from "@openrhen/contracts";
 import { ARRIVAL_MARGIN_MINUTES, commitmentProtection } from "../model/types.js";
 import type { Action, CapacityWindow, FixedCommitment, PlanningSlot, TimeRange } from "../model/types.js";
 import { energyCompatible, mergeRanges, minutesBetween, overlap } from "./time.js";
@@ -229,7 +235,12 @@ function evaluateAdmission(windowContexts: string[], action: Action): boolean {
     (action.contexts.length ? [{ id: `${action.id}:legacy`, contextIds: action.contexts }] : []);
   if (!pathways.length) return true;
   const declared = new Set(windowContexts);
-  const resolve = (contextId: string): Truth => (declared.has(contextId) ? "yes" : declared.size ? "no" : "unknown");
+  const resolve = (contextId: string): Truth => {
+    // A window declares contexts, never who will be with the owner, so `pete@with` and `pete@remote` are judged
+    // as `pete` always was. Whether Pete is actually here is settled against the present, not a window.
+    const { id } = parseRequirementKey(contextId);
+    return declared.has(id) ? "yes" : declared.size ? "no" : "unknown";
+  };
   const resolved: ResolvedSituation = {
     locationId: null,
     locationStale: false,

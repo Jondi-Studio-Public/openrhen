@@ -59,6 +59,45 @@ describe("normalized PostgreSQL portal persistence (part 8)", () => {
     expect((await store.get())!.conditionDefinitions.find((item) => item.id === "home")?.status).toBe("active");
   });
 
+  it("refuses an import that would archive a person open work still needs", async () => {
+    await store.put(createSeedState(fixedNow));
+    await store.saveEntity({
+      commandId: crypto.randomUUID(),
+      expectedVersion: null,
+      type: "save_entity",
+      entityType: "condition_definition",
+      entity: { id: "pete", name: "Pete", kind: "contact", channels: ["sync_remote"] }
+    });
+    const user = await sql<{ id: string }[]>`SELECT id FROM users LIMIT 1`;
+    const area = await sql<
+      { id: string }[]
+    >`INSERT INTO areas (user_id,name,status,sort_order) VALUES (${user[0]!.id},'A','active',0) RETURNING id`;
+    const outcome = await sql<
+      { id: string }[]
+    >`INSERT INTO outcomes (area_id,title,definition_of_done,status) VALUES (${area[0]!.id},'O','D','active') RETURNING id`;
+    const project = await sql<
+      { id: string }[]
+    >`INSERT INTO projects (outcome_id,title,status) VALUES (${outcome[0]!.id},'P','active') RETURNING id`;
+    const action = await sql<
+      { id: string }[]
+    >`INSERT INTO actions (project_id,title,scheduling_mode,status,optimistic_minutes,expected_minutes,pessimistic_minutes,remaining_minutes,energy,minimum_session_minutes,maximum_session_minutes)
+      VALUES (${project[0]!.id},'Fit frame','one_off','planned',30,60,90,60,'medium',15,60) RETURNING id`;
+    const pathway = await sql<
+      { id: string }[]
+    >`INSERT INTO action_requirement_pathways (action_id, sort_order) VALUES (${action[0]!.id}, 0) RETURNING id`;
+    await sql`INSERT INTO action_requirements (pathway_id, context_key) VALUES (${pathway[0]!.id}, 'pete@with')`;
+    const archiving = await importStore.preview({
+      sourceType: "csv",
+      inputKind: "planning_data",
+      timezone: "Australia/Sydney",
+      templateVersion: "1",
+      records: parseImportCsv("conditions", "import_key,name,kind,status\r\npete,Pete,contact,archived"),
+      source: {}
+    });
+    await expect(importStore.commit(archiving.id, archiving.version)).rejects.toThrow("Fit frame");
+    expect((await store.get())!.conditionDefinitions.find((item) => item.id === "pete")?.status).toBe("active");
+  });
+
   it("commits the ready records and moves the blocked ones into a new batch, atomically", async () => {
     await store.put(createSeedState(fixedNow));
     // One clean area, one area with no name (blocked), an outcome under the blocked area (ready in

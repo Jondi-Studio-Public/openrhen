@@ -76,6 +76,34 @@ const about = (status: "confirmed" | "suggested", to = "subject:maths"): StoredL
   status
 });
 
+describe("tagged requirements", () => {
+  it("link a step to the contact it names, not to a tagged copy of it", () => {
+    const base = state();
+    const idx = buildPlanIndex(
+      {
+        ...base,
+        conditionDefinitions: [
+          { id: "garage", name: "Garage", kind: "location", status: "active" },
+          { id: "pete", name: "Pete", kind: "contact", status: "active" }
+        ],
+        actions: [
+          {
+            ...base.actions[0]!,
+            requirementPathways: [{ id: "x", contextIds: ["garage", "pete@with"] }]
+          }
+        ]
+      } as never,
+      { subjects }
+    );
+    const result = navigate(idx, resolveItem(idx, "action:a1"), options([]));
+    expect(result.cards.map((card) => card.handle)).toContain("contact:pete");
+    expect(result.cards.map((card) => card.handle)).not.toContain("context:pete@with");
+    expect(result.edges).toContainEqual(
+      expect.objectContaining({ from: "action:a1", to: "contact:pete", evidence: "requires pete@with" })
+    );
+  });
+});
+
 describe("subjects", () => {
   it("appear as subject:<id> items", () => {
     const item = index().items.get("subject:maths");

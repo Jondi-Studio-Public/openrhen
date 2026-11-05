@@ -334,3 +334,105 @@ describe("parseCurrentSituation stretch caps", () => {
     expect(parsed.declined[0]!.actionId).toBe("d5");
   });
 });
+
+describe("presence: who is with the owner today", () => {
+  // Midday in Auckland (UTC+12): the owner's day ends at 12:00Z, not at UTC midnight.
+  const now = new Date("2026-08-18T00:00:00.000Z");
+  const options = { now, timeZone: "Pacific/Auckland" };
+
+  it("stamps a said 'here' until the owner's local midnight, not UTC's", () => {
+    const next = nextCurrentSituation(situation(), { presence: { pete: "here" } }, options);
+    expect(next.presence).toEqual({
+      pete: { state: "here", setAt: now.toISOString(), until: "2026-08-18T12:00:00.000Z" }
+    });
+  });
+
+  it("stamps a said 'away' the same way", () => {
+    expect(nextCurrentSituation(situation(), { presence: { pete: "away" } }, options).presence?.pete?.state).toBe(
+      "away"
+    );
+  });
+
+  it("is kept through a change of location, unlike an override", () => {
+    const said = nextCurrentSituation(situation(), { presence: { pete: "here" } }, options);
+    const moved = nextCurrentSituation(said, { locationId: "garage" }, options);
+    expect(moved.overrides).toEqual({});
+    expect(moved.presence?.pete?.state).toBe("here");
+  });
+
+  it("null clears one person and leaves the rest", () => {
+    const said = nextCurrentSituation(situation(), { presence: { pete: "here", mia: "away" } }, options);
+    const cleared = nextCurrentSituation(said, { presence: { pete: null } }, options);
+    expect(Object.keys(cleared.presence ?? {})).toEqual(["mia"]);
+  });
+
+  it("a save that does not mention presence keeps it, and drops what has run out", () => {
+    const said = nextCurrentSituation(situation(), { presence: { pete: "here" } }, options);
+    expect(nextCurrentSituation(said, { carrying: {} }, options).presence).toEqual(said.presence);
+    const later = { now: new Date("2026-08-18T13:00:00.000Z"), timeZone: "Pacific/Auckland" };
+    expect(nextCurrentSituation(said, { carrying: {} }, later).presence).toBeUndefined();
+  });
+
+  it("never lets a resent, stored-looking entry create, extend or restamp one", () => {
+    const stale = {
+      pete: { state: "here", setAt: "2026-08-10T00:00:00.000Z", until: "2026-08-30T00:00:00.000Z" }
+    };
+    expect(nextCurrentSituation(situation(), { presence: stale }, options).presence).toBeUndefined();
+    const said = nextCurrentSituation(situation(), { presence: { pete: "here" } }, options);
+    const resent = nextCurrentSituation(
+      said,
+      { presence: { pete: { ...said.presence!.pete, until: "2027-01-01T00:00:00.000Z" } } },
+      options
+    );
+    expect(resent.presence).toEqual(said.presence);
+  });
+
+  it("ignores values that are not here, away or null", () => {
+    expect(
+      nextCurrentSituation(situation(), { presence: { pete: "maybe", mia: 3 } }, options).presence
+    ).toBeUndefined();
+  });
+
+  it("reads a stored value back entry by entry, dropping bad ones", () => {
+    const parsed = parseCurrentSituation({
+      locationId: null,
+      presence: {
+        pete: { state: "here", setAt: "2026-08-18T00:00:00.000Z", until: "2026-08-18T12:00:00.000Z" },
+        mia: { state: "sleeping", setAt: "2026-08-18T00:00:00.000Z", until: "2026-08-18T12:00:00.000Z" },
+        sam: "here"
+      }
+    });
+    expect(Object.keys(parsed.presence ?? {})).toEqual(["pete"]);
+    expect(parseCurrentSituation({ locationId: null }).presence).toBeUndefined();
+  });
+});
+
+describe("waivers: do it without them", () => {
+  const now = new Date("2026-08-18T00:00:00.000Z");
+  const options = { now, timeZone: "UTC" };
+
+  it("stamps a waiver for one piece of work, for seven days", () => {
+    const next = nextCurrentSituation(situation(), { waivers: { "hive-boxes": ["pete"] } }, options);
+    expect(next.waivers).toEqual({
+      "hive-boxes": { people: ["pete"], setAt: now.toISOString(), until: "2026-08-25T00:00:00.000Z" }
+    });
+  });
+
+  it("null removes it; an unrelated save keeps it; a resent object cannot extend it", () => {
+    const waived = nextCurrentSituation(situation(), { waivers: { "hive-boxes": ["pete"] } }, options);
+    expect(nextCurrentSituation(waived, { carrying: {} }, options).waivers).toEqual(waived.waivers);
+    expect(nextCurrentSituation(waived, { waivers: { "hive-boxes": null } }, options).waivers).toBeUndefined();
+    const resent = nextCurrentSituation(
+      waived,
+      { waivers: { "hive-boxes": { ...waived.waivers!["hive-boxes"], until: "2030-01-01T00:00:00.000Z" } } },
+      options
+    );
+    expect(resent.waivers).toEqual(waived.waivers);
+  });
+
+  it("drops a lapsed waiver on the next write", () => {
+    const waived = nextCurrentSituation(situation(), { waivers: { "hive-boxes": ["pete"] } }, options);
+    const later = { now: new Date("2026-09-01T00:00:00.000Z"), timeZone: "UTC" };
+    expect(nextCurrentSituation(waived, { carrying: {} }, later).waivers).toBeUndefined();
+  });
+});
