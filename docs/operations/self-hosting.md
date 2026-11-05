@@ -100,7 +100,7 @@ Write the file with LF line ends (Compose keeps a trailing CR in every value oth
 
 ## Running from source
 
-For development, use the bundled database from Docker and the apps on your machine. You need Node.js 22 or newer and pnpm 11 through corepack (if `corepack pnpm` fails with `Cannot find matching keyid`, run `npm install -g corepack@latest`).
+For development, use the bundled database from Docker and the apps on your machine. You need Node.js (CI and the Docker images use 24; no `engines` field pins a minimum) and pnpm 11 through corepack (if `corepack pnpm` fails with `Cannot find matching keyid`, run `npm install -g corepack@latest`).
 
 ```text
 node scripts/setup/init-env.mjs --mode source

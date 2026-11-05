@@ -74,8 +74,6 @@ To add one, see [Writing a connection](../architecture/writing-a-connection.md).
 
 **Reports** lists every issue you captured with **Report issue**, outstanding first. Once a problem is dealt with, press **Mark reviewed** and write a line saying what changed. **Reopen** puts it back. Reviewing records a verdict only: the captured evidence is never edited, so a reviewed report still replays exactly as reported.
 
-To work on a snapshot outside the browser, `corepack pnpm snapshot:export` writes it to `var/snapshots/`, and `corepack pnpm snapshot:replay <id>` re-runs the captured engine input and reports what changed since.
-
 ## The command line
 
 `rhen` is the same system from a shell, for you or an AI tool working for you. It reads the portal over HTTP and writes only by sending the portal's own commands, so a change made there is validated, versioned, recorded in the change log and replanned exactly as one made in the browser. It never opens the database.
@@ -89,4 +87,4 @@ rhen capture "Book the dentist follow-up"
 rhen session finish --outcome progress --remaining 20
 ```
 
-The CLI talks to `http://localhost:8787` by default; set `OPENRHEN_URL` to point it elsewhere. Under owner sign-in it authenticates with an owner token or a scoped agent token (`rhen agent-token create`); tokens are shown once and can be revoked. `rhen mcp` serves every command as MCP tools for an AI client. `rhen help [command]` lists everything.
+The CLI talks to `http://localhost:8787` by default; set `OPENRHEN_URL` to point it elsewhere. Under owner sign-in it authenticates with an owner token or a scoped agent token (`rhen agent-token create`); tokens are shown once and can be revoked. `rhen mcp` serves every command as MCP tools for an AI client (point the client's MCP server command at `rhen mcp`). The Docker install does not include `rhen`: it needs Node.js and a checkout, and `corepack pnpm --filter @openrhen/cli build` makes `tools/cli/dist/rhen.mjs`; `corepack pnpm cli` runs it from source. `rhen help [command]` lists everything.
