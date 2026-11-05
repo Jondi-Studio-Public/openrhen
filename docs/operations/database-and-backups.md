@@ -74,7 +74,7 @@ Older backups may lack tables or columns the current schema has. The restore rep
 
 ## Scheduled backups
 
-The `backup` compose service runs the same backup daily at `BACKUP_TIME` (default 03:30, in `BACKUP_TZ`, default UTC) and pings `BACKUP_PING_URL` before and after, so a missing ping alerts you. Setup is described in [Self-hosting](self-hosting.md#backups). Without Docker, schedule `corepack pnpm backup:run` with cron or your platform's task scheduler; it backs up, verifies, and copies the result to a second location. A final log line with `"status":"ok"` and a `copiedTo` path is a complete run; a `warnings` array means the backup was made but not copied anywhere.
+The `backup` compose service runs the same backup daily at `BACKUP_TIME` (default 03:30, in `BACKUP_TZ`, default UTC) and pings `BACKUP_PING_URL` before and after, so a missing ping alerts you. Setup is described in [Self-hosting](self-hosting.md#backups). Without Docker, schedule `corepack pnpm backup:run` with cron or your platform's task scheduler; it backs up, verifies, and copies the result to a second location. A final log line with `"status":"ok"` and a `copiedTo` path is a complete run; `localOnly: true` means no copy folder is set, so the backup stayed on this machine (the Data check reports it); a `warnings` array means something else needs a look, such as a restore check skipped for want of `POSTGRES_ADMIN_URL`.
 
 ## Retention of planning evidence
 

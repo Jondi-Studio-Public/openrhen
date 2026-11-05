@@ -18,7 +18,9 @@ export function summaryForRun(summary) {
   return {
     backupBytes: Number.isFinite(summary?.backupBytes) ? summary.backupBytes : null,
     copyVerified: Boolean(summary?.copiedTo) && !summary?.warnings?.length,
-    restoreVerified: summary?.verified === true
+    restoreVerified: summary?.verified === true,
+    localOnly: summary?.localOnly === true,
+    restoreSkipped: summary?.restoreSkipped === true
   };
 }
 

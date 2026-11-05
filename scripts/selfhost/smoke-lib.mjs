@@ -235,7 +235,6 @@ export function smokeEnvValues({ portalPort, postgresPort, imagePrefix, imageTag
   if (imagePrefix) values.IMAGE_PREFIX = imagePrefix;
   if (imageTag) values.IMAGE_TAG = imageTag;
   if (backup) {
-    values.BACKUP_ENABLED = "true";
     values.BACKUP_COPY = "off";
     values.BACKUP_PING_URL = "off";
   }

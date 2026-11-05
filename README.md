@@ -31,7 +31,7 @@ docker compose run --rm setup
 docker compose up -d
 ```
 
-Open `http://localhost:8787`. `setup` writes `.env` with generated secrets, and the stack includes its own PostgreSQL, reachable from this machine only. The first `up` builds the images from source on your machine (linux/amd64 and linux/arm64), which takes a few minutes. No published images exist yet, so until the first release every install builds from your checkout; once images are published, `docker compose pull` fetches them and `up` uses them instead of rebuilding (set `IMAGE_TAG` to a version to pin one). Backups stay off until you set `BACKUP_ENABLED=true` in `.env`.
+Open `http://localhost:8787`. `setup` writes `.env` with generated secrets, and the stack includes its own PostgreSQL, reachable from this machine only. The first `up` builds the images from source on your machine (linux/amd64 and linux/arm64), which takes a few minutes. No published images exist yet, so until the first release every install builds from your checkout; once images are published, `docker compose pull` fetches them and `up` uses them instead of rebuilding (set `IMAGE_TAG` to a version to pin one). Backups run nightly on their own and stay in `var/backups` on this machine until you point `BACKUP_COPY_DIR` somewhere else; the Data check reminds you they do not leave the machine.
 
 To reach OpenRhen from other devices, lock it down first. [Self-hosting](docs/operations/self-hosting.md) covers that, upgrades, backups, running from source and troubleshooting.
 

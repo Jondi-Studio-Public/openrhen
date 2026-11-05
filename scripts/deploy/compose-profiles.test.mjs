@@ -126,6 +126,12 @@ test("the backup service gains exactly one empty-by-default key, BACKUP_COPY, be
   assert.match(SOURCE, /^ {6}- \$\{BACKUP_COPY_DIR:-\.\/var\/backup-copy\}:\/backup-copy$/m);
 });
 
+test("backups are on by default: no enable switch, a host bind folder not a named volume, and a blank ping means none", () => {
+  assert.doesNotMatch(SOURCE, /BACKUP_ENABLED/);
+  assert.match(SOURCE, /^ {6}- \$\{BACKUP_HOST_DIR:-\.\/var\/backups\}:\/app\/var\/backups$/m);
+  assert.match(SOURCE, /^ {6}BACKUP_PING_URL: \$\{BACKUP_PING_URL:-\}$/m);
+});
+
 test("the portal port binds loopback unless PORTAL_HOST_IP says otherwise and the bundled database binds loopback only", () => {
   assert.match(SOURCE, /"\$\{PORTAL_HOST_IP:-127\.0\.0\.1\}:\$\{PORTAL_PORT:-8787\}:8787"/);
   assert.match(SOURCE, /"127\.0\.0\.1:\$\{POSTGRES_HOST_PORT:-55432\}:5432"/);
