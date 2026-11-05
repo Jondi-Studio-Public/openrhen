@@ -76,13 +76,14 @@ export interface RemoteTool {
  */
 const UNDO_DESCRIPTION =
   "Reverses your latest recorded write (redo: true reapplies the one you just undid). Covers every recorded " +
-  "write (a stretch answer too): the portal restores the rows the write touched exactly as they were, and " +
-  "removes a record it added. list: true shows what is recorded, with each entry's id. Without id this reverses your newest write, so repeating the call goes one write " +
-  "further back; to retry after a timeout or a doubtful answer, pass id (from list) so the same entry is not " +
-  "reversed twice. Only your own writes are reversed. If anything the write touched changed since, nothing is " +
-  "overwritten and the answer says so: leave it to the person. Writes of other kinds (email, imports, " +
-  "a deliverable's notes) are not recorded; a bulk edit is recorded row by row, so each call reverses one row. Anything the " +
-  "person undid from their Agent changes list is theirs to put back, not yours.";
+  "write (a stretch answer too): the portal restores the rows the write touched as they were, and removes a " +
+  "record it added. list: true shows what is recorded, with each entry's id. Without id this reverses your " +
+  "newest write, so repeating the call goes one write further back; to retry after a timeout or a doubtful " +
+  "answer, pass id (from list) so the same entry is not reversed twice. Only your own writes are reversed. If " +
+  "anything the write touched changed since, nothing is overwritten and the answer says so: leave it to the " +
+  "person. Writes of other kinds (email, imports, a deliverable's notes) are not recorded; a bulk edit is " +
+  "recorded row by row, so each call reverses one row. What the person undid from their Agent changes list is " +
+  "theirs to put back.";
 
 /**
  * `deliverable` over `/mcp`: the same coordination the CLI has, with the payload as an object argument instead of a
