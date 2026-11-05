@@ -89,9 +89,14 @@ function mapCheckInRow(row: CheckInRow): StoredCheckIn {
  *
  * The first read of a pending slot stamps `prompted_at`, which is what lets the timeout the
  * scheduler applies count from when the question was actually shown rather than from when its row
- * was created (which can be moments earlier, invisible to anyone).
+ * was created (which can be moments earlier, invisible to anyone). `{ stamp: false }` is the peek: an agent reading
+ * status is not the owner being shown the question, so it must not start that timeout.
  */
-export async function readCurrentCheckIn(sql: Sql, userId: string): Promise<StoredCheckIn | null> {
+export async function readCurrentCheckIn(
+  sql: Sql,
+  userId: string,
+  options: { stamp?: boolean } = {}
+): Promise<StoredCheckIn | null> {
   const rows = await sql<CheckInRow[]>`
     SELECT id,version,slot_at,prompted_at,answered_at,directive_kind,directive_target_id,directive_phase,directive_title,status,deviation_category,deviation_note,deviation_target_id,answer_source
     FROM check_in WHERE user_id=${userId} ORDER BY slot_at DESC LIMIT 1
@@ -100,7 +105,7 @@ export async function readCurrentCheckIn(sql: Sql, userId: string): Promise<Stor
   if (!latest) return null;
   const open = latest.status === "pending" || (latest.status === "unknown" && latest.answered_at === null);
   if (!open) return null;
-  if (latest.status === "pending" && !latest.prompted_at) {
+  if (options.stamp !== false && latest.status === "pending" && !latest.prompted_at) {
     const stamped = await sql<CheckInRow[]>`
       UPDATE check_in SET prompted_at=CURRENT_TIMESTAMP WHERE id=${latest.id} AND prompted_at IS NULL
       RETURNING id,version,slot_at,prompted_at,answered_at,directive_kind,directive_target_id,directive_phase,directive_title,status,deviation_category,deviation_note,deviation_target_id,answer_source

@@ -432,6 +432,11 @@ describe("status", () => {
     expect(JSON.parse(json.stdout).directive.boundaryEdge).toBe("end");
   });
 
+  it("peeks at the check-in so reading status never marks it as shown", async () => {
+    const { calls } = await runStatus(["status"], {});
+    expect(new URL(calls.find((call) => call.path === "/api/check-ins/current")!.url).search).toBe("?peek=1");
+  });
+
   it("never sends a POST, and reads exactly the six GET routes", async () => {
     const { calls } = await runStatus(["status"], {});
     expect(calls.some((call) => call.method === "POST")).toBe(false);
