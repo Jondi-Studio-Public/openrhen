@@ -30,7 +30,7 @@ import {
 } from "@openrhen/contracts";
 import { changeLogConfirmedBy, requestAgent } from "@/server/agent-actor";
 import type { PortalState } from "@/state/portal-state";
-import { assertNotHomeLocation } from "./close-rules";
+import { assertNotHomeLocation, assertNotRequiredByOpenWork } from "./close-rules";
 import { firstClosedAncestor } from "./close-ancestors";
 import { applyClose, batchEntries, planClose, restoreBatch, type CascadeContext } from "./close-cascade";
 import { assertCloseBudget, closeBudgetApplies, lockCloseBudget } from "./close-budget";
@@ -389,7 +389,10 @@ async function close(
     throw refused(
       openSessionRefusal({ type, id: command.id, sessionId: session.id, sessionTarget: session.target_type })
     );
-  if (type === "condition_definition" && verb === "archive") await assertNotHomeLocation(tx, userId, id, command.id);
+  if (type === "condition_definition" && verb === "archive") {
+    await assertNotHomeLocation(tx, userId, id, command.id);
+    await assertNotRequiredByOpenWork(tx, userId, id, command.id);
+  }
 
   const ctx = cascadeContext(userId, type, id, command, row.version, reason);
   const plan = await planClose(tx, ctx, { lock: true, refuse: true });

@@ -1,4 +1,5 @@
 import type { ItemType, MapEdge, MapItem } from "./model.js";
+import { parseRequirementKey } from "../requirement-key.js";
 
 type AnyRecord = Record<string, unknown>;
 const asRecords = (items: unknown): AnyRecord[] => (Array.isArray(items) ? (items as AnyRecord[]) : []);
@@ -171,7 +172,9 @@ export function buildPlanIndex(source: PlanMapState, options: BuildOptions = {})
   }
   const conditionById = new Map(conditions.map((condition) => [String(condition.id), condition]));
   /** The hub for a condition id: a place or contact where the id names one, otherwise a context item made on demand. */
-  const hubForCondition = (id: string): string => {
+  const hubForCondition = (key: string): string => {
+    // `pete@with` is a requirement on the contact `pete`; a defined id still wins over the suffix reading.
+    const id = parseRequirementKey(key, (candidate) => conditionById.has(candidate)).id;
     const known = conditionById.get(id);
     const type: ItemType = known?.kind === "location" ? "place" : known?.kind === "contact" ? "contact" : "context";
     const handle = handleOf(type, id);

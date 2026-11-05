@@ -330,6 +330,10 @@
       "fixtures": 15
     },
     {
+      "path": "state.commitments[].contactId",
+      "fixtures": 15
+    },
+    {
       "path": "state.commitments[].endsAt",
       "fixtures": 15
     },
@@ -484,6 +488,10 @@
     {
       "path": "state.currentSituation.travelRefreshedAt",
       "fixtures": 13
+    },
+    {
+      "path": "state.currentSituation.waivers",
+      "fixtures": 15
     },
     {
       "path": "state.dailyPlan",
@@ -1016,6 +1024,7 @@
       "name": "commitments",
       "fields": [
         "[].attendance",
+        "[].contactId",
         "[].endsAt",
         "[].id",
         "[].latenessMatters",
@@ -1063,7 +1072,8 @@
         "transportModes[]",
         "travel",
         "travelOff",
-        "travelRefreshedAt"
+        "travelRefreshedAt",
+        "waivers"
       ]
     },
     {

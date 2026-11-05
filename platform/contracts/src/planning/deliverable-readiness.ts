@@ -142,7 +142,7 @@ export function assessDeliverable(args: {
       // rather than quietly disappearing as a constraint.
       return !prerequisite || prerequisite.status !== "done";
     });
-    const conditionMatch = evaluateConditions({ pathways: step.requirementPathways, resolved });
+    const conditionMatch = evaluateConditions({ pathways: step.requirementPathways, resolved, subjectId: step.id });
     const reason: StepBlockReason | undefined =
       step.status === "done"
         ? "complete"

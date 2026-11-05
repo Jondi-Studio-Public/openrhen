@@ -27,6 +27,7 @@ export type {
   StepBlockReason,
   StepReadiness
 } from "./planning/deliverable-readiness.js";
+export { parseRequirementKey, baseConditionId } from "./planning/requirement-key.js";
 export { DEFAULT_LOCATION_STALE_AFTER_MINUTES } from "./planning/context-constants.js";
 export { CALIBRATION_MIN_SAMPLES, calibrationFactorForArea } from "./planning/estimate-calibration.js";
 export type { CalibrationFactor, EstimateCalibration } from "./planning/estimate-calibration.js";

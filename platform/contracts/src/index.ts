@@ -297,6 +297,9 @@ export {
   conditionReachSchema,
   conditionStatusSchema,
   currentSituationSchema,
+  personHoldSchema,
+  personPresenceSchema,
+  requirementWaiverSchema,
   requirementPathwaySchema,
   stretchDeclineSchema,
   stretchRecordSchema,
@@ -308,6 +311,9 @@ export {
 } from "./planning/context-model.js";
 export type {
   LiveHold,
+  PersonHold,
+  PersonPresence,
+  RequirementWaiver,
   ContactChannel,
   ConditionDefinition,
   ConditionKind,
@@ -513,8 +519,20 @@ export {
   evaluateConditions,
   evaluateConjunction,
   findCompositeCycles,
+  personWait,
   resolveSituation
 } from "./planning/context-match.js";
+export {
+  REQUIREMENT_TAGS,
+  baseConditionId,
+  formatRequirementKey,
+  idUsesReservedSuffix,
+  parseRequirementKey
+} from "./planning/requirement-key.js";
+export type { ParsedRequirementKey, RequirementTag } from "./planning/requirement-key.js";
+export { REQUIRES_MAX, resolveRequires } from "./planning/requires.js";
+export type { RequirementDefinition, RequiresProblem, RequiresResult } from "./planning/requires.js";
+export { nextLocalMidnight, presenceHolds, stampPresence } from "./planning/person-presence.js";
 export type {
   CommitmentWindow,
   ConjunctionResult,

@@ -294,8 +294,12 @@ export function recommend(args: RecommendArguments): Recommendation {
   // scoreAction contributes at most one exclusion reason for context, so a single reason alongside an
   // unsatisfied match means context is the only thing in the way. Reading status beats matching the
   // reason text, which is what coupled these two files together before.
+  // Work waiting on people (`personHold`) is neither a question to ask nor a place to travel to: whether Pete is
+  // here is the owner's to say, so it is never offered as an answer to give or a hold to wait out.
   const conditionOnly = (candidate: RecommendationCandidate) =>
-    candidate.exclusionReasons.length === 1 && candidate.conditionMatch.status !== "yes";
+    candidate.exclusionReasons.length === 1 &&
+    candidate.conditionMatch.status !== "yes" &&
+    candidate.conditionMatch.personHold === undefined;
   const needsAnswer = candidates.filter(
     (candidate) => conditionOnly(candidate) && candidate.conditionMatch.status === "unknown"
   );

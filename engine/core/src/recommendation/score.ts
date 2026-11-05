@@ -412,7 +412,12 @@ function matchContexts(args: ScoreActionInput): ConditionMatch {
   const pathways =
     action.requirementPathways ??
     (action.contexts.length ? [{ id: `${action.id}:legacy`, contextIds: action.contexts }] : []);
-  return evaluateConditions({ pathways, preferences: action.preferences ?? [], resolved: args.resolved });
+  return evaluateConditions({
+    pathways,
+    preferences: action.preferences ?? [],
+    resolved: args.resolved,
+    subjectId: action.id
+  });
 }
 
 /**
@@ -501,7 +506,9 @@ function eligibilityFailures(args: ScoreActionInput, conditionMatch: ConditionMa
   // Known-absent and unanswered are different problems: one needs a change of situation, the other
   // needs a question answered. Both block, but callers tier them apart through conditionMatch.status
   // rather than by reading these strings.
-  if (conditionMatch.status === "no") reasons.push(`Missing context: ${conditionMatch.missing.join(", ")}.`);
+  // A hold on people says who: "Waiting on Pete." Their presence is never a question, so it is not "unanswered".
+  if (conditionMatch.personHold) reasons.push(conditionMatch.personHold.unavailableReason);
+  else if (conditionMatch.status === "no") reasons.push(`Missing context: ${conditionMatch.missing.join(", ")}.`);
   else if (conditionMatch.status === "unknown")
     reasons.push(`Unanswered context: ${conditionMatch.unknowns.join(", ")}.`);
   if (args.currentEnergy && !restingInRecoveryWindow(args) && !energyCompatible(action.energy, args.currentEnergy))
