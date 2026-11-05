@@ -396,4 +396,22 @@ describe("readPeopleSlice through readDoctorReport", () => {
     expect(report.items.filter((i) => i.handles.includes(`action:${actionId}`))).toEqual([]);
     await sql`DELETE FROM condition_definitions WHERE id='pete-doc'`;
   });
+  it("uses a deliverable's own deadline for a step that waits on a person", async () => {
+    await sql`INSERT INTO condition_definitions (user_id, id, name, kind, channels) VALUES (${userId}, 'pete-doc', 'Pete', 'contact', ${sql.json(["sync_remote"] as never)}) ON CONFLICT DO NOTHING`;
+    await sql`UPDATE user_preferences SET current_situation = current_situation - 'presence' WHERE user_id=${userId}`;
+    const projectId = await createProject("Hive build");
+    const deliverable = await sql<
+      { id: string }[]
+    >`INSERT INTO deliverables (project_id,title,status,external_deadline_at)
+      VALUES (${projectId},'Hive','in_progress',${daysAhead(2)}) RETURNING id`;
+    const stepId = await createAction(projectId, "Fit the frame", false);
+    await sql`UPDATE actions SET deliverable_id=${deliverable[0]!.id} WHERE id=${stepId}`;
+    const pathway = await sql<
+      { id: string }[]
+    >`INSERT INTO action_requirement_pathways (action_id, sort_order) VALUES (${stepId}, 0) RETURNING id`;
+    await sql`INSERT INTO action_requirements (pathway_id, context_key) VALUES (${pathway[0]!.id}, 'pete-doc@with')`;
+    const report = await readDoctorReport(sql as never, { now: NOW });
+    expect(report.items.find((i) => i.id === `person_waiting_deadline:${stepId}`)).toMatchObject({ tier: "blocking" });
+    await sql`DELETE FROM condition_definitions WHERE id='pete-doc'`;
+  });
 });

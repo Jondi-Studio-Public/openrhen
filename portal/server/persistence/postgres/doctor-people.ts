@@ -37,10 +37,13 @@ export async function readPeopleSlice(sql: Sql, userId: string, now: Date): Prom
         context_key: string;
         deadline_at: Date | null;
         project_deadline: Date | null;
+        deliverable_deadline: Date | null;
       }[]
     >`SELECT ac.id::text AS id, ac.title, rp.id::text AS pathway_id, req.context_key, ac.deadline_at,
-        LEAST(p.external_deadline_at, p.internal_deadline_at) AS project_deadline
+        LEAST(p.external_deadline_at, p.internal_deadline_at) AS project_deadline,
+        LEAST(d.external_deadline_at, d.internal_deadline_at) AS deliverable_deadline
       FROM actions ac
+      LEFT JOIN deliverables d ON d.id=ac.deliverable_id
       JOIN projects p ON p.id=ac.project_id AND p.status='active'
       JOIN outcomes o ON o.id=p.outcome_id JOIN areas a ON a.id=o.area_id AND a.user_id=${userId}
       JOIN action_requirement_pathways rp ON rp.action_id=ac.id
@@ -56,7 +59,9 @@ export async function readPeopleSlice(sql: Sql, userId: string, now: Date): Prom
     { id: string; title: string; deadlineAt: string | null; pathways: Map<string, string[]> }
   >();
   for (const row of work) {
-    const earliest = [row.deadline_at, row.project_deadline].filter((d): d is Date => d !== null);
+    const earliest = [row.deadline_at, row.project_deadline, row.deliverable_deadline].filter(
+      (d): d is Date => d !== null
+    );
     const deadline = earliest.length ? new Date(Math.min(...earliest.map((d) => d.getTime()))).toISOString() : null;
     const entry = byWork.get(row.id) ?? { id: row.id, title: row.title, deadlineAt: deadline, pathways: new Map() };
     entry.pathways.set(row.pathway_id, [...(entry.pathways.get(row.pathway_id) ?? []), row.context_key]);

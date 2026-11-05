@@ -58,7 +58,7 @@ export function routesFromRequires(
       ...(resolved.nextCall ? { nextCall: resolved.nextCall } : {}),
       validValues: resolved.validValues
     });
-  if (storedRoutes.length > 1) {
+  if (storedRoutes.length > 1 && resolved.keys.length > 0) {
     const shown = storedRoutes.map((route) => `[${route.join(", ")}]`).join(" OR ");
     const name = subject.title ? `"${subject.title}" (${subject.id})` : `"${subject.id}"`;
     throw new InvalidCommandError(

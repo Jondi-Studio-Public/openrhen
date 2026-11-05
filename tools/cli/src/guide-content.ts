@@ -151,6 +151,7 @@ Shorthand: --set requires='["pete@with"]' on an action or step names the people 
 (key = id, id@with for in person, id@remote by message or call); it replaces the routes and is refused when
 several routes exist, an id is unknown, or a name has no contact yet: the refusal gives the exact next call.
 "--set requires=[]" clears it. Never guess an id.
+Doing one task without a person is the owner's call, on their words only: currentSituation waivers {<action id>: ["pete"]}; it lasts 7 days (not one use), clear it with null.
 
 Prerequisites: action-to-action and deliverable-to-deliverable edges stay in dependencyIds; every
 other edge (anything to or from a project, or between mixed kinds) is {kind,id} in prerequisites,
