@@ -52,9 +52,9 @@ By making a contribution to this project, I certify that:
 ## Making a change
 
 1. Fork the repository and branch from `main`.
-2. Follow [Development](docs/operations/self-hosting.md#running-from-source) to run from source.
+2. Follow [Running from source](docs/operations/self-hosting.md#running-from-source) to run from source.
 3. Add or update automated tests with the change. Behaviour that the planner decides belongs in `engine/core` with a test; see [Engine logic](docs/engine/logic.md).
-4. Run `corepack pnpm check`, `corepack pnpm typecheck` and `corepack pnpm test` before pushing. `corepack pnpm test:integration` needs a throwaway local Postgres; CI runs it against a `postgres:17` service, so locally run `node scripts/setup/init-env.mjs --mode source` and `docker compose up -d postgres` (see [Development](docs/operations/self-hosting.md#running-from-source)), then check that `.env` has a loopback `POSTGRES_ADMIN_URL` (the suites refuse any other host and make and drop their own databases).
+4. Run `corepack pnpm check`, `corepack pnpm typecheck` and `corepack pnpm test` before pushing. `corepack pnpm test:integration` needs a throwaway local Postgres; CI runs it against a `postgres:17` service, so locally run `node scripts/setup/init-env.mjs --mode source` and `docker compose up -d postgres` (see [Running from source](docs/operations/self-hosting.md#running-from-source)), then check that `.env` has a loopback `POSTGRES_ADMIN_URL` (the suites refuse any other host and make and drop their own databases).
 5. Update the document that owns the behaviour you changed (see the [documentation index](docs/README.md)). Do not copy a rule into a second place.
 6. Open a pull request using the template. Squash merge is the only merge method.
 

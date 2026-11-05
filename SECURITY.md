@@ -20,7 +20,7 @@ In scope:
 - Leaking a stored credential (connection secrets live in the outbound proxy, never in the portal or the browser).
 - Injection, request forgery or path traversal in the portal, CLI or services.
 - Anything that lets imported content, a model response or a connection issue commands.
-- Supply-chain issues in the published images or packages.
+- Supply-chain issues in the released OpenClaw plugin package or the Dockerfiles and build (no images are published yet).
 
 Out of scope:
 
