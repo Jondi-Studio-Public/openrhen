@@ -587,7 +587,7 @@ describe("bulk: MCP", () => {
     return { calls, parsed: written.map((line) => JSON.parse(line) as { result?: unknown; error?: unknown }) };
   }
 
-  it("lists rhen_bulk with mutates:true (WRITES DATA prefix) and useful array/inline-JSON fields", async () => {
+  it("lists rhen_bulk with mutates:true (closing WRITES DATA note) and useful array/inline-JSON fields", async () => {
     expect(commands.some((spec) => spec.name === "bulk" && spec.mutates)).toBe(true);
     const { parsed } = await sendMcp([JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" })]);
     const result = parsed[0]?.result as {
@@ -595,7 +595,7 @@ describe("bulk: MCP", () => {
     };
     const tool = result.tools.find((candidate) => candidate.name === "rhen_bulk");
     expect(tool).toBeDefined();
-    expect(tool?.description.startsWith("WRITES DATA. ")).toBe(true);
+    expect(tool?.description.endsWith(" WRITES DATA.")).toBe(true);
     const properties = (tool?.inputSchema.properties ?? {}) as Record<
       string,
       { type: string; items?: { type: string } }
