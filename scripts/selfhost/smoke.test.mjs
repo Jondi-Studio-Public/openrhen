@@ -201,7 +201,6 @@ test("smokeEnvValues sets ports, the backup opt-outs and, for a pulled image run
     PORTAL_PORT: "18787",
     POSTGRES_HOST_PORT: "15432",
     IMAGE_PREFIX: "selfhost-smoke-ab",
-    BACKUP_ENABLED: "true",
     BACKUP_COPY: "off",
     BACKUP_PING_URL: "off"
   });

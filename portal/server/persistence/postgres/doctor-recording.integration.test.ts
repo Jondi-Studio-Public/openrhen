@@ -55,9 +55,9 @@ afterAll(async () => {
   await sql?.end();
 });
 
-async function backupRun(status: string, startedAt: string) {
+async function backupRun(status: string, startedAt: string, summary: Record<string, unknown> = {}) {
   await sql`INSERT INTO integration_sync_runs (user_id, provider, trigger, started_at, finished_at, status, summary)
-    VALUES (${userId}, 'backup', 'scheduled', ${startedAt}, ${startedAt}, ${status}, '{}'::jsonb)`;
+    VALUES (${userId}, 'backup', 'scheduled', ${startedAt}, ${startedAt}, ${status}, ${JSON.stringify(summary)}::jsonb)`;
 }
 
 describe("readRecordingSlice", () => {
@@ -65,6 +65,12 @@ describe("readRecordingSlice", () => {
     const slice = await readRecordingSlice(sql as never, userId);
     expect(slice.backup).toBeNull();
     expect(slice.phonePing.lastPingAt).toBeNull();
+  });
+
+  it("carries the local-only and restore-skipped flags from the latest run's summary", async () => {
+    await backupRun("synced", "2026-10-17T03:00:00Z", { localOnly: true, restoreSkipped: true });
+    const slice = await readRecordingSlice(sql, userId);
+    expect(slice.backup).toMatchObject({ localOnly: true, restoreSkipped: true });
   });
 
   it("reports the latest backup run and the last success separately", async () => {

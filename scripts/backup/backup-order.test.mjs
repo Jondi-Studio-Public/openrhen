@@ -14,7 +14,7 @@ test("photos are copied before the backup is verified, and the backup is verifie
 });
 
 // With BACKUP_COPY=off the run is local-only on purpose: one info line, no warning, so it exits 0 and pings success.
-test("BACKUP_COPY=off skips the copy and photo sync without a warning, while a blank dir still warns", async () => {
+test("BACKUP_COPY=off skips the copy and photo sync without a warning, while a blank dir is reported local-only, not a warning", async () => {
   const source = await readFile(new URL("./backup-and-copy.mjs", import.meta.url), "utf8");
   const copyBackup = source.slice(
     source.indexOf("async function copyBackup("),
@@ -24,9 +24,24 @@ test("BACKUP_COPY=off skips the copy and photo sync without a warning, while a b
   assert.match(optedOut, /level: "info"/);
   assert.match(optedOut, /return null/);
   assert.doesNotMatch(optedOut, /warnings\.push/);
-  assert.match(copyBackup, /if \(!copyDirectory\) \{\s+warnings\.push\("BACKUP_COPY_DIR is not set/);
+  const blank = copyBackup.slice(copyBackup.indexOf("if (!copyDirectory)"));
+  assert.match(blank, /return null/);
+  assert.doesNotMatch(blank.slice(0, blank.indexOf("return null")), /warnings\.push/);
+  assert.match(source, /!copiedTo && !copyOptedOut \? \{ localOnly: true \}/);
   // No directory is set when opted out, so the guard, photo sync and copy-folder prune are all skipped.
   assert.match(source, /const copyDirectory = copyOptedOut \? undefined : /);
   assert.match(source, /if \(copyDirectory\) await assertBackupTarget\(/);
   assert.match(source, /if \(!copyDirectory\) return null;/);
+});
+
+test("a missing POSTGRES_ADMIN_URL skips the restore check with a warning and restoreSkipped, never silently", async () => {
+  const source = await readFile(new URL("./backup-and-copy.mjs", import.meta.url), "utf8");
+  const verify = source.slice(
+    source.indexOf("async function verifyBackup("),
+    source.indexOf("/** Copies new photo blobs")
+  );
+  assert.match(verify, /!process\.env\.POSTGRES_ADMIN_URL\?\.trim\(\)/);
+  assert.match(verify, /warnings\.push\(/);
+  assert.match(verify, /return false/);
+  assert.match(source, /restoreSkipped: true/);
 });

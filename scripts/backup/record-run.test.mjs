@@ -13,8 +13,20 @@ test("statusForRun: clean is synced, warnings are needs_review, anything else fa
 
 test("summaryForRun keeps only a size and booleans", () => {
   const summary = { backupBytes: 42, verified: true, copiedTo: "/backups/secret/x.json", warnings: [], error: "e" };
-  assert.deepEqual(summaryForRun(summary), { backupBytes: 42, copyVerified: true, restoreVerified: true });
-  assert.deepEqual(summaryForRun(null), { backupBytes: null, copyVerified: false, restoreVerified: false });
+  assert.deepEqual(summaryForRun(summary), {
+    backupBytes: 42,
+    copyVerified: true,
+    restoreVerified: true,
+    localOnly: false,
+    restoreSkipped: false
+  });
+  assert.deepEqual(summaryForRun(null), {
+    backupBytes: null,
+    copyVerified: false,
+    restoreVerified: false,
+    localOnly: false,
+    restoreSkipped: false
+  });
   assert.equal(summaryForRun({ backupBytes: 1, verified: true, warnings: ["w"] }).copyVerified, false);
 });
 
@@ -45,7 +57,13 @@ test("recordRun inserts one backup row for the owner", async () => {
     startedAt,
     finishedAt,
     "needs_review",
-    JSON.stringify({ backupBytes: 7, copyVerified: false, restoreVerified: true })
+    JSON.stringify({
+      backupBytes: 7,
+      copyVerified: false,
+      restoreVerified: true,
+      localOnly: false,
+      restoreSkipped: false
+    })
   ]);
 });
 

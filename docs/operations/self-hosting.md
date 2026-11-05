@@ -63,13 +63,15 @@ docker compose up -d --build
 
 ## Backups
 
-The `backup` service writes a verified backup (it restores the backup into a scratch database to prove it) daily at `BACKUP_TIME` (default 03:30), to `var/backups` on this machine. To turn it on, set in `.env`:
+The `backup` service is on by default; there is no switch. Daily at `BACKUP_TIME` (default 03:30) it writes a backup, restores it into a scratch database to prove it, and keeps the newest 14 in `var/backups` (change the folder with `BACKUP_HOST_DIR`). It is a host folder, not a Docker volume, so `docker compose down -v` cannot wipe it. Setup writes `POSTGRES_ADMIN_URL`, which the restore check needs; without it the backup still runs and the Data check says it was not restore-tested.
 
-- `BACKUP_ENABLED=true`
-- `BACKUP_COPY=off` for local-only backups, or `BACKUP_COPY_DIR` as a host folder containing a `.openrhen-backup-target` marker file. A local-only backup does not survive losing the disk; copy `var/backups` elsewhere yourself.
-- `BACKUP_PING_URL=off`, or a healthchecks.io-style URL that alerts when a ping is missing.
+With nothing else set, backups stay on this machine, and the Data check says "Backups don't leave this machine", because they would go with the disk. To fix that, set in `.env`:
 
-A blank value is refused on purpose; `off` is the explicit opt-out. Back up now with `docker compose run --rm backup corepack pnpm db:backup`. Retention, restore and recovery are in [Database and backups](database-and-backups.md).
+- `BACKUP_COPY_DIR` as a host folder on another machine or disk (a mounted NAS share) containing a `.openrhen-backup-target` marker file. The run fails if the marker is missing (the share is not mounted) or there is less than 5 GB free.
+- `BACKUP_COPY=off` instead, to accept local-only backups on purpose and silence that finding.
+- `BACKUP_PING_URL`, a healthchecks.io-style URL that alerts when a backup is missed. Blank means no monitor.
+
+Back up now with `docker compose run --rm backup corepack pnpm db:backup`. Retention, restore and recovery are in [Database and backups](database-and-backups.md).
 
 ## Calendar feed and agent wake
 

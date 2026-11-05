@@ -18,6 +18,10 @@ export interface DoctorRecordingSlice {
     status: string;
     lastRunAt: string;
     lastSuccessAt: string | null;
+    /** True when the latest run kept the backup on this machine only (no copy folder set, and not chosen on purpose). */
+    localOnly?: boolean;
+    /** True when the latest run could not restore-test the backup (no admin database URL). */
+    restoreSkipped?: boolean;
   } | null;
   phonePing: {
     /** True when the portal has a ping token, so the channel is expected to be in use. */
@@ -47,18 +51,49 @@ export function recordingItems(slice: DoctorRecordingSlice, nowMs: number): Doct
       check: "backup_never",
       tier: "degrading",
       area: "integrations",
-      title: "Backups are off",
-      why: "If the database is lost, everything in the plan goes with it; no backup has ever run.",
+      title: "No backup has run yet",
+      why: "If the database is lost, everything in the plan goes with it; backups run nightly by default, and none has been recorded.",
       handles: [],
       fix: {
         who: "person",
         question:
-          "Turn backups on by setting BACKUP_ENABLED=true in .env, then run one to prove it. The self-hosting guide (docs/operations/self-hosting.md, Backups) has the steps."
+          "Backups run on their own at 03:30. If the first night has not passed, wait for it or run one now: docker compose run --rm backup node scripts/backup/backup-and-copy.mjs. If none appears after a night, check that the backup service is running (docker compose logs backup)."
       }
     });
   } else {
     const success = ms(backup.lastSuccessAt);
-    if (backup.status === "needs_review")
+    if (backup.localOnly)
+      items.push({
+        id: "backup_local_only",
+        check: "backup_local_only",
+        tier: "degrading",
+        area: "integrations",
+        title: "Backups don't leave this machine",
+        why: "If this machine's disk is lost, the backups go with it. Nightly backups are kept here only because no copy folder is set.",
+        handles: [],
+        since: backup.lastRunAt,
+        fix: {
+          who: "person",
+          question:
+            "Set BACKUP_COPY_DIR in .env to a folder on another machine or a NAS share (put an empty .openrhen-backup-target file in it), or set BACKUP_COPY=off to accept local-only backups."
+        }
+      });
+    if (backup.restoreSkipped)
+      items.push({
+        id: "backup_unverified",
+        check: "backup_unverified",
+        tier: "degrading",
+        area: "integrations",
+        title: "Backups are not being restore-tested",
+        why: "A backup nobody has restored is a guess; the restore check needs POSTGRES_ADMIN_URL and it is not set.",
+        handles: [],
+        since: backup.lastRunAt,
+        fix: {
+          who: "person",
+          question: "Set POSTGRES_ADMIN_URL in .env (setup writes one) and restart the backup service."
+        }
+      });
+    if (backup.status === "needs_review" && !backup.restoreSkipped)
       items.push({
         id: "backup_warning",
         check: "backup_warning",
