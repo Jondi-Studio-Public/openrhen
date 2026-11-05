@@ -1076,7 +1076,7 @@ function buildBrief(summary: StatusSummary, state: PortalState, now: Date) {
   };
 }
 
-function renderBriefTable(brief: ReturnType<typeof buildBrief>, timezone: string, now: Date): string {
+function renderBriefTable(brief: ReturnType<typeof buildBrief>, timezone: string, now: Date, mcp = false): string {
   const rows: [string, string][] = [
     ["Plan", brief.awaitingRecalculation ? `${brief.plan} · awaiting recalculation` : brief.plan]
   ];
@@ -1099,7 +1099,7 @@ function renderBriefTable(brief: ReturnType<typeof buildBrief>, timezone: string
   );
   if (brief.catchUp?.state === "due") rows.push(["Catch-up", catchUpText(brief.catchUp, timezone, now)]);
   if (brief.attention) rows.push(["Attention", attentionText(brief.attention)]);
-  if (brief.risks) rows.push(["Risks", `${brief.risks} (rhen status for the list)`]);
+  if (brief.risks) rows.push(["Risks", `${brief.risks} (${mcp ? "rhen_status {}" : "rhen status"} for the list)`]);
   rows.push(["Inbox", `${brief.inboxPending} pending`]);
   const width = Math.max(...rows.map(([label]) => label.length));
   return rows.map(([label, value]) => `${label.padEnd(width)}  ${value}`).join("\n");
@@ -1202,7 +1202,7 @@ export const statusCommand: CommandSpec = {
       const digest = buildBrief(summary, state, now);
       if (context.mode !== "table")
         context.stdout(toJson(localiseInstants({ ...digest, ...outsideText }, summary.timezone), true));
-      else context.stdout(renderBriefTable(digest, summary.timezone, now));
+      else context.stdout(renderBriefTable(digest, summary.timezone, now, context.mcp === true));
       return;
     }
 

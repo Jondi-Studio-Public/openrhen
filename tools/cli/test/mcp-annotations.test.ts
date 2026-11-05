@@ -34,7 +34,7 @@ describe("MCP tool annotations", () => {
       const tool = tools.find((candidate) => candidate.name === toolName(spec.name));
       expect(tool, spec.name).toBeDefined();
       expect(tool!.annotations, spec.name).toEqual({
-        title: spec.summary,
+        title: spec.summary.replace(/(?<![\w-])--([a-z][a-z-]*)/g, "$1"),
         readOnlyHint: !spec.mutates && spec.localWrite !== true,
         destructiveHint: spec.mutates && spec.destructive === true,
         idempotentHint: !spec.mutates && spec.idempotent !== false,

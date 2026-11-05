@@ -189,7 +189,7 @@ export const reenterCommand: CommandSpec = {
     context.stdout(
       `Back on plan. ${String(result.lapsed ?? 0)} recurring item(s) lapsed as missed, ${String(
         result.unrecorded ?? 0
-      )} answered in bulk (skipped, not done). \`rhen undo\` reverses this.${typeof result.next === "string" ? ` ${result.next}` : ""}`
+      )} answered in bulk (skipped, not done). ${context.mcp === true ? "rhen_undo {}" : "`rhen undo`"} reverses this.${typeof result.next === "string" ? ` ${result.next}` : ""}`
     );
   }
 };

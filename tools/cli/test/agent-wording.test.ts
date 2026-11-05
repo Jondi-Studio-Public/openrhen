@@ -267,3 +267,83 @@ describe("agent wording: disruption duration (issue 776)", () => {
     }
   );
 });
+
+describe("stdio MCP: success-path hints speak in tool calls (follow-up)", () => {
+  async function runTable(argv: string[], routes: Parameters<typeof fakeFetch>[0], mcp: boolean) {
+    const out: string[] = [];
+    await runCli(argv, {
+      stdout: (text) => out.push(text),
+      stderr: () => undefined,
+      env: {},
+      readConfigFile: () => null,
+      now: () => fixtureNow,
+      mcp,
+      fetchImpl: fakeFetch({ "/api/state": { body: { state: fixtureRawState() } }, ...routes })
+    });
+    return out.join("\n");
+  }
+
+  it("a paged rhen_changes result hands back the cursor as JSON to pass as before, with no --before", async () => {
+    const { result, text } = await call(
+      "rhen_changes",
+      { limit: 1 },
+      {
+        "/api/changes": {
+          body: {
+            changes: [{ at: "2026-09-03T08:00:00+10:00", operation: "save", entityType: "action", entityId: "a1" }],
+            cursor: "CUR1"
+          }
+        }
+      }
+    );
+    expect(result.isError).toBeFalsy();
+    expect(text).toContain('"cursor": "CUR1"');
+    expect(text).not.toContain("--before");
+    expect(text).not.toMatch(NO_FLAG);
+  });
+
+  it("the plain CLI keeps --before", async () => {
+    const text = await runTable(["changes"], { "/api/changes": { body: { changes: [], cursor: "CUR1" } } }, false);
+    expect(text).toContain("More: --before CUR1");
+  });
+
+  it("propose, undo and status hints name tools when the run serves MCP and commands otherwise", async () => {
+    const stored = { id: "p1", status: "pending", summary: "x" };
+    const route = { "/api/agent-proposals": { body: { proposal: stored, outcome: "created" } } };
+    const argv = [
+      "propose",
+      "entity_command",
+      "--summary",
+      "x",
+      "--payload-json",
+      '{"type":"save_entity","entityType":"action","entity":{"id":"a","title":"t"}}',
+      "--basis",
+      "stated",
+      "--evidence",
+      "e"
+    ];
+    const mcpText = await runTable(argv, route, true);
+    const cliText = await runTable(argv, route, false);
+    expect(mcpText).toContain("rhen_proposals");
+    expect(mcpText).not.toMatch(/`rhen |--/);
+    expect(cliText).toContain("`rhen proposals`");
+  });
+});
+
+describe("stdio MCP: tools/list wording", () => {
+  it("no tool description or argument description names a --flag", async () => {
+    const written: string[] = [];
+    await serveMcp({
+      input: [JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" })],
+      write: (line) => written.push(line),
+      runner: async () => 0
+    });
+    const tools = (JSON.parse(written[0] as string) as { result: { tools: unknown[] } }).result.tools;
+    const offenders: string[] = [];
+    for (const tool of tools as { name: string }[]) {
+      const found = JSON.stringify(tool).match(/.{0,40}(?<![\w-])--[a-z][\w-]*.{0,20}/g);
+      if (found) offenders.push(`${tool.name}: ${found[0]}`);
+    }
+    expect(offenders).toEqual([]);
+  });
+});
