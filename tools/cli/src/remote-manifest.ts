@@ -158,6 +158,10 @@ const FIELD_HINTS: Record<string, string> = {
   uncertainty: "known, some or high: how unsure the estimates are; pads them.",
   internalDeadlineAt: "The owner's own target date; it can lapse. ISO 8601 with offset.",
   externalDeadlineAt: "A real outside deadline. ISO 8601 with offset.",
+  requirementPathways:
+    'Alternative routes, each a list of condition ids that must all hold: e.g. [["ctx-a"]] or [["ctx-a","ctx-b"],["ctx-c"]]. A route may instead be {id, contextIds}; the bare list needs no id.',
+  recurrence:
+    "A recurrence rule. Required: id, timezone, startDate (YYYY-MM-DD) and intervalDays; optional: endDate, windows. Use with schedulingMode recurring or cadence.",
   expectedMinutes:
     "Whole minutes expected. On a create, optimistic and pessimistic are filled from it if left out; on an update they are NOT: send optimisticMinutes, expectedMinutes and pessimisticMinutes together (optimistic <= expected <= pessimistic)."
 };

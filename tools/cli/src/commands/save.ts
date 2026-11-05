@@ -1,5 +1,6 @@
 import {
   assumedFieldsAfterUpdate,
+  closestNames,
   entityFieldNames,
   HIDING_STATUS,
   UNDO_VERB,
@@ -106,6 +107,15 @@ export function findEntityType(name: string): EntityTypeDef | undefined {
  */
 const BOOKKEEPING_FIELDS = new Set(["version", "createdAt", "updatedAt"]);
 
+/** `did you mean "x"` for a refused field: names a typo away, or longer real names that end with it (`deadlineAt` for `internalDeadlineAt`). */
+function fieldHint(name: string, known: readonly string[]): string[] {
+  const squash = (text: string) => text.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const wanted = squash(name);
+  const ends = wanted.length >= 4 ? known.filter((field) => squash(field).endsWith(wanted)) : [];
+  const near = [...new Set([...ends, ...closestNames(name, known)])].slice(0, 3);
+  return near.length === 0 ? [] : [`${name}: did you mean ${near.map((field) => `"${field}"`).join(" or ")}? `];
+}
+
 /**
  * Refuses a field the kind does not take, naming the ones it does: before this, an unknown or read-only field
  * (a project's `area` name, say) was dropped without a word and the agent believed it saved. Only the caller's own
@@ -120,6 +130,7 @@ export function withKnownFields(def: EntityTypeDef, provided: Fields): Fields {
   if (unknown.length > 0)
     throw new CliError(
       `A ${humanLabel(def.canonical)} has no field ${unknown.map((name) => `"${name}"`).join(", ")}. ` +
+        unknown.flatMap((name) => fieldHint(name, [...known])).join("") +
         `Its fields are: ${[...known].join(", ")}.`,
       EXIT.validation
     );
