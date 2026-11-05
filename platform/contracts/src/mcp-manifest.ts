@@ -66,6 +66,12 @@ export interface McpToolManifestEntry {
   fixedArguments?: Record<string, string>;
   /** Set when the tool returns text someone else wrote; the result then goes inside the untrusted fence. */
   untrustedOutput?: UntrustedOutputKind;
+  /**
+   * Set on a tool that is still called by name but never listed: a renamed tool's old name, or a tool folded into
+   * another. `tools/list` leaves it out (so it costs no tokens) and the unknown-tool answer does not suggest it, yet
+   * `tools/call` still runs it, so a client that learned the old name keeps working until the contract version moves.
+   */
+  unlisted?: boolean;
 }
 
 /** The generated core tools, with each registered extension's tools placed after the tool it names (or last). */
@@ -134,9 +140,9 @@ export function mcpToolWritable(tool: McpToolManifestEntry, held: readonly strin
   return tool.scopes.every((required) => held.some((scope) => scopeCovers(scope, required)));
 }
 
-/** The tools `tools/list` shows a token: a read-only token never sees a write tool. */
+/** The tools `tools/list` shows a token: a read-only token never sees a write tool, and no one sees an unlisted one. */
 export function mcpToolsForScopes(held: readonly string[]): McpToolManifestEntry[] {
-  return MCP_TOOL_MANIFEST.filter((tool) => mcpToolAllowed(tool, held));
+  return MCP_TOOL_MANIFEST.filter((tool) => tool.unlisted !== true && mcpToolAllowed(tool, held));
 }
 
 export type ToolArgumentsResult = { ok: true; args: Record<string, unknown> } | { ok: false; error: string };
