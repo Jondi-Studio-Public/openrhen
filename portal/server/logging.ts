@@ -1,3 +1,5 @@
+import { gzip } from "node:zlib";
+import { promisify } from "node:util";
 import { AGENT_HEADER, parseAgentHeader, parseClaimHeaders, runWithActor } from "@/server/agent-actor";
 import { noteAgentCall } from "@/server/agent-activity";
 import { enforceAgentRequest } from "@/server/agent-enforcement";
@@ -292,13 +294,40 @@ export function log(level: LogLevel, message: string, fields: RequestLine) {
  * `route` is the route template (`/api/imports/[id]`), not the request path, so that record
  * identifiers never enter the log.
  */
+const gzipAsync = promisify(gzip);
+/** Below this a gzip header and the CPU cost are not worth the bytes saved. */
+const COMPRESS_FROM_BYTES = 8 * 1024;
+
+/**
+ * Gzips a large JSON answer for a client that accepts it. Every command answers with the whole state document
+ * (~780 KB of repetitive JSON, a tenth of that gzipped), and over the tailnet that download, not the database, is
+ * most of what a press waits for. A reverse proxy that already compresses leaves an answer alone once it carries a
+ * `Content-Encoding`, and only JSON is touched, never an event stream.
+ */
+async function compressed(request: Request, response: Response): Promise<Response> {
+  if (!response.body || response.headers.has("content-encoding") || response.status === 204 || response.status === 304)
+    return response;
+  if (!/\bgzip\b/i.test(request.headers.get("accept-encoding") ?? "")) return response;
+  if (!/\bjson\b/i.test(response.headers.get("content-type") ?? "")) return response;
+  const bytes = Buffer.from(await response.clone().arrayBuffer());
+  if (bytes.length < COMPRESS_FROM_BYTES) return response;
+  const body = await gzipAsync(bytes, { level: 4 });
+  const headers = new Headers(response.headers);
+  headers.set("content-encoding", "gzip");
+  headers.set("content-length", String(body.length));
+  const vary = headers.get("vary");
+  if (!vary) headers.set("vary", "Accept-Encoding");
+  else if (!/accept-encoding/i.test(vary)) headers.set("vary", `${vary}, Accept-Encoding`);
+  return new Response(body, { status: response.status, statusText: response.statusText, headers });
+}
+
 export function withRoute<Context = unknown>(
   route: string,
   handler: (request: Request, context: Context, log: RequestLog) => Response | Promise<Response>,
   options: RouteLogOptions = {}
 ) {
   return async (request: Request, context: Context): Promise<Response> =>
-    withServerCommit(await serve(request, context));
+    compressed(request, withServerCommit(await serve(request, context)));
 
   async function serve(request: Request, context: Context): Promise<Response> {
     const startedAt = Date.now();

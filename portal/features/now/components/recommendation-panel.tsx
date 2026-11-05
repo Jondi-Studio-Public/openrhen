@@ -29,6 +29,7 @@ import type { PlanRefreshState } from "@/features/planning/planning-runtime";
 import { healthChipText, localiseReason } from "@/features/plan/plan-formatting";
 import { canSnooze, snoozeTarget } from "@/features/now/snooze";
 import { BLOCKING_REASONS } from "./blocking-reasons";
+import { usePressGuard } from "@/shared/use-press-guard";
 import { SnoozePicker } from "./snooze-picker";
 import {
   StartedEarlier,
@@ -128,7 +129,7 @@ export function RecommendationPanel({
   /** Why the plan is not current, when the last status poll said: a refresh under way reads differently from a stuck one. */
   planRefresh?: PlanRefreshState | undefined;
   /** Asks for a new plan; offered beside the disabled Start only when the plan lapsed with none on its way. A stalled refresh already has the banner's own button. */
-  onRefreshPlan?: (() => void) | undefined;
+  onRefreshPlan?: (() => Promise<unknown> | void) | undefined;
   explanation: string;
   evidence: readonly string[];
   /** Absent for a result stored before the engine explained itself contrastively. */
@@ -142,7 +143,7 @@ export function RecommendationPanel({
   overrideReason: OverrideReason;
   onOverrideReasonChange: (reason: OverrideReason) => void;
   /** `startedAt` backdates the start when the person says the work began earlier. */
-  onStartCurrent: (startedAt?: string) => void;
+  onStartCurrent: (startedAt?: string) => Promise<unknown> | void;
   startAlternative: StartAlternative;
   blockRecommended: BlockRecommended;
   /** Puts the recommendation off until an instant, without blocking it. Absent hides the snooze choices. */
@@ -194,6 +195,7 @@ export function RecommendationPanel({
   useEffect(() => {
     if (openElse) onElseOpened?.();
   }, [openElse, onElseOpened]);
+  const { press, isPending } = usePressGuard();
   const now = useNow("minute");
   const [earlier, setEarlier] = useState<StartedEarlierChoice | null>(null);
   // "Started earlier?" belongs to the task it was chosen for: a replan that changes the primary drops it.
@@ -222,23 +224,25 @@ export function RecommendationPanel({
 
   function startDirected(startedAt?: string) {
     if (!deliverableDirective) return;
-    void runActivityCommand({
-      commandId: createClientId(),
-      expectedVersion: directedDeliverable?.version ?? null,
-      type: "start_activity",
-      targetType: "deliverable",
-      targetId: deliverableDirective.targetId,
-      plannedMinutes: deliverableDirective.recommendedMinutes,
-      ...(startedAt ? { startedAt } : {}),
-      // The engine names the deliverable; the session opens on its next executable step so time is
-      // credited to a step from the first minute rather than to nothing.
-      ...(directedDeliverable?.startStepId ? { stepId: directedDeliverable.startStepId } : {})
-    })
-      .then(() => {
-        window.location.href = `/deliverables?deliverable=${encodeURIComponent(deliverableDirective.targetId)}`;
+    return (
+      runActivityCommand({
+        commandId: createClientId(),
+        expectedVersion: directedDeliverable?.version ?? null,
+        type: "start_activity",
+        targetType: "deliverable",
+        targetId: deliverableDirective.targetId,
+        plannedMinutes: deliverableDirective.recommendedMinutes,
+        ...(startedAt ? { startedAt } : {}),
+        // The engine names the deliverable; the session opens on its next executable step so time is
+        // credited to a step from the first minute rather than to nothing.
+        ...(directedDeliverable?.startStepId ? { stepId: directedDeliverable.startStepId } : {})
       })
-      // The failure is already on the provider's banner; do not also leave it unhandled.
-      .catch(() => undefined);
+        .then(() => {
+          window.location.href = `/deliverables?deliverable=${encodeURIComponent(deliverableDirective.targetId)}`;
+        })
+        // The failure is already on the provider's banner; do not also leave it unhandled.
+        .catch(() => undefined)
+    );
   }
 
   if (finished)
@@ -262,21 +266,30 @@ export function RecommendationPanel({
           size="lg"
           className={styles.start}
           disabled={
-            saving ||
+            isPending("start") ||
             !planningDecisionCurrent ||
             (deliverableDirective !== null && !directedDeliverable) ||
             earlierProblem !== null
           }
-          onClick={() => (deliverableDirective ? startDirected(startedAt) : onStartCurrent(startedAt))}
+          aria-busy={isPending("start") || undefined}
+          onClick={() =>
+            void press("start", () => (deliverableDirective ? startDirected(startedAt) : onStartCurrent(startedAt)))
+          }
         >
           {startLabel(startedAt, timezone)}
         </Button>
         {planningDecisionCurrent || !onRefreshPlan || planRefresh !== "current" ? null : (
-          <Button variant="secondary" size="lg" disabled={saving} onClick={onRefreshPlan}>
+          <Button
+            variant="secondary"
+            size="lg"
+            disabled={isPending("refresh")}
+            aria-busy={isPending("refresh") || undefined}
+            onClick={() => void press("refresh", onRefreshPlan)}
+          >
             Refresh the plan
           </Button>
         )}
-        <Button variant="secondary" size="lg" disabled={saving} onClick={() => setSheet("not-now")}>
+        <Button variant="secondary" size="lg" onClick={() => setSheet("not-now")}>
           Not now
         </Button>
         <Button variant="ghost" size="lg" aria-haspopup="dialog" onClick={() => setSheet("else")}>
