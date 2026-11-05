@@ -57,6 +57,21 @@ The worker runs independent loops, so a slow one delays only itself: planning jo
 
 PostgreSQL is required. The portal reads `DATABASE_URL` and refuses to serve planning state without it. Migrations are append-only: a correction is a new migration, never an edit. Uploaded source files are stored in the database as bounded records with a content hash, so a backup is one artefact; the payload can move behind object storage later without changing identifiers. Backups are logical, verified by restoring them, and described in [Database and backups](../operations/database-and-backups.md).
 
+## Closing plan items
+
+Plan items are closed (archived or cancelled), not deleted. Migration 0141 adds `closed_*` columns (who, when, why) and triggers that stamp them, so every path records a closer. The `rhen_archive` and `rhen_cancel` tools (contract 11, plugin 0.3.3) and the portal's Archive, Cancel and Restore buttons share this model; Review > Closed lists the result.
+
+- **Close brake.** At most 20 closures per rolling hour. Undoing a create is exempt, and an agent save that would drop a deliverable step is refused with the exact archive or cancel call.
+- **Sources.** A calendar, feed or roster cancel closes the commitment instead of deleting it, and a returning event reopens only rows the import itself cancelled. Ending a recurrence closes its future occurrences; the planner prune spares closed rows.
+
+Known limits:
+
+- A person's own deliverable step drop is still a hard delete.
+- A rule end counts 1 toward the brake.
+- Closed future dates of an ended rule are never pruned, so those rows only accumulate.
+- No add-on hook fires when a commitment is closed ([#55](https://github.com/Jondi-Studio-Public/openrhen/issues/55)).
+- Setting an end date still runs the planner prune, which hard-deletes open dates past it.
+
 ## Single user
 
 An install has one owner. The portal acts as the first user row, and foreign keys still keep that user's rows apart. With `OPENRHEN_OWNER_AUTH=off` (the default) trust is the network boundary, which is only safe when the portal listens on loopback. With `require`, every API call needs an owner credential, an agent token, or a route-specific token. See [Locking down the API](../operations/locking-down.md).
