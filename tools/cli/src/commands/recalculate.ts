@@ -4,7 +4,7 @@ import { stringOption } from "../command.js";
 import { CliError, EXIT } from "../errors.js";
 import { localiseInstants, toJson } from "../output.js";
 import { formatWhen } from "../when.js";
-import { newCommandId, postCommand } from "../write.js";
+import { commandIdOf, newCommandId, postCommand } from "../write.js";
 
 export const recalculateCommand: CommandSpec = {
   name: "recalculate",
@@ -49,14 +49,20 @@ export const recalculateCommand: CommandSpec = {
     const timeZone = result.state.settings.timezone;
     if (context.mode !== "table") {
       const summary = planning
-        ? { status: planning.status, lastSuccessfulAt: planning.lastSuccessfulAt ?? null }
-        : { message: "Recalculation queued." };
+        ? {
+            applied: true,
+            ...commandIdOf(context),
+            status: planning.status,
+            awaitingRecalculation: planning.awaitingRecalculation === true,
+            lastSuccessfulAt: planning.lastSuccessfulAt ?? null
+          }
+        : { applied: true, ...commandIdOf(context), message: "Recalculation queued." };
       context.stdout(toJson(localiseInstants(summary, timeZone), true));
       return;
     }
     context.stdout(
       planning
-        ? `rhen: plan ${planning.status}${
+        ? `rhen: ${planning.awaitingRecalculation === true ? "recalculation queued, awaiting the engine; plan " : "plan "}${planning.status}${
             planning.lastSuccessfulAt
               ? ` (last successful ${formatWhen(planning.lastSuccessfulAt, timeZone, context.now())})`
               : ""

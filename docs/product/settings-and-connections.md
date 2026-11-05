@@ -80,7 +80,7 @@ To work on a snapshot outside the browser, `corepack pnpm snapshot:export` write
 
 `rhen` is the same system from a shell, for you or an AI tool working for you. It reads the portal over HTTP and writes only by sending the portal's own commands, so a change made there is validated, versioned, recorded in the change log and replanned exactly as one made in the browser. It never opens the database.
 
-It covers the current directive, listing and showing records, saving one or many, work and routine sessions, check-ins, disruptions, cadence completions, imports, undo, and asking for a fresh plan. Every write echoes what it did and accepts `--dry-run`; a command touching more than one record needs `--yes`. There is no delete: removal is a status change.
+It covers the current directive, listing and showing records, saving one or many, work and routine sessions, check-ins, disruptions, cadence completions, imports, undo, and asking for a fresh plan. Every write echoes what it did, says `applied` true or false (a `--dry-run` is always false) with its command id, and accepts `--dry-run`; a command touching more than one record needs `--yes`. There is no delete: removal is a status change.
 
 ```text
 corepack pnpm cli status

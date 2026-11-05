@@ -11,9 +11,8 @@ import {
 } from "../command.js";
 import type { AnyRecord } from "../entities.js";
 import { CliError, EXIT, firstIssueMessage } from "../errors.js";
-import { renderRecord, toJson } from "../output.js";
 import { occurrenceWithTemplate, resolveStartTarget } from "../resolve.js";
-import { newCommandId, postCommand, printOutcome, versionOf } from "../write.js";
+import { emitSaved, newCommandId, postCommand, printOutcome, versionOf } from "../write.js";
 
 const SUBCOMMANDS = [
   "start",
@@ -383,12 +382,10 @@ function build(subcommand: Subcommand, args: ParsedArgs, state: PortalState, now
 }
 
 function printSessionRecord(context: CommandContext, state: PortalState): void {
-  const session = state.activeSession;
-  if (context.mode !== "table") {
-    context.stdout(toJson(session ?? { ok: true, message: "Session started." }, true));
-    return;
-  }
-  context.stdout(session ? renderRecord(session, { timeZone: state.settings.timezone }) : "Session started.");
+  emitSaved(context, state.activeSession as unknown as Record<string, unknown> | undefined, {
+    fallback: "Session started.",
+    timeZone: state.settings.timezone
+  });
 }
 
 export const sessionCommand: CommandSpec = {

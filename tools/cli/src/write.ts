@@ -41,6 +41,12 @@ export function deriveCommandId(key: string, name: string): string {
 /** Per-invocation write state: the idempotency key and how many keyed writes have been made. */
 const invocations = new WeakMap<CommandContext, { key: string; writes: number }>();
 
+/** `{ commandId }` for the id this invocation's first keyed write was sent under, else nothing; spread into a JSON answer. */
+export function commandIdOf(context: CommandContext): { commandId?: string } {
+  const commandId = invocations.get(context)?.key;
+  return commandId === undefined ? {} : { commandId };
+}
+
 /** True once a write in this invocation took its commandId from the key; cli.ts warns when `--command-id` was never used. */
 export function commandKeyUsed(context: CommandContext): boolean {
   return invocations.has(context);
@@ -485,6 +491,8 @@ export async function postCommand(
       toJson(
         {
           dryRun: true,
+          applied: false,
+          ...(typeof payload.commandId === "string" ? { commandId: payload.commandId } : {}),
           ...DRY_RUN_NOTICE,
           path: options.path,
           payload,
@@ -595,9 +603,12 @@ export function emitSaved(
     ? `Replay: command id ${options.replayOf} was already applied earlier, so nothing was written again. This is the record as it now stands.`
     : undefined;
   if (context.mode !== "table") {
+    // The command id the write was sent under, so a doubtful repeat can name it (--command-id) and a log can tie
+    // the answer to the request.
+    const withId = commandIdOf(context);
     const flags = replay
-      ? { applied: false, replayed: true, message }
-      : { applied: true, ...(options.placement ? { placement: options.placement } : {}) };
+      ? { applied: false, replayed: true, ...withId, message }
+      : { applied: true, ...withId, ...(options.placement ? { placement: options.placement } : {}) };
     context.stdout(
       toJson(record ? { ...flags, ...record } : { ok: true, ...flags, message: message ?? options.fallback }, true)
     );

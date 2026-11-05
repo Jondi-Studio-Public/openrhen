@@ -115,3 +115,26 @@ describe("recalculate", () => {
     expect(printed.payload.assertedConditions).toEqual(["home"]);
   });
 });
+
+describe("recalculate while the engine has not caught up", () => {
+  function queued(): Record<string, unknown> {
+    const raw = fixtureRawState();
+    return { ...raw, planning: { ...(raw.planning as Record<string, unknown>), awaitingRecalculation: true } };
+  }
+
+  it("says in the JSON summary that the recalculation is queued", async () => {
+    const result = await run(["--json"], { "/api/commands/recalculate": { body: { state: queued() } } });
+    const printed = JSON.parse(result.text) as { awaitingRecalculation: boolean };
+    expect(printed.awaitingRecalculation).toBe(true);
+  });
+
+  it("includes awaitingRecalculation: false when the plan is current", async () => {
+    const result = await run(["--json"], { "/api/commands/recalculate": { body: { state: fixtureRawState() } } });
+    expect((JSON.parse(result.text) as { awaitingRecalculation: boolean }).awaitingRecalculation).toBe(false);
+  });
+
+  it("prints that the recalculation is queued and awaiting in table mode", async () => {
+    const result = await run([], { "/api/commands/recalculate": { body: { state: queued() } } });
+    expect(result.text).toContain("recalculation queued, awaiting");
+  });
+});

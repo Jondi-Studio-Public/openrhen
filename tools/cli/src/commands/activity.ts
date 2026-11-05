@@ -5,15 +5,13 @@ import {
   requirePositional,
   stringOption,
   validateIsoDateTime,
-  type CommandContext,
   type CommandSpec,
   type ParsedArgs
 } from "../command.js";
 import type { AnyRecord } from "../entities.js";
 import { CliError, EXIT, firstIssueMessage } from "../errors.js";
-import { renderRecord, toJson } from "../output.js";
 import { resolveReference } from "../resolve.js";
-import { newCommandId, postCommand, printOutcome, versionOf } from "../write.js";
+import { emitSaved, newCommandId, parseCommandIdKey, postCommand, printOutcome, versionOf } from "../write.js";
 
 const SUBCOMMANDS = ["start", "switch-step", "pause", "resume", "finish", "skip-step", "unskip-step"] as const;
 type Subcommand = (typeof SUBCOMMANDS)[number];
@@ -263,13 +261,23 @@ function withValidTargets(error: unknown): unknown {
   });
 }
 
-function printSessionRecord(context: CommandContext, state: PortalState): void {
-  const session = state.activeSession;
-  if (context.mode !== "table") {
-    context.stdout(toJson(session ?? { ok: true, message: "Activity started." }, true));
-    return;
-  }
-  context.stdout(session ? renderRecord(session, { timeZone: state.settings.timezone }) : "Activity started.");
+/**
+ * The session a `finish` repeated under `--command-id` may have closed: the newest one in today's history. Nothing
+ * runs once the first try landed, so there is no live session to address; the portal checks the command id's
+ * receipt before it looks at the session, so a right guess replays and a wrong one is refused harmlessly.
+ */
+function lastClosedSession(state: PortalState): { id: string } | undefined {
+  const closed = [...state.completedToday].sort((a, b) => Date.parse(b.endedAt) - Date.parse(a.endedAt))[0];
+  return closed ? { id: closed.id } : undefined;
+}
+
+/** Said when a repeated finish finds nothing running and the portal has no receipt for its command id. */
+function withLikelyLanded(error: unknown): unknown {
+  if (!(error instanceof CliError) || error.exitCode !== EXIT.notFound) return error;
+  const message =
+    "No session is running. If this repeats a finish that timed out, it has probably already landed: read `status` " +
+    "(or `list sessions`) to confirm. The portal found no receipt for this --command-id, so nothing was written.";
+  return new CliError(message, error.exitCode, error.details, error.agent);
 }
 
 export const activityCommand: CommandSpec = {
@@ -342,7 +350,13 @@ export const activityCommand: CommandSpec = {
       );
 
     const state = await context.client.getState();
-    const { payload, summary, showsSession, fallback, reverse } = build(subcommandArg, args, state);
+    // A finish repeated under the same --command-id after the first try landed finds no running session; address the
+    // one that just closed so the portal can answer from its receipt (the receipt is checked before the session).
+    const key = parseCommandIdKey(args.values);
+    const retried =
+      subcommandArg === "finish" && key !== undefined && !state.activeSession ? lastClosedSession(state) : undefined;
+    const buildFrom = retried ? ({ ...state, activeSession: { ...retried } } as unknown as PortalState) : state;
+    const { payload, summary, showsSession, fallback, reverse } = build(subcommandArg, args, buildFrom);
 
     const parsed = activityCommandSchema.safeParse(payload);
     if (!parsed.success) throw new CliError(firstIssueMessage(parsed.error), EXIT.validation, parsed.error.issues);
@@ -363,12 +377,27 @@ export const activityCommand: CommandSpec = {
           }
         : {})
     }).catch((error: unknown) => {
-      throw subcommandArg === "start" ? withValidTargets(error) : error;
+      throw subcommandArg === "start" ? withValidTargets(error) : retried ? withLikelyLanded(error) : error;
     });
     if (result.state === null) return;
 
-    if (showsSession) {
-      printSessionRecord(context, result.state);
-    } else printOutcome(context, result.state, { fallback });
+    // The portal refuses to pause a paused session or resume a running one, so a repeat that finds the session already
+    // in the state it asked for and still succeeds was answered from the receipt of the first try.
+    const alreadyThere =
+      (subcommandArg === "pause" && state.activeSession?.status === "paused") ||
+      (subcommandArg === "resume" && state.activeSession?.status === "running");
+    const replayOf = key !== undefined && (retried !== undefined || alreadyThere) ? key : undefined;
+    const timeZone = result.state.settings.timezone;
+    if (showsSession) emitSaved(context, asRecord(result.state.activeSession), { fallback, timeZone });
+    else if (replayOf !== undefined) {
+      const record = retried
+        ? result.state.completedToday.find((session) => session.id === retried.id)
+        : result.state.activeSession;
+      emitSaved(context, asRecord(record), { fallback, timeZone, replayOf });
+    } else printOutcome(context, result.state, { fallback, timeZone });
   }
 };
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
+}

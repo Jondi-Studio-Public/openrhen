@@ -56,7 +56,17 @@ export const stretchCommand: CommandSpec = {
     context.stderr("rhen: stretch");
     if (booleanOption(args.values, "dry-run")) {
       context.stdout(
-        toJson({ dryRun: true, ...DRY_RUN_NOTICE, path: "/api/commands/stretch", payload: stamped.payload }, true)
+        toJson(
+          {
+            dryRun: true,
+            applied: false,
+            commandId: stamped.payload.commandId,
+            ...DRY_RUN_NOTICE,
+            path: "/api/commands/stretch",
+            payload: stamped.payload
+          },
+          true
+        )
       );
       return;
     }
@@ -70,7 +80,17 @@ export const stretchCommand: CommandSpec = {
     recordServerChecked(context, done, { path: "/api/commands/stretch", sent: stamped.payload, summary: "stretch" });
     const result = done.result;
     if (context.mode !== "table") {
-      context.stdout(toJson({ ...result, revertible: done.revertible ?? result.revertible }, true));
+      context.stdout(
+        toJson(
+          {
+            applied: true,
+            commandId: stamped.payload.commandId,
+            ...result,
+            revertible: done.revertible ?? result.revertible
+          },
+          true
+        )
+      );
       return;
     }
     context.stdout(result.next);
