@@ -61,7 +61,7 @@ An add-on is built with the core, so a seam change in core can break an add-on a
 The agent surface is the MCP server and CLI (`rhen`). It is v0 with these tested rules:
 
 - The served tools and their required arguments are committed in `platform/contracts/src/agent-contract-snapshot.ts` and checked by `agent-contract.test.ts`. Adding, removing or renaming a tool, or changing a required argument, fails the test until `AGENT_CONTRACT_VERSION` is bumped and the file regenerated (`corepack pnpm --filter @openrhen/cli contract-snapshot`).
-- A renamed tool keeps its old name as an alias for one contract version, then the alias goes.
+- A renamed tool keeps its old name as an alias for one contract version, then the alias goes. An alias (and a tool folded into another) is callable by name but unlisted: `tools/list` does not show it.
 - Public tool names are `rhen_<command>`, for example `rhen_state`, `rhen_guide` and `rhen_save_action`; the server reports its `contractVersion` in the MCP `initialize` result. `rhen schema` prints the argument schema of each command.
 - Writes by a token that only holds `propose` scopes land in the Inbox for the owner to confirm. See [Auth](auth.md).
 
