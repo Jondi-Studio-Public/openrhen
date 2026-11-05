@@ -753,12 +753,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -959,7 +959,9 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
                     required: ["id", "contextIds"]
                   }
                 ]
-              }
+              },
+              description:
+                'Alternative routes, each a list of condition ids that must all hold: e.g. [["ctx-a"]] or [["ctx-a","ctx-b"],["ctx-c"]]. A route may instead be {id, contextIds}; the bare list needs no id.'
             },
             preferences: {
               type: "array",
@@ -1119,7 +1121,9 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
                   }
                 }
               },
-              required: ["id", "timezone", "startDate", "intervalDays"]
+              required: ["id", "timezone", "startDate", "intervalDays"],
+              description:
+                "A recurrence rule. Required: id, timezone, startDate (YYYY-MM-DD) and intervalDays; optional: endDate, windows. Use with schedulingMode recurring or cadence."
             },
             blockingReason: {
               description: "Why it is waiting or blocked; kept in the change log.",
@@ -1157,12 +1161,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -1279,12 +1283,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -1485,12 +1489,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -1634,12 +1638,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -1736,7 +1740,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -1778,12 +1782,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -1856,12 +1860,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         }
       },
       additionalProperties: false,
@@ -1957,12 +1961,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2105,12 +2109,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2139,7 +2143,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
     name: "rhen_disrupt",
     command: "disrupt",
     description:
-      "Use when a check-in answer was deviated, or the owner says they are doing something other than the plan. Records the deviation so the plan routes around it; unrecorded, a deviation lapses the pulse at once and rhen_reenter is needed. It is not rhen_disruption (that logs an interruption such as a call or visitor as a commitment). Required together: doing (or target), until, location, contexts (at least one) and exclusive. Missing fields are named and nothing is recorded. With NO options it is read-only: it returns what is in force and the ids and names of the places and contexts you can name. end: true ends the one in force early. Returns the recorded deviation; rhen_undo reverses it. Follows rhen_check_in with status deviated. WRITES DATA.",
+      "Use when a check-in answer was deviated, or the owner says they are doing something other than the plan. Records the deviation so the pulse stays on plan; unrecorded, a deviation lapses the pulse at once and rhen_reenter is needed. It does not change the plan, a commitment or the headline. It is not rhen_disruption (that logs an interruption such as a call or visitor as a commitment). Required together: doing (or target), until, location, contexts (at least one) and exclusive. Missing fields are named and nothing is recorded. With NO options it is read-only: it returns what is in force and the ids and names of the places and contexts you can name. end: true ends the one in force early. Returns the recorded deviation; rhen_undo reverses it. Follows rhen_check_in with status deviated. WRITES DATA.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2176,12 +2180,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2219,12 +2223,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2268,12 +2272,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2315,12 +2319,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2414,12 +2418,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2491,12 +2495,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2546,12 +2550,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2612,12 +2616,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2678,12 +2682,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2712,7 +2716,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
     name: "rhen_activity",
     command: "activity",
     description:
-      'Drives a session on a NON-action target: a routine step (a commitment\'s preparation, or a bedtime or wake step), sleep, a fixed commitment\'s phase, or a deliverable step. For work on an action use rhen_session. Subcommands: start (type routine_step | sleep | fixed_commitment | deliverable, target and minutes (required: whole minutes planned, 1 to 1440) are all required; phase setup, travel, arrival, active, transition or return for fixed_commitment only), switch-step (step: the deliverable step now timed), pause, resume, finish (outcome completed, stopped, blocked, did_not_start or skipped, default completed; note?; ended-at?), skip-step and unskip-step (step: a routine step skipped outright, or unskipped by mistake). start only works on what the CURRENT plan is tracking right now: a routine_step must be open and due now; sleep takes the planned sleep plan the plan is tracking now (not a past or future night); a fixed_commitment must be the commitment running now, in the phase it is in now (if it is at a place, record arrival with rhen_arrive first); a deliverable needs its step. Minutes must equal the plan\'s own (see minutes). A start for anything else is refused as not in the current plan: call rhen_status to see what the plan lets you start now, and rhen_list with entity routine-steps, sleep-plans or commitments for ids. Example: {"subcommand":"start","type":"routine_step","target":"<routine step id>","minutes":15}. Returns the session; rhen_undo reverses it. WRITES DATA.',
+      'Drives a session on a NON-action target: a routine step (a commitment\'s preparation, or a bedtime or wake step), sleep, a fixed commitment\'s phase, or a deliverable step. For work on an action use rhen_session. Subcommands: start (type routine_step | sleep | fixed_commitment | deliverable, target and minutes (required: whole minutes planned) all required; phase setup, travel, arrival, active, transition or return for fixed_commitment only; started-at?: backdate a start, at most 24h back), switch-step (step: the deliverable step now timed), pause, resume, finish (outcome completed, stopped, blocked, did_not_start or skipped, default completed; note?; ended-at?), skip-step and unskip-step (step: a routine step skipped outright, or unskipped by mistake). To time a commitment: type fixed_commitment, its id as target and the phase it is in now (from rhen_status; at a place, record arrival with rhen_arrive first). start only works on what the CURRENT plan is tracking right now: a routine_step must be open and due now; sleep takes the planned sleep plan tracked now (not a past or future night); a deliverable needs its step. Minutes must equal the plan\'s own (see minutes). Anything else is refused as not in the current plan: call rhen_status to see what you can start, and rhen_list with entity routine-steps, sleep-plans or commitments for ids. Example: {"subcommand":"start","type":"routine_step","target":"<routine step id>","minutes":15}. Returns the session; rhen_undo reverses it. WRITES DATA.',
     inputSchema: {
       type: "object",
       properties: {
@@ -2741,7 +2745,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
           minimum: 1,
           maximum: 1440,
           description:
-            "start (required): whole minutes planned, 1 to 1440. For a routine_step, sleep or deliverable it must equal the minutes the plan gives that target (recommendedMinutes in rhen_status, or durationMinutes of a routine step / allowedMinutes of a sleep plan in rhen_list); a different number is refused naming the right one. For a fixed_commitment any number up to the phase's whole length (the cap is the full phase, not what is left of it)."
+            "start (required): whole minutes planned, 1 to 1440. For a routine_step, sleep or deliverable it must equal the minutes the plan gives that target (recommendedMinutes in rhen_status, or durationMinutes of a routine step / allowedMinutes of a sleep plan in rhen_list); else the refusal names the right one. For a fixed_commitment, up to the phase's whole length (not what is left of it)."
         },
         phase: {
           type: "string",
@@ -2750,7 +2754,8 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         outcome: {
           type: "string",
-          description: "finish: default completed.",
+          description:
+            "finish, default completed. stopped: deliverable only. skipped: routine_step only. Any target takes completed, blocked or did_not_start.",
           enum: ["completed", "stopped", "blocked", "did_not_start", "skipped"]
         },
         note: {
@@ -2768,12 +2773,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2827,12 +2832,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2861,7 +2866,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
     name: "rhen_disruption",
     command: "disruption",
     description:
-      "Logs an interruption to the day (a call, an emergency, a visitor, a school phone call) as a commitment so the plan routes around it. For 'I am doing something instead of the plan right now' after a check-in use rhen_disrupt instead. Subcommands: start (title required; when, duration, source, routine, location-id or location; starts tracking time on it when live unless no-track; a visitor is source family or other; duration is a bare number of minutes such as 30, or rest_of_day, unknown or a preset from settings), extend and finish (id; correct the end once the truth is known; extend takes minutes, may be negative) and status (the disruption worth mentioning today, if any). Returns the disruption commitment; rhen_undo reverses it. WRITES DATA.",
+      "Logs an interruption to the day (a call, an emergency, a visitor, a school phone call) as a commitment so the plan routes around it. For 'I am doing something instead of the plan right now' after a check-in use rhen_disrupt instead. Subcommands: start (title required; when, duration, source, routine, location-id or location; starts tracking time on it when live unless no-track; a visitor is source family or other; duration: see its argument), extend and finish (id; correct the end once the truth is known; extend takes minutes, may be negative) and status (the disruption worth mentioning today, if any). Returns the disruption commitment; rhen_undo reverses it. WRITES DATA.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2920,12 +2925,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2973,12 +2978,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -3017,12 +3022,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -3074,12 +3079,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -3134,7 +3139,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         yes: {
           type: "boolean",
@@ -3143,7 +3148,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -3228,12 +3233,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -3356,7 +3361,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         yes: {
           type: "boolean",
@@ -3378,7 +3383,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -3553,12 +3558,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         "command-id": {
           type: "string",
           description:
-            "A uuid per write. Resend the SAME one only after a timeout, never after a conflict or validation error."
+            "Optional: omit and the server makes one, named if the write is in doubt. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -3601,7 +3606,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "dry-run": {
           type: "boolean",
-          description: "true previews and saves nothing; checks the shape, not ids, evidence or scopes."
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
         },
         basis: {
           type: "string",

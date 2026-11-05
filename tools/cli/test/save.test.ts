@@ -945,6 +945,19 @@ describe("save: typed fields and create versus update", () => {
     expect(posted(result)).toBeUndefined();
   });
 
+  it("hints the closest field name when the refused one is part of a real one", async () => {
+    const result = await run(["deliverable", "--id", "deliverable-x", "--set", "deadlineAt=2026-09-30T17:00:00+10:00"]);
+    expect(result.exitCode).toBe(EXIT.validation);
+    expect(result.stderr).toContain('has no field "deadlineAt"');
+    expect(result.stderr).toMatch(/did you mean [^?]*"internalDeadlineAt"/);
+    expect(posted(result)).toBeUndefined();
+    // A misspelling gets the hint too; a name nothing resembles gets none.
+    const typo = await run(["project", "--id", "project-thesis", "--set", "outcomeID=o1"]);
+    expect(typo.stderr).toContain('did you mean "outcomeId"');
+    const unrelated = await run(["project", "--id", "project-thesis", "--set", "zzzzzz=1"]);
+    expect(unrelated.stderr).not.toContain("did you mean");
+  });
+
   it("refuses the removed calendar-sharing names, naming nothing else as an alias", async () => {
     for (const [kind, old] of [
       ["commitment", "shareWithFamily"],

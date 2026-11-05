@@ -34,6 +34,7 @@ import { readStateAfterCommit } from "./read-after-commit";
 import { sessionClock } from "./session-clock";
 import { completeStepActionOccurrence } from "./routine-step-window";
 import { watchActivityWrite } from "./entity-snapshot";
+import { activityOutcomeRefusal } from "./activity-outcome-refusal";
 import type { PoolSql, Sql, TxSql } from "./sql-pool";
 import { WriteSnapshot } from "./write-snapshot";
 
@@ -417,12 +418,10 @@ export async function applyActivityCommand(
       // once work resumes the reason for the interruption is no longer this session's current state.
       await tx`UPDATE sessions SET status='running',planned_end_at=${new Date(at.getTime() + (session[0].paused_remaining_seconds ?? 0) * 1000)},paused_remaining_seconds=NULL,result_note=NULL,version=version+1,updated_at=${at} WHERE id=${session[0].id}`;
     } else {
-      if (command.outcome === "stopped" && session[0].target_type !== "deliverable")
-        throw new InvalidCommandError("Only a deliverable session can be stopped with its work still open.");
       // Skipped is a routine step's own thing — moot preparation, not merely undone — and is never
       // offered against a deliverable, a commitment, sleep or the bedtime routine's own steps.
-      if (command.outcome === "skipped" && session[0].target_type !== "routine_step")
-        throw new InvalidCommandError("Only a routine step's own preparation can be skipped.");
+      const outcomeRefusal = activityOutcomeRefusal(command.outcome, session[0].target_type);
+      if (outcomeRefusal !== null) throw new InvalidCommandError(outcomeRefusal);
       // A chosen retroactive end: `endTime` takes over from `at` wherever the session's own end is
       // recorded, while `at` (real now) stays on `updated_at` (see resolveRetroactiveEnd).
       const endTime = await resolveRetroactiveEnd(tx, session[0], command.endedAt, at, options.endAtPause);
