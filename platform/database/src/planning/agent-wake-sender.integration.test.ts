@@ -122,17 +122,17 @@ describe("sendNextAgentWake", () => {
     await sendNextAgentWake(sql, {
       url: URL_BASE,
       token: TOKEN,
-      routing: { agentId: "mark", channel: "telegram", accountId: "mark", to: "12345", sessionKey: "agent:mark:main" },
+      routing: { agentId: "main", channel: "telegram", accountId: "main", to: "12345", sessionKey: "agent:main:main" },
       fetchImpl: fetcher.impl,
       now
     });
     const body = JSON.parse(fetcher.calls[0]!.init.body as string) as Record<string, string>;
     expect(body).toMatchObject({
-      agentId: "mark",
+      agentId: "main",
       channel: "telegram",
-      accountId: "mark",
+      accountId: "main",
       to: "12345",
-      sessionKey: "agent:mark:main",
+      sessionKey: "agent:main:main",
       sessionMode: "persistent"
     });
   });

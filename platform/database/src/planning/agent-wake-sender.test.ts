@@ -37,32 +37,32 @@ describe("agent wake routing", () => {
   it("reads the routing fields from OPENCLAW_HOOKS_* and ignores blanks", () => {
     expect(
       agentWakeRoutingFromEnv({
-        OPENCLAW_HOOKS_AGENT_ID: "mark",
+        OPENCLAW_HOOKS_AGENT_ID: "main",
         OPENCLAW_HOOKS_CHANNEL: "telegram",
-        OPENCLAW_HOOKS_ACCOUNT_ID: "mark",
+        OPENCLAW_HOOKS_ACCOUNT_ID: "main",
         OPENCLAW_HOOKS_TO: " 12345 ",
-        OPENCLAW_HOOKS_SESSION_KEY: "agent:mark:main"
+        OPENCLAW_HOOKS_SESSION_KEY: "agent:main:main"
       })
-    ).toEqual({ agentId: "mark", channel: "telegram", accountId: "mark", to: "12345", sessionKey: "agent:mark:main" });
+    ).toEqual({ agentId: "main", channel: "telegram", accountId: "main", to: "12345", sessionKey: "agent:main:main" });
     expect(agentWakeRoutingFromEnv({ OPENCLAW_HOOKS_TO: "  ", OPENCLAW_HOOKS_CHANNEL: "" })).toEqual({});
   });
 
   it("puts the routing fields and a persistent session mode in the body", () => {
     const body = buildAgentWakeBody("hi", {
-      agentId: "mark",
+      agentId: "main",
       channel: "telegram",
-      accountId: "mark",
+      accountId: "main",
       to: "12345",
-      sessionKey: "agent:mark:main"
+      sessionKey: "agent:main:main"
     });
     expect(body).toEqual({
       message: "hi",
       name: "rhen",
-      agentId: "mark",
+      agentId: "main",
       channel: "telegram",
-      accountId: "mark",
+      accountId: "main",
       to: "12345",
-      sessionKey: "agent:mark:main",
+      sessionKey: "agent:main:main",
       sessionMode: "persistent"
     });
   });
