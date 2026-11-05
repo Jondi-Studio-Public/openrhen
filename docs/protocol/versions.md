@@ -25,7 +25,7 @@ These exist but no test reads them, so this page cannot be kept in step by a tes
 
 ## Upgrading stored data
 
-- A fresh install applies one baseline migration; an add-on's own migrations apply after it from its migration folder (planned; the folder is not built yet).
+- A fresh install applies one baseline migration; an add-on's own migrations apply after it from its migration folder, `platform/database/addon-drizzle/` ([Database and backups](../operations/database-and-backups.md)).
 - Migrations are append-only: a correction is a new migration, never an edit.
 - Back up before upgrading. A backup records its format number and string; restore reads any listed string and any older number, and refuses a number newer than the running version. Restore is verified by restoring into a scratch database ([Database and backups](../operations/database-and-backups.md)).
 - The agent contract and plan contract are not migrated: a client sees `contractVersion` and decides.

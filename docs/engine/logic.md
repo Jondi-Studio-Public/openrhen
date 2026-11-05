@@ -127,7 +127,7 @@ Health is one of ahead, on track, at risk, behind or unknown, taken from margin,
 
 A passed self-set date cannot be recovered by working, so it ranks as ordinary and is offered a new date.
 
-**Ordinary weighted ranking** scores these components, in maximum points: capacity pressure 30, consequence 15, outcome value 15, importance plus or minus 1, neglect 12, momentum 10, energy fit 8, completion potential 10, switching cost minus 10, avoidable travel minus 15, cadence due 40, and a self-set deadline this week 45. Requirement pathways are a hard filter, never a score. Area balance is deliberately not a component. Ties go to the earlier deadline, downstream minutes, lower margin ratio, higher consequence, completion potential, then identifier.
+**Ordinary weighted ranking** scores these components, in maximum points: capacity pressure 30, consequence 15, outcome value 15, importance plus or minus 1, neglect 12, momentum 10, energy fit 8, completion potential 10, switching cost minus 10, avoidable travel minus 15, cadence due 40, and a self-set deadline this week 45 (30 when the project's health is unknown). Requirement pathways are a hard filter, never a score. Area balance is deliberately not a component. Ties go to the earlier deadline, downstream minutes, lower margin ratio, higher consequence, completion potential, then identifier.
 
 ## 9. Continuation
 
