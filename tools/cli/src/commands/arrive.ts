@@ -4,7 +4,7 @@ import { requirePositional, type CommandContext, type CommandSpec } from "../com
 import { entityItems, findEntity, type AnyRecord } from "../entities.js";
 import { CliError, EXIT } from "../errors.js";
 import { toJson } from "../output.js";
-import { newCommandId, postCommand } from "../write.js";
+import { commandIdOf, newCommandId, postCommand } from "../write.js";
 
 /**
  * Resolves a place by id or exact, case-insensitive name against active location conditions. Reuses
@@ -75,7 +75,7 @@ export const arriveCommand: CommandSpec = {
 
     if (state.currentSituation.locationId === locationId) {
       if (context.mode !== "table")
-        context.stdout(toJson({ ok: true, locationId, locationName, changed: false }, true));
+        context.stdout(toJson({ ok: true, applied: false, locationId, locationName, changed: false }, true));
       else context.stdout(`rhen: already at "${locationName}".`);
       return;
     }
@@ -104,7 +104,10 @@ export const arriveCommand: CommandSpec = {
     });
     if (!result.state) return; // --dry-run already printed the payload
 
-    if (context.mode !== "table") context.stdout(toJson({ ok: true, locationId, locationName, changed: true }, true));
+    if (context.mode !== "table")
+      context.stdout(
+        toJson({ ok: true, applied: true, ...commandIdOf(context), locationId, locationName, changed: true }, true)
+      );
     else context.stdout(`rhen: arrived at "${locationName}".`);
   }
 };

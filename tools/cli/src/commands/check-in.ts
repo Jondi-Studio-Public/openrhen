@@ -3,7 +3,7 @@ import type { CommandContext, CommandSpec } from "../command.js";
 import { requirePositional, stringOption } from "../command.js";
 import { CliError, EXIT } from "../errors.js";
 import { toJson } from "../output.js";
-import { newCommandId, postCommand } from "../write.js";
+import { commandIdOf, newCommandId, postCommand } from "../write.js";
 
 const STATUS_BY_POSITIONAL: Record<string, "on_track" | "deviated" | "unknown"> = {
   "on-track": "on_track",
@@ -143,7 +143,12 @@ export const checkInCommand: CommandSpec = {
     if (result.state === null) return;
 
     if (context.mode !== "table")
-      context.stdout(toJson({ ok: true, checkInId: id, status, voluntary: id === null }, true));
+      context.stdout(
+        toJson(
+          { ok: true, applied: true, ...commandIdOf(context), checkInId: id, status, voluntary: id === null },
+          true
+        )
+      );
     else
       context.stdout(
         id ? `rhen: check-in ${id} answered as ${status}.` : `rhen: voluntary check-in recorded as ${status}.`

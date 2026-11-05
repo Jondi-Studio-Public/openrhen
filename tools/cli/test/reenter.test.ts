@@ -160,6 +160,7 @@ describe("reenter", () => {
     expect(exitCode).toBe(EXIT.ok);
     expect(calls.some((call) => call.method === "POST")).toBe(false);
     expect(stdout).toContain('"dryRun": true');
+    expect(JSON.parse(stdout)).toMatchObject({ applied: false });
   });
 
   it("surfaces the portal's 422 as a validation error whose details name each gap", async () => {

@@ -65,6 +65,8 @@ is still in play: a past appointment or a finished action needs `status` `any`, 
   resend it only as the identical call with the identical `command-id`. A changed write after a conflict or
   re-read is a new write with a new uuid. `rhen_undo` takes no `command-id`; retry it with `id` (get ids
   with `list` true).
+- Read `applied` in every write's answer: `false` means nothing changed (a dry run, or `replayed: true` for a
+  `command-id` that already landed, answered with the current record). The answer echoes the `commandId`.
 - A change that fans out to many records asks for `yes`. Add it only if you meant the fan-out.
 - After writing, re-read (`rhen_status` or `rhen_show`) and tell them what the plan now says. One
   line per change, not a transcript.

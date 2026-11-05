@@ -470,3 +470,69 @@ describe("activity usage", () => {
     expect(exitCode).toBe(EXIT.conflict);
   });
 });
+
+describe("activity finish retried under the same --command-id", () => {
+  const COMMAND_ID = "7a1f0c52-3d4e-4b6a-9c8d-0e1f2a3b4c5d";
+  // The first try landed: the session closed and sits in today's history, and nothing is running.
+  function afterFinish(): Record<string, unknown> {
+    const raw = fixtureRawState();
+    return {
+      ...raw,
+      activeSession: null,
+      completedToday: [
+        ...(raw.completedToday as Record<string, unknown>[]),
+        {
+          id: RUNNING_SESSION_ID,
+          actionId: "action-draft",
+          actionTitle: "Draft chapter 3",
+          result: "completed",
+          startedAt: "2026-09-03T09:00:00+10:00",
+          endedAt: "2026-09-03T09:20:00+10:00",
+          plannedMinutes: 45,
+          activeMinutes: 20,
+          remainingBeforeMinutes: 90,
+          remainingAfterMinutes: 70
+        }
+      ]
+    };
+  }
+
+  it("asks the portal, which holds the receipt, and reports replayed: true, applied: false", async () => {
+    const raw = afterFinish();
+    let posted: Record<string, unknown> | undefined;
+    const { exitCode, stdout } = await run(
+      ["finish", "--command-id", COMMAND_ID, "--json"],
+      {
+        "/api/commands/activity": (call) => ((posted = call.body as Record<string, unknown>), { body: { state: raw } })
+      },
+      raw
+    );
+    expect(exitCode).toBe(EXIT.ok);
+    expect(posted?.type).toBe("finish_activity");
+    expect(posted?.sessionId).toBe(RUNNING_SESSION_ID);
+    expect(posted?.commandId).toBe(COMMAND_ID);
+    const doc = JSON.parse(stdout) as Record<string, unknown>;
+    expect(doc.replayed).toBe(true);
+    expect(doc.applied).toBe(false);
+    expect(doc.commandId).toBe(COMMAND_ID);
+    expect(doc.id).toBe(RUNNING_SESSION_ID);
+  });
+
+  it("says a retried finish has probably landed when the portal holds no receipt for the id", async () => {
+    const raw = afterFinish();
+    const { exitCode, stderr } = await run(
+      ["finish", "--command-id", COMMAND_ID],
+      { "/api/commands/activity": { status: 404, body: { error: "The open activity session was not found." } } },
+      raw
+    );
+    expect(exitCode).toBe(EXIT.notFound);
+    expect(stderr).toContain("No session is running.");
+    expect(stderr).toContain("probably already landed");
+  });
+
+  it("without --command-id a finish with nothing running is still refused locally, with no POST", async () => {
+    const { exitCode, calls } = await run(["finish"], {}, afterFinish());
+    expect(exitCode).toBe(EXIT.notFound);
+    expect(calls.some((call) => call.method === "POST")).toBe(false);
+  });
+});
