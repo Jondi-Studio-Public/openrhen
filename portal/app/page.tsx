@@ -953,7 +953,7 @@ export default function NowPage() {
                     planningDecisionCurrent={planningDecisionCurrent}
                     finished={primaryFinished}
                     planRefresh={planHealth?.refresh}
-                    onRefreshPlan={() => void recalculate().catch(() => undefined)}
+                    onRefreshPlan={() => recalculate().catch(() => undefined)}
                     explanation={recommendation.explanation}
                     evidence={recommendation.evidence}
                     why={recommendation.why}
@@ -974,7 +974,8 @@ export default function NowPage() {
                     directedDeliverable={directedDeliverable}
                     overrideReason={overrideReason}
                     onOverrideReasonChange={setOverrideReason}
-                    onStartCurrent={(startedAt) => void startCurrent(startedAt)}
+                    // Returned, so the Start button knows when its own command is done and holds only itself until then.
+                    onStartCurrent={(startedAt) => startCurrent(startedAt).catch(() => undefined)}
                     startFloor={startFloor(state, primary.action.id)}
                     openElse={switchPending}
                     planPending={switchAwaitingPlan}

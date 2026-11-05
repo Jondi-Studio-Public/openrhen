@@ -497,3 +497,31 @@ describe("withRoute error mapping", () => {
     expect((await throwing({ code: "23505" })).status).toBe(500);
   });
 });
+
+describe("withRoute compression", () => {
+  const big = { rows: Array.from({ length: 2000 }, (_, index) => ({ index, text: "the same words again and again" })) };
+  const compressing = (acceptEncoding?: string, body: unknown = big) =>
+    withRoute("/api/test", async () => Response.json(body))(
+      new Request("http://portal.test/api/test", {
+        method: "GET",
+        ...(acceptEncoding ? { headers: { "accept-encoding": acceptEncoding } } : {})
+      }),
+      {}
+    );
+
+  it("gzips a large JSON answer for a client that accepts it, and the body still parses", async () => {
+    const { gunzipSync } = await import("node:zlib");
+    const response = await compressing("gzip, deflate, br");
+    expect(response.headers.get("content-encoding")).toBe("gzip");
+    expect(response.headers.get("vary")).toMatch(/Accept-Encoding/i);
+    const raw = Buffer.from(await response.arrayBuffer());
+    expect(raw.length).toBeLessThan(JSON.stringify(big).length / 4);
+    expect(JSON.parse(gunzipSync(raw).toString())).toEqual(big);
+  });
+
+  it("leaves the answer alone when the client does not accept gzip or the body is small", async () => {
+    expect((await compressing()).headers.get("content-encoding")).toBeNull();
+    expect((await compressing("identity")).headers.get("content-encoding")).toBeNull();
+    expect((await compressing("gzip", { ok: true })).headers.get("content-encoding")).toBeNull();
+  });
+});

@@ -13,6 +13,7 @@ import { dateInput, dateOnly, iso, nextDayKey } from "@/features/today/local-dat
 import { wallClock } from "@/features/now/now-formatting";
 import type { FinishSession, RunActivityCommand, SaveEntityCommand } from "@/features/now/now-model";
 import { wakeCommand } from "@/features/now/need-commands";
+import { usePressGuard } from "@/shared/use-press-guard";
 import { energyCommand } from "./availability-panel";
 import styles from "../now-page.module.css";
 
@@ -69,18 +70,25 @@ function useTimeField(initial: string) {
   return { value, setValue, error, attempt };
 }
 
-function WakeAnswer({ state, now, timezone, saving, saveEntityCommand }: Ctx) {
+function WakeAnswer({ state, now, timezone, saveEntityCommand }: Ctx) {
   const field = useTimeField("");
+  const { press, isPending } = usePressGuard();
   const preferred = latestPreferredWake(state.settings.preferredWakeTime, timezone, now);
   // Never a step back: the old wake is the stale one, and a preferred time before it says nothing new.
   const lastWokeAt = state.settings.lastWokeAt;
   const offerPreferred =
     preferred !== undefined && (!lastWokeAt || new Date(preferred.at).getTime() > new Date(lastWokeAt).getTime());
-  const save = (at: string) => void field.attempt(() => saveEntityCommand(wakeCommand(state, at)));
+  const save = (at: string) => void press("wake", () => field.attempt(() => saveEntityCommand(wakeCommand(state, at))));
   return (
     <>
       {preferred && offerPreferred ? (
-        <Button size="sm" variant="secondary" disabled={saving} onClick={() => save(preferred.at)}>
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={isPending("wake")}
+          aria-busy={isPending("wake") || undefined}
+          onClick={() => save(preferred.at)}
+        >
           Woke at {wallClock(state.settings.preferredWakeTime)}
           {preferred.yesterday ? " yesterday" : ""}
         </Button>
@@ -96,7 +104,7 @@ function WakeAnswer({ state, now, timezone, saving, saveEntityCommand }: Ctx) {
       <Button
         size="sm"
         variant="secondary"
-        disabled={saving || field.value === ""}
+        disabled={isPending("wake") || field.value === ""}
         onClick={() => save(iso(field.value, timezone))}
       >
         Woke then

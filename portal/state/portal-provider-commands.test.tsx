@@ -117,12 +117,14 @@ describe("PortalProvider command resilience", () => {
         .recalculate()
         .catch(() => undefined);
     });
-    await waitFor(() => expect(resolvers.length).toBe(2));
+    // Commands are sent one at a time, in press order: the second waits for the first's answer.
+    await waitFor(() => expect(resolvers.length).toBe(1));
     const fail = { ok: false, status: 500, json: () => Promise.resolve({ error: "nope" }) } as unknown as Response;
     await act(async () => {
       resolvers[0]!(fail);
       await first;
     });
+    await waitFor(() => expect(resolvers.length).toBe(2));
     expect(portal().saving).toBe(true);
     await act(async () => {
       resolvers[1]!(fail);

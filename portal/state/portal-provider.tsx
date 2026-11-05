@@ -583,6 +583,8 @@ export function PortalProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<PortalState>(() => createSeedState(INITIAL_RENDER_TIME));
   const [ready, setReady] = useState(false);
   const [saving, setSaving] = useState(false);
+  /** Tail of the chain of commands waiting to be sent; see `runCommandJson`. */
+  const commandQueue = useRef<Promise<void>>(Promise.resolve());
   const [loadError, setLoadError] = useState("");
   // The first read failed and nothing real has loaded since: pages would only show the seed plan, which
   // reads as an empty one, so the shell shows the failure in their place until a read succeeds.
@@ -1093,9 +1095,17 @@ export function PortalProvider({ children }: { children: React.ReactNode }) {
         }
       };
       setSaveError("");
+      // Commands go to the server one at a time, in the order they were pressed. A press no longer disables the
+      // buttons around it, so two can overlap, and each answer carries the whole state: sent together, a slow
+      // first answer could land after a fast second one and put the older state back on screen.
+      const turn = commandQueue.current;
+      let release!: () => void;
+      commandQueue.current = new Promise<void>((resolve) => (release = resolve));
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), COMMAND_TIMEOUT_MS);
+      let timer: ReturnType<typeof setTimeout> | undefined;
       try {
+        await turn;
+        timer = setTimeout(() => controller.abort(), COMMAND_TIMEOUT_MS);
         const response = await fetch(path, {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -1111,7 +1121,8 @@ export function PortalProvider({ children }: { children: React.ReactNode }) {
         };
         if (!response.ok || !result.state) {
           if (response.status === 400 || response.status === 409) {
-            const refreshed = await fetch("/api/state")
+            // Bounded: a hung read here would hold the command queue, and with it every later press.
+            const refreshed = await fetch("/api/state", { signal: AbortSignal.timeout(COMMAND_TIMEOUT_MS) })
               .then((stateResponse) =>
                 stateResponse.ok ? (stateResponse.json() as Promise<{ state: PortalState | null }>) : null
               )
@@ -1153,6 +1164,7 @@ export function PortalProvider({ children }: { children: React.ReactNode }) {
       } finally {
         clearTimeout(timer);
         settle();
+        release();
       }
     },
     [adoptCommandState, followPlanRefresh, reloadState, showState]

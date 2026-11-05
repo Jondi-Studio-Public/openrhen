@@ -176,6 +176,15 @@ describe("FactNeeds", () => {
   describe("wake", () => {
     const wake = need({ fact: "wake", title: "Last wake", question: "Last woke 21 days ago. When did you wake up?" });
 
+    it("keeps the one-tap wake time pressable while another command saves, and sends a double tap once", () => {
+      const { saveEntityCommand } = mount([wake], { saving: true });
+      const button = screen.getByRole("button", { name: "Woke at 6:00 am" }) as HTMLButtonElement;
+      expect(button.disabled).toBe(false);
+      fireEvent.click(button);
+      fireEvent.click(button);
+      expect(saveEntityCommand).toHaveBeenCalledTimes(1);
+    });
+
     it("saves the preferred wake time as settings.lastWokeAt in one tap", () => {
       const { saveEntityCommand } = mount([wake]);
       expect(screen.getByText("Last woke 21 days ago. When did you wake up?")).toBeTruthy();

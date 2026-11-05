@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { createSeedState } from "@/state/portal-state";
-import { fireEvent, render, screen, within } from "@/test/render";
+import { fireEvent, render, screen, waitFor, within } from "@/test/render";
 import type { DeliverableDirective, DirectedDeliverable, NowCandidate } from "@/features/now/now-model";
 import { freezeClock } from "@/shared/clock";
 import { RecommendationPanel, recommendationKicker, travelKicker } from "./recommendation-panel";
@@ -142,6 +142,31 @@ describe("RecommendationPanel", () => {
     expect(screen.getByText(/^It fits before Dinner and reset at /)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Start" }));
     expect(onStartCurrent).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps Start and Not now pressable while another command is saving", () => {
+    const onStartCurrent = vi.fn().mockResolvedValue(undefined);
+    render(<RecommendationPanel {...props} saving onStartCurrent={onStartCurrent} />);
+    const start = screen.getByRole("button", { name: "Start" }) as HTMLButtonElement;
+    expect(start.disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Not now" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(start);
+    expect(onStartCurrent).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables only Start while its own command is in flight, and sends a double tap once", async () => {
+    let finish!: () => void;
+    const onStartCurrent = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)));
+    render(<RecommendationPanel {...props} onStartCurrent={onStartCurrent} />);
+    const start = screen.getByRole("button", { name: "Start" }) as HTMLButtonElement;
+    fireEvent.click(start);
+    fireEvent.click(start);
+    expect(onStartCurrent).toHaveBeenCalledTimes(1);
+    expect(start.disabled).toBe(true);
+    expect(start.getAttribute("aria-busy")).toBe("true");
+    expect((screen.getByRole("button", { name: "Not now" }) as HTMLButtonElement).disabled).toBe(false);
+    finish();
+    await waitFor(() => expect(start.disabled).toBe(false));
   });
 
   it("disables every Start while the plan is not current, leaving Not now available", () => {

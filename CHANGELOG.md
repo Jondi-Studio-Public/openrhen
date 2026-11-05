@@ -4,6 +4,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Changed
+
+- **Quicker portal presses**: large JSON answers are gzipped for clients that accept it, commands go to the server one at a time in press order, and Start, Refresh the plan and "Woke at" disable only themselves while their own command runs instead of every button on the page.
+
 ## [0.1.0] - 2026-11-05
 
 First public release.
