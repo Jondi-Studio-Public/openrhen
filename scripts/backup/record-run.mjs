@@ -32,10 +32,11 @@ export async function recordRun(sql, run) {
   const [owner] = await sql`SELECT id FROM users ORDER BY created_at LIMIT 1`;
   if (!owner) return false;
   const status = statusForRun(run.code, run.summary);
+  // Cast through text: a string parameter cast straight to jsonb is serialised again by postgres.js and stored as a jsonb string.
   const summary = JSON.stringify(summaryForRun(run.summary));
   await sql`
     INSERT INTO integration_sync_runs (user_id, provider, trigger, started_at, finished_at, status, summary)
-    VALUES (${owner.id}, 'backup', 'scheduled', ${run.startedAt}, ${run.finishedAt}, ${status}, ${summary}::jsonb)`;
+    VALUES (${owner.id}, 'backup', 'scheduled', ${run.startedAt}, ${run.finishedAt}, ${status}, ${summary}::text::jsonb)`;
   return true;
 }
 
