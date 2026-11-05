@@ -12,6 +12,17 @@ OpenRhen is pre-1.0 and built for one person per installation. It sends nothing 
 - [Building the plan](building-the-plan.md): Inbox, Plan, deliverables and Review.
 - [Settings and connections](settings-and-connections.md): Settings, Connections, Reports and the command line.
 
+## Your daily path
+
+Four habits cover most days. Each one is detailed in the guide linked.
+
+1. **Capture as things come up.** Tap the **+** (or **Capture** on a desk) and type the thought. It waits in **Inbox > Captured** as a proposal and changes nothing until you press **Add to plan** or **Change first**. See [Building the plan](building-the-plan.md#inbox).
+2. **Open Now and do what it says.** Check your place and energy, then press **Start** on the recommendation. **Done** or **Pause** ends the segment, and **How did it go?** asks what happened and what effort remains. If nothing fits, **Not now** and **Something else...** are there; the choice is recorded. See [Living the day](living-the-day.md#now).
+3. **Catch up after time away.** When you have been away, Now shows a **Welcome back** line and a catch-up. For each occurrence nobody recorded, pick Done, Skipped, Dropped or Keep open, then use **Settle and close**; the plan recalculates.
+4. **Do the weekly review.** Open **Review** (**Weekly review** in **Go to**; it shows **Due** when it is time). It walks through **Clear blockers**, **Wake up stale projects** and **Choose this week's undated focus**. See [Building the plan](building-the-plan.md#review).
+
+Something that has already taken your time goes in as a **Disruption**, straight into the day.
+
 ## Beginning
 
 1. Open **Settings** and confirm your timezone, planning horizon, energy meanings and conditions: the places you work, the equipment you use, the people you need. On **Now**, say where you are and what you have with you.
@@ -23,9 +34,7 @@ OpenRhen is pre-1.0 and built for one person per installation. It sends nothing 
 
 If **Now** says nothing fits, expand **Why nothing fits**. Usually you need more usable free time, a corrected condition or energy requirement on an action, or a missing dependency resolved.
 
-After time away, **Now** offers to settle the occurrences nobody recorded: pick Done, Skipped, Dropped or Keep open for each, then settle them together and the plan recalculates.
-
-On a phone, use the browser's **Add to Home Screen** to open OpenRhen full screen. It still needs the server to be reachable; nothing is cached for offline use.
+On a phone, use the browser's **Add to Home Screen** to open OpenRhen full screen. It still needs the server to be reachable; nothing is cached for offline use, and off localhost it needs https.
 
 ## Getting around
 

@@ -1,5 +1,7 @@
 # Locking down the API
 
+You need this when you want to reach OpenRhen from another device, or give a tool or agent access.
+
 With `OPENRHEN_OWNER_AUTH=off` (the default) the portal trusts its network, which is only safe when it listens on loopback. Before reaching it from other devices, switch to `require`.
 
 Under `require`, every API call needs one of: an owner credential (a signed-in browser's cookie, or an owner token in the `X-OpenRhen-Owner` header), a scoped agent token, or the route's own token (the worker's `X-OpenRhen-Worker` token on the few routes only it calls).
@@ -23,10 +25,4 @@ A few routes check their own secret instead: sign-in and session, the phone loca
 
 ## Agent tokens
 
-For tools and AI clients, create a scoped token instead of sharing an owner credential:
-
-```text
-rhen agent-token create --name my-tool --scopes read:plan,propose:capture
-```
-
-The token is shown once. Its scopes limit it by command and entity type; a missing scope is a 403 naming it, and an unknown, revoked or expired token is a 401. Revoke with `rhen agent-token revoke`. A token that is only allowed to propose files its change in the Inbox for you to confirm.
+For tools and AI clients, create a scoped token instead of sharing an owner credential. Creating, scoping and revoking them is described in [Auth](../protocol/auth.md#getting-an-agent-token).
