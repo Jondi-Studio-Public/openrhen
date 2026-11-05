@@ -11,6 +11,7 @@ import {
   pruneAgentWakes,
   runCheckInSchedulerTick,
   runLeaveByTick,
+  agentWakeRoutingFromEnv,
   sendNextAgentWake,
   validateAgentWakeUrl
 } from "@openrhen/database";
@@ -332,7 +333,8 @@ async function tickCheckInScheduler() {
 
 /**
  * Sends one queued agent wake. Gated like `tickCheckInScheduler`. Needs
- * `OPENCLAW_HOOKS_URL` and `OPENCLAW_HOOKS_TOKEN`; with either empty or the URL invalid it does nothing. The token
+ * `OPENCLAW_HOOKS_URL` and `OPENCLAW_HOOKS_TOKEN`; the optional `OPENCLAW_HOOKS_AGENT_ID`, `_CHANNEL`, `_ACCOUNT_ID`,
+ * `_TO` and `_SESSION_KEY` route the wake into the user's main chat session. With either empty or the URL invalid it does nothing. The token
  * is never logged.
  */
 async function tickAgentWake() {
@@ -357,7 +359,7 @@ async function tickAgentWake() {
       }
       return;
     }
-    await sendNextAgentWake(sql, { url, token, now });
+    await sendNextAgentWake(sql, { url, token, routing: agentWakeRoutingFromEnv(process.env), now });
   } catch (error) {
     process.stderr.write(
       `${JSON.stringify({ level: "error", message: "Agent wake tick failed", workerId, error: error instanceof Error ? error.message : "Unknown error" })}\n`

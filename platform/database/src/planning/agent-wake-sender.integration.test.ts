@@ -115,6 +115,28 @@ describe("sendNextAgentWake", () => {
     expect(row.last_error).toBe("HTTP 200");
   });
 
+  it("sends the configured routing so the wake lands in the main chat session", async () => {
+    const id = await makeCheckIn("unknown");
+    await enqueueAgentWake(sql, { userId, event: "check_in_unanswered", targetId: id, now });
+    const fetcher = okFetch();
+    await sendNextAgentWake(sql, {
+      url: URL_BASE,
+      token: TOKEN,
+      routing: { agentId: "mark", channel: "telegram", accountId: "mark", to: "12345", sessionKey: "agent:mark:main" },
+      fetchImpl: fetcher.impl,
+      now
+    });
+    const body = JSON.parse(fetcher.calls[0]!.init.body as string) as Record<string, string>;
+    expect(body).toMatchObject({
+      agentId: "mark",
+      channel: "telegram",
+      accountId: "mark",
+      to: "12345",
+      sessionKey: "agent:mark:main",
+      sessionMode: "persistent"
+    });
+  });
+
   it("makes exactly one POST when two ticks race", async () => {
     const id = await makeCheckIn("unknown");
     await enqueueAgentWake(sql, { userId, event: "check_in_unanswered", targetId: id, now });

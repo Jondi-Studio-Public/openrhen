@@ -51,6 +51,40 @@ export function validateAgentWakeUrl(raw: string): string | null {
   return text.replace(/\/+$/, "");
 }
 
+/** Where OpenClaw delivers a wake. Every field is optional; unset fields are left out of the hook body. */
+export interface AgentWakeRouting {
+  agentId?: string;
+  channel?: string;
+  accountId?: string;
+  to?: string;
+  sessionKey?: string;
+}
+
+/**
+ * Reads the routing from `OPENCLAW_HOOKS_AGENT_ID`, `_CHANNEL`, `_ACCOUNT_ID`, `_TO` and `_SESSION_KEY`.
+ * Blank values count as unset. With none set the hook starts an isolated session with no chat context.
+ */
+export function agentWakeRoutingFromEnv(env: Record<string, string | undefined>): AgentWakeRouting {
+  const read = (name: string) => env[`OPENCLAW_HOOKS_${name}`]?.trim() || undefined;
+  const routing: AgentWakeRouting = {};
+  const agentId = read("AGENT_ID");
+  const channel = read("CHANNEL");
+  const accountId = read("ACCOUNT_ID");
+  const to = read("TO");
+  const sessionKey = read("SESSION_KEY");
+  if (agentId) routing.agentId = agentId;
+  if (channel) routing.channel = channel;
+  if (accountId) routing.accountId = accountId;
+  if (to) routing.to = to;
+  if (sessionKey) routing.sessionKey = sessionKey;
+  return routing;
+}
+
+/** The JSON body for POST /hooks/agent. A session key also asks for a persistent session so the wake joins the chat. */
+export function buildAgentWakeBody(message: string, routing: AgentWakeRouting = {}): Record<string, string> {
+  return { message, name: "rhen", ...routing, ...(routing.sessionKey ? { sessionMode: "persistent" } : {}) };
+}
+
 interface WakeRow {
   id: string;
   event: AgentWakeEvent;
@@ -98,7 +132,7 @@ function isTimeout(error: unknown): boolean {
 
 export async function sendNextAgentWake(
   sql: postgres.Sql,
-  input: { url: string; token: string; fetchImpl?: typeof fetch; now?: Date }
+  input: { url: string; token: string; routing?: AgentWakeRouting; fetchImpl?: typeof fetch; now?: Date }
 ): Promise<AgentWakeSendResult> {
   const base = validateAgentWakeUrl(input.url);
   if (!base || !input.token) return { outcome: "none", dropped: 0 };
@@ -132,7 +166,7 @@ export async function sendNextAgentWake(
       const response = await fetchImpl(`${base}/hooks/agent`, {
         method: "POST",
         headers: { Authorization: `Bearer ${input.token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ message: agentWakeMessage(row.event, row.target_id), name: "rhen" }),
+        body: JSON.stringify(buildAgentWakeBody(agentWakeMessage(row.event, row.target_id), input.routing)),
         redirect: "error",
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
       });
