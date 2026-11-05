@@ -13,9 +13,9 @@ An add-on is a set of files that you keep outside OpenRhen and lay over it, so y
 | Write paths | A handler's plan-input writes, declared | `write-paths.json` beside the handler | `scripts/repository/addon-routes.mjs` |
 | Database | Tables of its own, migrated as a second set | `platform/database/addon-drizzle/` | The deploy migrator, and the integration suites (`addon-aware-migrate.ts`) |
 | Contracts | Agent scopes, route classes, MCP tools | `platform/contracts/src/private/index.ts` | The contracts package |
-| Other stubs | Portal, worker and CLI hooks | Each `private/index.ts` core ships empty | Imported by core |
+| Other stubs | Portal, worker and database hooks | The files in `scripts/repository/seams.json` | Imported by core |
 
-Only the contracts stub is used by the example; the others work the same way and are listed in "Single-slot stubs" below.
+The command line has its own drop-in (`tools/cli/extensions/<name>/command-module.ts`), not a stub. The seams core offers to any extension, tested or not, are listed in [Protocol](../protocol/README.md#seams); the stubs in "Single-slot stubs" below.
 
 ## Step by step
 
@@ -57,13 +57,13 @@ Which scripts read the merged model today: `scripts/setup/check-env.mjs` reads i
 - Wrap every handler in `withRoute("<its URL>", ...)`.
 - `nav.ts`, whose default export is a `NavExtension`, adds a palette entry. It may import types from `@/components/nav-extensions` only.
 - `write-paths.json` is needed only if a handler writes a plan-input table. It maps each path inside its own folder to `{ "class": "owner" | "helper", "reason": "..." }`. An add-on may not claim the exemptions core reserves, and a write to plan data goes through `recordStateChange`.
-- An API route is refused to agent tokens until you classify it. Register the route in the contracts stub with `registerContractsExtension({ id, knownScopes, routes })`. For remote MCP use a `portal/drop-ins/<id>/register.ts`.
+- An API route is refused to agent tokens until you classify it. Register the route in the contracts stub with `registerContractsExtension({ id, knownScopes, routes })`. For remote MCP use a `portal/drop-ins/<id>/register.ts` (a folder your add-on creates; core has none).
 
 Limits: `structure:check` fails when your URL can also be answered by a core route (a `[id]` segment counts as any one segment) or by another add-on file, so you cannot shadow a core page. Pages here share the portal's authentication and layout; they cannot change either. Tests named `*.test.ts` or `*.test.tsx` under the group run with the portal's unit suite.
 
 ## Single-slot stubs
 
-Some seams are lists in code rather than data, so core ships an empty file for each (`**/private/index.ts` and `scripts/*/private/index.mjs`). An add-on replaces the whole file. That is by design, and it means two add-ons cannot both use a stub: the layer that combines add-ons owns the file and imports each add-on's registration from it. Conformance allows exactly the files in `SINGLE_SLOT_STUBS` in `scripts/addon/conformance.mjs` to differ from core (today, `platform/contracts/src/private/index.ts`) and no other core file.
+Some seams are lists in code rather than data, so core ships an empty file for each (`**/private/index.ts` and `scripts/*/private/index.mjs`). An add-on replaces the whole file. That is by design, and it means two add-ons cannot both use a stub: the layer that combines add-ons owns the file and imports each add-on's registration from it. `scripts/repository/seams.json` is the one list of these files. Conformance does not yet accept all of them: it lets only `SINGLE_SLOT_STUBS` in `scripts/addon/conformance.mjs` differ from core (today, `platform/contracts/src/private/index.ts`), so a conformant add-on can use only the contracts stub for now.
 
 ## What an add-on must not do
 

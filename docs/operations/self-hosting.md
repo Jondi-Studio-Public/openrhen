@@ -1,5 +1,7 @@
 # Self-hosting
 
+You need this when you are installing OpenRhen, or moving it to another machine.
+
 Run OpenRhen on your own machine with Docker, or from source.
 
 ## Requirements

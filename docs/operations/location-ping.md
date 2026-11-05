@@ -1,5 +1,7 @@
 # Location ping
 
+You need this when you want a phone automation to tell OpenRhen where you are.
+
 `POST /api/location/ping` is the channel for a phone automation that reports your location when you arrive or leave somewhere. It is optional.
 
 The portal never trusts one reading alone. A ping either refreshes the staleness clock of the place you are already recorded at (the reading agrees), leaves a suggestion for Now to raise, or, after a sustained stay at a different saved place, updates your location. Readings coarser than 500 m never refresh or sustain a place, and two agreeing fixes more than an hour apart are not one stay.

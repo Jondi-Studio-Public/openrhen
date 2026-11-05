@@ -23,7 +23,7 @@ A seam is a place the core is meant to be extended without editing core files. A
 | Backup format | core | exists | `platform/database/src/operations/backup-format.test.ts` |
 | Example add-on and its CI job (`addon-conformance`) | core | exists | `scripts/addon/conformance.test.mjs` |
 
-For the recipe, see [Writing an add-on](../architecture/writing-an-addon.md) and [Writing a connection](../architecture/writing-a-connection.md).
+The single-slot stub files an add-on replaces (portal, worker, database, contracts) are listed once, in `scripts/repository/seams.json`; the add-on's own files (compose, env, pages, navigation, migrations) are in the recipe. For the recipe, see [Writing an add-on](../architecture/writing-an-addon.md) and [Writing a connection](../architecture/writing-a-connection.md).
 
 Tools an add-on adds to the agent surface go through the contracts extension registry; core owns every other tool.
 

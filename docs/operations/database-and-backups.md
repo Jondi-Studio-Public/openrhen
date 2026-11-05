@@ -1,5 +1,7 @@
 # Database and backups
 
+You need this when you are backing up, restoring or upgrading, or checking where your data lives.
+
 PostgreSQL 17 is OpenRhen's only store. Without a configured database the portal refuses to serve planning state.
 
 ## Connection
