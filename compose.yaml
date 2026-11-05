@@ -244,6 +244,11 @@ services:
       # Proactive agent wake: empty means the sender does nothing.
       OPENCLAW_HOOKS_URL: ${OPENCLAW_HOOKS_URL:-}
       OPENCLAW_HOOKS_TOKEN: ${OPENCLAW_HOOKS_TOKEN:-}
+      OPENCLAW_HOOKS_AGENT_ID: ${OPENCLAW_HOOKS_AGENT_ID:-}
+      OPENCLAW_HOOKS_CHANNEL: ${OPENCLAW_HOOKS_CHANNEL:-}
+      OPENCLAW_HOOKS_ACCOUNT_ID: ${OPENCLAW_HOOKS_ACCOUNT_ID:-}
+      OPENCLAW_HOOKS_TO: ${OPENCLAW_HOOKS_TO:-}
+      OPENCLAW_HOOKS_SESSION_KEY: ${OPENCLAW_HOOKS_SESSION_KEY:-}
     depends_on:
       engine-service:
         condition: service_healthy
