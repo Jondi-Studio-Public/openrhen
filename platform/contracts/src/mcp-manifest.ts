@@ -92,6 +92,9 @@ function withExtensionTools(core: readonly McpToolManifestEntry[]): McpToolManif
   return tools;
 }
 
+/** The generated core tools alone, before any extension adds its own (a size budget for core is measured on these). */
+export const MCP_CORE_TOOL_MANIFEST: readonly McpToolManifestEntry[] = MCP_TOOL_MANIFEST_DATA;
+
 export const MCP_TOOL_MANIFEST: readonly McpToolManifestEntry[] = withExtensionTools(MCP_TOOL_MANIFEST_DATA);
 
 /**

@@ -1185,6 +1185,7 @@ export { withoutContractsExtensions } from "./core-only.js";
 export type { ContractsExtension, FixedWriteRoute, FloorRule, RouteExtension } from "./extensions.js";
 export {
   MCP_SERVER_INSTRUCTIONS,
+  MCP_CORE_TOOL_MANIFEST,
   MCP_TOOL_MANIFEST,
   mcpManifestTool,
   mcpToolAllowed,
