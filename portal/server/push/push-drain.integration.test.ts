@@ -186,10 +186,10 @@ describe("runPushDrain", () => {
     );
     for (const key of ["reminder:1", "reminder:2", "reminder:3"]) await enqueue(key);
     sendPushViaProxyMock.mockImplementation(async () => {
-      await new Promise((resolveSend) => setTimeout(resolveSend, 60));
+      await new Promise((resolveSend) => setTimeout(resolveSend, 600));
       return { outcome: "delivered" };
     });
-    const result = await runPushDrain(sql as never, userId, { sendBudgetMs: 30 });
+    const result = await runPushDrain(sql as never, userId, { sendBudgetMs: 300 });
     expect(result).toMatchObject({ claimed: 3, sent: 1 });
     expect(sendPushViaProxyMock).toHaveBeenCalledTimes(1);
     const rows = await sql<{ status: string; attempts: number; ready: boolean }[]>`
