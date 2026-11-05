@@ -33,7 +33,8 @@ export const GET = withRoute(
         situation: state.currentSituation,
         conditionDefinitions: state.conditionDefinitions,
         now: new Date(),
-        commitments: state.commitments
+        commitments: state.commitments,
+        timeZone: state.settings.timezone
       });
       const conditionNames = new Map(state.conditionDefinitions.map((entry) => [entry.id, entry.name]));
       const readinessByStepId = new Map(readiness.steps.map((entry) => [entry.stepId, entry]));

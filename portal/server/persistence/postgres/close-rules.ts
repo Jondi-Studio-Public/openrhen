@@ -47,7 +47,7 @@ export async function assertNotRequiredByOpenWork(
     JOIN projects p ON p.id=ac.project_id
     JOIN outcomes o ON o.id=p.outcome_id
     JOIN areas ar ON ar.id=o.area_id
-    WHERE ar.user_id=${userId} AND req.context_key = ANY(${keys})
+    WHERE ar.user_id=${userId} AND req.context_key IN (${keys[0]!}, ${keys[1]!})
       AND ac.status NOT IN ('done','cancelled','archived')
     ORDER BY ac.title LIMIT 6`;
   if (!rows.length) return;

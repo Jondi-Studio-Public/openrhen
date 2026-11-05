@@ -78,6 +78,12 @@ describe("resolveRequires refuses", () => {
     expect(refusal.validValues?.ids).toContain("garage");
   });
 
+  it("a name that slugs to nothing gets a placeholder id, never an empty one", () => {
+    const refusal = fail(["李@with"]);
+    expect(refusal.nextCall).toMatchObject({ arguments: { id: "<lowercase-id>" } });
+    expect(refusal.message).not.toContain("@with or");
+  });
+
   it("an unknown bare id offers the same, but as a place or capability it cannot guess", () => {
     const refusal = fail(["shed"]);
     expect(refusal.message).toContain('"shed"');

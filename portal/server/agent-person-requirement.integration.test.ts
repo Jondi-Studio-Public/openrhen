@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { integrationDatabaseName } from "@openrhen/database";
 import { createSeedState } from "@/state/portal-state";
 import { refreshPlanning, setupStateStoreSuite, sql, unplannedStore } from "./persistence/postgres/state-store-harness";
+import { refuseDeletingReferencedRows } from "./persistence/postgres/delete-guard";
 import { FIXTURE_ZONE, connectAgent, contractClock, type AgentCall } from "./agent-contract-fixture";
 
 /**
@@ -235,6 +236,61 @@ describe("Mark's sentence over the MCP tools", () => {
     expect(archived.isError, archived.text).toBe(true);
     expect(archived.text).toContain("Build hive boxes");
     expect(archived.text).toContain("Nothing was archived");
+  });
+
+  it("keeps pete@with through a read-shape round trip, and an undo may not delete Pete while a step needs him", async () => {
+    const before = await hive();
+    const back = await call("rhen_save", {
+      entityType: "action",
+      id: before.id,
+      "expected-version": before.version,
+      fields: { requirementPathways: before.requirementPathways },
+      basis: "stated",
+      evidence: "No change to what it needs."
+    });
+    expect(back.isError, back.text).toBe(false);
+    expect(routes(await hive())).toEqual(routes(before));
+    expect(routes(await hive())[0]).toContain("pete@with");
+
+    const owner = await sql<{ id: string }[]>`SELECT id::text AS id FROM users LIMIT 1`;
+    await expect(
+      sql.begin((tx) =>
+        refuseDeletingReferencedRows(
+          tx as never,
+          [{ table: "condition_definitions", id: JSON.stringify([owner[0]!.id, "pete"]), before: null, after: null }],
+          () => null,
+          { kind: "A save", undoing: true, byAgent: false }
+        )
+      )
+    ).rejects.toThrow(/orphan/);
+  });
+
+  it("lets only the owner's words waive Pete for one step, and a waiver can be cleared", async () => {
+    const step = await hive();
+    const save = (waivers: Record<string, unknown>, claim: Record<string, unknown> = {}) =>
+      call("rhen_save", {
+        entityType: "current_availability",
+        fields: { currentEnergy: "medium", currentSituation: { locationId: "garage", waivers } },
+        ...claim
+      });
+    expect(await directive()).not.toBe("Build hive boxes");
+
+    const guess = await save({ [step.id]: ["pete"] });
+    expect(guess.isError).toBe(true);
+    expect(guess.text).toContain("owner's to say");
+    expect(await directive()).not.toBe("Build hive boxes");
+
+    const unknown = await save({ "no-such-step": ["pete"] }, { basis: "stated", evidence: "Do it without Pete." });
+    expect(unknown.isError).toBe(true);
+    expect(unknown.text).toContain("no-such-step");
+
+    const said = await save({ [step.id]: ["pete"] }, { basis: "stated", evidence: "Do it without Pete." });
+    expect(said.isError, said.text).toBe(false);
+    expect(await directive()).toBe("Build hive boxes");
+
+    const cleared = await save({ [step.id]: null });
+    expect(cleared.isError, cleared.text).toBe(false);
+    expect(await directive()).not.toBe("Build hive boxes");
   });
 
   it("refuses to flatten a step that offers either of two routes, and clears with an empty list", async () => {

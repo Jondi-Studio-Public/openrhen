@@ -1537,3 +1537,5 @@ export type {
 } from "./planning/stretch.js";
 
 export { ARCHIVE_OR_CANCEL_BRIEF, ARCHIVE_OR_CANCEL_FULL } from "./archive-cancel-text.js";
+export { doctorPeopleItems } from "./planning/doctor-people.js";
+export type { DoctorPeopleSlice } from "./planning/doctor-people.js";

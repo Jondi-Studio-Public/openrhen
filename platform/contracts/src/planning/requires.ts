@@ -96,7 +96,7 @@ export function resolveRequires(
     const definition = byId.get(parsed.id);
 
     if (!definition) {
-      const suggestion = suggestedId(parsed.id);
+      const suggestion = suggestedId(parsed.id) || "<lowercase-id>";
       const name = titleCase(parsed.id);
       problems.push({
         code: "unknown_id",

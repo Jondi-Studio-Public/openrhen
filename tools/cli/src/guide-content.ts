@@ -147,7 +147,7 @@ it from an action's requirementPathways the same as any other condition id. Give
 where you are — requirementPathways also accepts the read shape [{id, contextIds}] read back from the
 state document, so a stored action's pathways can be sent straight back unmodified.)
 
-Shorthand: "--set requires='[\"pete@with\"]'" on an action or step names the people or places needed in one route
+Shorthand: --set requires='["pete@with"]' on an action or step names the people or places needed in one route
 (key = id, id@with for in person, id@remote by message or call); it replaces the routes and is refused when
 several routes exist, an id is unknown, or a name has no contact yet: the refusal gives the exact next call.
 "--set requires=[]" clears it. Never guess an id.

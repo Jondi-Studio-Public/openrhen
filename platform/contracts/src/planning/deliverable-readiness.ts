@@ -114,6 +114,8 @@ export function assessDeliverable(args: {
   staleAfterMinutes?: number;
   /** Forwarded to `resolveSituation` for `commitment` contexts. Omit and every such context is unsatisfied. */
   commitments?: CommitmentWindow[];
+  /** The owner's zone, for a person's presence expiring at local midnight. Omit and it is UTC. */
+  timeZone?: string;
 }): DeliverableReadiness {
   const { deliverable } = args;
   const resolved = resolveSituation({
@@ -121,7 +123,8 @@ export function assessDeliverable(args: {
     definitions: args.conditionDefinitions,
     now: args.now,
     ...(args.staleAfterMinutes !== undefined ? { staleAfterMinutes: args.staleAfterMinutes } : {}),
-    ...(args.commitments !== undefined ? { commitments: args.commitments } : {})
+    ...(args.commitments !== undefined ? { commitments: args.commitments } : {}),
+    ...(args.timeZone !== undefined ? { timeZone: args.timeZone } : {})
   });
   const stepById = new Map(deliverable.steps.map((step) => [step.id, step]));
 
