@@ -124,6 +124,10 @@ export const proposeCommand: CommandSpec = {
         : result.outcome === "existing"
           ? "Already proposed"
           : "Proposed";
-    context.stdout(`${verb} ${result.proposal.id}: waiting for the person to confirm. See \`rhen proposals\`.`);
+    context.stdout(
+      `${verb} ${result.proposal.id}: waiting for the person to confirm. ${
+        context.mcp === true ? "See rhen_proposals {}." : "See `rhen proposals`."
+      }`
+    );
   }
 };

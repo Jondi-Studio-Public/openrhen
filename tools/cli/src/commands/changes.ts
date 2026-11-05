@@ -150,6 +150,11 @@ export const changesCommand: CommandSpec = {
       ["at", "actor", "operation", "entityType", "entityId", ...(withEvidence ? ["basis", "quote"] : [])],
       { timeZone }
     );
-    if (rows.cursor) context.stdout(`More: --before ${rows.cursor}`);
+    if (rows.cursor)
+      context.stdout(
+        context.mcp === true
+          ? `More: call rhen_changes again with the same arguments and "before": ${JSON.stringify(rows.cursor)}`
+          : `More: --before ${rows.cursor}`
+      );
   }
 };

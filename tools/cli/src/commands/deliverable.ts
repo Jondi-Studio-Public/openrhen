@@ -427,7 +427,7 @@ async function runExportSources(context: CommandContext, args: ParsedArgs, id: s
         {
           dryRun: true,
           path: `/api/deliverables/${id}/pack`,
-          note: "export-sources performs no write; --dry-run only skips fetching and writing files."
+          note: `export-sources performs no write; ${context.mcp === true ? "dry-run" : "--dry-run"} only skips fetching and writing files.`
         },
         true
       )

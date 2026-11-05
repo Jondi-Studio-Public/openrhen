@@ -170,14 +170,23 @@ export function toolName(spec: CommandSpec): string {
   return `rhen_${spec.name.replace(/-/g, "_")}`;
 }
 
+/** CLI flags named in prose are argument names to an MCP agent: `--by` is `by`. */
+const argumentWording = (text: string): string => text.replace(/(?<![\w-])--([a-z][a-z-]*)/g, "$1");
+
 /** `withExamples: false` leaves out the shell examples, for the remote manifest, whose clients have no `rhen` command. */
 export function toolDescription(spec: CommandSpec, withExamples = true): string {
   const prefix = spec.mutates ? "WRITES DATA. " : "";
-  const examples = withExamples ? spec.examples.slice(0, 2).map((example) => `rhen ${example}`) : [];
+  // Each example is a shell line; an MCP agent reads it as the tool call it stands for.
+  const examples = withExamples
+    ? spec.examples.slice(0, 2).flatMap((example) => {
+        const call = cliCommandToMcpCall(`rhen ${example}`);
+        return call === null ? [] : [formatAgentCall(call)];
+      })
+    : [];
   const examplesText = examples.length > 0 ? ` Examples: ${examples.join("; ")}` : "";
   // MCP arguments are JSON fields named without dashes (`fields`, not `--fields`), so the flags the CLI text
   // names become the argument names. The remote manifest (withExamples false) has its own text and keeps its own words.
-  const description = withExamples ? spec.description.replace(/(?<![\w-])--([a-z][a-z-]*)/g, "$1") : spec.description;
+  const description = withExamples ? argumentWording(spec.description) : spec.description;
   return `${prefix}${description}${examplesText}`;
 }
 
@@ -187,7 +196,7 @@ export function toolInputSchema(spec: CommandSpec): Record<string, unknown> {
   for (const positional of spec.positionals) {
     properties[positional.name] = {
       type: "string",
-      description: positional.description,
+      description: argumentWording(positional.description),
       ...(positional.enum ? { enum: [...positional.enum] } : {})
     };
     if (positional.required || positional.mcpRequired) required.push(positional.name);
@@ -212,7 +221,7 @@ export function toolInputSchema(spec: CommandSpec): Record<string, unknown> {
 
 /** One option's MCP property: its real JSON type when it declares one, else text, a flag or a list of text. */
 function optionProperty(option: OptionSpec): Record<string, unknown> {
-  const { description } = option;
+  const description = argumentWording(option.description);
   if (option.multiple) return { type: "array", items: { type: "string" }, description };
   const typed = option.mcp;
   if (typed?.type === "array") return { type: "array", items: { type: "object" }, description };
@@ -232,7 +241,7 @@ function buildTool(spec: CommandSpec): McpTool {
     name: toolName(spec),
     description: toolDescription(spec),
     inputSchema: toolInputSchema(spec),
-    annotations: toolAnnotations(spec)
+    annotations: { ...toolAnnotations(spec), title: argumentWording(spec.summary) }
   };
 }
 

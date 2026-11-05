@@ -18,9 +18,9 @@ type Direction = "undo" | "redo";
 /** What a remote `/mcp` agent can do about a refused undo: it has no `--force`, and the portal refuses it one. */
 const REMOTE_ALTERNATIVE = "Ask the owner to undo it from Review > Agent changes, or make a fresh save.";
 
-/** An agent on the portal's remote `/mcp`: it cannot pass `--force`, and the owner's in-process runs can. */
+/** An agent on the portal's remote `/mcp` or the stdio server: it cannot pass `--force`, and the owner's in-process runs can. */
 function remoteAgent(context: CommandContext): boolean {
-  return context.remote === true && context.byOwner !== true;
+  return (context.remote === true || context.mcp === true) && context.byOwner !== true;
 }
 
 /** The way past a refusal: `--force` for a person at the CLI, the owner or a fresh save for a remote agent. */
@@ -230,7 +230,9 @@ async function applyServerChecked(
 
 function reportDone(context: CommandContext, entry: JournalEntry, direction: Direction): void {
   const message =
-    direction === "undo" ? `Undone: ${entry.label}. Run \`rhen redo\` to put it back.` : `Redone: ${entry.label}.`;
+    direction === "undo"
+      ? `Undone: ${entry.label}. Run ${context.mcp === true ? 'rhen_undo {"redo":true}' : "`rhen redo`"} to put it back.`
+      : `Redone: ${entry.label}.`;
   if (context.mode !== "table") context.stdout(toJson({ ok: true, direction, id: entry.id, label: entry.label }, true));
   else context.stdout(message);
 }
