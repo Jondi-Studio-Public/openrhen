@@ -161,9 +161,12 @@ function attentionLine(reply: unknown): AttentionLine | undefined {
   if (typeof reply !== "object" || reply === null) return undefined;
   const counts = reply as Record<string, unknown>;
   const { viewer, healthBlocking, sourcesFailed, decided } = counts;
+  const open = counts.checkInOpen ?? 0;
+  const dueNow = counts.catchUpDue ?? 0;
   const whole = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0;
   if (viewer !== "agent" || !whole(healthBlocking) || !whole(sourcesFailed) || !whole(decided)) return undefined;
-  const now = healthBlocking + sourcesFailed;
+  if (!whole(open) || !whole(dueNow)) return undefined;
+  const now = healthBlocking + sourcesFailed + open + dueNow;
   return now > 0 || decided > 0 ? { now, decided, call: "rhen_attention" } : undefined;
 }
 
@@ -1114,8 +1117,8 @@ export const statusCommand: CommandSpec = {
     "<placeholder>; answer.action is only a label) and whether the " +
     "directive waits on it), the engine's directive with its reason, why not the runner-up, what would change it (wouldChangeIf, often empty; guide topic reading-data), when it " +
     "ends, tonight's sleep errors and stay-up offer; then what is at risk, the rest of today hour by hour, the " +
-    "active session, commitments, what is done and any pending check-in. Read this rather than state. Reading the " +
-    "check-in marks it as prompted, exactly as opening the portal does. Tell the person `answer`: it is the directive " +
+    "active session, commitments, what is done and any pending check-in. Read this rather than state. Reading it " +
+    "leaves the check-in unprompted. Tell the person `answer`: it is the directive " +
     "on the clock; recommendation.headline speaks only for the ranked task list and can say nothing fits while the " +
     "directive is a routine step. If the answer has attention, call rhen_attention once; call it again this " +
     "session only if now or decided is higher than last time, or once to retry a failed source.",
@@ -1135,10 +1138,10 @@ export const statusCommand: CommandSpec = {
     const brief = booleanOption(args.values, "brief");
     let checkIn: unknown = null;
     let checkInError: string | undefined;
-    // Reading the current check-in marks it as prompted, so the digest — which never shows it — leaves it alone.
+    // Peeking leaves the check-in unstamped: an agent reading status must not push the owner toward a pulse lapse.
     if (!brief) {
       try {
-        const response = await context.client.get<{ checkIn: unknown }>("/api/check-ins/current");
+        const response = await context.client.get<{ checkIn: unknown }>("/api/check-ins/current?peek=1");
         checkIn = response?.checkIn ?? null;
       } catch (error) {
         checkIn = null;

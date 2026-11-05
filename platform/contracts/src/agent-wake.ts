@@ -40,7 +40,7 @@ const COMMON_RULES = [
 const CHECK_IN_TEXT = [
   `${AGENT_WAKE_MARKER} The owner left a check-in unanswered for 10 minutes (check-in ${"${id}"}).`,
   COMMON_RULES,
-  "Step 1: call rhen_status. Do this only now, because reading it marks the check-in as shown. Its pending check-in says what the plan expects. If none is pending, stop.",
+  "Step 1: call rhen_status. Do this only now; it does not mark the check-in as shown. Its pending check-in says what the plan expects. If none is pending, stop.",
   'Step 2: ask the owner, for example "Still on <the title from quoted>?".',
   'Step 3: record their words with rhen_check_in {"status": "on-track" or "deviated" or "unknown", "basis": "stated", "evidence": "<their own words, one line, at most 300 characters>", "command-id": "<a new uuid>"}.',
   'If they are doing something else, use status "deviated" with "category" (work, family, life_admin or other), then call rhen_disrupt with no options and follow what it asks for (doing, until, location, contexts, exclusive).',
@@ -60,7 +60,7 @@ const LAPSE_TEXT = [
 const UNKNOWN_TEXT = [
   `${AGENT_WAKE_MARKER} OpenRhen lost track of what the owner is doing a few minutes ago (the pulse went unknown at ${"${id}"}).`,
   COMMON_RULES,
-  "Step 1: call rhen_status. Do this only now, because reading it marks the check-in as shown. Read its directive and any pending check-in.",
+  "Step 1: call rhen_status. Do this only now; it does not mark the check-in as shown. Read its directive and any pending check-in.",
   'Step 2: ask the owner a short question, for example "Are you doing <the title from quoted>?".',
   'Step 3: if rhen_status shows a pending check-in, record their words with rhen_check_in {"status": "on-track" or "deviated" or "unknown", "basis": "stated", "evidence": "<their own words, one line, at most 300 characters>", "command-id": "<a new uuid>"}.',
   "If they are doing something else, call rhen_disrupt with no options and follow what it asks for.",

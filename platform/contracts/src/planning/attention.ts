@@ -680,8 +680,7 @@ export function checkInOpenItem(input: {
   const handles = isAttentionUuid(input.checkInId) ? validAttentionHandles([`check-in:${input.checkInId}@${at}`]) : [];
   const why = canRecord
     ? `A check-in is open since ${minutes(at)}. If your status read showed checkIn, ask from there. Otherwise read ` +
-      "full rhen_status only in the turn you will ask the owner: reading it marks the question as shown, and a " +
-      `shown question left unanswered counts toward the pulse lapsing. ${OWNER_PRESENT_CLAUSE}: ask; with no one present, do nothing.`
+      `full rhen_status; it does not mark the question shown. ${OWNER_PRESENT_CLAUSE}: ask; with no one present, do nothing.`
     : `A check-in is open since ${minutes(at)}. This token cannot record the answer. ${OWNER_PRESENT_CLAUSE}: say the ` +
       "askOwner words once; with no one present, do nothing.";
   return {

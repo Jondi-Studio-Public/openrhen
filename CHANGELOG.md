@@ -6,6 +6,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Changed
 
+- **Agents reading status no longer count as the owner seeing a check-in**: `status` peeks at the open check-in without marking it shown (so it cannot push the pulse toward a lapse), and its attention count now includes an open check-in and a due catch-up, matching `rhen_attention`.
 - **Quicker portal presses**: large JSON answers are gzipped for clients that accept it, commands go to the server one at a time in press order, and Start, Refresh the plan and "Woke at" disable only themselves while their own command runs instead of every button on the page.
 
 ## [0.1.0] - 2026-11-05

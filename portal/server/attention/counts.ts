@@ -5,13 +5,18 @@ import type { AttentionRequest } from "./read-attention";
 
 /**
  * The counts the status block needs (`GET /api/attention?counts=1`, the design notes):
- * how many blocking data-health items there are, how many sources failed, and how many of this agent's proposals the
- * owner decided since its previous session. It reads nothing else: no check-in, no catch-up entries, no pulse view,
- * and it runs no `expireOld`.
+ * how many blocking data-health items there are, whether a check-in is open or a catch-up is due, how many sources
+ * failed, and how many of this agent's proposals the owner decided since its previous session. `healthBlocking +
+ * sourcesFailed + checkInOpen + catchUpDue` is the feed's `counts.now`. The check-in is read from the ledger entries,
+ * which never stamp `prompted_at`. It reads no pulse view and runs no `expireOld`.
  */
 export interface AttentionStatusCounts {
   viewer: "agent" | "owner";
   healthBlocking: number;
+  /** 1 when a check-in is open, as the feed's `check_in_open` item; 0 otherwise. */
+  checkInOpen: number;
+  /** 1 when a catch-up is due, as the feed's `catch_up_due` item; 0 otherwise. */
+  catchUpDue: number;
   sourcesFailed: number;
   decided: number;
 }
@@ -58,8 +63,20 @@ export async function readAttentionCounts(
   const decidedP: Promise<number> =
     agent !== null && canReadProposals(held) ? readers.decided(userId, agent) : Promise.resolve(0);
 
-  const [doctor, decided] = await Promise.allSettled([healthBlockingP, decidedP]);
+  const entriesP = readers.entries(userId, now);
+  const dueP = entriesP.then((entries) => readers.due(userId, now, entries));
+
+  const [doctor, decided, entries, due] = await Promise.allSettled([healthBlockingP, decidedP, entriesP, dueP]);
   let sourcesFailed = 0;
+  // As the feed: an unreadable ledger is one unavailable item for the check-in and one for the catch-up.
+  if (entries.status === "rejected") {
+    sourcesFailed += 1;
+    logSourceFailure("check-in", entries.reason);
+  }
+  if (due.status === "rejected") {
+    sourcesFailed += 1;
+    logSourceFailure("catch-up", due.reason);
+  }
   if (doctor.status === "rejected") {
     sourcesFailed += 1;
     logSourceFailure("doctor", doctor.reason);
@@ -71,6 +88,8 @@ export async function readAttentionCounts(
   return {
     viewer: agent === null ? "owner" : "agent",
     healthBlocking: doctor.status === "fulfilled" ? doctor.value : 0,
+    checkInOpen: entries.status === "fulfilled" && entries.value.some((entry) => entry.kind === "check_in") ? 1 : 0,
+    catchUpDue: due.status === "fulfilled" && due.value.due ? 1 : 0,
     sourcesFailed,
     decided: decided.status === "fulfilled" ? decided.value : 0
   };

@@ -281,6 +281,15 @@ describe("readCurrentCheckIn", () => {
     expect(first!.promptedAt).not.toBeNull();
   });
 
+  it("leaves prompted_at null on a peek, and a later stamping read still stamps it", async () => {
+    const row = await insertCheckIn({ directiveTitle: "Write the report" });
+    const peeked = await readCurrentCheckIn(sql, userId, { stamp: false });
+    expect(peeked).toMatchObject({ id: row.id, status: "pending", promptedAt: null });
+    const [stored] = await sql<{ prompted_at: Date | null }[]>`SELECT prompted_at FROM check_in WHERE id=${row.id}`;
+    expect(stored!.prompted_at).toBeNull();
+    expect((await readCurrentCheckIn(sql, userId))!.promptedAt).not.toBeNull();
+  });
+
   it("surfaces the most recent unknown slot for catch-up", async () => {
     await insertCheckIn({ status: "unknown" });
     const current = await readCurrentCheckIn(sql, userId);

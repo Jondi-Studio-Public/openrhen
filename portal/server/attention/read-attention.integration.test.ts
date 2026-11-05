@@ -417,6 +417,20 @@ describe("the counts for the status block", () => {
   });
 });
 
+describe("the counts agree with the feed over a real open check-in", () => {
+  it("count the open check-in as the feed does, without stamping it", async () => {
+    await failingSync();
+    const checkInId = await openCheckIn();
+    const counts = await readAttentionCounts(sql, { agent: "scribe", scopes: undefined });
+    const answer = await feed();
+    expect(counts.checkInOpen).toBe(1);
+    expect(counts.healthBlocking + counts.sourcesFailed + counts.checkInOpen + counts.catchUpDue).toBe(
+      answer.counts.now
+    );
+    expect((await sql`SELECT prompted_at FROM check_in WHERE id=${checkInId}`)[0]!.prompted_at).toBeNull();
+  });
+});
+
 describe("the four presets over a real fixture", () => {
   it.each(["read-only", "scribe", "assistant"])("%s: every pointer is safe to follow", async (name) => {
     await failingSync();
