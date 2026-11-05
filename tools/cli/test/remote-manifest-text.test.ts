@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
  * outcomes, the command id, what a disruption changes, the shapes of the two route fields) so a rewrite that
  * drops one fails here. The text lives in `tools/cli/src/remote-text.ts`; regenerate with `pnpm --filter @openrhen/cli manifest`.
  */
-type Property = { description?: string; properties?: Record<string, Property> };
+type Property = { type?: string; description?: string; properties?: Record<string, Property> };
 
 const tool = (name: string) => {
   const found = MCP_TOOL_MANIFEST.find((candidate) => candidate.name === name);
@@ -53,6 +53,16 @@ describe("rhen_disrupt text", () => {
     expect(description).not.toMatch(/routes? around/i);
     expect(description).toMatch(/pulse/i);
     expect(description).toMatch(/does not change the plan, a commitment or the headline/i);
+    // The pulse-only statement points at the call that does free a commitment's time, in full and with its next call.
+    expect(description).toContain("rhen_save_commitment {fields:{id,free:true}}, then rhen_status");
+  });
+
+  it("describes free on the commitment save as the one way to release a running commitment", () => {
+    const fields = tool("rhen_save_commitment").inputSchema.properties as Record<string, Property>;
+    const free = (fields.fields as unknown as { properties: Record<string, Property> }).properties.free;
+    expect(free?.type).toBe("boolean");
+    expect(free?.description).toMatch(/nothing ends/);
+    expect(free?.description).toMatch(/rhen_status/);
   });
 });
 

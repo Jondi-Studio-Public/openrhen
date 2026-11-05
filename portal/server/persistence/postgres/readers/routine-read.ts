@@ -66,6 +66,7 @@ export async function readCommitmentsAndRoutines(sql: Sql, userId: string): Prom
       | "preferred_location_id"
       | "private"
       | "check_in_extra_minutes"
+      | "freed_from"
     > &
       LeftJoined<Row<typeof sources, "source_type">> & {
         status: Commitment["status"];
@@ -83,7 +84,7 @@ export async function readCommitmentsAndRoutines(sql: Sql, userId: string): Prom
         sources: { id: string; provider: CommitmentSource["provider"]; role: CommitmentSource["role"] }[] | null;
       })[]
   >`
-      SELECT c.id, c.version, c.title, c.starts_at, c.ends_at, c.status, c.location, c.location_id, c.setup_before_minutes, c.transition_after_minutes, c.recurrence_rule_id, c.local_date, c.project_id, c.presence, c.share_to_calendar, c.share_source, c.prompt_policy, c.routine_source, c.routine_preset_id, c.origin, c.disruption_source, c.disruption_open_ended, c.landed_at, c.created_at, c.updated_at, s.source_type, s.title AS source_title, c.schedule_source, c.lateness_matters, c.transport_mode, c.contact_id, c.attendance, c.preferred_location_id, c.private, c.check_in_extra_minutes,
+      SELECT c.id, c.version, c.title, c.starts_at, c.ends_at, c.status, c.location, c.location_id, c.setup_before_minutes, c.transition_after_minutes, c.recurrence_rule_id, c.local_date, c.project_id, c.presence, c.share_to_calendar, c.share_source, c.prompt_policy, c.routine_source, c.routine_preset_id, c.origin, c.disruption_source, c.disruption_open_ended, c.landed_at, c.created_at, c.updated_at, s.source_type, s.title AS source_title, c.schedule_source, c.lateness_matters, c.transport_mode, c.contact_id, c.attendance, c.preferred_location_id, c.private, c.check_in_extra_minutes, c.freed_from,
         (SELECT json_agg(json_build_object('id', l.id, 'provider', l.provider, 'role', l.role) ORDER BY l.created_at, l.id) FROM calendar_event_links l WHERE l.user_id=c.user_id AND l.commitment_id=c.id) AS sources,
         -- Overtime is the commitment itself running long: a session that began before the scheduled end
         -- and ran past it. One begun after the end is the transition or the drive back being tracked,
@@ -207,6 +208,9 @@ export async function readCommitmentsAndRoutines(sql: Sql, userId: string): Prom
       // session is a separate signal the engine reads from `state.activeSession` directly (see
       // `effectiveCommitmentEnd`, engine/core/src/model/types.ts).
       ...(row.tracked_ended_at ? { trackedEndedAt: row.tracked_ended_at.toISOString() } : {}),
+      // "I'm free" (`freed_from`): read for every row, recurring and feed occurrences included, because the
+      // engine overlays it onto the regenerated occurrence whether or not the row is `custom`.
+      ...(row.freed_from ? { freedFrom: row.freed_from.toISOString() } : {}),
       ...(row.private ? { private: true } : {}),
       ...(row.check_in_extra_minutes != null ? { checkInExtraMinutes: row.check_in_extra_minutes } : {}),
       ...(row.sources?.length ? { sources: row.sources } : {})

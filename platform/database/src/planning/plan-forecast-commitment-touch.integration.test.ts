@@ -161,3 +161,30 @@ describe("persistDerivedState — commitment occurrence upsert leaves unchanged 
     expect(fourth.get(ids[0]!)!.updated_at.getTime()).toBe(byId.get(ids[0]!)!.updated_at.getTime());
   });
 });
+
+// "I'm free" is a per-occurrence fact stored on the materialised row. The replan upserts only the columns it
+// lists, so the statement survives a replan that re-materialises the same occurrence.
+describe("persistDerivedState — freed_from survives re-materialisation", () => {
+  it("keeps freed_from (and the row's version and updated_at) when the planner re-upserts the occurrence", async () => {
+    const id = crypto.randomUUID();
+    const starts = new Date(now.getTime() - 2 * HOUR);
+    await persistDerivedState(sql, userId, resultWith([occurrence(id, starts)]));
+    const freedAt = new Date(now.getTime() - HOUR);
+    await sql`UPDATE commitments SET freed_from=${freedAt} WHERE id=${id}`;
+    const before = await rowsOf([id]);
+
+    await new Promise((done) => setTimeout(done, 20));
+    // The same occurrence with a changed title: the inheriting row takes the planner's value, the statement stays.
+    await persistDerivedState(
+      sql,
+      userId,
+      resultWith([{ ...occurrence(id, starts), title: "Renamed Class" }], new Date(now.getTime() + HOUR))
+    );
+    const after = await sql<
+      { title: string; freed_from: Date | null }[]
+    >`SELECT title,freed_from FROM commitments WHERE id=${id}`;
+    expect(after[0]!.title).toBe("Renamed Class");
+    expect(after[0]!.freed_from?.getTime()).toBe(freedAt.getTime());
+    expect(before).toHaveLength(1);
+  });
+});

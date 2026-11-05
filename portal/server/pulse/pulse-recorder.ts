@@ -12,6 +12,7 @@ import {
   type ContactEvent,
   type ContactSource,
   type ExpectedSilenceWindow,
+  commitmentFreedAt,
   type JudgeCheckIn,
   type JudgeDayPlanBlock,
   type JudgeDirective,
@@ -236,9 +237,12 @@ async function gatherJudgeInput(sql: TxSql, userId: string, now: Date, timeZone:
   }));
 
   const commitmentTimelines = plan?.derivedState.commitmentTimelines ?? [];
-  const commitmentRows = await sql<{ id: string; title: string; location_id: string | null }[]>`
-    SELECT id, title, location_id FROM commitments WHERE user_id=${userId}
+  const commitmentRows = await sql<
+    { id: string; title: string; location_id: string | null; freed_from: Date | null }[]
+  >`
+    SELECT id, title, location_id, freed_from FROM commitments WHERE user_id=${userId}
   `;
+  const commitmentFreedFromById = new Map(commitmentRows.map((row) => [row.id, row.freed_from]));
   const commitmentTitleById = new Map(commitmentRows.map((row) => [row.id, row.title]));
   const commitmentLocationById = new Map(commitmentRows.map((row) => [row.id, row.location_id]));
 
@@ -260,7 +264,15 @@ async function gatherJudgeInput(sql: TxSql, userId: string, now: Date, timeZone:
   for (const timeline of commitmentTimelines) {
     const startsAt = new Date(timeline.setupStartsAt).getTime();
     const endsAt = new Date(timeline.freeAt).getTime();
-    if (startsAt <= nowMs && nowMs < endsAt) {
+    // "I'm free": the person released the rest of this occurrence, so it is no longer the plan and doing
+    // the recommended task is on plan. Setup before the start and the transition after the effective
+    // end still count (`commitmentFreedAt` is true only between the two).
+    const freed = commitmentFreedAt({
+      now,
+      freedFrom: commitmentFreedFromById.get(timeline.id) ?? null,
+      effectiveEndsAt: timeline.effectiveEndsAt
+    });
+    if (startsAt <= nowMs && nowMs < endsAt && !freed) {
       protectedInForce.push({
         kind: "commitment",
         id: timeline.id,
@@ -622,6 +634,7 @@ async function resolveSilence(
     SELECT starts_at, ends_at, prompt_policy FROM commitments
     WHERE user_id=${userId} AND status <> 'cancelled' AND prompt_policy='silent'
       AND starts_at <= ${now} AND ends_at > ${since}
+      AND (freed_from IS NULL OR freed_from > ${now})
   `;
   const sleepRows = await tx<
     {

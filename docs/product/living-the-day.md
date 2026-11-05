@@ -95,6 +95,8 @@ A fixed commitment removes time from capacity. Enter its title, start and end, p
 
 The **place** is one of your saved places (naming it lets the planner work out the journey). You can also set the project the time belongs to, whether you are **fully occupied** or **free to do other things** while there, and how often check-ins interrupt. A commitment can **repeat**: every N days, every N weeks on chosen weekdays, or monthly. A single date in a series can be edited or cancelled without touching the rest.
 
+**I'm free.** When a confirmed commitment is running and you are done with it early, press **I'm free** on its Now block (or `rhen free <id>`, or an agent saves `free: true`). The planner stops treating the rest of it as taken and recommends your next task at once; nothing is ended, moved or deleted, and the block stays on your plan until its end. It is not leaving: nothing is recorded about when you left. **Undo** puts the hold back. Until the planner has recalculated, the button shows a pending line. A commitment shared with your family calendar is only freed after you confirm an agent's request.
+
 Now and Day show a line when an agent has closed (archived or cancelled) something in the last 24 hours; it links to **Review > Closed**, where each item can be restored. Opening that page on a device clears the line there.
 
 ## History

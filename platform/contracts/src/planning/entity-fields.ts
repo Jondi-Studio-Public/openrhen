@@ -237,13 +237,11 @@ const commitmentSchema = entity({
   setupBeforeMinutes: minutes
     .optional()
     .describe("Setup minutes before. Omitted: owner default on create, stored kept on update; 0 = none."),
-  transitionAfterMinutes: minutes
-    .optional()
-    .describe("Wind-down minutes after. Omitted: owner default on create, stored kept on update; 0 = none."),
+  transitionAfterMinutes: minutes.optional().describe("Wind-down minutes after. Omitted: as setupBeforeMinutes."),
   location: clearableText.describe("Free-text place label."),
   locationId: clearableText.describe("Id of an active location context (condition definition)."),
   projectId: clearableText,
-  contactId: clearableText.describe("Id of a contact context; an empty string clears it, leaving it out keeps it."),
+  contactId: clearableText.describe("Id of a contact context; an empty string clears it, omitted keeps it."),
   presence: z
     .enum(["blocking", "anchor"])
     .optional()
@@ -257,7 +255,7 @@ const commitmentSchema = entity({
     .nullable()
     .optional()
     .describe(
-      "Minutes added to the pulse's unknown-to-lapsed limits while it is in force (default 15); null clears it back to the default, leaving it out keeps it."
+      "Minutes added to the pulse's unknown-to-lapsed limits while in force (default 15); null restores the default, omitted keeps it."
     ),
   shareToCalendar: z.boolean().optional().describe("Publish to the family calendar."),
   latenessMatters: z.boolean().optional(),
@@ -280,11 +278,17 @@ const commitmentSchema = entity({
     .optional()
     .describe("Only with origin disruption."),
   disruptionOpenEnded: z.boolean().optional().describe("The end time is a guess."),
-  landedAt: optionalDateTime("When the disruption was reported"),
+  landedAt: dateTime.optional().describe("When the disruption was reported (ISO 8601 with offset)."),
   scheduleSource: z
     .enum(["inherit", "custom"])
     .optional()
-    .describe("Send inherit to reattach an edited occurrence to its recurring series.")
+    .describe("Send inherit to reattach an edited occurrence to its recurring series."),
+  free: z
+    .boolean()
+    .optional()
+    .describe(
+      "true: the owner is free now; the planner stops treating the rest as taken (nothing ends; not for leaving). Send only id and free, then call rhen_status. false undoes."
+    )
 });
 
 const captureSchema = entity({

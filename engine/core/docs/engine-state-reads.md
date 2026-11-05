@@ -23,7 +23,7 @@ UPDATE_ENGINE_STATE_READS=1 corepack pnpm --filter @openrhen/engine-core exec vi
 
 ### `state.commitments`
 
-`[].attendance`, `[].endsAt`, `[].id`, `[].latenessMatters`, `[].location`, `[].locationId`, `[].preferredLocationId`, `[].presence`, `[].recurrenceRuleId`, `[].routinePresetId`, `[].routineSource`, `[].scheduleSource`, `[].setupBeforeMinutes`, `[].startsAt`, `[].status`, `[].title`, `[].trackedEndedAt`, `[].transitionAfterMinutes`, `[].transportMode`
+`[].attendance`, `[].endsAt`, `[].freedFrom`, `[].id`, `[].latenessMatters`, `[].location`, `[].locationId`, `[].preferredLocationId`, `[].presence`, `[].recurrenceRuleId`, `[].routinePresetId`, `[].routineSource`, `[].scheduleSource`, `[].setupBeforeMinutes`, `[].startsAt`, `[].status`, `[].title`, `[].trackedEndedAt`, `[].transitionAfterMinutes`, `[].transportMode`
 
 ### `state.conditionDefinitions`
 

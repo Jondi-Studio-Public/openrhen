@@ -635,6 +635,13 @@ export const commitmentSchema = z.object({
    * exactly.
    */
   trackedEndedAt: isoDateTime.optional(),
+  /**
+   * "I'm free": from this instant the person has released the rest of this occurrence to the planner.
+   * Read from `commitments.freed_from`; the commitment is not ended, finished, moved or cancelled.
+   * Carried for a recurring or feed occurrence's stored row whether or not it is `custom`. Absent
+   * means not freed.
+   */
+  freedFrom: isoDateTime.optional(),
   /** Effective privacy is this OR the recurrence rule's — see `areaSchema.private`. Absent means false. */
   private: z.boolean().optional(),
   /**

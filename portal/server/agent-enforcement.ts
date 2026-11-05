@@ -256,6 +256,10 @@ export function proposalSummary(
   // A restore puts a replaced capture back in review and keeps its stored fields; the rest of the request is ignored.
   if (command === "save_entity" && kind === "capture" && entity?.restore === true)
     text = `Restore ${subject}: status → pending (other fields kept)`;
+  else if (command === "save_entity" && kind === "commitment" && typeof entity?.free === "boolean")
+    text = entity.free
+      ? `Free the person from ${subject}: the planner treats the rest of this occurrence as free time (nothing is ended or moved)`
+      : `Undo free on ${subject}: it holds its time again`;
   else if (created) text = `Create ${subject}`;
   // Only a span or a logged night is removed by `remove`; every other save drops the flag and updates.
   else if (command === "save_entity" && (kind === "span" || kind === "sleep_log_entry") && entity?.remove === true)

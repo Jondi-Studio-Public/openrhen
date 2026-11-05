@@ -1272,3 +1272,45 @@ describe("the pulse_unknown agent wake", () => {
     expect((await wakes())[0]).toMatchObject({ status: "dead", last_error: "cancelled" });
   });
 });
+
+describe("a commitment the person said they are free from", () => {
+  it("is no longer the plan: the pulse stops expecting the commitment once freed_from has passed", async () => {
+    const t0 = new Date(MIDDAY);
+    await seedHistory(t0);
+    const commitmentId = await createLocatedCommitmentInForce(t0, "pitch", "Soccer", { startedAgoMinutes: 120 });
+    await runPulseRecorderTick(sql, t0);
+    // Unfreed: the located commitment is the plan and nothing says he is there, so it is what the pulse expects.
+    expect((await openSegment())?.expected_id).toBe(commitmentId);
+
+    await sql`UPDATE commitments SET freed_from=${at(t0, 1)} WHERE id=${commitmentId}`;
+    await runPulseRecorderTick(sql, at(t0, 2));
+    const open = await openSegment();
+    expect(open?.expected_id).toBeNull();
+    expect(open?.state).not.toBe("off");
+  });
+
+  it("still holds the commitment before freed_from, and again from its effective end for the time after", async () => {
+    const t0 = new Date(MIDDAY);
+    await seedHistory(t0);
+    const commitmentId = await createLocatedCommitmentInForce(t0, "pitch", "Soccer", { startedAgoMinutes: 120 });
+    // Said in the future of this tick: not yet in force.
+    await sql`UPDATE commitments SET freed_from=${at(t0, 10)} WHERE id=${commitmentId}`;
+    await runPulseRecorderTick(sql, t0);
+    expect((await openSegment())?.expected_id).toBe(commitmentId);
+  });
+
+  it("ends the expected silence of a silent commitment, so a lapse is not covered for the rest of its shift", async () => {
+    const t0 = new Date(MIDDAY);
+    await seedHistory(t0);
+    const commitmentId = await createLocatedCommitmentInForce(t0, "work", "Shift", {
+      endsInMinutes: 480,
+      promptPolicy: "silent"
+    });
+    await runPulseRecorderTick(sql, t0);
+    expect((await stateRow()).silence_until).not.toBeNull();
+
+    await sql`UPDATE commitments SET freed_from=${at(t0, 5)} WHERE id=${commitmentId}`;
+    await runPulseRecorderTick(sql, at(t0, 10));
+    expect((await stateRow()).silence_until).toBeNull();
+  });
+});

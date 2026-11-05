@@ -1356,8 +1356,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
               minimum: 0
             },
             transitionAfterMinutes: {
-              description:
-                "Wind-down minutes after. Omitted: owner default on create, stored kept on update; 0 = none.",
+              description: "Wind-down minutes after. Omitted: as setupBeforeMinutes.",
               type: "integer",
               minimum: 0
             },
@@ -1373,7 +1372,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
               type: ["string", "null"]
             },
             contactId: {
-              description: "Id of a contact context; an empty string clears it, leaving it out keeps it.",
+              description: "Id of a contact context; an empty string clears it, omitted keeps it.",
               type: ["string", "null"]
             },
             presence: {
@@ -1388,7 +1387,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
             },
             checkInExtraMinutes: {
               description:
-                "Minutes added to the pulse's unknown-to-lapsed limits while it is in force (default 15); null clears it back to the default, leaving it out keeps it.",
+                "Minutes added to the pulse's unknown-to-lapsed limits while in force (default 15); null restores the default, omitted keeps it.",
               anyOf: [
                 {
                   type: "integer",
@@ -1461,8 +1460,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
               type: "boolean"
             },
             landedAt: {
-              description:
-                "When the disruption was reported (ISO 8601 with the owner's UTC offset (status.timezone), as 2026-10-28T09:00:00<offset>).",
+              description: "When the disruption was reported (ISO 8601 with offset).",
               type: "string",
               format: "date-time"
             },
@@ -1470,6 +1468,11 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
               description: "Send inherit to reattach an edited occurrence to its recurring series.",
               type: "string",
               enum: ["inherit", "custom"]
+            },
+            free: {
+              description:
+                "true: the owner is free now; the planner stops treating the rest as taken (nothing ends; not for leaving). Send only id and free, then call rhen_status. false undoes.",
+              type: "boolean"
             }
           },
           description: "The commitment's fields. On create, give what the kind needs; on update, only what changes."
@@ -2142,7 +2145,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
     name: "rhen_disrupt",
     command: "disrupt",
     description:
-      "Use when a check-in answer was deviated, or the owner says they are doing something other than the plan. Records the deviation so the pulse stays on plan; unrecorded, a deviation lapses the pulse at once and rhen_reenter is needed. It does not change the plan, a commitment or the headline. It is not rhen_disruption (that logs an interruption such as a call or visitor as a commitment). Required together: doing (or target), until, location, contexts (at least one) and exclusive. Missing fields are named and nothing is recorded. With NO options it is read-only: it returns what is in force and the ids and names of the places and contexts you can name. end: true ends the one in force early. Returns the recorded deviation; rhen_undo reverses it. Follows rhen_check_in with status deviated. WRITES DATA.",
+      "Use when a check-in answer was deviated, or the owner says they are doing something other than the plan. Records the deviation so the pulse stays on plan; unrecorded, a deviation lapses the pulse at once and rhen_reenter is needed. It does not change the plan, a commitment or the headline; to free a commitment's time call rhen_save_commitment {fields:{id,free:true}}, then rhen_status. It is not rhen_disruption (that logs an interruption such as a call or visitor as a commitment). Required together: doing (or target), until, location, contexts (at least one) and exclusive. Missing fields are named and nothing is recorded. With NO options it is read-only: it returns what is in force and the ids and names of the places and contexts you can name. end: true ends the one in force early. Returns the recorded deviation; rhen_undo reverses it. Follows rhen_check_in with status deviated. WRITES DATA.",
     inputSchema: {
       type: "object",
       properties: {
