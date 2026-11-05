@@ -7,7 +7,7 @@ import {
 import { z } from "zod";
 import type { CommandSpec } from "./command.js";
 import { commandModules } from "./command-modules.js";
-import { toolAnnotations, toolDescription, toolInputSchema, toolName } from "./commands/mcp.js";
+import { toolAnnotations, toolDescription, toolInputSchema, toolName, writesDataNote } from "./commands/mcp.js";
 import { COMMON_PARAMS, REMOTE_TOOL_TEXT, type RemoteToolText } from "./remote-text.js";
 
 /**
@@ -423,9 +423,9 @@ function remoteDescription(remote: RemoteTool, spec: CommandSpec): string {
 }
 
 /** The remote wording for a tool's description: a full replacement, or the registry text with phrases reworded and a closing line added. */
-function remoteToolDescription(name: string, text: RemoteToolText, registry: string, mutates: boolean): string {
+function remoteToolDescription(name: string, text: RemoteToolText, registry: string): string {
   if (text.description !== undefined)
-    return `${mutates ? "WRITES DATA. " : ""}${typeof text.description === "function" ? text.description() : text.description}`;
+    return typeof text.description === "function" ? text.description() : text.description;
   let result = registry;
   for (const [from, to] of text.rewrite ?? []) {
     if (result.split(from).length !== 2)
@@ -527,13 +527,18 @@ export function buildRemoteManifest(
       for (const [argument, description] of Object.entries(COMMON_PARAMS))
         if (argument in properties) properties[argument] = { ...properties[argument]!, description } as never;
     if (text) applyRemoteParams(name, text, properties);
-    const registryDescription = toolDescription({ ...spec, description: remoteDescription(remote, spec) }, false);
+    const registryDescription = toolDescription(
+      { ...spec, description: remoteDescription(remote, spec) },
+      false,
+      false
+    );
     const entry: McpToolManifestEntry = {
       name,
       command: spec.name,
-      description: text
-        ? remoteToolDescription(name, text, registryDescription, spec.mutates === true)
-        : registryDescription,
+      // The purpose comes first; a write tool's warning closes the description.
+      description:
+        (text ? remoteToolDescription(name, text, registryDescription) : registryDescription) +
+        writesDataNote(spec.mutates === true),
       inputSchema: {
         type: "object",
         properties,

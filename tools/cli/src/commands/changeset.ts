@@ -804,7 +804,7 @@ export const changesetCommand: CommandSpec = {
   name: "changeset",
   summary: "Preview, then apply, one message's facts as one write",
   description:
-    "WRITES DATA (with apply). One message's facts as one list of intents, not a save per fact. Each intent is " +
+    "One message's facts as one list of intents, not a save per fact. Each intent is " +
     "{op, kind, ...}: create (fields; a ref to point at it later), update (id, changed fields) or complete (id; " +
     "optional at) on any save kind, or commitment_rule (recurrence set's fields: title, timezone, startDate, repeat, " +
     "localStartTime, localEndTime, ...); observe records what happened: sleep (sleepAt and/or wakeAt; corrects the " +

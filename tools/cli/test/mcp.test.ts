@@ -96,7 +96,7 @@ describe("mcp: initialize / ping", () => {
 });
 
 describe("mcp: tools/list", () => {
-  it("lists commands as tools, excluding only mcp itself, with WRITES DATA prefixes and closed schemas", async () => {
+  it("lists commands as tools, excluding only mcp itself, with a closing WRITES DATA note and closed schemas", async () => {
     const { parsed } = await send([req(1, "tools/list")]);
     const result = parsed[0]?.result as { tools: { name: string; description: string; inputSchema: unknown }[] };
     const names = result.tools.map((tool) => tool.name);
@@ -108,11 +108,11 @@ describe("mcp: tools/list", () => {
     // the owner's token tool is never offered to a model
     expect(names).not.toContain("rhen_agent_token");
 
-    // every mutating command's tool exists and its description starts with the WRITES DATA prefix
+    // every mutating command's tool exists and its description ends with the WRITES DATA note
     for (const spec of commands) {
       if (spec.name === "mcp" || spec.ownerOnly || !spec.mutates) continue;
       const tool = result.tools.find((candidate) => candidate.name === `rhen_${spec.name.replace(/-/g, "_")}`);
-      expect(tool?.description.startsWith("WRITES DATA. ")).toBe(true);
+      expect(tool?.description.endsWith(" WRITES DATA.")).toBe(true);
     }
 
     for (const tool of result.tools)

@@ -173,9 +173,15 @@ export function toolName(spec: CommandSpec): string {
 /** CLI flags named in prose are argument names to an MCP agent: `--by` is `by`. */
 const argumentWording = (text: string): string => text.replace(/(?<![\w-])--([a-z][a-z-]*)/g, "$1");
 
+/**
+ * The warning a write tool carries, kept at the end so the first sentence says what the tool is for (a client that
+ * searches tools by their description reads that first). Still spelled out in every write tool's description.
+ */
+export const WRITES_DATA_NOTE = " WRITES DATA.";
+export const writesDataNote = (mutates: boolean): string => (mutates ? WRITES_DATA_NOTE : "");
+
 /** `withExamples: false` leaves out the shell examples, for the remote manifest, whose clients have no `rhen` command. */
-export function toolDescription(spec: CommandSpec, withExamples = true): string {
-  const prefix = spec.mutates ? "WRITES DATA. " : "";
+export function toolDescription(spec: CommandSpec, withExamples = true, withWriteNote = true): string {
   // Each example is a shell line; an MCP agent reads it as the tool call it stands for.
   const examples = withExamples
     ? spec.examples.slice(0, 2).flatMap((example) => {
@@ -187,7 +193,7 @@ export function toolDescription(spec: CommandSpec, withExamples = true): string 
   // MCP arguments are JSON fields named without dashes (`fields`, not `--fields`), so the flags the CLI text
   // names become the argument names. The remote manifest (withExamples false) has its own text and keeps its own words.
   const description = withExamples ? argumentWording(spec.description) : spec.description;
-  return `${prefix}${description}${examplesText}`;
+  return `${description}${examplesText}${withWriteNote ? writesDataNote(spec.mutates === true) : ""}`;
 }
 
 export function toolInputSchema(spec: CommandSpec): Record<string, unknown> {
