@@ -37,6 +37,8 @@ let sql: postgres.Sql;
 let userId: string;
 
 const asAgent = <T>(run: () => Promise<T>, agent = "claude") => runWithActor(agent, run);
+// An agent's own save never deletes a step (it is refused); the owner's confirmation of one does, still as the agent's write.
+const asConfirmedAgent = <T>(run: () => Promise<T>, agent = "claude") => runWithActor(agent, run, "owner");
 const revert = (target: string, direction: "undo" | "redo", force?: boolean): RevertCommand => ({
   commandId: crypto.randomUUID(),
   target,
@@ -203,7 +205,7 @@ describe("an agent's deliverable save", () => {
       }),
       await versionOf(id)
     );
-    await asAgent(() => saveEntity(sql, command));
+    await asConfirmedAgent(() => saveEntity(sql, command));
     const after = await aggregate();
     expect(after).not.toEqual(before);
     const kept = (await savedImages(command.commandId))!.map((row) => row.table);
@@ -221,7 +223,8 @@ describe("an agent's deliverable save", () => {
       ])
     );
 
-    await asAgent(() => runRevertCommand(sql, revert(command.commandId, "undo")));
+    // Only the owner reverses a write the owner confirmed.
+    await runWithActor(null, () => runRevertCommand(sql, revert(command.commandId, "undo")));
     const undone = await aggregate();
     // The extra deliverable made for the dependency is outside the write.
     expect(undone.deliverables!.filter((row) => (row as { title: string }).title !== "Other")).toEqual(
@@ -230,7 +233,7 @@ describe("an agent's deliverable save", () => {
     for (const table of TABLES.filter((table) => table !== "deliverables"))
       expect(undone[table], table).toEqual(before[table]);
 
-    await asAgent(() => runRevertCommand(sql, revert(command.commandId, "redo")));
+    await runWithActor(null, () => runRevertCommand(sql, revert(command.commandId, "redo")));
     const redone = await aggregate();
     for (const table of TABLES.filter((table) => table !== "deliverables"))
       expect(redone[table], table).toEqual(after[table]);

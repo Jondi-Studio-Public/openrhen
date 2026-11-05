@@ -564,7 +564,9 @@ is a JSON array, 0=Sunday..6=Saturday, ascending, each once, and startDate must 
 --set repeat.unit=weeks --set repeat.intervalWeeks=1 --set repeat.weekdays=[2,4]. Weeks run Monday to
 Sunday and the start date's week counts first, so intervalWeeks=2 is every other calendar week. Editing the rule rewrites every future occurrence of the series, so "recurrence set" requires --yes.
 End a series by setting its last date: "recurrence set --id <ruleId> --set endDate=YYYY-MM-DD --yes"; there
-is no delete, and status=ended is the person's (refused for an agent).
+is no delete, and status=ended is the person's (refused for an agent). When the person ends a series its
+future dates are cancelled with the reason "Recurrence ended" (listed in Review > Closed), not deleted, and
+setting the rule active again brings back the dates that end closed; a date cancelled on its own stays cancelled.
 A commitment or its series may also name a contact ("--set contactId=<slug>"), the slug of a "contact"
 condition — the person waiting on it, shown in the portal as "Let <name> know?"; nothing is ever sent to them.
 

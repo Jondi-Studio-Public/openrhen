@@ -5,7 +5,7 @@
  * (`close-commands.ts`), the route, the CLI and the served text all read this one module.
  */
 import { z } from "zod";
-import type { AgentCall } from "./agent-error.js";
+import { formatAgentCall, type AgentCall } from "./agent-error.js";
 import { CLOSED_TABLES, isClosedStatus, type ClosedTable } from "./closed-status.js";
 import { requiredRefusal, wrongStateRefusal, type Refusal } from "./agent-refusal.js";
 
@@ -151,6 +151,13 @@ export function isImportRemovedClose(row: {
 }): boolean {
   return row.closed_by === "system" && (row.closed_reason ?? "").startsWith(IMPORT_REMOVED_REASON_PREFIX);
 }
+
+/**
+ * The `closed_reason` of an occurrence closed because its recurrence rule ended. With the shared `closed_batch` it is
+ * the marker that re-activating the rule restores by; the `closed_by` is the real closer (person, `agent:<name>` or
+ * `system` for an import), so an agent still cannot restore one occurrence of a person's rule end without a proposal.
+ */
+export const RECURRENCE_ENDED_REASON = "Recurrence ended";
 
 /** The `closed_by` suffix of a close that took back a create; the Closed page hides such rows. */
 export const UNDO_CLOSED_BY_SUFFIX = ":undo";
@@ -569,4 +576,48 @@ export interface CloseEntityResult {
   stepsLeft?: number;
   /** True when a re-count inside the transaction found rows the pre-read did not (a child created meanwhile is not closed). */
   createdSince?: boolean;
+}
+
+/** A deliverable step an agent's save left out, with the status and version the stored step has now. */
+export interface DroppedStep {
+  id: string;
+  title?: string | undefined;
+  status: string;
+  version: number;
+}
+
+/**
+ * An agent's deliverable save that leaves out steps which are still open or done. A save would hard-delete them, outside
+ * the close rules and the brake, so it is refused before anything is written; the refusal names the exact close call
+ * for each step (cancel an open one, archive a finished one) and the first is the `nextCall`. The person's own save is
+ * not held to this.
+ */
+export function droppedStepsRefusal(input: { deliverableId: string; steps: readonly DroppedStep[] }): Refusal {
+  const calls = input.steps.map((step) => {
+    const verb: CloseVerb = verbFor("action", step.status) === "archive" ? "archive" : "cancel";
+    return {
+      step,
+      verb,
+      call: closeCall({
+        verb,
+        type: "action",
+        id: step.id,
+        version: step.version,
+        reason: "<why the step is dropped>"
+      })
+    };
+  });
+  const lines = calls.map(
+    ({ step, verb, call }) =>
+      `- ${step.title ? `"${step.title}" ` : ""}(${step.id}) is ${step.status}: ${verb} it with ${formatAgentCall(call)}`
+  );
+  const first = calls[0]!;
+  return {
+    message:
+      `Leaving ${calls.length === 1 ? "a step" : `${calls.length} steps`} out of the save for deliverable ${quoted(input.deliverableId)} ` +
+      `would delete ${calls.length === 1 ? "it" : "them"} for good, and an agent's save does not delete steps, so nothing was saved. ` +
+      `Close ${calls.length === 1 ? "it" : "each"} first (an open step is cancelled, a done step is archived), then repeat the save without ${calls.length === 1 ? "it" : "them"}:\n` +
+      lines.join("\n"),
+    nextCall: note(`${first.verb} the first dropped step`, first.call)
+  };
 }

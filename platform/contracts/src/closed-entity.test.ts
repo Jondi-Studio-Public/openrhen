@@ -10,6 +10,8 @@ import {
   closedBySaveRefusal,
   closeCall,
   closedCount,
+  droppedStepsRefusal,
+  RECURRENCE_ENDED_REASON,
   alreadyClosedRefusal,
   ancestorClosedRefusal,
   childrenOpenRefusal,
@@ -404,5 +406,37 @@ describe("the save floor refusals", () => {
     const born = closedBySaveRefusal({ type: "project", id: "p", incoming: "cancelled" });
     expect(born.nextCall).toBeUndefined();
     expect(born.message).toMatch(/Create it open/);
+  });
+});
+
+describe("an agent's deliverable save that leaves steps out", () => {
+  it("names the exact cancel call for an open step and the archive call for a done one, and the first as the next call", () => {
+    const refusal = droppedStepsRefusal({
+      deliverableId: "d1",
+      steps: [
+        { id: "step-b", title: "Write", status: "planned", version: 4 },
+        { id: "step-a", status: "done", version: 2 }
+      ]
+    });
+    expect(refusal.message).toContain(
+      'rhen_cancel {"type":"action","id":"step-b","do":"close","expected-version":4,"reason":"<why the step is dropped>"}'
+    );
+    expect(refusal.message).toContain(
+      'rhen_archive {"type":"action","id":"step-a","do":"close","expected-version":2,"reason":"<why the step is dropped>"}'
+    );
+    expect(refusal.message).toContain("2 steps");
+    expect(refusal.nextCall).toMatchObject({ tool: "rhen_cancel", arguments: { id: "step-b", "expected-version": 4 } });
+  });
+
+  it("uses the singular for one step", () => {
+    const refusal = droppedStepsRefusal({ deliverableId: "d1", steps: [{ id: "s", status: "blocked", version: 1 }] });
+    expect(refusal.message).toMatch(/Leaving a step out/);
+    expect(refusal.nextCall?.tool).toBe("rhen_cancel");
+  });
+});
+
+describe("the rule-end marker", () => {
+  it("is the reason the Closed page shows", () => {
+    expect(RECURRENCE_ENDED_REASON).toBe("Recurrence ended");
   });
 });

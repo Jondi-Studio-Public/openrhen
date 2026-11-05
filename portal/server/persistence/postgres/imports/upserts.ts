@@ -15,6 +15,7 @@ import { actorName } from "../close-commands";
 import type { Sql } from "../sql-pool";
 import { restoreBatch } from "../close-cascade";
 import { closeCommitmentAsSystem, type LockedSystemClose } from "../system-close";
+import { closeFutureOccurrences } from "../recurrence-end";
 import { ImportConflictError } from "./import-conflict-error";
 import { isPrimarySourceCreate } from "./primary-source";
 
@@ -373,10 +374,32 @@ export async function upsertCommitmentRecurrenceRule(
   else
     await sql`UPDATE commitment_recurrence_rules SET ${set("title", "title", v("title"))},${set("timezone", "timezone", v("timezone"))},${set("start_date", "startDate", v("startDate"))},${set("end_date", "endDate", endDate)},${set("interval_unit", "intervalUnit", unit)},${set("interval_days", "intervalUnit", intervalDays)},${set("interval_weeks", "intervalUnit", intervalWeeks)},${set("weekdays", "intervalUnit", weekdays)},${set("interval_months", "intervalUnit", intervalMonths)},${set("month_anchor", "intervalUnit", monthAnchor)},${set("local_start_time", "localStartTime", v("localStartTime"))},${set("local_end_time", "localEndTime", v("localEndTime"))},${set("location", "location", v("location"))},${set("location_id", "locationId", v("locationId"))},${set("setup_before_minutes", "setupBeforeMinutes", v("setupBeforeMinutes"))},${set("transition_after_minutes", "transitionAfterMinutes", v("transitionAfterMinutes"))},version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=${id}`;
 }
-export async function endCommitmentRecurrenceRule(sql: Sql, id: string, record: ImportRecord) {
+/**
+ * The source ended the series: the rule ends and its future occurrences are cancelled (restorable, with the reason
+ * "Recurrence ended"), not deleted. Stamped `system`, the source's say. A rule that is already ended is left as it is.
+ */
+export async function endCommitmentRecurrenceRule(
+  sql: Sql,
+  userId: string,
+  id: string,
+  record: ImportRecord,
+  close: ImportCloseContext = {}
+) {
   await assertVersion(sql, "commitment_recurrence_rules", id, { ...record, operation: "update" });
+  const stored = (
+    await sql<
+      { status: string }[]
+    >`SELECT status FROM commitment_recurrence_rules WHERE id=${id} AND user_id=${userId} FOR UPDATE`
+  )[0];
+  if (stored?.status === "ended") return;
   await sql`UPDATE commitment_recurrence_rules SET status='ended', version=version+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id}`;
-  await sql`DELETE FROM commitments WHERE recurrence_rule_id=${id} AND starts_at>CURRENT_TIMESTAMP`;
+  await closeFutureOccurrences(sql, userId, id, {
+    batch: close.batchId ?? crypto.randomUUID(),
+    snap: null,
+    actor: null,
+    commandId: close.batchId ?? null,
+    via: "import"
+  });
 }
 
 export async function copyRoutineSteps(sql: Sql, userId: string, commitmentId: string, raw: string) {

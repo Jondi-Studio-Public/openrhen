@@ -413,7 +413,9 @@ export function feedRuleEndRecord(
     fields: ruleRecordFields(ruleView(link), [summary]),
     relationships: { feedSeries: stem, feedReason: reason, feedReasonKind: kind, feedNextCall: nextCall },
     errors: [],
-    warnings: ["Confirming this row ends the repeating entry. Past dates stay."],
+    warnings: [
+      "Confirming this row ends the repeating entry. Its future dates are cancelled (restorable from Review > Closed); past dates stay."
+    ],
     removed: false,
     sortOrder: 0
   };

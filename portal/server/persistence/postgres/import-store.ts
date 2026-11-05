@@ -36,8 +36,10 @@ import {
 import {
   agentImportFloor,
   assertImportNoClosedTransition,
+  activeSeriesEnds,
   closingPlans,
-  closingRecords
+  closingRecords,
+  seriesEndRecords
 } from "./imports/agent-import-floor";
 import { assertCloseBudget, lockCloseBudget } from "./close-budget";
 import { commitRecords } from "./imports/commit-records";
@@ -552,11 +554,14 @@ export class PostgresImportStore {
       // agent only; no proposal path exists for an import, so the refusal says to wait or ask the owner to commit it). The
       // plans are read under row locks and are the ones the commit writes, so the weight counted is the weight written.
       const closing = requestAgent() !== null ? closingRecords(ready) : [];
+      const seriesEnds = requestAgent() !== null ? seriesEndRecords(ready) : [];
       let closePlans: Awaited<ReturnType<typeof closingPlans>> | undefined;
-      if (closing.length > 0) {
+      if (closing.length > 0 || seriesEnds.length > 0) {
         await lockCloseBudget(tx, userId);
         closePlans = await closingPlans(tx, userId, closing);
-        const weight = [...closePlans.values()].reduce((sum, plan) => sum + plan.weight, 0);
+        const weight =
+          [...closePlans.values()].reduce((sum, plan) => sum + plan.weight, 0) +
+          (await activeSeriesEnds(tx, userId, seriesEnds));
         if (weight > 0) {
           try {
             await assertCloseBudget(tx, userId, weight, {

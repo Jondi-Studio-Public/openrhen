@@ -16,6 +16,8 @@ import { optionalActiveLocationId } from "./location-context";
 import { ensureUser } from "./ensure-user";
 import { claimCommandReceipt, commandRequestHash, hasCommandReceipt } from "./command-receipt";
 import { recordStateChange } from "./planning-evidence";
+import { actorName } from "./close-commands";
+import { closeFutureOccurrences, restoreEndedOccurrences } from "./recurrence-end";
 import { readStateAfterCommit } from "./read-after-commit";
 import { watchCommitmentRecurrenceWrite, watchEndRecurrenceGoal } from "./entity-snapshot";
 import type { PoolSql, Sql } from "./sql-pool";
@@ -150,14 +152,20 @@ export async function saveCommitmentRecurrenceRule(
     const snap = await WriteSnapshot.open(tx, userId, commandId, "recurrence");
     const id = await stableUuid(`commitment-recurrence:${userId}`, command.rule.id);
     const existing = await tx<
-      { version: number }[]
-    >`SELECT version FROM commitment_recurrence_rules WHERE id=${id} AND user_id=${userId} FOR UPDATE`;
+      { version: number; status: string }[]
+    >`SELECT version, status FROM commitment_recurrence_rules WHERE id=${id} AND user_id=${userId} FOR UPDATE`;
     if (existing[0] && command.expectedVersion !== existing[0].version)
       throw versionConflict("recurring commitment", command.rule.id, command.expectedVersion, existing[0].version);
     if (!existing[0] && command.expectedVersion !== null)
       throw notFoundConflict("recurring commitment", command.rule.id);
     const at = new Date();
-    await watchCommitmentRecurrenceWrite(snap, id, command.rule.status === "ended");
+    // Ending a live rule closes its future dates; setting an ended one active again brings that end's dates back.
+    // Saving an already-ended rule as ended, or an active one as active, leaves the occurrences alone.
+    const wasEnded = existing[0]?.status === "ended";
+    const nowEnded = command.rule.status === "ended";
+    const ends = nowEnded && !wasEnded && existing[0] !== undefined;
+    const reactivates = wasEnded && !nowEnded;
+    await watchCommitmentRecurrenceWrite(snap, id, ends || reactivates);
     // A new rule has no occurrences yet, so it never reaches an occurrence in progress.
     const inProgress = existing[0]
       ? await applyOccurrenceInProgressRule(tx, userId, id, command.applyToOccurrenceInProgress, at, snap)
@@ -211,8 +219,16 @@ export async function saveCommitmentRecurrenceRule(
       await tx`UPDATE commitment_recurrence_rules SET title=${rule.title}, timezone=${rule.timezone}, start_date=${rule.startDate}, end_date=${rule.endDate ?? null}, interval_unit=${intervalUnit}, interval_days=${intervalDays}, interval_weeks=${intervalWeeks}, weekdays=${weekdays}, interval_months=${intervalMonths}, month_anchor=${monthAnchor}, local_start_time=${rule.localStartTime}, local_end_time=${rule.localEndTime}, location=${rule.location ?? null}, location_id=${locationId}, setup_before_minutes=${rule.setupBeforeMinutes}, transition_after_minutes=${rule.transitionAfterMinutes}, presence=${presence}, share_to_calendar=COALESCE(${shareToCalendar}, share_to_calendar), status=${status}, project_id=${projectId}, contact_id=CASE WHEN ${contactIdProvided} THEN ${contactId} ELSE contact_id END, lateness_matters=CASE WHEN ${latenessMattersProvided} THEN ${rule.latenessMatters ?? true} ELSE lateness_matters END, transport_mode=CASE WHEN ${transportModeProvided} THEN ${rule.transportMode ?? null} ELSE transport_mode END, private=COALESCE(${isPrivate}, private), check_in_extra_minutes=CASE WHEN ${checkInExtraProvided} THEN ${checkInExtraMinutes}::integer ELSE check_in_extra_minutes END, version=version+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id}`;
     else
       await tx`INSERT INTO commitment_recurrence_rules (id, user_id, title, timezone, start_date, end_date, interval_unit, interval_days, interval_weeks, weekdays, interval_months, month_anchor, local_start_time, local_end_time, location, location_id, setup_before_minutes, transition_after_minutes, presence, share_to_calendar, status, project_id, contact_id, lateness_matters, transport_mode, private, check_in_extra_minutes) VALUES (${id}, ${userId}, ${rule.title}, ${rule.timezone}, ${rule.startDate}, ${rule.endDate ?? null}, ${intervalUnit}, ${intervalDays}, ${intervalWeeks}, ${weekdays}, ${intervalMonths}, ${monthAnchor}, ${rule.localStartTime}, ${rule.localEndTime}, ${rule.location ?? null}, ${locationId}, ${rule.setupBeforeMinutes}, ${rule.transitionAfterMinutes}, ${presence}, ${shareToCalendar ?? false}, ${status}, ${projectId}, ${contactId}, ${rule.latenessMatters ?? true}, ${rule.transportMode ?? null}, ${isPrivate ?? false}, ${checkInExtraMinutes})`;
-    if (status === "ended")
-      await tx`DELETE FROM commitments WHERE recurrence_rule_id=${id} AND starts_at>CURRENT_TIMESTAMP`;
+    // The real closer is stamped on the closed rows (`person`, `agent:<name>`), with the reason and one shared batch.
+    if (ends)
+      await closeFutureOccurrences(tx, userId, id, {
+        batch: crypto.randomUUID(),
+        snap,
+        actor: actorName(),
+        commandId,
+        via: "recurrence_end"
+      });
+    if (reactivates) await restoreEndedOccurrences(tx, userId, id, { snap, commandId });
     await snap?.save();
     await recordStateChange(tx, userId, {
       entityType: "commitment_recurrence_rule",

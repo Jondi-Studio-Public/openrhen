@@ -192,7 +192,8 @@ Ids and names: places and context ids come from `rhen_list` entity `conditions`,
 - A call that reaches more than 20 rows in one call, or would take agents past 20 closures in a rolling hour (counting this call), or reaches a row the owner must decide (a deadline, a shared appointment), is filed as ONE proposal for the owner to confirm. The hour is a rolling window recounted at every call, not a lockout: small calls that still fit apply. The brake is for token agents.
 - Taking back a record you just made with rhen_undo closes it with no reason, is not counted, and works only within a day of the create and while nobody else has changed the record.
 - Restore: every closed row in rhen_list and rhen_show carries its restore call; send it as it stands (do restore, with the row's version). A legacy cancelled area is restored with rhen_cancel.
-- Ending a recurrence is unchanged: set its end date (guide recurrence).
+- Ending a recurrence is the owner's call (set its end date instead, guide recurrence). When the owner ends one, its future dates are cancelled with the reason "Recurrence ended", not deleted, and setting the rule active again brings those back.
+- A deliverable save that leaves a step out is refused for an agent, which never deletes a step: cancel an open step or archive a done one first (the refusal names the exact call), then save without it.
 
 ## Limits and policy
 

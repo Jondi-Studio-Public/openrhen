@@ -129,6 +129,21 @@ describe("future repeating-commitment pruning in persistDerivedState", () => {
     ]);
   });
 
+  it("never prunes a closed occurrence: both delete statements leave cancelled rows alone", async () => {
+    spyLogs();
+    // the named-list variant (a live rule's derived dates) and the empty-list variant (every rule ended)
+    for (const [rules, derived] of [
+      [[liveRule], [repeat()]],
+      [[endedRule], []]
+    ] as const) {
+      const { sql, statements } = fakeSql({ rules: [...rules] });
+      await persistDerivedState(sql, USER_ID, resultWith([...derived]));
+      const prune = statements.filter(isPrune);
+      expect(prune).toHaveLength(1);
+      expect(prune[0]).toContain("status<>'cancelled'");
+    }
+  });
+
   it("does not log a deletion when the prune removes nothing", async () => {
     const logs = spyLogs();
     const { sql, statements } = fakeSql({ rules: [liveRule] });

@@ -85,6 +85,25 @@ export async function lockSystemClose(tx: Sql, userId: string, id: string): Prom
   return { id, version: row.version, plan, weight: 1 + plan.rows.length };
 }
 
+/**
+ * Runs `work` with the close trigger's actor set to `actor`, so every row it closes is stamped with it as `closed_by`
+ * (`person`, `agent:<name>`), and clears the setting afterwards so the rest of the transaction is stamped as before.
+ * A null actor leaves the setting alone: the trigger then stamps `system`, which is what an import's close is.
+ */
+export async function withClosedActor<T>(
+  tx: Sql,
+  actor: string | null | undefined,
+  work: () => Promise<T>
+): Promise<T> {
+  if (!actor) return await work();
+  await tx`SELECT set_config('priorities.actor', ${actor}, true)`;
+  try {
+    return await work();
+  } finally {
+    await tx`SELECT set_config('priorities.actor', '', true)`;
+  }
+}
+
 export interface SystemCloseArgs {
   userId: string;
   id: string;
@@ -135,12 +154,11 @@ export async function closeCommitmentAsSystem(tx: Sql, args: SystemCloseArgs): P
   const batch = args.batchId ?? crypto.randomUUID();
   const reason = args.actor ? args.why : `${IMPORT_REMOVED_REASON_PREFIX}${args.why}`;
   const sessions = await openSessionIds(tx, userId, id);
-  // The trigger stamps `closed_by` from this setting (`system` when unset); it is cleared again right after the close
-  // so the rest of the import's transaction is stamped as before.
-  if (args.actor) await tx`SELECT set_config('priorities.actor', ${args.actor}, true)`;
-  await tx`UPDATE commitments SET status='cancelled', closed_batch=${batch}, closed_reason=${reason}, version=version+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id}`;
-  const cascaded: CascadedRow[] = await applyClose(tx, locked.plan, batch, reason, null);
-  if (args.actor) await tx`SELECT set_config('priorities.actor', '', true)`;
+  // The trigger stamps `closed_by` from the actor setting (`system` when unset).
+  const cascaded: CascadedRow[] = await withClosedActor(tx, args.actor, async () => {
+    await tx`UPDATE commitments SET status='cancelled', closed_batch=${batch}, closed_reason=${reason}, version=version+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id}`;
+    return await applyClose(tx, locked.plan, batch, reason, null);
+  });
   const dependents: DependentRow[] = await dependentsOf(tx, "commitment", id);
   await recordStateChange(tx, userId, {
     entityType: "commitment",

@@ -50,6 +50,37 @@ export function closingRecords(ready: readonly ImportRecord[]): ImportRecord[] {
   });
 }
 
+/** The ready records that end a recurring series (the source removed it): each closes its future dates as one closure. */
+export function seriesEndRecords(ready: readonly ImportRecord[]): ImportRecord[] {
+  return ready.filter((record) => record.entityType === "fixed_commitment_recurrence" && record.operation === "delete");
+}
+
+/**
+ * How many of those records end a rule that is still active (an ended rule is left as it is and counts for nothing). A
+ * rule end weighs 1 for the brake, however many dates it closes: the rule is the thing that closes and setting it
+ * active again brings its dates back.
+ */
+export async function activeSeriesEnds(tx: Sql, userId: string, records: readonly ImportRecord[]): Promise<number> {
+  if (records.length === 0) return 0;
+  const keyed = new Map(
+    (
+      await tx<
+        { import_key: string; entity_id: string }[]
+      >`SELECT import_key, entity_id FROM import_entity_keys WHERE user_id=${userId} AND entity_type='fixed_commitment_recurrence'`
+    ).map((row) => [row.import_key, row.entity_id])
+  );
+  const ids = new Set<string>();
+  for (const record of records) {
+    const id = keyed.get(record.importKey) ?? record.matchedEntityId;
+    if (id) ids.add(id);
+  }
+  if (ids.size === 0) return 0;
+  const active = await tx<
+    { id: string }[]
+  >`SELECT id FROM commitment_recurrence_rules WHERE user_id=${userId} AND status='active' AND id IN ${tx([...ids])}`;
+  return active.length;
+}
+
 /**
  * What the batch's cancellations take with them, read under row locks inside the commit transaction: the open
  * commitments those records close, each with its steps and safe prep actions, and the weight the hourly brake counts for

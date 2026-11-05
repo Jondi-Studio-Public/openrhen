@@ -129,6 +129,11 @@ const CORE_WRITERS = {
     reason:
       "closeCommitmentAsSystem cancels one commitment the source removed (with its steps and prep) and calls recordStateChange for it in the same transaction."
   },
+  "portal/server/persistence/postgres/recurrence-end.ts": {
+    class: "owner",
+    reason:
+      "closeFutureOccurrences and restoreEndedOccurrences close and reopen a rule's future occurrences and their steps inside the rule save's (or the import commit's) transaction and call recordStateChange for the rule in it."
+  },
   "portal/server/persistence/postgres/write-revert.ts": {
     class: "owner",
     reason:

@@ -1438,6 +1438,8 @@ export {
   CLOSE_BUDGET_LIMIT,
   CLOSE_BUDGET_WINDOW_MINUTES,
   IMPORT_REMOVED_REASON_PREFIX,
+  RECURRENCE_ENDED_REASON,
+  droppedStepsRefusal,
   UNDO_CLOSED_BY_SUFFIX,
   UNDO_VERB,
   UNDO_WINDOW_HOURS,
@@ -1467,6 +1469,7 @@ export type {
   CloseType,
   CloseVerb,
   DependentRow,
+  DroppedStep,
   SkippedRow
 } from "./closed-entity.js";
 export {

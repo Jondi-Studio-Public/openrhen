@@ -1,4 +1,6 @@
-import { InvalidCommandError, badValue, invalidChoice, notFound } from "./command-errors";
+import { droppedStepsRefusal, isClosedStatus } from "@openrhen/contracts";
+import { changeLogConfirmedBy, requestAgent } from "@/server/agent-actor";
+import { InvalidCommandError, badValue, invalidChoice, notFound, refused } from "./command-errors";
 import {
   nonNegativeInt,
   optionalBoolean,
@@ -127,6 +129,31 @@ export async function writeDeliverableAggregate(
   }
   if (hasCycle(stepGraph)) throw new InvalidCommandError("Step prerequisites cannot form a cycle.");
 
+  const keptStepIds = [...stepIds.values()];
+  const storedSteps = await tx<
+    { id: string; title: string | null; status: string; version: number }[]
+  >`SELECT id, title, status::text AS status, version FROM actions WHERE deliverable_id=${id} ORDER BY id`;
+  // An agent's save never deletes a step (it would skip the close rules and the brake): an open or done step it leaves
+  // out is refused with the exact close call, and an already-closed one is simply kept. The person's save, and an
+  // owner-confirmed replay of an agent's, still drop what the save leaves out.
+  const retainedSteps = new Set<string>();
+  if (requestAgent() !== null && changeLogConfirmedBy() !== "owner") {
+    const left = storedSteps.filter((row) => !keptStepIds.includes(row.id));
+    const open = left.filter((row) => !isClosedStatus(row.status));
+    if (open.length > 0)
+      throw refused(
+        droppedStepsRefusal({
+          deliverableId: id,
+          steps: open.map((row) => ({
+            id: row.id,
+            title: row.title ?? undefined,
+            status: row.status,
+            version: row.version
+          }))
+        })
+      );
+    for (const row of left) retainedSteps.add(row.id);
+  }
   await tx`DELETE FROM deliverable_blockers WHERE deliverable_id=${id}`;
   await tx`DELETE FROM deliverable_criteria WHERE deliverable_id=${id}`;
   // action_dependencies.depends_on_action_id carries no ON DELETE CASCADE (a plain action is never
@@ -140,19 +167,18 @@ export async function writeDeliverableAggregate(
   // NULL, so deleting and reinserting it would detach every logged minute from it); only steps the save
   // dropped are deleted, which cascades the same way deliverable_steps used to. A kept step's pathways
   // are rebuilt below, so they are cleared here.
-  const keptStepIds = [...stepIds.values()];
   // postgres.js serialises an empty array as '' (a malformed array literal), so a save with no steps
   // takes the plain delete instead.
   // Steps the save drops take their extra prerequisites with them, in both directions.
-  const droppedSteps = await tx<{ id: string }[]>`SELECT id FROM actions WHERE deliverable_id=${id}`;
   await deletePrerequisitesOf(
     tx,
     "action",
-    droppedSteps.map((row) => row.id).filter((stepId) => !keptStepIds.includes(stepId))
+    storedSteps.map((row) => row.id).filter((stepId) => !keptStepIds.includes(stepId) && !retainedSteps.has(stepId))
   );
-  if (keptStepIds.length) {
-    await tx`DELETE FROM actions WHERE deliverable_id=${id} AND NOT (id = ANY(${keptStepIds}))`;
-    await tx`DELETE FROM action_requirement_pathways WHERE action_id = ANY(${keptStepIds})`;
+  const surviving = [...keptStepIds, ...retainedSteps];
+  if (surviving.length) {
+    await tx`DELETE FROM actions WHERE deliverable_id=${id} AND NOT (id = ANY(${surviving}))`;
+    if (keptStepIds.length) await tx`DELETE FROM action_requirement_pathways WHERE action_id = ANY(${keptStepIds})`;
   } else await tx`DELETE FROM actions WHERE deliverable_id=${id}`;
   await tx`DELETE FROM deliverable_dependencies WHERE deliverable_id=${id}`;
 
