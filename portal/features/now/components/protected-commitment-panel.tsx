@@ -9,7 +9,9 @@ import { LetSomeoneKnow } from "@/features/commitments/components/let-someone-kn
 import { clock } from "@/features/now/now-formatting";
 import type { NowProtectedCommitment, RunActivityCommand } from "@/features/now/now-model";
 import { endDisruptionNow, extendDisruption, isOpenEndedDisruption } from "@/features/disruptions/disruption-commands";
+import { canBeFreed } from "@/features/now/free-commitment";
 import { EvidenceDetails } from "./evidence-details";
+import { FreeControl } from "./free-control";
 
 /**
  * What the protected window is holding the clock for. The legs to and from a located commitment are
@@ -195,6 +197,14 @@ export function ProtectedCommitmentPanel({
             </button>
           </div>
         </>
+      ) : null}
+      {storedProtectedCommitment && canBeFreed(storedProtectedCommitment, now, new Date(protectedCommitment.endsAt)) ? (
+        <FreeControl
+          commitment={storedProtectedCommitment}
+          awaitingRecalculation={state.planning?.awaitingRecalculation === true}
+          saving={saving}
+          saveEntityCommand={saveEntityCommand}
+        />
       ) : null}
       <div className="actions">
         <button

@@ -394,6 +394,37 @@ describe("deriveSessionSanction", () => {
     };
     expect(deriveSessionSanction(result, "action", "unrelated-action", at)).toBeNull();
   });
+
+  it("is free when the only protected block is the commitment the person said they are free from (open anchor)", () => {
+    const result: PlanForecastResponse = {
+      ...baseResult(null),
+      recommendation: {
+        openAnchor: { id: "commitment-1", phase: "active", phaseStartsAt: iso(-10), phaseEndsAt: iso(30) }
+      } as unknown as PlanForecastResponse["recommendation"],
+      currentDirective: { kind: "none", title: "Nothing", recommendedMinutes: 0 },
+      dayPlan: {
+        through: iso(600),
+        mode: "policy_replay" as const,
+        truncated: false,
+        displaced: [],
+        locations: [],
+        blocks: [
+          {
+            startsAt: iso(-10),
+            endsAt: iso(30),
+            kind: "commitment",
+            targetId: "commitment-1",
+            title: "Soccer",
+            focusedMinutes: 0,
+            wallClockMinutes: 40,
+            reason: "test",
+            confidence: "firm"
+          }
+        ]
+      }
+    };
+    expect(deriveSessionSanction(result, "action", "unrelated-action", at)).toBe("free");
+  });
 });
 
 describe("planForecastStanding", () => {

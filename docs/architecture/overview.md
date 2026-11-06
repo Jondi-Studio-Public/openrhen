@@ -59,9 +59,9 @@ PostgreSQL is required. The portal reads `DATABASE_URL` and refuses to serve pla
 
 ## Closing plan items
 
-Plan items are closed (archived or cancelled), not deleted. Migration 0141 adds `closed_*` columns (who, when, why) and triggers that stamp them, so every path records a closer. The `rhen_archive` and `rhen_cancel` tools (contract 11, plugin 0.3.3) and the portal's Archive, Cancel and Restore buttons share this model; Review > Closed lists the result.
+Plan items are closed (archived or cancelled), not deleted. Closing records who, when and why, in the database itself, so every path through the portal, the agent tools and imports leaves a closer. Review > Closed lists the result.
 
-- **Close brake.** At most 20 closures per rolling hour. Undoing a create is exempt, and an agent save that would drop a deliverable step is refused with the exact archive or cancel call.
+- **Close brake.** A rolling hourly limit on closures stops a runaway agent. Undoing a create is exempt, and an agent save that would drop a deliverable step is refused with the exact archive or cancel call.
 - **Sources.** A calendar, feed or roster cancel closes the commitment instead of deleting it, and a returning event reopens only rows the import itself cancelled. Ending a recurrence closes its future occurrences; the planner prune spares closed rows.
 
 Known limits:

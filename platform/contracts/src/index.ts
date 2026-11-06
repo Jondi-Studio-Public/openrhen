@@ -248,6 +248,7 @@ export {
   occurrenceInProgress
 } from "./planning/occurrence-in-progress.js";
 export type { OccurrenceInProgressInput } from "./planning/occurrence-in-progress.js";
+export { commitmentFreedAt } from "./planning/commitment-freed.js";
 export {
   aliasTitleNorm,
   carriesPublishMarker,

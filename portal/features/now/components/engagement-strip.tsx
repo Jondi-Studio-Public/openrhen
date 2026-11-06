@@ -29,6 +29,16 @@ export function EngagementStrip({
   runActivityCommand: RunActivityCommand;
 }) {
   const endsAt = new Date(openAnchor.endsAt);
+  // The person said they are free of it: starting a session would put the lockout back over what they just
+  // released, so the engagement button is not offered while the statement stands.
+  if (storedOpenAnchor?.freedFrom)
+    return (
+      <section className="engagement-strip">
+        <p className="microcopy">
+          You’re free of <strong>{openAnchor.title}</strong>; it stays on your plan until {clock(endsAt, timezone)}.
+        </p>
+      </section>
+    );
   return (
     <section className="engagement-strip">
       <p className="microcopy">

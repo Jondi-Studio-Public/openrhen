@@ -6,7 +6,8 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Added
 
-- **The agent is woken when attention items appear**: when a blocking data-health item or a due catch-up shows up after the feed was empty, the worker sends the agent one `[OpenRhen wake]` message (at most one an hour, none while the owner is asleep, cancelled if the feed is read first), so it no longer waits for someone to look. Adds migration 0143 (one more `agent_wakes` event); no new tool text.
+- **The agent is woken when attention items appear**: when a blocking data-health item or a due catch-up shows up after the feed was empty, the worker sends the agent one `[OpenRhen wake]` message (at most one an hour, none while the owner is asleep, cancelled if the feed is read first), so it no longer waits for someone to look. Adds migration 0144 (one more `agent_wakes` event); no new tool text.
+- **I'm free**: say you are free of a running commitment (the Now button, `rhen free <id>`, or an agent saving `free: true`) and the planner recommends your next task at once, without ending or moving the commitment. Undo restores it. An agent's request on a commitment shared with the family calendar waits for your confirmation. Adds the nullable column `commitments.freed_from` (migration 0143, additive).
 
 ### Changed
 

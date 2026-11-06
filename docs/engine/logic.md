@@ -107,7 +107,7 @@ Health is one of ahead, on track, at risk, behind or unknown, taken from margin,
 
 ## 8. The current recommendation
 
-**Hard precedence.** A protected commitment wins before ordinary ranking. Failing that, sleep and routine directives precede ordinary actions. Deliberate recovery is the directive only when nothing fits inside an open recovery window. A journey to a located commitment, or home for sleep, is protected additively: setup, travel, an arrival margin, the commitment, then its transition and the leg on.
+**Hard precedence.** A protected commitment wins before ordinary ranking, unless the person said they are free of it (`freedFrom`): a freed commitment is released like an open anchor for the live ranking, while forecasts and the day plan stay pessimistic and still draw the block. Failing that, sleep and routine directives precede ordinary actions. Deliberate recovery is the directive only when nothing fits inside an open recovery window. A journey to a located commitment, or home for sleep, is protected additively: setup, travel, an arrival margin, the commitment, then its transition and the leg on.
 
 **Travel.** Journey time comes from the best available source in order: a live sample under 30 minutes old, past trips for the same pair, mode and time of day, any past trips for the pair and mode, the destination's stored minutes, then a straight line. The figure is the 95th percentile when lateness matters (the default) and the 80th otherwise, never below the median.
 
@@ -127,7 +127,7 @@ Health is one of ahead, on track, at risk, behind or unknown, taken from margin,
 
 A passed self-set date cannot be recovered by working, so it ranks as ordinary and is offered a new date.
 
-**Ordinary weighted ranking** scores these components, in maximum points: capacity pressure 30, consequence 15, outcome value 15, importance plus or minus 1, neglect 12, momentum 10, energy fit 8, completion potential 10, switching cost minus 10, avoidable travel minus 15, cadence due 40, and a self-set deadline this week 45. Requirement pathways are a hard filter, never a score. Area balance is deliberately not a component. Ties go to the earlier deadline, downstream minutes, lower margin ratio, higher consequence, completion potential, then identifier.
+**Ordinary weighted ranking** scores these components, in maximum points: capacity pressure 30, consequence 15, outcome value 15, importance plus or minus 1, neglect 12, momentum 10, energy fit 8, completion potential 10, switching cost minus 10, avoidable travel minus 15, cadence due 40, and a self-set deadline this week 45 (30 when the project's health is unknown). Requirement pathways are a hard filter, never a score. Area balance is deliberately not a component. Ties go to the earlier deadline, downstream minutes, lower margin ratio, higher consequence, completion potential, then identifier.
 
 ## 9. Continuation
 

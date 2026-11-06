@@ -506,9 +506,13 @@ export function deriveSessionSanction(
       at.getTime() < new Date(block.endsAt).getTime()
   );
   if (coveredByBlock) return "day_plan_block";
+  // An open anchor, including a commitment the person said they are free from, is on the day plan but
+  // does not hold the clock, so its block is not "protected in force".
+  const openAnchorId = asRecord(asRecord(current.recommendation)?.openAnchor)?.id;
   const protectedInForce = (current.dayPlan?.blocks ?? []).some(
     (block) =>
       (block.kind === "commitment" || block.kind === "sleep" || block.kind === "routine_step") &&
+      !(block.kind === "commitment" && block.targetId === openAnchorId) &&
       new Date(block.startsAt).getTime() <= at.getTime() &&
       at.getTime() < new Date(block.endsAt).getTime()
   );

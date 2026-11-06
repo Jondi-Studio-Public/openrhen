@@ -1,5 +1,6 @@
 "use client";
 
+import { situationCommand } from "@/components/situation-panel";
 import { createClientId } from "@/shared/client-id";
 import type { PortalState } from "@/state/portal-state";
 import { clock, localDate } from "@/features/now/now-formatting";
@@ -41,6 +42,7 @@ export function BoundaryPanel({
   saving,
   explanation,
   evidence,
+  blockedPlaces = [],
   saveEntityCommand
 }: {
   directive: BoundaryDirective;
@@ -51,6 +53,8 @@ export function BoundaryPanel({
   saving: boolean;
   explanation: string;
   evidence: readonly string[];
+  /** Places the closest suitable action is waiting on; one tap says the person is there. */
+  blockedPlaces?: readonly { id: string; name: string; actionTitle: string }[];
   saveEntityCommand: SaveEntityCommand;
 }) {
   const boundaryAt = new Date(directive.boundaryAt);
@@ -63,6 +67,7 @@ export function BoundaryPanel({
   // The extension is measured from the boundary when it is still ahead, and from now once the
   // horizon has already passed — otherwise "one more hour" after a 22:00 horizon at 23:30 would end
   // in the past and change nothing.
+  const namesNextFit = Boolean(nextFit) && directive.boundaryKind !== "daily_horizon";
   const extendFrom = Math.max(boundaryAt.getTime(), now.getTime());
   // An extension is for the planning day it is made in, so it stops at the next wake: past it the day
   // that begins then would inherit it. Options that would run past the wake collapse into one that
@@ -91,19 +96,39 @@ export function BoundaryPanel({
   return (
     <>
       <p className="time">
-        {directive.boundaryEdge === "end"
-          ? `Nothing fits until ${boundaryName(directive)}'s protection ends`
-          : `Nothing fits before ${boundaryName(directive)}`}{" "}
-        · {when(boundaryAt)}
+        {nextFit && directive.boundaryKind !== "daily_horizon"
+          ? // The first time that fits is the one that matters; the boundary is only why it is not sooner.
+            `Nothing fits until ${when(new Date(nextFit.at))}, after ${boundaryName(directive)}`
+          : directive.boundaryEdge === "end"
+            ? `Nothing fits until ${boundaryName(directive)}'s protection ends · ${when(boundaryAt)}`
+            : `Nothing fits before ${boundaryName(directive)} · ${when(boundaryAt)}`}
       </p>
       <p className="reason">{explanation}</p>
       {nextFit ? (
         <p className="microcopy">
-          Next fit: <strong>{nextFit.title}</strong> for {nextFit.recommendedMinutes} minutes at{" "}
-          {when(new Date(nextFit.at))}.
+          Next fit: <strong>{nextFit.title}</strong> for {nextFit.recommendedMinutes} minutes
+          {/* The time is already the line above when that line names when things fit again. */}
+          {namesNextFit ? "." : <> at {when(new Date(nextFit.at))}.</>}
         </p>
       ) : (
         <p className="microcopy">Nothing after it fits inside the forecast either.</p>
+      )}
+      {blockedPlaces.length > 0 && (
+        <div className="actions">
+          {blockedPlaces.map((place) => (
+            <button
+              disabled={saving}
+              key={place.id}
+              onClick={() => void saveEntityCommand(situationCommand(state, { locationId: place.id }))}
+            >
+              I am at {place.name}
+            </button>
+          ))}
+          <small className="microcopy">
+            Says you are there now, so {blockedPlaces[0]!.actionTitle} can be recommended. Same as changing it under
+            Available right now.
+          </small>
+        </div>
       )}
       {isDailyHorizon && extensions.length > 0 && (
         <div className="actions horizon-extension">

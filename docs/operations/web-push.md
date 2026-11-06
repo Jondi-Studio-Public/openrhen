@@ -1,5 +1,7 @@
 # Web push
 
+You need this when you want leave-by reminders on your phone.
+
 Leave-by reminders reach a phone through standard Web Push: the sender signs each message with a VAPID key (RFC 8292) and encrypts the payload (RFC 8291). The code is hand-written on Node `crypto` inside the outbound proxy, with no push library. The proxy holds the one key pair; the portal only fetches the public half from it.
 
 ## 1. Generate the key pair

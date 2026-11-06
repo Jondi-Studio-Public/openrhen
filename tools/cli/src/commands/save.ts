@@ -424,6 +424,23 @@ function reverseOfSleepPlan(
   }
 }
 
+/** How to undo a free statement: the opposite statement, version-checked like any other update. */
+function reverseOfFree(
+  def: EntityTypeDef,
+  id: string,
+  free: boolean,
+  expectedVersion: number | null
+): ReverseSpec | undefined {
+  try {
+    return {
+      undo: buildWriteRequest(def, { id, free: !free }, newCommandId(), expectedVersion),
+      target: { stateKey: "commitments", id }
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * How to undo a settings save: the fields it named, restated as they were, so the undo names nothing the save
  * did not (an undo of recording when the person woke stays the same direct write). A field that was unset is
@@ -576,6 +593,40 @@ const NEW_ACTION_PLACEMENT =
   "call rhen_recalculate {} now (or wait a minute), then rhen_status {} (its day lists today's blocks) or " +
   'rhen_show {"entity": "action", "id": "<this action\'s id>"} (its occurrences). Until then, do not tell the ' +
   "person when it will be done.";
+
+/**
+ * "I'm free" (`free: true|false` on a commitment): a statement about one occurrence, sent as id and free alone so
+ * the stored record is not restated, and undone by the opposite statement.
+ */
+function freeStatement(def: EntityTypeDef, provided: Fields): boolean | undefined {
+  if (def.canonical !== "commitment" || provided.free === undefined) return undefined;
+  if (typeof provided.free !== "boolean")
+    throw new CliError(`free must be true or false, got ${JSON.stringify(provided.free)}.`, EXIT.validation);
+  const others = Object.keys(provided).filter((key) => key !== "id" && key !== "free" && key !== "version");
+  if (others.length > 0)
+    throw new CliError(
+      `free is a statement on its own and cannot be sent with ${others.join(", ")}. Send only id and free ` +
+        '(rhen_save_commitment {"fields":{"id":"<commitment id>","free":true}}) and make any other change in a separate save.',
+      EXIT.validation
+    );
+  return provided.free;
+}
+
+/** What a free write tells the caller beyond the record: what changed, what did not, and the exact next calls. */
+function freeAnswer(title: string, id: string, free: boolean, awaiting: boolean): string {
+  const undo = `rhen_undo {} (or rhen_save_commitment {"fields":{"id":"${id}","free":${free ? "false" : "true"}}})`;
+  const recalculating = awaiting
+    ? "The recommendation is still being recalculated (awaitingRecalculation is true), so the Now card and rhen_status " +
+      "may keep saying the old thing for a moment. Call rhen_status {} in about a minute, or rhen_recalculate {} to force it, "
+    : "Call rhen_status {} ";
+  return free
+    ? `Freed from "${title}": the planner stops treating the rest of it as taken and offers the next task. Nothing was ended, ` +
+        "finished, moved or cancelled, and it stays on the day plan. " +
+        `${recalculating}and read recommendation.primary for what to do next. ` +
+        `This is not leaving: the trip home and the time after it stay protected until its end. To take it back: ${undo}.`
+    : `"${title}" holds its time again until its end. ${recalculating}and read recommendation for what to do now. ` +
+        `To free it again: ${undo}.`;
+}
 
 export const saveCommand: CommandSpec = {
   name: "save",
@@ -759,7 +810,13 @@ export const saveCommand: CommandSpec = {
     // a proposal that could never be confirmed, and recording when the person woke (`isWakeSettings`)
     // would not apply directly.
     // A sleep plan likewise: restating its stored times would read as the person moving the night.
-    const partial = def.singletonKey === "settings" || def.canonical === "sleep_plan";
+    const free = freeStatement(def, provided);
+    if (free !== undefined && (!existing || id === undefined))
+      throw new CliError(
+        `There is no commitment to free${id === undefined ? ": give its id (from rhen_status commitments)" : ` with the id "${id}"`}.`,
+        EXIT.notFound
+      );
+    const partial = def.singletonKey === "settings" || def.canonical === "sleep_plan" || free !== undefined;
     const merged =
       existing && def.canonical === "sleep_log_entry"
         ? sleepLogUpdate(existing, provided, id as string)
@@ -809,11 +866,13 @@ export const saveCommand: CommandSpec = {
     if (!existing && restatable) reverse = reverseOfCreate(def, state, context.now());
     if (existing && restatable)
       reverse =
-        def.singletonKey === "settings"
-          ? reverseOfSettings(def, existing, provided, expectedVersion)
-          : def.canonical === "sleep_plan"
-            ? reverseOfSleepPlan(def, existing, provided, expectedVersion, id as string)
-            : reverseOfUpdate(def, existing, expectedVersion, id);
+        free !== undefined
+          ? reverseOfFree(def, id as string, free, expectedVersion)
+          : def.singletonKey === "settings"
+            ? reverseOfSettings(def, existing, provided, expectedVersion)
+            : def.canonical === "sleep_plan"
+              ? reverseOfSleepPlan(def, existing, provided, expectedVersion, id as string)
+              : reverseOfUpdate(def, existing, expectedVersion, id);
     const result = await postCommand(context, args, { path, payload, summary, ...(reverse ? { reverse } : {}) });
     if (!result.state) return; // --dry-run already printed the payload
 
@@ -853,7 +912,16 @@ export const saveCommand: CommandSpec = {
       fallback: `${label} saved.`,
       timeZone,
       ...(replayOf ? { replayOf } : {}),
-      ...(def.canonical === "action" && !existing ? { placement: NEW_ACTION_PLACEMENT } : {})
+      ...(def.canonical === "action" && !existing ? { placement: NEW_ACTION_PLACEMENT } : {}),
+      ...(free !== undefined && replayOf === undefined
+        ? (() => {
+            const awaiting = result.state?.planning?.awaitingRecalculation === true;
+            return {
+              placement: freeAnswer(String(existing?.title ?? "the commitment"), outcomeId ?? "<id>", free, awaiting),
+              extra: { awaitingRecalculation: awaiting, nextCall: "rhen_status {}" }
+            };
+          })()
+        : {})
     });
   }
 };

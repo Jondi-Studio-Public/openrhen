@@ -118,6 +118,8 @@ const FIXED_TOOL_SCOPES = {
   // When the person woke is a fact about last night's sleep, so it takes the sleep log's scope, as the wake-only
   // settings save does (`WAKE_SETTINGS_FIELDS`). Applied directly with no proposal: it records what happened.
   wake: ["write:entity:sleep_log_entry"],
+  // "I'm free" is a commitment save that sends `free` alone, so it takes the commitment save's scope.
+  free: ["write:entity:commitment"],
   session: ["write:session"],
   span: ["write:entity:span"],
   activity: ["write:activity"],

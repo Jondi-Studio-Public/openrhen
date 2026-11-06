@@ -325,6 +325,33 @@ export function recommend(args: RecommendArguments): Recommendation {
         args.locale
       );
       const one = blockers.length === 1;
+      // What the action needs, said as the person would: places are somewhere to be, anything else is named.
+      const isPlace = (id: string) => definitions.find((item) => item.id === id)?.kind === "location";
+      const places = blockers.filter(isPlace).map((id) => conditionName(definitions, id));
+      const others = blockers.filter((id) => !isPlace(id)).map((id) => conditionName(definitions, id));
+      const needs = [
+        ...(places.length ? [`you at ${formatList(places, args.locale)}`] : []),
+        ...(others.length ? [formatList(others, args.locale)] : [])
+      ].join(", plus ");
+      // Only said when the re-run at that place actually leads with something; being there is useless if
+      // the work still would not fit (a session minimum longer than the gap, say).
+      const atPlace =
+        places.length && !others.length ? wouldChangeIf.find((item) => item.condition === "at_location") : undefined;
+      const clears = atPlace?.thenPrimary
+        ? `If you are at ${formatList(places, args.locale)}, ${atPlace.thenPrimary.title} would lead for ${atPlace.thenPrimary.recommendedMinutes} minutes: get there, or say you are there.`
+        : places.length && !others.length
+          ? `Being at ${formatList(places, args.locale)} would not change that before then, so there is nothing to do about it yet.`
+          : "Once that is sorted, or you say it is, it can be recommended.";
+      // Blocked by place while a boundary also leaves no room: the answer to "what do I do?" is that nothing
+      // can be started until the first thing that fits, not the blocked action, so lead with that.
+      const boundaryHeadline =
+        !asking && noFit.kind === "boundary"
+          ? noFit.nextFit && noFit.boundaryKind !== "daily_horizon"
+            ? `Nothing to start until after ${
+                noFit.boundaryTitle ?? (noFit.boundaryKind === "sleep" ? "sleep" : "the next commitment")
+              }`
+            : boundaryWording(noFit, args.now, args.timezone, args.locale).headline
+          : null;
       const ifYes =
         noFit.kind === "answer" && noFit.candidate
           ? ` If yes, ${noFit.candidate.title} would lead for ${noFit.candidate.recommendedMinutes} minutes.`
@@ -336,11 +363,11 @@ export function recommend(args: RecommendArguments): Recommendation {
         needsAnswer,
         reachable,
         headline: asking
-          ? `${contexts} ${one ? "is" : "are"} unanswered for ${conditionBlocked.action.title}`
-          : `${contexts} ${one ? "is" : "are"} needed for ${conditionBlocked.action.title}`,
+          ? `${conditionBlocked.action.title} needs an answer: ${blockers.map((id) => conditionQuestion(definitions, id)).join(" ")}`
+          : (boundaryHeadline ?? `${conditionBlocked.action.title} needs ${needs}`),
         explanation: asking
           ? `${conditionBlocked.action.title} is the closest suitable action, but nothing has said whether ${contexts} ${one ? "is" : "are"} available. Answer that and it can be recommended.${ifYes}`
-          : `${conditionBlocked.action.title} is the closest suitable action, but it needs ${contexts}.`,
+          : `${conditionBlocked.action.title} is the closest suitable action, but it needs ${needs}, so it is not suggested from here. ${clears}`,
         evidence: conditionBlocked.exclusionReasons,
         why,
         noFit,

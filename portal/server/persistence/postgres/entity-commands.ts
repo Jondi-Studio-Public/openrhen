@@ -290,6 +290,71 @@ export async function saveEntity(sql: PoolSql, command: EntityCommandWithHash): 
         await tx`UPDATE outcomes SET area_id=${areaId},title=${title},definition_of_done=${done},value=${value},status=${status},deadline_at=${deadline},review_on=${review},version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=${id}`;
       else
         await tx`INSERT INTO outcomes (id,area_id,title,definition_of_done,value,status,deadline_at,review_on) VALUES (${id},${areaId},${title},${done},${value},${status},${deadline},${review})`;
+    } else if (command.entityType === "commitment" && Object.prototype.hasOwnProperty.call(entity, "free")) {
+      // "I'm free": a statement about this one occurrence, handled before the ordinary commitment save
+      // asks for a title and times. It writes `freed_from` and nothing the family calendar shows (the title,
+      // times, place and status are untouched, and no extension hook runs), so it is not an outbound change.
+      const id = await stableUuid(`commitment:${userId}`, rawId);
+      storedId = id;
+      if (typeof entity.free !== "boolean") throw badValue("free", entity.free, "true or false", "true");
+      const others = Object.keys(entity).filter((key) => key !== "id" && key !== "free" && key !== "version");
+      if (others.length > 0)
+        throw refused({
+          message:
+            `free is a statement on its own and cannot be sent with ${others.join(", ")}. ` +
+            "Send only id and free; make any other change in a separate save.",
+          nextCall: {
+            tool: "rhen_save_commitment",
+            arguments: { fields: { id: rawId, free: entity.free } },
+            note: "id and free only"
+          }
+        });
+      const rows = await tx<
+        {
+          version: number;
+          status: string;
+          title: string;
+          starts_at: Date;
+          ends_at: Date;
+          freed_from: Date | null;
+          tracked_end: Date;
+          running_over: boolean;
+        }[]
+      >`SELECT c.version, c.status, c.title, c.starts_at, c.ends_at, c.freed_from,
+          GREATEST(c.ends_at, COALESCE((SELECT MAX(se.ended_at) FROM sessions se WHERE se.target_type='fixed_commitment' AND se.target_id=c.id AND se.started_at<c.ends_at AND se.ended_at>c.ends_at), c.ends_at)) AS tracked_end,
+          EXISTS (SELECT 1 FROM sessions se WHERE se.target_type='fixed_commitment' AND se.target_id=c.id AND se.status IN ('running','paused') AND se.started_at<c.ends_at) AS running_over
+        FROM commitments c WHERE c.id=${id} AND c.user_id=${userId} FOR UPDATE OF c`;
+      verifyVersion(rows[0]?.version);
+      const row = rows[0];
+      if (!row) throw notFound("commitment", rawId);
+      const at = new Date();
+      if (entity.free === true) {
+        if (row.status !== "confirmed")
+          throw refused({
+            message: `"${row.title}" is ${row.status}, so it is not holding any time to free. Only a confirmed commitment can be freed.`
+          });
+        if (row.starts_at > at)
+          throw refused({
+            message:
+              `"${row.title}" has not started (it starts ${row.starts_at.toISOString()}), so there is nothing to free yet. ` +
+              "If you are not going, cancel it with rhen_cancel instead; free works only from its start to its end.",
+            nextCall: {
+              tool: "rhen_cancel",
+              arguments: { type: "commitment", id: rawId },
+              note: "only if it will not happen"
+            }
+          });
+        // The effective end: the scheduled end, or the later of it and tracked overtime; a session still open
+        // against it means it is running now.
+        if (!row.running_over && row.tracked_end <= at)
+          throw refused({
+            message:
+              `"${row.title}" has already ended (${row.tracked_end.toISOString()}), so there is nothing left of it to free. ` +
+              "Call rhen_status for what to do now."
+          });
+      }
+      // Freed again keeps the first instant: the statement was made then.
+      await tx`UPDATE commitments SET freed_from=${entity.free ? (row.freed_from ?? at) : null}, version=version+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id}`;
     } else if (command.entityType === "commitment") {
       const id = await stableUuid(`commitment:${userId}`, rawId);
       storedId = id;

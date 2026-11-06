@@ -1,6 +1,6 @@
 # OpenRhen documentation
 
-OpenRhen is a self-hosted planner that works out what you should do right now, for how long, and why. The rules are deterministic: the same plan and the same clock always give the same answer.
+OpenRhen is a self-hosted planner that works out what to do right now (see the [README](../README.md)).
 
 Start with the guide that matches what you want to do. Open only what you need.
 

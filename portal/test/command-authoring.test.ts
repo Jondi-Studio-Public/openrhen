@@ -55,6 +55,7 @@ const EXEMPT_AUTHORING_MODULES: Record<string, number> = {
   "features/disruptions/disruption-save.ts": 2,
   "features/locations/create-place.ts": 1,
   "features/now/can-do-now-commands.ts": 1,
+  "features/now/free-commitment.ts": 1,
   "features/now/need-commands.ts": 1,
   "features/now/recovery-commands.ts": 1,
   "features/now/wake-commands.ts": 3,

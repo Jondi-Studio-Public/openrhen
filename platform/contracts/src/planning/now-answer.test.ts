@@ -296,7 +296,7 @@ describe("buildNowAnswer needs", () => {
     const stale = { locationId: "home", locationSetAt: ago(3 * 24 * HOUR), energySetAt: ago(HOUR) };
     const directive = {
       kind: "answer",
-      title: "Home is unanswered for Lab 7",
+      title: "Lab 7 needs an answer: Are you at Home?",
       recommendedMinutes: 0,
       question: "Are you at Home?",
       contextIds: ["home"],
@@ -332,7 +332,7 @@ describe("buildNowAnswer needs", () => {
     const stale = { locationId: "work", locationSetAt: ago(3 * 24 * HOUR), energySetAt: ago(HOUR) };
     const directive = {
       kind: "answer",
-      title: "Home is unanswered for Lab 7",
+      title: "Lab 7 needs an answer: Are you at Home?",
       recommendedMinutes: 0,
       question: "Are you at Home?",
       contextIds: ["home"],

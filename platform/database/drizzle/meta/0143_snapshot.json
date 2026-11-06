@@ -1,5 +1,5 @@
 {
-  "id": "1fa94418-6a02-4eee-a5ae-0ce1683f169d",
+  "id": "179d9892-5d68-40a4-8c76-9217799c4580",
   "prevId": "19752ecb-23ee-46f4-8b3a-1f45edee0803",
   "version": "7",
   "dialect": "postgresql",
@@ -2201,7 +2201,7 @@
       "checkConstraints": {
         "agent_wakes_event_check": {
           "name": "agent_wakes_event_check",
-          "value": "\"agent_wakes\".\"event\" IN ('check_in_unanswered','pulse_lapsed','pulse_unknown','attention_waiting')"
+          "value": "\"agent_wakes\".\"event\" IN ('check_in_unanswered','pulse_lapsed','pulse_unknown')"
         },
         "agent_wakes_status_check": {
           "name": "agent_wakes_status_check",
@@ -4087,6 +4087,12 @@
         "check_in_extra_minutes": {
           "name": "check_in_extra_minutes",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "freed_from": {
+          "name": "freed_from",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },

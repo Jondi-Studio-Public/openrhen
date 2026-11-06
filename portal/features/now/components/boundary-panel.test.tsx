@@ -61,7 +61,7 @@ describe("BoundaryPanel", () => {
         isDailyHorizon={false}
       />
     );
-    expect(screen.getByText(/Nothing fits before Dinner and reset/)).toBeTruthy();
+    expect(screen.getByText(/Nothing fits until .*, after Dinner and reset/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "+2 hours" })).toBeNull();
     unmount();
     // Protection ENDS at the boundary: the wording must not claim the commitment starts there.
@@ -72,7 +72,36 @@ describe("BoundaryPanel", () => {
         isDailyHorizon={false}
       />
     );
-    expect(screen.getByText(/Nothing fits until College Class's protection ends/)).toBeTruthy();
+    expect(screen.getByText(/Nothing fits until .*, after College Class/)).toBeTruthy();
+  });
+
+  it("states when things fit again once, not in the line and the footer", () => {
+    render(
+      <BoundaryPanel
+        {...props}
+        directive={{ ...directive, boundaryKind: "commitment", boundaryTitle: "Craig Cooking" }}
+        isDailyHorizon={false}
+      />
+    );
+    expect(screen.getByText(/Nothing fits until 8:00 am on Wed, 19 Aug, after Craig Cooking/)).toBeTruthy();
+    expect(screen.getByText("Draft the report").closest("p")?.textContent).toBe(
+      "Next fit: Draft the report for 45 minutes."
+    );
+  });
+
+  it("offers one tap to say you are at the place the blocked action needs", () => {
+    const save = vi.fn().mockResolvedValue(undefined);
+    render(
+      <BoundaryPanel
+        {...props}
+        saveEntityCommand={save}
+        directive={{ ...directive, boundaryKind: "commitment", boundaryTitle: "Craig Cooking" }}
+        isDailyHorizon={false}
+        blockedPlaces={[{ id: "shops", name: "shops", actionTitle: "Buy supplies" }]}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "I am at shops" }));
+    expect(save.mock.calls[0]![0].entity.currentSituation.locationId).toBe("shops");
   });
 
   it("extends from now once the horizon has already passed", () => {

@@ -166,6 +166,13 @@ export interface FixedCommitment extends TimeRange {
    */
   trackedEndedAt?: Date;
   /**
+   * "I'm free": the instant the person released the rest of this occurrence (`commitments.freed_from`).
+   * From then until the effective end `openAnchorsNow` hands the active phase to the live ranking,
+   * whatever the presence, an open tracking session or running late; setup, travel and the transition
+   * after stay protected. Nothing is ended or finished. Absent means not freed.
+   */
+  freedFrom?: Date;
+  /**
    * Whether lateness to this commitment matters. Stored and carried on the timeline
    * (`commitmentTimeline`'s `latenessMatters`, defaulting to `true` when absent); nothing reads it
    * yet — see the commitment timeline design note.
@@ -208,6 +215,16 @@ export function effectiveCommitmentEnd(commitment: FixedCommitment): Date {
   // `effectiveEndsAt` needs only `trackedEndedAt`, not legs, so the margin passed here never affects
   // the answer — see `commitment-timeline.ts`'s "What needs legs".
   return commitmentTimeline(commitment, 0).effectiveEndsAt;
+}
+
+/**
+ * Whether the person has said they are free from this commitment, and that still holds at `now`: the
+ * statement has been made (`freedFrom <= now`) and the commitment has not yet reached its effective end.
+ * One predicate for the open-anchor path, the directive's step search and the pulse.
+ */
+export function isFreedNow(commitment: FixedCommitment, now: Date): boolean {
+  if (!commitment.freedFrom || commitment.freedFrom > now || commitment.startsAt > now) return false;
+  return effectiveCommitmentEnd(commitment) > now;
 }
 
 /**

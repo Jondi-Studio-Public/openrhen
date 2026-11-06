@@ -2037,6 +2037,10 @@
                 "type": "string",
                 "format": "date-time"
               },
+              "freedFrom": {
+                "type": "string",
+                "format": "date-time"
+              },
               "private": {
                 "type": "boolean"
               },

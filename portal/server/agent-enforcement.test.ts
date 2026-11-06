@@ -364,6 +364,54 @@ describe("the enforcement matrix for entity saves", () => {
   });
 });
 
+describe("free on a commitment shared with the family calendar", () => {
+  const route = "/api/commands/entity";
+  const held = principal(["write:entity:commitment"], { commitment: "on" });
+  const freeBody = { ...entityBody("commitment", { id: "c1", free: true }), expectedVersion: 4 };
+
+  it("files a proposal for the owner to confirm, whose summary says what freed means", async () => {
+    const propose = fakePropose();
+    const response = await call(
+      "POST",
+      route,
+      held,
+      freeBody,
+      { basis: "stated" },
+      { propose, stored: async () => ({ shared: true }) }
+    );
+    expect(response?.status).toBe(202);
+    expect(propose).toHaveBeenCalledTimes(1);
+    expect(propose.mock.calls[0]![1]).toMatchObject({
+      kind: "entity_command",
+      payload: { command: "save_entity", body: freeBody },
+      coalesceKey: "commitment:c1"
+    });
+    expect(propose.mock.calls[0]![1].summary).toMatch(/Free the person from commitment/);
+    expect(propose.mock.calls[0]![1].summary).toMatch(/nothing is ended or moved/);
+  });
+
+  it("applies directly when the commitment is not shared", async () => {
+    const propose = fakePropose();
+    expect(
+      await call(
+        "POST",
+        route,
+        held,
+        freeBody,
+        { basis: "stated" },
+        { propose, stored: async () => ({ shared: false }) }
+      )
+    ).toBeNull();
+    expect(propose).not.toHaveBeenCalled();
+  });
+
+  it("names the undo in the proposal summary", () => {
+    expect(proposalSummary("save_entity", { ...freeBody, entity: { id: "c1", free: false } })).toMatch(
+      /Undo free on commitment/
+    );
+  });
+});
+
 describe("project and action saves", () => {
   it("downgrades the dedicated routes the same way", async () => {
     const propose = fakePropose();
