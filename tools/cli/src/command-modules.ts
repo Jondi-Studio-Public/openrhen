@@ -70,9 +70,9 @@ export interface CommandModule {
   skillNote?: string;
   /**
    * Where `pnpm manifest` writes the module's MCP tool entries, instead of the core manifest data: a file name under
-   * `platform/contracts/src/private/`, the constant it exports for the module's own tools and the one for the core tools its rooms change (`overridesName`), which a contracts extension registers.
+   * `platform/contracts/src/private/`, the constant it exports for the module's own tools and the one for the core tools its rooms change (`overridesName`, left out when the extension derives those from core), which a contracts extension registers.
    */
-  manifestFile?: { file: string; exportName: string; overridesName: string };
+  manifestFile?: { file: string; exportName: string; overridesName?: string };
 }
 
 const modules = new Map<string, CommandModule>();

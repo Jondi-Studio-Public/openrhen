@@ -75,13 +75,15 @@ export interface McpToolManifestEntry {
 }
 
 /** The generated core tools, with each registered extension's tools placed after the tool it names (or last). */
-function withExtensionTools(core: readonly McpToolManifestEntry[]): McpToolManifestEntry[] {
+export function withExtensionTools(core: readonly McpToolManifestEntry[]): McpToolManifestEntry[] {
   const tools = [...core];
   for (const extension of contractsExtensions()) {
     if (extension.mcpTools === undefined) continue;
     const placements = Array.isArray(extension.mcpTools) ? extension.mcpTools : [extension.mcpTools];
     for (const placement of placements) {
-      for (const override of placement.overrides ?? []) {
+      const { overrides } = placement;
+      // A function derives its entries from the core ones, so it never sees another extension's changes.
+      for (const override of typeof overrides === "function" ? overrides(core) : (overrides ?? [])) {
         const at = tools.findIndex((tool) => tool.name === override.name);
         if (at >= 0) tools[at] = override;
       }

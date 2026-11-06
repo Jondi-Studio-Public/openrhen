@@ -1198,8 +1198,16 @@ export type {
 export { UNTRUSTED_SOURCE_LABELS, fenceUntrusted, newFenceNonce } from "./untrusted-fence.js";
 export type { UntrustedOutputKind } from "./untrusted-fence.js";
 export { contractsExtensions, extensionContractSnapshotTools, registerContractsExtension } from "./extensions.js";
+export { MCP_COMMON_PARAMS } from "./mcp-common-params.js";
 export { withoutContractsExtensions } from "./core-only.js";
-export type { ContractsExtension, FixedWriteRoute, FloorRule, RouteExtension } from "./extensions.js";
+export type {
+  ContractsExtension,
+  FixedWriteRoute,
+  FloorRule,
+  McpToolOverrides,
+  McpToolPlacement,
+  RouteExtension
+} from "./extensions.js";
 export {
   MCP_SERVER_INSTRUCTIONS,
   MCP_CORE_TOOL_MANIFEST,
