@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { describe, expect, it } from "vitest";
-import { createClient, normaliseState } from "../src/client.js";
+import { createClient, describeFetchFailure, normaliseState } from "../src/client.js";
 import { DEFAULT_PORTAL_URL, type CliConfig } from "../src/config.js";
 import { CliError, EXIT, NetworkError, ServerError } from "../src/errors.js";
 import { sendCommand } from "../src/write.js";
@@ -25,7 +25,7 @@ describe("createClient: unreachable portal", () => {
     const error = await client.get("/api/widgets").catch((e: unknown) => e);
     expect(error).toBeInstanceOf(NetworkError);
     expect((error as Error).message).toBe(
-      "No portal at http://localhost:8787. Set OPENRHEN_URL or `url` in ~/.openrhen/config.json."
+      "No portal at http://localhost:8787 (fetch failed). Set OPENRHEN_URL or `url` in ~/.openrhen/config.json."
     );
   });
 
@@ -34,6 +34,24 @@ describe("createClient: unreachable portal", () => {
     const error = await client.get("/api/widgets").catch((e: unknown) => e);
     expect(error).toBeInstanceOf(NetworkError);
     expect((error as Error).message).toContain("Cannot reach the portal at http://localhost:8787");
+  });
+});
+
+describe("describeFetchFailure", () => {
+  const failure = (cause: { code?: string; message?: string }, message = "fetch failed") =>
+    Object.assign(new TypeError(message), { cause });
+
+  it("names the real reason instead of the bare 'fetch failed'", () => {
+    expect(describeFetchFailure(failure({ code: "ECONNREFUSED" }))).toMatch(/^connection refused .*docker compose ps/);
+    expect(describeFetchFailure(failure({ code: "ENOTFOUND" }))).toMatch(/^no such host/);
+    expect(describeFetchFailure(failure({ code: "DEPTH_ZERO_SELF_SIGNED_CERT" }))).toContain("certificate");
+    expect(describeFetchFailure(failure({ message: "unexpected redirect" }))).toMatch(/redirected/);
+  });
+
+  it("keeps what it has when the cause is unknown or missing", () => {
+    expect(describeFetchFailure(failure({ code: "WEIRD" }))).toBe("fetch failed: WEIRD");
+    expect(describeFetchFailure(new TypeError("fetch failed"))).toBe("fetch failed");
+    expect(describeFetchFailure("boom")).toBe("boom");
   });
 });
 

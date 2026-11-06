@@ -78,9 +78,28 @@ function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => Error)
   return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
 }
 
+/**
+ * What actually went wrong, from the error Node's fetch throws. It is always the bare "fetch failed"; the real
+ * reason (connection refused, no such host, a certificate or redirect problem) sits on `cause`.
+ */
+export function describeFetchFailure(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const cause = error instanceof Error ? (error.cause as { code?: unknown; message?: unknown } | undefined) : undefined;
+  const code = typeof cause?.code === "string" ? cause.code : "";
+  if (code === "ECONNREFUSED") return "connection refused (is OpenRhen running? try: docker compose ps)";
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN") return "no such host (check the address for typos)";
+  if (code === "ECONNRESET" || code === "UND_ERR_SOCKET") return "the connection was closed by the other end";
+  if (code.startsWith("ERR_TLS") || code.includes("CERT") || code === "DEPTH_ZERO_SELF_SIGNED_CERT")
+    return `the certificate was not accepted (${code})`;
+  if (/redirect/i.test(message) || /redirect/i.test(String(cause?.message ?? "")))
+    return "the portal redirected the request (for example from http to https); use the address it redirects to";
+  const detail = typeof cause?.message === "string" && cause.message ? cause.message : code;
+  return detail && !message.includes(detail) ? `${message}: ${detail}` : message;
+}
+
 function unreachableMessage(config: CliConfig, reason: string): string {
   return config.fromDefault
-    ? `No portal at ${config.url}. Set OPENRHEN_URL or \`url\` in ~/.openrhen/config.json.`
+    ? `No portal at ${config.url} (${reason}). Set OPENRHEN_URL or \`url\` in ~/.openrhen/config.json.`
     : `Cannot reach the portal at ${config.url}: ${reason}`;
 }
 
@@ -137,7 +156,7 @@ export function createClient(config: CliConfig, options: ClientOptions = {}): Po
         signal: AbortSignal.timeout(config.timeoutMs)
       });
     } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
+      const reason = describeFetchFailure(error);
       const timedOut = error instanceof Error && error.name === "TimeoutError";
       throw new NetworkError(
         timedOut
@@ -186,7 +205,7 @@ export function createClient(config: CliConfig, options: ClientOptions = {}): Po
         signal: AbortSignal.timeout(config.timeoutMs)
       });
     } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
+      const reason = describeFetchFailure(error);
       const timedOut = error instanceof Error && error.name === "TimeoutError";
       throw new NetworkError(
         timedOut
