@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect } from "react";
 
 /**
@@ -15,9 +16,14 @@ export default function Error({ error, reset }: { error: Error & { digest?: stri
     <main className="content-page">
       <p className="eyebrow">Something went wrong</p>
       <h1>This page hit a snag.</h1>
-      <p className="reason">Nothing here was saved or lost — the page just failed to show.</p>
+      <p className="reason">
+        The page failed to show. Anything you had already saved is safe; anything you were typing may not be. Try again,
+        or go back to Now.
+      </p>
+      {error.digest && <p className="hint">Reference {error.digest}. Quote it if you report this.</p>}
       <div className="actions">
         <button onClick={() => reset()}>Try again</button>
+        <Link href="/">Go to Now</Link>
       </div>
     </main>
   );

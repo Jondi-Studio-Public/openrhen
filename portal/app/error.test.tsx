@@ -39,5 +39,15 @@ describe("error boundary fallback", () => {
     }
     expect(screen.getByText("This page hit a snag.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Go to Now" }).getAttribute("href")).toBe("/");
+  });
+
+  it("shows the reference when the server gave the error a digest, and none otherwise", () => {
+    const { rerender } = render(
+      <ErrorPage error={Object.assign(new Error("boom"), { digest: "abc123" })} reset={() => {}} />
+    );
+    expect(screen.getByText(/Reference abc123/)).toBeTruthy();
+    rerender(<ErrorPage error={new Error("boom")} reset={() => {}} />);
+    expect(screen.queryByText(/Reference/)).toBeNull();
   });
 });
