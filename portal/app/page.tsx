@@ -748,6 +748,23 @@ export default function NowPage() {
   // What kind of moment the hero is, in a few words above the headline.
   const notBefore = (currentDirective as { notBefore?: string } | null | undefined)?.notBefore;
   const breakEndsAt = notBefore && new Date(notBefore) > now ? new Date(notBefore) : null;
+  // The closest action blocked only by being elsewhere, so a boundary card can offer "I am at <place>".
+  const blockedCandidate = reachable.find((item) =>
+    item.conditionMatch?.missing?.some((id) =>
+      state.conditionDefinitions.some((entry) => entry.id === id && entry.kind === "location")
+    )
+  );
+  // Only offered when the engine's own re-run at that place leads with something before the boundary.
+  const atPlaceLeads = Boolean(
+    recommendation.why?.wouldChangeIf.some((item) => item.condition === "at_location" && item.thenPrimary)
+  );
+  const blockedPlaces =
+    blockedCandidate && atPlaceLeads
+      ? (blockedCandidate.conditionMatch?.missing ?? []).flatMap((id) => {
+          const place = state.conditionDefinitions.find((entry) => entry.id === id && entry.kind === "location");
+          return place ? [{ id, name: place.name, actionTitle: blockedCandidate.action.title }] : [];
+        })
+      : [];
   const kicker = firstRun
     ? "Welcome"
     : travelDirective
@@ -1018,6 +1035,7 @@ export default function NowPage() {
                     saving={saving}
                     explanation={recommendation.explanation}
                     evidence={recommendation.evidence}
+                    blockedPlaces={blockedPlaces}
                     saveEntityCommand={saveEntityCommand}
                   />
                 ) : (
