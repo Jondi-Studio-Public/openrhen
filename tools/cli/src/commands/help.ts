@@ -1,4 +1,5 @@
 import { globalOptions, type CommandSpec, type OptionSpec } from "../command.js";
+import { closestNames } from "@openrhen/contracts";
 import { toJson } from "../output.js";
 
 const OVERVIEW_INTRO = [
@@ -70,28 +71,11 @@ export function describeCommand(spec: CommandSpec) {
   };
 }
 
-function editDistance(a: string, b: string): number {
-  const row = Array.from({ length: b.length + 1 }, (_, index) => index);
-  for (let i = 1; i <= a.length; i += 1) {
-    let diagonal = row[0]!;
-    row[0] = i;
-    for (let j = 1; j <= b.length; j += 1) {
-      const above = row[j]!;
-      row[j] = Math.min(above + 1, row[j - 1]! + 1, diagonal + (a[i - 1] === b[j - 1] ? 0 : 1));
-      diagonal = above;
-    }
-  }
-  return row[b.length]!;
-}
-
 /** The unknown-command error: names the closest command and the exact next call, for a CLI user or an agent. */
 export function unknownCommandMessage(name: string, names: readonly string[]): string {
-  const close = names
-    .map((candidate) => ({ candidate, distance: editDistance(name.toLowerCase(), candidate) }))
-    .filter(({ distance }) => distance <= 2)
-    .sort((left, right) => left.distance - right.distance)[0]?.candidate;
+  const close = closestNames(name, names);
   return (
-    `Unknown command "${name}".${close ? ` Did you mean "${close}"?` : ""} Commands: ${names.join(", ")}. ` +
+    `Unknown command "${name}".${close.length > 0 ? ` Did you mean ${close.map((candidate) => `"${candidate}"`).join(" or ")}?` : ""} Commands: ${names.join(", ")}. ` +
     `Call rhen_help with {"command": "<one of those names>"} for one command's options, or rhen_help ` +
     `with {} for every command (about 256 KB, so prefer one). From a shell: rhen help <command>.`
   );
