@@ -56,3 +56,12 @@ A later change adds one migration, an ingest endpoint with its own scope, a rete
 ## Tests
 
 Pure logic is tested on Linux and Windows runners: interval building, de-duplication, the shell-class filter, game suppression, stall and clock-jump handling, crash recovery from the open-state record, retention purge, the report, config parsing, and a simulated day through the runner with a fake OS. The Windows API layer is behind a trait and is compiled and linted on `windows-latest`; its behaviour is confirmed by the manual checklist in the tool's README, which is observation-only. Still to add: a kill-and-restart test of the real binary on `windows-latest`.
+
+## Known limits (phase 1)
+
+- If the agent starts while the session is already locked, the first lock interval is not recorded as such; the initial lock state is not read yet.
+- A kill-and-restart test of the real binary on `windows-latest` is still to add.
+- A suspend whose resume message is lost would leave the `suspended` interval open until the next resume or stop.
+- `rhen-watch stop` uses a per-logon-session event, so a remote desktop session cannot stop an agent running in the console session; use Ctrl+C there.
+- Store writes that fail are kept in memory and retried each second; the agent exits after about a minute of consecutive failures.
+- Retention purge runs on the first tick of each UTC day, then shrinks the write-ahead log.

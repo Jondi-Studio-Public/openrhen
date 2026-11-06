@@ -24,6 +24,11 @@ pub struct OpenIv {
 pub struct Store {
     conn: Connection,
     open: std::collections::BTreeMap<String, OpenIv>,
+    /// Makes instant ids unique without scanning the table.
+    salt: u64,
+    seq: u64,
+    #[cfg(test)]
+    pub fail_next: u32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -56,6 +61,37 @@ impl Store {
         Self::init(conn)
     }
 
+    /// For `report` and `status`: never writes, creates nothing, so it cannot contend with a running agent.
+    pub fn open_read_only(path: &Path) -> rusqlite::Result<Self> {
+        use rusqlite::OpenFlags;
+        let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        let mut store = Self::bare(conn);
+        if let Some(json) = store.meta("open_state")? {
+            let list: Vec<OpenIv> = serde_json::from_str(&json).unwrap_or_default();
+            store.open = list.into_iter().map(|o| (o.id.clone(), o)).collect();
+        }
+        Ok(store)
+    }
+
+    fn bare(conn: Connection) -> Self {
+        use std::hash::{BuildHasher, Hasher};
+        let salt = std::collections::hash_map::RandomState::new().build_hasher().finish();
+        Self {
+            conn,
+            open: Default::default(),
+            salt,
+            seq: 0,
+            #[cfg(test)]
+            fail_next: 0,
+        }
+    }
+
+    /// Fold the write-ahead log back into the database file, so purged rows leave it.
+    pub fn checkpoint(&self) -> rusqlite::Result<()> {
+        self.conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
+    }
+
     #[cfg(test)]
     pub fn in_memory() -> rusqlite::Result<Self> {
         Self::init(Connection::open_in_memory()?)
@@ -84,10 +120,7 @@ impl Store {
              );",
         )?;
         conn.pragma_update(None, "secure_delete", "ON")?;
-        let mut store = Self {
-            conn,
-            open: Default::default(),
-        };
+        let mut store = Self::bare(conn);
         if let Some(json) = store.meta("open_state")? {
             let list: Vec<OpenIv> = serde_json::from_str(&json).unwrap_or_default();
             store.open = list.into_iter().map(|o| (o.id.clone(), o)).collect();
@@ -125,9 +158,21 @@ impl Store {
 
     /// Apply a batch in one transaction, together with the open-interval state and the heartbeat `now`.
     pub fn apply(&mut self, device: &str, ops: &[Op], now: Ms) -> rusqlite::Result<()> {
+        #[cfg(test)]
+        if self.fail_next > 0 {
+            self.fail_next -= 1;
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        let instant_ids: Vec<String> = ops
+            .iter()
+            .map(|op| match op {
+                Op::Instant { source, kind, ts, .. } => self.next_instant_id(*ts, source, kind),
+                _ => String::new(),
+            })
+            .collect();
         let tx = self.conn.transaction()?;
         let mut open = self.open.clone();
-        for op in ops {
+        for (op, instant_id) in ops.iter().zip(instant_ids) {
             match op {
                 Op::Open {
                     id,
@@ -160,7 +205,7 @@ impl Store {
                     attrs,
                 } => {
                     let iv = OpenIv {
-                        id: instant_id(&tx, *ts, source, kind)?,
+                        id: instant_id,
                         source: (*source).into(),
                         kind: kind.clone(),
                         ts_start: *ts,
@@ -182,6 +227,11 @@ impl Store {
         tx.commit()?;
         self.open = open;
         Ok(())
+    }
+
+    fn next_instant_id(&mut self, ts: Ms, source: &str, kind: &str) -> String {
+        self.seq += 1;
+        format!("{:013x}-{source}-{kind}-{:08x}{:x}", ts.max(0), self.salt as u32, self.seq)
     }
 
     pub fn last_heartbeat(&self) -> rusqlite::Result<Option<Ms>> {
@@ -304,14 +354,4 @@ fn insert_row(tx: &rusqlite::Transaction, device: &str, iv: &OpenIv, end: Ms) ->
         ],
     )?;
     Ok(())
-}
-
-fn instant_id(tx: &rusqlite::Transaction, ts: Ms, source: &str, kind: &str) -> rusqlite::Result<String> {
-    let base = format!("{:013x}-{source}-{kind}", ts.max(0));
-    let n: i64 = tx.query_row(
-        "SELECT COUNT(*) FROM events WHERE id = ?1 OR id LIKE ?1 || '-%'",
-        params![base],
-        |r| r.get(0),
-    )?;
-    Ok(if n == 0 { base } else { format!("{base}-{n}") })
 }

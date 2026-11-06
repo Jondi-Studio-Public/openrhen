@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::json;
 
-use crate::categories::{Catalogue, is_shell_class};
+use crate::categories::{Catalogue, is_shell_window};
 use crate::config::Config;
 use crate::engine::{Engine, Fg, PowerEvt, SessionEvt, Settings, Signal};
 use crate::model::{Op, SRC_AGENT, attrs};
@@ -74,7 +74,7 @@ fn shell_windows_do_not_end_the_app_interval() {
         }),
     );
     assert!(s.ops.is_empty());
-    assert!(is_shell_class("shell_traywnd") && !is_shell_class("Chrome_WidgetWin_1"));
+    assert!(is_shell_window("shell_traywnd", None) && !is_shell_window("Chrome_WidgetWin_1", None));
 }
 
 #[test]
@@ -425,6 +425,7 @@ fn a_day_through_the_runner_reports_honestly() {
         Store::in_memory().unwrap(),
         "d".into(),
         dropped.clone(),
+        Config::default(),
     );
     r.start().unwrap();
     // 30 minutes in code, then a switch to chrome (hwnd 1)
@@ -488,4 +489,262 @@ fn report_on_an_empty_database_says_so() {
     .unwrap();
     assert!(text.contains("Nothing was captured"));
     assert!(text.contains("UTC+01:00"));
+}
+
+// ---- review findings ----
+
+#[test]
+fn a_known_sleep_is_a_suspended_interval_not_unknown() {
+    let mut e = engine();
+    e.step(1000, fg("code.exe"));
+    e.step(2000, Signal::Power(PowerEvt::Suspend));
+    let s = e.step(3_600_000, Signal::Power(PowerEvt::Resume));
+    assert!(
+        !s.ops.iter().any(|o| matches!(o, Op::Instant { kind, .. } if kind == "unknown")),
+        "{:?}",
+        s.ops
+    );
+    assert!(
+        s.ops.contains(&Op::Close {
+            id: "id2".into(),
+            ts: 3_600_000
+        }),
+        "the suspended interval runs to the resume: {:?}",
+        s.ops
+    );
+    assert!(s.refresh_foreground);
+}
+
+#[test]
+fn a_lock_held_across_a_stall_is_not_unknown() {
+    let mut e = engine();
+    e.step(1000, fg("code.exe"));
+    e.step(2000, Signal::Session(SessionEvt::Lock));
+    let s = e.step(3_600_000, Signal::Session(SessionEvt::Unlock));
+    assert!(
+        !s.ops.iter().any(|o| matches!(o, Op::Instant { kind, .. } if kind == "unknown")),
+        "{:?}",
+        s.ops
+    );
+    assert!(s.ops.contains(&Op::Close {
+        id: "id2".into(),
+        ts: 3_600_000
+    }));
+}
+
+#[test]
+fn a_stall_with_no_announcement_is_still_unknown() {
+    let mut e = engine();
+    e.step(1000, fg("code.exe"));
+    e.step(2000, Signal::Power(PowerEvt::DisplayOff));
+    let s = e.step(3_600_000, Signal::Tick);
+    assert!(s.ops.iter().any(|o| matches!(o, Op::Instant { kind, .. } if kind == "unknown")));
+    assert!(closes(&s.ops) >= 2, "foreground and the display-off interval end at the last tick");
+}
+
+#[test]
+fn idle_does_not_run_through_a_game() {
+    let mut e = engine();
+    let t0 = 1_000_000;
+    e.step(t0, fg("code.exe"));
+    for i in 1..=20 {
+        e.step(t0 + i * 10_000, Signal::Tick);
+    }
+    let s = e.step(t0 + 200_000, Signal::Idle(150_000));
+    let idle_id = match &s.ops[0] {
+        Op::Open { id, kind, .. } if kind == "idle" => id.clone(),
+        other => panic!("{other:?}"),
+    };
+    let s = e.step(t0 + 201_000, fg("valorant.exe"));
+    assert!(
+        s.ops.contains(&Op::Close {
+            id: idle_id,
+            ts: t0 + 201_000
+        }),
+        "{:?}",
+        s.ops
+    );
+    assert!(
+        e.step(t0 + 206_000, Signal::Idle(155_000)).ops.is_empty(),
+        "and it does not reopen while suppressed"
+    );
+}
+
+#[test]
+fn core_window_is_an_app_unless_a_shell_host_owns_it() {
+    let core = |exe: &str| {
+        Signal::Foreground(Fg {
+            class: "Windows.UI.Core.CoreWindow".into(),
+            exe: Some(exe.into()),
+        })
+    };
+    let mut e = engine();
+    assert_eq!(opens(&e.step(1000, core("calculatorapp.exe")).ops), ["app:calculatorapp.exe"]);
+    assert!(e.step(2000, core("startmenuexperiencehost.exe")).ops.is_empty());
+}
+
+#[test]
+fn instants_do_not_scan_and_stay_unique_across_stores() {
+    let ev = || Op::Instant {
+        source: "session",
+        kind: "logon".into(),
+        ts: 5,
+        end: None,
+        attrs: Default::default(),
+    };
+    let mut a = Store::in_memory().unwrap();
+    let mut b = Store::in_memory().unwrap();
+    a.apply("d", &[ev()], 5).unwrap();
+    b.apply("d", &[ev()], 5).unwrap();
+    assert_ne!(a.events_between(0, 10).unwrap()[0].id, b.events_between(0, 10).unwrap()[0].id);
+}
+
+#[test]
+fn read_only_open_reads_and_cannot_write() {
+    let dir = std::env::temp_dir().join(format!("rhen-watch-ro-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("c.db");
+    let _ = std::fs::remove_file(&path);
+    {
+        let mut s = Store::open(&path).unwrap();
+        s.apply("d", &[open_iv("a", 1000)], 1000).unwrap();
+    }
+    let ro = Store::open_read_only(&path).unwrap();
+    assert_eq!(ro.open_rows().len(), 1);
+    assert!(ro.set_meta("x", "y").is_err());
+    assert!(Store::open_read_only(&dir.join("missing.db")).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn fake(now: &Rc<Cell<i64>>, cfg: Config, store: Store) -> Runner<Fake> {
+    let sys = Fake {
+        now: now.clone(),
+        idle: Rc::new(Cell::new(0)),
+        front: Rc::new(Cell::new("code.exe")),
+    };
+    Runner::new(sys, engine(), store, "d".into(), Arc::new(AtomicU64::new(0)), cfg)
+}
+
+#[test]
+fn a_write_failure_is_retried_without_losing_rows_and_then_gives_up() {
+    let now = Rc::new(Cell::new(1_000_000_000_000i64));
+    let mut store = Store::in_memory().unwrap();
+    store.fail_next = 3;
+    let mut r = fake(&now, Config::default(), store);
+    r.start().unwrap(); // fails quietly
+    for _ in 0..5 {
+        now.set(now.get() + 1000);
+        r.tick().unwrap();
+    }
+    r.stop().unwrap();
+    let rows = r.store().events_between(0, i64::MAX).unwrap();
+    assert!(
+        rows.iter().any(|e| e.kind == "start") && rows.iter().any(|e| e.kind == "stop"),
+        "nothing lost: {rows:?}"
+    );
+
+    let mut dead = Store::in_memory().unwrap();
+    dead.fail_next = 10_000;
+    let mut r = fake(&now, Config::default(), dead);
+    let mut result = Ok(());
+    for _ in 0..200 {
+        now.set(now.get() + 1000);
+        result = r.tick();
+        if result.is_err() {
+            break;
+        }
+    }
+    assert!(result.unwrap_err().contains("cannot write to the database"));
+}
+
+#[test]
+fn retention_purge_runs_when_the_day_changes() {
+    let day = 86_400_000i64;
+    let now = Rc::new(Cell::new(200 * day + 1000));
+    let mut store = Store::in_memory().unwrap();
+    store
+        .apply(
+            "d",
+            &[
+                open_iv("old", 0),
+                Op::Close {
+                    id: "old".into(),
+                    ts: 1000,
+                },
+            ],
+            0,
+        )
+        .unwrap();
+    let cfg = Config::parse("[retention]\nevents = 30\n").unwrap();
+    let mut r = fake(&now, cfg, store);
+    r.tick().unwrap();
+    assert_eq!(
+        r.store().events_between(0, 100).unwrap().len(),
+        0,
+        "purged on the first tick of the day"
+    );
+    // an old row inserted later in the same day is left until tomorrow
+    r.store_mut()
+        .apply(
+            "d",
+            &[
+                open_iv("old2", 0),
+                Op::Close {
+                    id: "old2".into(),
+                    ts: 1000,
+                },
+            ],
+            0,
+        )
+        .unwrap();
+    now.set(now.get() + 5000);
+    r.tick().unwrap();
+    assert_eq!(r.store().events_between(0, 100).unwrap().len(), 1);
+    now.set(now.get() + day);
+    r.tick().unwrap();
+    assert_eq!(r.store().events_between(0, 100).unwrap().len(), 0);
+}
+
+struct NoIdle(Fake);
+impl Sys for NoIdle {
+    fn now_ms(&self) -> i64 {
+        self.0.now_ms()
+    }
+    fn idle_ms(&self) -> Option<u64> {
+        None
+    }
+    fn resolve(&self, h: usize) -> Fg {
+        self.0.resolve(h)
+    }
+    fn current_foreground(&self) -> Option<Fg> {
+        self.0.current_foreground()
+    }
+    fn proc_stats(&self) -> (i64, i64) {
+        self.0.proc_stats()
+    }
+}
+
+#[test]
+fn an_unreadable_idle_counter_is_recorded_once_as_degraded() {
+    let now = Rc::new(Cell::new(1_000_000_000_000i64));
+    let inner = Fake {
+        now: now.clone(),
+        idle: Rc::new(Cell::new(0)),
+        front: Rc::new(Cell::new("code.exe")),
+    };
+    let mut r = Runner::new(
+        NoIdle(inner),
+        engine(),
+        Store::in_memory().unwrap(),
+        "d".into(),
+        Arc::new(AtomicU64::new(0)),
+        Config::default(),
+    );
+    for _ in 0..30 {
+        now.set(now.get() + 1000);
+        r.tick().unwrap();
+    }
+    r.stop().unwrap();
+    let rows = r.store().events_between(0, i64::MAX).unwrap();
+    assert_eq!(rows.iter().filter(|e| e.kind == "degraded").count(), 1);
 }

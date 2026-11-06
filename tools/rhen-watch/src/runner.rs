@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::json;
 
+use crate::config::Config;
 use crate::engine::{Engine, Fg, PowerEvt, SessionEvt, Signal};
 use crate::model::{Ms, Op, SRC_AGENT, attrs};
 use crate::store::{MetricRow, Store};
@@ -42,10 +43,20 @@ pub struct Runner<S: Sys> {
     metric_cpu_start: i64,
     metric_events: i64,
     metric_dropped: i64,
+    cfg: Config,
+    last_purge_day: Ms,
+    /// Ops the store refused (busy, disk full); kept and retried so nothing is lost while writes fail.
+    pending: Vec<Op>,
+    failures: u32,
+    idle_unavailable: bool,
 }
 
+/// Consecutive failed writes (about one per second) before the agent gives up.
+const MAX_FAILURES: u32 = 60;
+const MAX_PENDING: usize = 20_000;
+
 impl<S: Sys> Runner<S> {
-    pub fn new(sys: S, engine: Engine, store: Store, device: String, dropped: Arc<AtomicU64>) -> Self {
+    pub fn new(sys: S, engine: Engine, store: Store, device: String, dropped: Arc<AtomicU64>, cfg: Config) -> Self {
         let now = sys.now_ms();
         let cpu = sys.proc_stats().0;
         Self {
@@ -61,12 +72,22 @@ impl<S: Sys> Runner<S> {
             metric_cpu_start: cpu,
             metric_events: 0,
             metric_dropped: 0,
+            cfg,
+            last_purge_day: -1,
+            pending: Vec::new(),
+            failures: 0,
+            idle_unavailable: false,
         }
     }
 
     #[cfg(test)]
     pub fn store(&self) -> &Store {
         &self.store
+    }
+
+    #[cfg(test)]
+    pub fn store_mut(&mut self) -> &mut Store {
+        &mut self.store
     }
 
     pub fn start(&mut self) -> Result<(), String> {
@@ -122,16 +143,23 @@ impl<S: Sys> Runner<S> {
         }
         if now - self.last_idle >= IDLE_EVERY_MS {
             self.last_idle = now;
-            if !self.engine.suppressed()
-                && let Some(idle) = self.sys.idle_ms()
-            {
-                return self.feed_then_beat(Signal::Idle(idle), now);
+            if !self.engine.suppressed() {
+                match self.sys.idle_ms() {
+                    Some(idle) => return self.feed_then_beat(Signal::Idle(idle), now),
+                    None if !self.idle_unavailable => {
+                        // Say so once: silence must not read as "not idle".
+                        self.idle_unavailable = true;
+                        self.degraded(&["idle".to_string()])?;
+                    }
+                    None => {}
+                }
             }
         }
         self.feed_then_beat(Signal::Tick, now)
     }
 
     fn feed_then_beat(&mut self, signal: Signal, now: Ms) -> Result<(), String> {
+        self.daily_purge(now)?;
         self.feed(signal)?;
         if now - self.last_beat >= HEARTBEAT_EVERY_MS {
             self.last_beat = now;
@@ -170,7 +198,50 @@ impl<S: Sys> Runner<S> {
 
     fn apply(&mut self, now: Ms, ops: Vec<Op>) -> Result<(), String> {
         self.metric_events += ops.len() as i64;
-        self.store.apply(&self.device, &ops, now).map_err(|e| e.to_string())
+        self.pending.extend(ops);
+        match self.store.apply(&self.device, &self.pending, now) {
+            Ok(()) => {
+                self.pending.clear();
+                self.failures = 0;
+                Ok(())
+            }
+            Err(e) => {
+                self.failures += 1;
+                if self.failures >= MAX_FAILURES || self.pending.len() > MAX_PENDING {
+                    return Err(format!("cannot write to the database ({} failures in a row): {e}", self.failures));
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// Record that a collector could not start or keep working.
+    pub fn degraded(&mut self, collectors: &[String]) -> Result<(), String> {
+        let now = self.sys.now_ms();
+        self.apply(
+            now,
+            vec![Op::Instant {
+                source: SRC_AGENT,
+                kind: "degraded".into(),
+                ts: now,
+                end: None,
+                attrs: attrs([("collectors", json!(collectors))]),
+            }],
+        )
+    }
+
+    /// Once per UTC day: delete what the retention setting says is old, then shrink the log.
+    fn daily_purge(&mut self, now: Ms) -> Result<(), String> {
+        let day = now.div_euclid(86_400_000);
+        if day == self.last_purge_day {
+            return Ok(());
+        }
+        self.last_purge_day = day;
+        let (events, metrics) = crate::retention::purge(&self.store, &self.cfg, now)?;
+        if events + metrics > 0 {
+            let _ = self.store.checkpoint();
+        }
+        Ok(())
     }
 
     fn flush_metrics(&mut self, now: Ms) -> Result<(), String> {

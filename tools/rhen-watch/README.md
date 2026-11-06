@@ -36,3 +36,5 @@ While an executable from the built-in anti-cheat game list (or `extra_games` in 
 ## Manual check on a real machine (observation only)
 
 CI proves the code builds and the rules work; only a real Windows session proves the hooks. Run `run --for 300`, then in that time: switch between a few apps, press Win+L and unlock, let the display sleep (or use the power button's sleep), and leave the keyboard alone for over two minutes. Then run `report` and check that: apps and categories look right, the lock and sleep show as their own lines and not as app time, idle is listed, there is a `Gaps` section only if you slept the machine, and `Agent cost` shows well under 1% CPU and under 50 MB. Do not do this with a game open. The tool never types, clicks, focuses or closes anything.
+
+`rhen-watch stop` works within the same logon session only; from a remote desktop session use Ctrl+C in the console that is running it. `report` and `status` open the database read-only and are safe to run while the agent records. Closing the console window, logging off or shutting down all stop it cleanly.

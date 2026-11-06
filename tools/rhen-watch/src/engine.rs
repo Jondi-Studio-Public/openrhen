@@ -12,7 +12,7 @@ use std::collections::HashSet;
 
 use serde_json::{Value, json};
 
-use crate::categories::{Catalogue, is_shell_class};
+use crate::categories::{Catalogue, is_shell_window};
 use crate::model::{Ms, Op, SRC_AGENT, SRC_FOREGROUND, SRC_IDLE, SRC_POWER, SRC_SESSION, attrs};
 
 /// A foreground window as the OS layer resolved it.
@@ -160,18 +160,32 @@ impl Engine {
         let Some(last) = self.last_tick else { return };
         let gap = now - last;
         if gap > self.settings.stall_ms {
-            // Sleep, hibernate or a frozen machine: what happened in between is not known.
-            self.close_all(last, &mut out.ops);
-            out.ops.push(Op::Instant {
-                source: SRC_AGENT,
-                kind: "unknown".into(),
-                ts: last,
-                end: Some(now),
-                attrs: attrs([("reason", json!("stall"))]),
-            });
-            self.holds.clear();
+            // Sleep, hibernate or a frozen machine. A suspend or lock that was announced explains the gap and
+            // stays open until its own end event; otherwise what happened in between is not known.
+            let explained = self.suspended.is_some() || self.locked.is_some();
+            if let Some(fg) = self.fg.take() {
+                out.ops.push(Op::Close { id: fg.id, ts: last });
+            }
+            if let Some(id) = self.idle.take() {
+                out.ops.push(Op::Close { id, ts: last });
+            }
+            if !explained {
+                for slot in [&mut self.display_off, &mut self.remote] {
+                    if let Some(id) = slot.take() {
+                        out.ops.push(Op::Close { id, ts: last });
+                    }
+                }
+                out.ops.push(Op::Instant {
+                    source: SRC_AGENT,
+                    kind: "unknown".into(),
+                    ts: last,
+                    end: Some(now),
+                    attrs: attrs([("reason", json!("stall"))]),
+                });
+                self.holds.clear();
+                out.refresh_foreground = true;
+            }
             self.floor = now;
-            out.refresh_foreground = true;
         } else if gap < -2_000 {
             // The wall clock moved backwards. Close at the old time and start again; do not invent time.
             self.close_all(last.min(now), &mut out.ops);
@@ -225,7 +239,7 @@ impl Engine {
             // Locked or suspended: the interval reopens when the hold clears.
             return;
         }
-        if is_shell_class(&fg.class) {
+        if is_shell_window(&fg.class, fg.exe.as_deref()) {
             return;
         }
         let suppressed = fg.exe.as_deref().is_some_and(|e| self.catalogue.is_game(e));
@@ -237,6 +251,12 @@ impl Engine {
         }
         if let Some(prev) = self.fg.take() {
             out.ops.push(Op::Close { id: prev.id, ts: now });
+        }
+        if suppressed {
+            // An idle interval must not run through a game: nothing is known about it from here.
+            if let Some(id) = self.idle.take() {
+                out.ops.push(Op::Close { id, ts: now });
+            }
         }
         let id = if suppressed {
             // Nothing about the game is written, not even its name.

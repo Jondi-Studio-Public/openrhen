@@ -15,7 +15,6 @@ pub const SHELL_CLASSES: &[&str] = &[
     "taskswitcheroverlaywnd",
     "foregroundstaging",
     "multitaskingviewframe",
-    "windows.ui.core.corewindow",
     "tooltips_class32",
     "#32768", // a context menu
 ];
@@ -135,7 +134,17 @@ impl Catalogue {
     }
 }
 
-pub fn is_shell_class(class: &str) -> bool {
-    let lower = class.to_ascii_lowercase();
-    SHELL_CLASSES.contains(&lower.as_str())
+/// (class, exe) pairs for windows whose class alone is also used by real apps: a CoreWindow owned by one
+/// of these shell hosts is chrome, a CoreWindow owned by Calculator or Settings is the app.
+pub const SHELL_PAIRS: &[(&str, &str)] = &[
+    ("windows.ui.core.corewindow", "startmenuexperiencehost.exe"),
+    ("windows.ui.core.corewindow", "searchhost.exe"),
+    ("windows.ui.core.corewindow", "searchapp.exe"),
+    ("windows.ui.core.corewindow", "shellexperiencehost.exe"),
+    ("windows.ui.core.corewindow", "textinputhost.exe"),
+];
+
+pub fn is_shell_window(class: &str, exe: Option<&str>) -> bool {
+    let class = class.to_ascii_lowercase();
+    SHELL_CLASSES.contains(&class.as_str()) || exe.is_some_and(|e| SHELL_PAIRS.iter().any(|(c, x)| *c == class && *x == e))
 }

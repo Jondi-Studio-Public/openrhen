@@ -208,7 +208,7 @@ fn cmd_report(args: &[String]) -> Result<(), String> {
     let from = day * 86_400_000 - i64::from(offset) * 60_000;
     let (y, m, dd) = civil_from_days(day);
     let label = format!("{y:04}-{m:02}-{dd:02}");
-    let store = store::Store::open(&db).map_err(|e| e.to_string())?;
+    let store = store::Store::open_read_only(&db).map_err(|e| e.to_string())?;
     let open_until = store.last_heartbeat().map_err(|e| e.to_string())?.unwrap_or(now).min(now);
     let text = report::build(
         &store,
@@ -297,14 +297,6 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
             (to - from) / 1000
         );
     }
-    match retention::purge(&store, &cfg, now_ms()) {
-        Ok((e, m)) if e + m > 0 => {
-            println!("retention purge removed {e} events and {m} metric rows")
-        }
-        Ok(_) => {}
-        Err(e) => return Err(e),
-    }
-
     let catalogue = categories::Catalogue::new(&cfg.categories, &cfg.extra_games);
     let settings = engine::Settings {
         idle_threshold_ms: cfg.idle_threshold_secs.unwrap_or(120) * 1000,
@@ -316,15 +308,19 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
     };
     let engine = engine::Engine::new(settings, catalogue, ids::generator(now_ms));
     let dropped = Arc::new(std::sync::atomic::AtomicU64::new(0));
-    let mut run = runner::Runner::new(win::WinSys, engine, store, device, dropped.clone());
+    let mut run = runner::Runner::new(win::WinSys, engine, store, device, dropped.clone(), cfg.clone());
 
     let (tx, rx) = std::sync::mpsc::sync_channel::<runner::Raw>(1024);
-    let mut hooks = win::Hooks::start(tx, cfg.collectors.foreground, cfg.collectors.session, cfg.collectors.power)?;
+    let (mut hooks, missing) = win::Hooks::start(tx, cfg.collectors.foreground, cfg.collectors.session, cfg.collectors.power)?;
     println!("rhen-watch recording to {} (Ctrl+C or `rhen-watch stop` to end)", d.display());
 
     let started = Instant::now();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(), String> {
         run.start()?;
+        if !missing.is_empty() {
+            eprintln!("warning: could not register for: {} (recorded as degraded)", missing.join(", "));
+            run.degraded(&missing)?;
+        }
         loop {
             if win::STOP.load(Ordering::SeqCst) || stop_event.signalled() || limit.is_some_and(|l| started.elapsed() >= l) {
                 return Ok(());
@@ -341,9 +337,11 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
             run.tick()?;
         }
     }));
-    hooks.stop();
-    // Whatever happened, close what is open so the report shows an honest end.
+    // Whatever happened, close what is open so the report shows an honest end. This comes before the hooks
+    // are torn down so a console close or logoff handler waiting on `STOPPED` is released as early as possible.
     let stopped = run.stop();
+    win::STOPPED.store(true, Ordering::SeqCst);
+    hooks.stop();
     match result {
         Ok(Ok(())) => stopped,
         Ok(Err(e)) => Err(e),

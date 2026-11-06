@@ -34,6 +34,18 @@ use crate::model::Ms;
 use crate::runner::{Raw, Sys};
 
 pub static STOP: AtomicBool = AtomicBool::new(false);
+/// Set by `main` once open intervals are closed and flushed; the console handler and WM_ENDSESSION wait for it.
+pub static STOPPED: AtomicBool = AtomicBool::new(false);
+
+fn wait_for_clean_stop() {
+    // Windows ends the process when these handlers return, or after about five seconds.
+    for _ in 0..80 {
+        if STOPPED.load(Ordering::SeqCst) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
 pub static DROPPED: AtomicU64 = AtomicU64::new(0);
 const GUID_CONSOLE_DISPLAY_STATE: GUID = GUID {
     data1: 0x6fe69556,
@@ -254,7 +266,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         }
         WM_QUERYENDSESSION => 1,
         WM_ENDSESSION => {
-            STOP.store(true, Ordering::SeqCst);
+            if wparam != 0 {
+                STOP.store(true, Ordering::SeqCst);
+                wait_for_clean_stop();
+            }
             0
         }
         _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
@@ -268,18 +283,22 @@ pub struct Hooks {
 
 impl Hooks {
     /// Start the hook thread. Returns once the hook and window exist (or failed).
-    pub fn start(tx: SyncSender<Raw>, foreground: bool, session: bool, power: bool) -> Result<Self, String> {
+    /// Also returns the collectors whose registration failed, so the caller can record them as degraded.
+    pub fn start(tx: SyncSender<Raw>, foreground: bool, session: bool, power: bool) -> Result<(Self, Vec<String>), String> {
         let _ = SENDER.set(tx);
-        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<u32, String>>();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(u32, Vec<String>), String>>();
         let join = std::thread::Builder::new()
             .name("rhen-watch-hooks".into())
             .spawn(move || unsafe { hook_thread(foreground, session, power, ready_tx) })
             .map_err(|e| e.to_string())?;
         match ready_rx.recv_timeout(std::time::Duration::from_secs(10)) {
-            Ok(Ok(thread_id)) => Ok(Self {
-                thread_id,
-                join: Some(join),
-            }),
+            Ok(Ok((thread_id, missing))) => Ok((
+                Self {
+                    thread_id,
+                    join: Some(join),
+                },
+                missing,
+            )),
             Ok(Err(e)) => Err(e),
             Err(_) => Err("the hook thread did not start".into()),
         }
@@ -293,7 +312,7 @@ impl Hooks {
     }
 }
 
-unsafe fn hook_thread(foreground: bool, session: bool, power: bool, ready: std::sync::mpsc::Sender<Result<u32, String>>) {
+unsafe fn hook_thread(foreground: bool, session: bool, power: bool, ready: std::sync::mpsc::Sender<Result<(u32, Vec<String>), String>>) {
     unsafe {
         let hinst = GetModuleHandleW(null());
         let class_name = wide("rhen-watch-hidden");
@@ -342,8 +361,13 @@ unsafe fn hook_thread(foreground: bool, session: bool, power: bool, ready: std::
                 return;
             }
         }
+        let mut missing: Vec<String> = Vec::new();
+        let mut session_registered = false;
         if session {
-            WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_THIS_SESSION);
+            session_registered = WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_THIS_SESSION) != 0;
+            if !session_registered {
+                missing.push("session".into());
+            }
         }
         let mut regs: Vec<(bool, isize)> = Vec::new();
         if power {
@@ -351,14 +375,18 @@ unsafe fn hook_thread(foreground: bool, session: bool, power: bool, ready: std::
                 let r = RegisterPowerSettingNotification(hwnd as HANDLE, guid, DEVICE_NOTIFY_WINDOW_HANDLE);
                 if r != 0 {
                     regs.push((false, r));
+                } else {
+                    missing.push("power".into());
                 }
             }
             let r = RegisterSuspendResumeNotification(hwnd as HANDLE, DEVICE_NOTIFY_WINDOW_HANDLE);
             if r != 0 {
                 regs.push((true, r));
+            } else {
+                missing.push("suspend-resume".into());
             }
         }
-        let _ = ready.send(Ok(GetCurrentThreadId()));
+        let _ = ready.send(Ok((GetCurrentThreadId(), missing)));
 
         let mut msg: MSG = std::mem::zeroed();
         while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {
@@ -373,7 +401,7 @@ unsafe fn hook_thread(foreground: bool, session: bool, power: bool, ready: std::
                 UnregisterPowerSettingNotification(r);
             }
         }
-        if session {
+        if session_registered {
             WTSUnRegisterSessionNotification(hwnd);
         }
         if !hook.is_null() {
@@ -387,8 +415,13 @@ unsafe fn hook_thread(foreground: bool, session: bool, power: bool, ready: std::
 
 unsafe extern "system" fn ctrl_handler(kind: u32) -> BOOL {
     match kind {
-        CTRL_C_EVENT | CTRL_BREAK_EVENT | CTRL_CLOSE_EVENT | CTRL_LOGOFF_EVENT | CTRL_SHUTDOWN_EVENT => {
+        CTRL_C_EVENT | CTRL_BREAK_EVENT => {
             STOP.store(true, Ordering::SeqCst);
+            1
+        }
+        CTRL_CLOSE_EVENT | CTRL_LOGOFF_EVENT | CTRL_SHUTDOWN_EVENT => {
+            STOP.store(true, Ordering::SeqCst);
+            wait_for_clean_stop();
             1
         }
         _ => 0,
@@ -451,13 +484,28 @@ pub fn local_offset_minutes() -> i32 {
     }
 }
 
-/// Remove inherited permissions from the data directory so only the current user can read it.
+/// The current user's SID string, from `whoami /user`.
+fn current_sid() -> Result<String, String> {
+    let out = std::process::Command::new("whoami")
+        .args(["/user", "/fo", "csv", "/nh"])
+        .output()
+        .map_err(|e| format!("whoami: {e}"))?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    text.split(',')
+        .nth(1)
+        .map(|v| v.trim().trim_matches('"').to_string())
+        .filter(|v| v.starts_with("S-1-"))
+        .ok_or_else(|| "could not read the current user's SID".to_string())
+}
+
+/// Remove inherited permissions from the data directory so only the current user can read it. The grant
+/// is by SID, so a domain or Microsoft-account name cannot resolve to the wrong principal.
 pub fn restrict_dir(dir: &std::path::Path) -> Result<(), String> {
-    let user = std::env::var("USERNAME").map_err(|_| "USERNAME is not set".to_string())?;
+    let sid = current_sid()?;
     let out = std::process::Command::new("icacls")
         .arg(dir)
         .args(["/inheritance:r", "/grant:r"])
-        .arg(format!("{user}:(OI)(CI)F"))
+        .arg(format!("*{sid}:(OI)(CI)F"))
         .output()
         .map_err(|e| format!("icacls: {e}"))?;
     if out.status.success() {
