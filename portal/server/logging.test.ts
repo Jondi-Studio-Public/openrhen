@@ -525,3 +525,45 @@ describe("withRoute compression", () => {
     expect((await compressing("gzip", { ok: true })).headers.get("content-encoding")).toBeNull();
   });
 });
+
+describe("withRoute MCP call fields", () => {
+  const lines = () =>
+    vi
+      .mocked(console.log)
+      .mock.calls.map((call) => JSON.parse(String(call[0])) as Record<string, unknown>)
+      .filter((line) => line.route === "/api/test");
+
+  it("merges what the handler records with setMcp into the one request line", async () => {
+    await withRoute("/api/test", async (_request, _context, log) => {
+      log.setMcp({ mcpMethod: "tools/call" });
+      log.setMcp({ mcpTool: "rhen_status", mcpOutcome: "ok", mcpRetryable: false, argBytes: 2, resultBytes: 40 });
+      return Response.json({ ok: true });
+    })(new Request("http://portal.test/api/test", { method: "POST" }), {});
+    const [line, ...rest] = lines();
+    expect(rest).toEqual([]);
+    expect(line).toMatchObject({
+      route: "/api/test",
+      status: 200,
+      mcpMethod: "tools/call",
+      mcpTool: "rhen_status",
+      mcpOutcome: "ok",
+      mcpRetryable: false,
+      argBytes: 2,
+      resultBytes: 40
+    });
+  });
+
+  it("leaves a line without the fields when the handler records none, and drops undefined ones", async () => {
+    await route("POST");
+    await withRoute("/api/test", async (_request, _context, log) => {
+      log.setMcp({ mcpMethod: "ping", toolErrorCode: undefined });
+      return Response.json({ ok: true });
+    })(new Request("http://portal.test/api/test", { method: "POST" }), {});
+    const [plain, partial] = lines();
+    expect(Object.keys(plain!).filter((key) => /^(mcp|toolErrorCode|argBytes|resultBytes|idTag)/.test(key))).toEqual(
+      []
+    );
+    expect(partial).toMatchObject({ mcpMethod: "ping" });
+    expect(partial).not.toHaveProperty("toolErrorCode");
+  });
+});
