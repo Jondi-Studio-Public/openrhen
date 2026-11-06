@@ -28,7 +28,7 @@ export const EXIT = {
  * It travels in the `--json` error as fields beside `error`, `exitCode` and `details`.
  */
 export interface CliErrorAgentFields {
-  code?: "guarded" | "scope";
+  code?: "guarded" | "scope" | "auth";
   suggestedPath?: string;
   currentVersion?: number;
   /** The exact tool call that resolves the refusal (list the ids, read the open session), when the portal names one. */

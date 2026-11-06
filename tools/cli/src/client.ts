@@ -355,7 +355,8 @@ function errorFor(status: number, path: string, payload: unknown, token?: string
             code: "guarded",
             ...(typeof body.suggestedPath === "string" ? { suggestedPath: body.suggestedPath } : {})
           }
-        : {}
+        : // A 401 is the portal not accepting who is asking, which no change to the call can fix.
+          { code: "auth" }
     );
   }
   // A refusal that names the exact next call and the accepted values (the portal's not-found, wrong-state and

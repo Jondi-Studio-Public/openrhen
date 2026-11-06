@@ -692,6 +692,12 @@ function failureAgentError(
   const problems = describeIssues(parsed.details);
   if (problems !== null && !problems.every((line) => message.includes(line)))
     message = `${message} Problems: ${problems.join("; ")}.`;
+  // The portal did not accept the credentials. Its own text for a revoked or expired token already says what to do
+  // and names the replacement command, so the generic stop-and-tell wording is added only when it does not.
+  const authFailure = parsed.code === "auth";
+  const portalSaidWhatToDo = /do not retry/i.test(message);
+  if (authFailure && !portalSaidWhatToDo)
+    message = `${message} Do not repeat this call or try another: the portal did not accept the credentials for this call, so every call will fail until the person fixes them.`;
   message = selfContainedMessage(renderCommandsForMcp(message), parsed.details);
   return toAgentError({
     message,
@@ -708,9 +714,11 @@ function failureAgentError(
           : nextCall,
     validValues: parsed.validValues,
     tellThePerson:
-      shell && nextCall === undefined
-        ? "The step the portal named is not available as a tool; ask the person to do it, or to change the token."
-        : undefined,
+      authFailure && !portalSaidWhatToDo
+        ? "OpenRhen did not accept the credentials for this call. Check that OPENRHEN_TOKEN holds a current agent token for this portal; if it does not, create one with `rhen agent-token create` and set it."
+        : shell && nextCall === undefined
+          ? "The step the portal named is not available as a tool; ask the person to do it, or to change the token."
+          : undefined,
     safeToRepeat: !spec.mutates
   });
 }
