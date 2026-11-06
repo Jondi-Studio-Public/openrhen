@@ -352,6 +352,7 @@ describe("withRoute error mapping", () => {
   describe("database refusals tell the agent the field and the next call (F3-03)", () => {
     const withDetail = (code: string, detail: string, extra: Record<string, unknown> = {}) =>
       Object.assign(new Error("violates a constraint"), { name: "PostgresError", code, detail, ...extra });
+    const joined = (body: { error: string; agentHint?: string }) => `${body.error} ${body.agentHint ?? ""}`;
     const realCall = (call: { tool: string; arguments: Record<string, unknown> } | undefined) => {
       expect(call).toBeDefined();
       const tool = mcpManifestTool(call!.tool);
@@ -368,12 +369,12 @@ describe("withRoute error mapping", () => {
         nextCall?: { tool: string; arguments: Record<string, unknown> };
       };
       expect(response.status).toBe(400);
-      expect(body.error).toContain("projectId");
-      expect(body.error).toContain("no longer exists");
-      expect(body.error).toContain("Nothing was changed");
-      expect(body.error).toContain("NEW command-id");
-      expect(body.error).not.toContain("still in use");
-      expect(body.error).toMatch(/rhen_(show|list)/);
+      expect(joined(body)).toContain("projectId");
+      expect(joined(body)).toContain("no longer exists");
+      expect(joined(body)).toContain("Nothing was changed");
+      expect(joined(body)).toContain("NEW command-id");
+      expect(joined(body)).not.toContain("still in use");
+      expect(joined(body)).toMatch(/rhen_(show|list)/);
       expect(JSON.stringify(body)).not.toMatch(/secret-id|project_id|projects"/);
       realCall(body.nextCall);
     });
@@ -386,9 +387,9 @@ describe("withRoute error mapping", () => {
         error: string;
         nextCall?: { tool: string; arguments: Record<string, unknown> };
       };
-      expect(body.error).toContain("still in use");
-      expect(body.error).not.toContain("no longer exists");
-      expect(body.error).toMatch(/rhen_show/);
+      expect(joined(body)).toContain("still in use");
+      expect(joined(body)).not.toContain("no longer exists");
+      expect(joined(body)).toMatch(/rhen_show/);
       expect(JSON.stringify(body)).not.toMatch(/secret-id|actions"/);
       realCall(body.nextCall);
     });
@@ -400,9 +401,9 @@ describe("withRoute error mapping", () => {
         nextCall?: { tool: string; arguments: Record<string, unknown> };
       };
       expect(response.status).toBe(409);
-      expect(body.error).toContain("name");
-      expect(body.error).toContain("Nothing was changed");
-      expect(body.error).toMatch(/rhen_(search|list|show)/);
+      expect(joined(body)).toContain("name");
+      expect(joined(body)).toContain("Nothing was changed");
+      expect(joined(body)).toMatch(/rhen_(search|list|show)/);
       expect(JSON.stringify(body)).not.toMatch(/user_id|Gym|u1/);
       realCall(body.nextCall);
     });
@@ -410,17 +411,17 @@ describe("withRoute error mapping", () => {
     it("a missing required value names its column when the driver gives one", async () => {
       const response = await throwing(withDetail("23502", "Failing row contains (x).", { column_name: "starts_at" }));
       const body = (await response.json()) as { error: string };
-      expect(body.error).toContain("startsAt");
-      expect(body.error).toContain("Nothing was changed");
+      expect(joined(body)).toContain("startsAt");
+      expect(joined(body)).toContain("Nothing was changed");
     });
 
     it("the in-use branch does not guess whether an entity has a status", async () => {
       const body = (await (
         await throwing(withDetail("23503", 'Key (id)=(x) is still referenced from table "actions".'))
       ).json()) as { error: string };
-      expect(body.error).not.toMatch(/if its entity|if it has/i);
-      expect(body.error).toContain("rhen_show");
-      expect(body.error).toContain("rhen_guide");
+      expect(joined(body)).not.toMatch(/if its entity|if it has/i);
+      expect(joined(body)).toContain("rhen_show");
+      expect(joined(body)).toContain("rhen_guide");
     });
 
     it("the duplicate text leads with the call nextCall carries", async () => {
@@ -431,23 +432,31 @@ describe("withRoute error mapping", () => {
         nextCall: { tool: string; arguments: Record<string, unknown> };
       };
       expect(`${body.nextCall.tool} ${JSON.stringify(body.nextCall.arguments)}`).toBe("rhen_status {}");
-      expect(body.error).toContain("rhen_status {}");
-      expect(body.error.indexOf("rhen_status {}")).toBeLessThan(body.error.indexOf("rhen_search"));
+      expect(joined(body)).toContain("rhen_status {}");
+      expect(joined(body).indexOf("rhen_status {}")).toBeLessThan(joined(body).indexOf("rhen_search"));
     });
 
     it("an internal column is never shown as a field", async () => {
       const body = (await (
         await throwing(withDetail("23503", 'Key (created_by_token_id)=(t1) is not present in table "agent_tokens".'))
       ).json()) as { error: string };
-      expect(body.error).not.toMatch(/created_?by_?token|createdByToken/i);
-      expect(body.error).toContain("A record you referenced");
+      expect(joined(body)).not.toMatch(/created_?by_?token|createdByToken/i);
+      expect(joined(body)).toContain("A record you referenced");
+    });
+
+    it("the owner-readable text carries no agent instructions; they travel in agentHint", async () => {
+      for (const code of ["23503", "23505", "23514", "23502", "22P02"]) {
+        const body = (await (await throwing(withDetail(code, "x"))).json()) as { error: string; agentHint?: string };
+        expect(body.error, code).not.toMatch(/rhen_|command-id|tell the owner/i);
+        expect(body.agentHint, code).toContain("NEW command-id");
+      }
     });
 
     it("every refusal says nothing changed and what to do next", async () => {
       for (const code of ["23503", "23505", "23514", "23502", "22P02"]) {
         const body = (await (await throwing(withDetail(code, "x"))).json()) as { error: string; nextCall?: unknown };
-        expect(body.error, code).toContain("Nothing was changed");
-        expect(body.error, code).toContain("rhen_");
+        expect(joined(body), code).toContain("Nothing was changed");
+        expect(joined(body), code).toContain("rhen_");
         expect(body.nextCall, code).toBeDefined();
       }
     });
