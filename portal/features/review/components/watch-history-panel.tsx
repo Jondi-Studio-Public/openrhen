@@ -1,11 +1,26 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { WATCH_IMPORT_MAX_FILE_BYTES, type WatchHistoryReview, type WatchImportResult } from "@openrhen/contracts";
+import {
+  WATCH_IMPORT_MAX_FILE_BYTES,
+  type WatchHistoryReview,
+  type WatchImportResult,
+  type WatchLengthsFetchResult
+} from "@openrhen/contracts";
 import { Sheet } from "@/components/sheet";
 import { Button } from "@/components/ui/button";
 import { displayLocale } from "@/shared/locale";
-import { ESTIMATE_CAVEAT, estimateLine, fileToBase64, hourLabel, looksLikeZip, shortDate } from "../watch-history-view";
+import {
+  emptyWindowLine,
+  estimateCaveat,
+  estimateLine,
+  fileToBase64,
+  hourLabel,
+  lengthsLine,
+  looksLikeZip,
+  shortDate
+} from "../watch-history-view";
 import styles from "./watch-history-panel.module.css";
 
 type Load = { status: "loading" } | { status: "failed" } | { status: "ready"; review: WatchHistoryReview };
@@ -44,9 +59,16 @@ export function WatchHistoryPanel() {
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [lengthsMessage, setLengthsMessage] = useState("");
   const [problem, setProblem] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [fetchingLengths, setFetchingLengths] = useState(false);
 
-  const refresh = useCallback(async () => setLoad(await readReview()), []);
+  const refresh = useCallback(async () => {
+    const next = await readReview();
+    setLoad(next);
+    return next;
+  }, []);
   useEffect(() => {
     let cancelled = false;
     void readReview().then((next) => {
@@ -61,6 +83,29 @@ export function WatchHistoryPanel() {
     setOpen(false);
     setFile(null);
     setProblem("");
+  };
+
+  /** Looks up lengths in rounds of up to 1,000 videos until none remain, the server stops, or a round makes no progress. */
+  const runLengths = async () => {
+    setFetchingLengths(true);
+    setLengthsMessage("Fetching video lengths…");
+    try {
+      for (let round = 0; round < 500; round += 1) {
+        const response = await fetch("/api/review/watch-history/lengths", { method: "POST" });
+        const result = (await response.json().catch(() => null)) as WatchLengthsFetchResult | null;
+        if (!response.ok || !result?.message) {
+          setLengthsMessage("Video lengths could not be fetched just now. Nothing was lost; try again.");
+          break;
+        }
+        setLengthsMessage(result.message);
+        if (result.stopped !== null || result.remaining === 0 || result.fetched === 0) break;
+      }
+    } catch {
+      setLengthsMessage("Video lengths could not be fetched just now. Nothing was lost; try again.");
+    } finally {
+      setFetchingLengths(false);
+      await refresh();
+    }
   };
 
   const upload = async () => {
@@ -91,8 +136,11 @@ export function WatchHistoryPanel() {
         return;
       }
       setMessage(importedText(payload));
+      setLengthsMessage("");
       close();
-      await refresh();
+      const next = await refresh();
+      // A saved key means the new videos' lengths can be fetched now; without one the panel says how to add it.
+      if (next.status === "ready" && next.review.lengths.keyState === "set") void runLengths();
     } catch {
       setProblem("The import failed. Nothing was added.");
     } finally {
@@ -101,6 +149,8 @@ export function WatchHistoryPanel() {
   };
 
   const remove = async (id: string) => {
+    if (deletingId) return;
+    setDeletingId(id);
     setMessage("");
     try {
       const response = await fetch(`/api/imports/watch-history/${encodeURIComponent(id)}`, { method: "DELETE" });
@@ -114,6 +164,7 @@ export function WatchHistoryPanel() {
       setMessage("That import could not be deleted.");
     }
     await refresh();
+    setDeletingId(null);
   };
 
   const locale = displayLocale();
@@ -187,11 +238,24 @@ export function WatchHistoryPanel() {
           {review.estimate.videos > 0 ? (
             <>
               <p className={styles.figure}>{estimateLine(review.estimate)}</p>
-              <p className={styles.caveat}>{ESTIMATE_CAVEAT}</p>
+              <p className={styles.caveat}>{estimateCaveat(review.lengths.known)}</p>
             </>
           ) : (
-            <p className={styles.quiet}>No videos watched in this period.</p>
+            <p className={styles.quiet}>{emptyWindowLine(review.watchesHeld, review.days.length)}</p>
           )}
+          {lengthsLine(review.lengths) ? (
+            <p className={styles.caveat}>
+              {lengthsLine(review.lengths)}{" "}
+              {review.lengths.keyState !== "set" && review.lengths.missing > 0 ? (
+                <Link href="/settings/passwords-and-keys">Passwords and keys</Link>
+              ) : null}
+            </p>
+          ) : null}
+          {review.lengths.keyState === "set" && review.lengths.missing > 0 ? (
+            <Button size="sm" variant="ghost" disabled={fetchingLengths} onClick={() => void runLengths()}>
+              {fetchingLengths ? "Fetching video lengths…" : "Fetch video lengths"}
+            </Button>
+          ) : null}
           {review.excluded.ads + review.excluded.posts + review.excluded.music > 0 ? (
             <p className={styles.caveat}>
               Not counted: {review.excluded.ads} ads, {review.excluded.posts} posts, {review.excluded.music} YouTube
@@ -209,6 +273,7 @@ export function WatchHistoryPanel() {
                     size="sm"
                     variant="ghost"
                     aria-label={`Delete import ${item.filename}`}
+                    disabled={deletingId !== null}
                     onClick={() => void remove(item.id)}
                   >
                     Delete this import
@@ -219,11 +284,10 @@ export function WatchHistoryPanel() {
           ) : null}
         </>
       ) : null}
-      {message ? (
-        <p className={styles.quiet} aria-live="polite">
-          {message}
-        </p>
-      ) : null}
+      {/* A live region present from the first render, so a later message is announced. It carries no `status` role: Review's other toasts own that role, and a second one would be ambiguous to a reader and a test. */}
+      <div aria-live="polite" aria-atomic="true" data-watch-status className={styles.quiet}>
+        {[message, lengthsMessage].filter(Boolean).join(" ")}
+      </div>
       <Sheet open={open} onClose={close} title="Import watch history">
         <div className={styles.sheet}>
           <ol className={styles.steps}>

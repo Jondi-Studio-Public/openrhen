@@ -25,6 +25,20 @@ describe("connectionManifestSchema", () => {
   it("requires calendarSource exactly for calendar_source", () => {
     expect(connectionManifestSchema.safeParse({ ...base, capabilities: ["calendar_source"] }).success).toBe(false);
   });
+  it("reads credentials from the environment unless the manifest says each request carries them", () => {
+    expect(connectionManifestSchema.parse(base).credentialSource).toBe("env");
+    const request = {
+      ...base,
+      capabilities: ["video_metadata"],
+      secrets: { anyOf: [] },
+      credentialSource: "request"
+    };
+    expect(connectionManifestSchema.safeParse(request).success).toBe(true);
+    // A request-credential connection names no env secrets, and an env one must name some.
+    expect(connectionManifestSchema.safeParse({ ...request, secrets: { anyOf: [["DEMO_KEY"]] } }).success).toBe(false);
+    expect(connectionManifestSchema.safeParse({ ...base, secrets: { anyOf: [] } }).success).toBe(false);
+    expect(connectionManifestSchema.safeParse({ ...base, credentialSource: "header" }).success).toBe(false);
+  });
   it("reads a missing version as 1 and exposes the supported version", () => {
     expect(CONNECTION_MANIFEST_VERSION).toBe(1);
     expect(connectionManifestSchema.parse(base).version).toBe(1);

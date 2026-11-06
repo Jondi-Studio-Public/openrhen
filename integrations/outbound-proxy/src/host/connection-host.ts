@@ -42,13 +42,26 @@ export function secretReadiness(
   return { ready: false, missing: closest ?? [] };
 }
 
+/**
+ * A manifest's readiness. A connection whose `credentialSource` is `request` holds no credential here (each call
+ * carries its own), so it is always ready; any other follows its secret groups in `env`.
+ */
+export function manifestReadiness(
+  manifest: Pick<ConnectionManifest, "secrets" | "credentialSource">,
+  env: Record<string, string | undefined>
+): { ready: boolean; missing: string[] } {
+  return manifest.credentialSource === "request"
+    ? { ready: true, missing: [] }
+    : secretReadiness(manifest.secrets.anyOf, env);
+}
+
 /** Binds each connection to `env`. A `create` that throws is logged and marked failed until the process restarts; it never stops the host. */
 export function loadConnections(
   bound: readonly BoundConnection[],
   env: Record<string, string | undefined>
 ): LoadedConnection[] {
   return bound.map((connection) => {
-    const readiness = secretReadiness(connection.manifest.secrets.anyOf, env);
+    const readiness = manifestReadiness(connection.manifest, env);
     try {
       assertSupportedManifestVersion(connection.manifest);
       return { bound: connection, impl: connection.create(env), ...readiness, failed: false };
@@ -82,7 +95,7 @@ export function setConnectionHostForTests(loaded: LoadedConnection[] | undefined
 export function connectionStatuses(): ConnectionStatus[] {
   // Readiness is re-read from the environment on each call, like every other env-backed value here.
   return connectionHost().map(({ bound, failed }) => {
-    const readiness = secretReadiness(bound.manifest.secrets.anyOf, process.env);
+    const readiness = manifestReadiness(bound.manifest, process.env);
     return {
       id: bound.manifest.id,
       label: bound.manifest.label,

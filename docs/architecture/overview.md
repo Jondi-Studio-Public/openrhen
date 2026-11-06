@@ -19,7 +19,7 @@ Shared libraries: `platform/contracts` (schemas, commands and wire shapes, valid
 
 - **The planner is pure.** `engine/core` does no I/O. Given a snapshot of state and a calculation time it returns the same plan every time. Only the planning service imports it; the portal and worker may not, and a boundary test enforces this so there is never a second implementation of the rules. Logic that both sides must agree on (for example matching a requirement to your situation) lives in `platform/contracts` and is shared code, not a second opinion.
 - **The database is the source of truth.** The portal never calculates a plan inside a request. A change is validated, written in a transaction with an evidence record, and a recalculation job is queued in the same transaction.
-- **Secrets stay out of the portal.** Third-party credentials live only in the outbound proxy's environment. The portal holds the proxy's URL and a bearer token.
+- **Secrets stay out of the portal, with one deliberate exception.** Third-party credentials configured by the operator live only in the outbound proxy's environment; the portal holds the proxy's URL and a bearer token. The exception is a key the person types into the web app (Settings > Passwords and keys, today the YouTube Data API key). The portal stores it in `app_secrets`, sealed with AES-256-GCM under `OPENRHEN_SECRETS_KEY` (the portal's environment only), write-only: no route returns it, no agent route or tool can reach it, and a single helper decrypts it to place it in the body of one proxy request, which sends it to the provider in a header and keeps none. This protects a database dump, a backup or SQL access; it does not protect against a compromised portal process or `docker inspect`, which show the master key. Saving a key needs `OPENRHEN_OWNER_AUTH=require` and the master key set. The JSON backup leaves keys out, and a restore empties the saved keys on the target (it truncates the users table with CASCADE), so keys are entered again afterwards. The database copy taken before a migration (`pg_dump` into `/backups`) holds only the sealed text, and the master key is never in `/backups`. Between portal and proxy the key travels as plain HTTP on the internal compose network, inside the request body, and is not on a published port. This was Jondi's decision (2026-11), made so a key can be entered without editing server files.
 - **Outside data proposes; you decide.** Imports, captures, model output and connection data become proposals that wait for review. Nothing outside the app can change your plan unreviewed, and untrusted text can never issue a command.
 
 ## How a change flows
@@ -78,7 +78,7 @@ An install has one owner. The portal acts as the first user row, and foreign key
 
 ## Security rules the code relies on
 
-- Secrets live in environment configuration and never in source, client state, logs, planning evidence or import provenance.
+- Secrets live in environment configuration, or (for a key the person types into the app) sealed in `app_secrets`, and never in source, client state, logs, planning evidence, backups or import provenance. A saved key is never returned by any route.
 - Imported files, HTML and model output are untrusted. Model extraction preserves uncertainty and cannot commit data.
 - Optimistic versions, command ids and transactions prevent stale or duplicate writes.
 - Failure evidence may include error classes, timestamps and retry information, never credentials, cookies or private imported content.

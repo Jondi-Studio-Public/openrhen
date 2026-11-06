@@ -17,7 +17,9 @@ export const connectionFailureReasonSchema = z.enum([
   "login_failed",
   "unknown_connection",
   "unsupported_operation",
-  "not_ready"
+  "not_ready",
+  "quota_exceeded",
+  "rate_limited"
 ]);
 
 export const capabilityFailureSchema = z.object({
