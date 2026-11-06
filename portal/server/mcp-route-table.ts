@@ -82,6 +82,8 @@ export const CORE_MCP_ROUTE_TABLE: Record<string, () => Promise<RouteModule>> = 
   "/api/imports/template.xlsx": () => import("@/app/api/imports/template.xlsx/route"),
   "/api/imports/templates.zip": () => import("@/app/api/imports/templates.zip/route"),
   "/api/imports/templates/[entity]": () => import("@/app/api/imports/templates/[entity]/route"),
+  "/api/imports/watch-history": () => import("@/app/api/imports/watch-history/route"),
+  "/api/imports/watch-history/[id]": () => import("@/app/api/imports/watch-history/[id]/route"),
   "/api/integrations/calendar-sync/review-count": () =>
     import("@/app/api/integrations/calendar-sync/review-count/route"),
   "/api/integrations/pulse/tick": () => import("@/app/api/integrations/pulse/tick/route"),
@@ -121,6 +123,7 @@ export const CORE_MCP_ROUTE_TABLE: Record<string, () => Promise<RouteModule>> = 
   "/api/push/subscriptions/[id]": () => import("@/app/api/push/subscriptions/[id]/route"),
   "/api/push/test": () => import("@/app/api/push/test/route"),
   "/api/review/area-time": () => import("@/app/api/review/area-time/route"),
+  "/api/review/watch-history": () => import("@/app/api/review/watch-history/route"),
   "/api/sleep-log": () => import("@/app/api/sleep-log/route"),
   "/api/snapshots": () => import("@/app/api/snapshots/route"),
   "/api/snapshots/[id]": () => import("@/app/api/snapshots/[id]/route"),

@@ -3307,3 +3307,74 @@ export const spans = pgTable(
     index("spans_user_dates_idx").on(table.userId, table.startDate, table.endDate)
   ]
 );
+
+/**
+ * One uploaded Google Takeout watch-history file, kept so the import can be undone (watch-history design).
+ * `event_count` is the number of rows the import actually added, so a repeat upload that adds nothing shows 0.
+ * Authored data (the person's own history): backed up, and listed before `watch_events` for the foreign key.
+ */
+export const watchImports = pgTable(
+  "watch_imports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    filename: text("filename").notNull(),
+    source: text("source").notNull().default("youtube_takeout"),
+    eventCount: integer("event_count").notNull().default(0),
+    importedAt: timestamp("imported_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [index("watch_imports_user_idx").on(table.userId, table.importedAt)]
+);
+
+/**
+ * A single watch (or ad, or post) from a Takeout file. Raw events only: minutes are computed at display
+ * time. Deliberately NOT in `PLAN_INPUT_TABLES`, so the engine never sees it and a write queues no recalc.
+ * `video_id` is never null: a removed video gets a synthetic `x:<hash>` of its URL and title. `dup_index`
+ * counts same-second repeats of one video inside one file, so re-importing is idempotent while two real
+ * same-second watches both survive.
+ */
+export const watchEvents = pgTable(
+  "watch_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    importId: uuid("import_id")
+      .notNull()
+      .references(() => watchImports.id, { onDelete: "cascade" }),
+    source: text("source").notNull(),
+    kind: text("kind").notNull(),
+    videoId: text("video_id").notNull(),
+    watchedAt: timestamp("watched_at", { withTimezone: true }).notNull(),
+    dupIndex: integer("dup_index").notNull().default(0),
+    title: text("title"),
+    channel: text("channel")
+  },
+  (table) => [
+    check("watch_events_source_check", sql`${table.source} IN ('youtube_takeout','youtube_music_takeout')`),
+    check("watch_events_kind_check", sql`${table.kind} IN ('watch','ad','post')`),
+    uniqueIndex("watch_events_unique_idx").on(
+      table.userId,
+      table.source,
+      table.videoId,
+      table.watchedAt,
+      table.dupIndex
+    ),
+    index("watch_events_user_time_idx").on(table.userId, table.watchedAt),
+    index("watch_events_import_idx").on(table.importId)
+  ]
+);
+
+/**
+ * Public video metadata (length) fetched later from YouTube; no user column because it is not personal.
+ * Regenerable, so left out of backups. Empty in the first release.
+ */
+export const videoInfo = pgTable("video_info", {
+  videoId: text("video_id").primaryKey(),
+  durationS: integer("duration_s"),
+  fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
+  unavailable: boolean("unavailable").notNull().default(false)
+});

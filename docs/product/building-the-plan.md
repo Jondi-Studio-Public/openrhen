@@ -75,7 +75,16 @@ Review is a weekly review in three steps, each ticked off when empty: **Clear bl
 - **Week ahead**: what the forecast sets aside this week for each project against the pace its deadline needs.
 - **Check-ins**: how sampling went, recorded only.
 - **Monthly check**: recorded time by area over four weeks, flagging an area with active work but no recorded time as neglected (a signal, never a ranking input).
+- **Watch history**: import a Google Takeout YouTube history and Review shows videos watched per day and per hour over the last 30 days (days and hours in your time zone), with a time estimate. See [Watch history](#watch-history).
 - **Focus**: which undated projects receive capacity this week and month. Projects with a deadline need no selection.
+
+### Watch history
+
+At [takeout.google.com](https://takeout.google.com) choose only **YouTube and YouTube Music**, then **History**, and set the format to **JSON**. In Review, **Watch history** > **Import Takeout** takes the zip or the `watch-history.json` inside it; the file is read in your browser and sent to your own server. Importing the same file again adds nothing. **Delete this import** removes exactly the entries that file added: an entry two files share stays with whichever was imported first, so deleting the later file keeps it and deleting the earlier one removes it. The history file may be up to 50 MB (inside a zip, 50 MB once unpacked); if yours is larger, export a shorter date range.
+
+- Only YouTube watches are counted. Ads, community posts and YouTube Music plays are kept but listed as not counted. Shorts look the same as other videos in the export.
+- Takeout records when a video started, not how long you watched, so the time is a range that leans high: each video is credited the gap to the next one (up to two hours; a longer gap starts a new session), and the last video of a session counts for nothing. It is for you to look at; the planner never sees it, and an agent cannot read it.
+- The rows are in the backup (backup format 20); video lengths, when they are added later, are not.
 
 ## Recurrence workflow
 

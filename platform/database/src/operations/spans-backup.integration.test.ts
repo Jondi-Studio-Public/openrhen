@@ -9,6 +9,7 @@ import {
   assertBackupCoverage,
   BACKUP_TABLES,
   checksum,
+  CURRENT_BACKUP_FORMAT_VERSION,
   readAllTables,
   restorableColumns,
   tablesWithDifferentContent,
@@ -95,7 +96,7 @@ describe("spans in the backup", () => {
       JSON.parse(
         JSON.stringify({
           format: "priorities-postgresql-logical-backup",
-          formatVersion: 19,
+          formatVersion: CURRENT_BACKUP_FORMAT_VERSION,
           createdAt: new Date().toISOString(),
           sourceDatabase: testDatabaseName,
           tables,

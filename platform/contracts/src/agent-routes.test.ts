@@ -604,6 +604,20 @@ describe("scopesForRoute: agent time", () => {
   });
 });
 
+describe("scopesForRoute: watch history", () => {
+  it("keeps importing, undoing and reading watch history to the owner", () => {
+    expect(scopesForRoute("POST", "/api/imports/watch-history", {})).toMatchObject({
+      kind: "refused",
+      reason: "owner-only"
+    });
+    expect(scopesForRoute("DELETE", "/api/imports/watch-history/[id]")).toMatchObject({
+      kind: "refused",
+      reason: "owner-only"
+    });
+    expect(scopesForRoute("GET", "/api/review/watch-history")).toMatchObject({ kind: "refused", reason: "owner-only" });
+  });
+});
+
 describe("scopesForRoute: re-entry", () => {
   it("lets a token holding only write:catch-up read what re-entry needs and re-enter", () => {
     expect(scopesForRoute("GET", "/api/commands/reenter")).toMatchObject({

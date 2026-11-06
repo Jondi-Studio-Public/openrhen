@@ -633,6 +633,9 @@ const OWNER_ROUTES: Record<string, string> = {
   "POST /api/connections/[connectionId]/write-proof": "Connection write proof",
   "POST /api/connections/[connectionId]/import/preview": "Connection import",
   "POST /api/device/action": "A device action",
+  // Watch history is the person's own viewing record, held where the engine cannot see it; no agent reads or writes it.
+  "POST /api/imports/watch-history": "Importing a watch-history file",
+  "DELETE /api/imports/watch-history/[id]": "Undoing a watch-history import",
   "POST /api/integrations/pulse/tick": "The pulse job",
   "POST /api/integrations/push/drain": "The push queue",
   "POST /api/integrations/travel/tick": "The travel job",
@@ -740,6 +743,7 @@ const OWNER_READS = new Set([
   "/api/agent-sessions",
   "/api/agent-changes",
   "/api/agent-changes/[id]",
+  "/api/review/watch-history",
   "/api/closed",
   "/api/closed/summary",
   "/api/owner/credentials",
