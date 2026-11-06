@@ -735,6 +735,17 @@ describe("tool errors carry structuredContent.error", () => {
     expect(error).toEqual({ code: "conflict", message: "Another session is already open.", retryable: false });
   });
 
+  it("a refused token is code auth: not retryable, with what to tell the person", async () => {
+    const { error } = await failing(
+      1,
+      JSON.stringify({ error: "The agent token is not recognised.", exitCode: 1, code: "auth" })
+    );
+    expect(error).toMatchObject({ code: "auth", retryable: false });
+    expect(error.message).toContain("Do not repeat this call or try another");
+    expect(error.tellThePerson).toContain("rhen agent-token create");
+    expect(error.tellThePerson).toContain("OPENRHEN_TOKEN");
+  });
+
   it("a guarded refusal is code guarded with suggestedPath from the JSON error", async () => {
     const { error } = await failing(
       1,

@@ -71,6 +71,15 @@ describe("agent token header", () => {
     expect(r.stderr).not.toContain(SECRET);
   });
 
+  it("marks a 401 as an auth failure in the JSON error, so an agent stops instead of retrying", async () => {
+    const r = await run(
+      ["list", "actions", "--json"],
+      { "/api/state": { status: 401, body: { error: "The agent token is not recognised." } } },
+      { OPENRHEN_TOKEN: SECRET }
+    );
+    expect(JSON.parse(r.stderr || r.stdout)).toMatchObject({ code: "auth", exitCode: EXIT.usage });
+  });
+
   it("surfaces a 403 with the portal's message and the scope hint", async () => {
     const r = await run(
       ["capture", "Ring the plumber"],

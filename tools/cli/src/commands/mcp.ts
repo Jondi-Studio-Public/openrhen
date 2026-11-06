@@ -692,6 +692,10 @@ function failureAgentError(
   const problems = describeIssues(parsed.details);
   if (problems !== null && !problems.every((line) => message.includes(line)))
     message = `${message} Problems: ${problems.join("; ")}.`;
+  // The portal does not accept this agent's token: no other call will work either, and only the person can fix it.
+  const authFailure = parsed.code === "auth";
+  if (authFailure)
+    message = `${message} Do not repeat this call or try another: the portal does not accept this agent's token, so every call will fail until the person replaces it.`;
   message = selfContainedMessage(renderCommandsForMcp(message), parsed.details);
   return toAgentError({
     message,
@@ -707,8 +711,9 @@ function failureAgentError(
           ? portalCall
           : nextCall,
     validValues: parsed.validValues,
-    tellThePerson:
-      shell && nextCall === undefined
+    tellThePerson: authFailure
+      ? "OpenRhen did not accept this agent's token. It may be mistyped, revoked, expired, or for another server. Create a new agent token (rhen agent-token create) and set it as OPENRHEN_TOKEN for this agent."
+      : shell && nextCall === undefined
         ? "The step the portal named is not available as a tool; ask the person to do it, or to change the token."
         : undefined,
     safeToRepeat: !spec.mutates

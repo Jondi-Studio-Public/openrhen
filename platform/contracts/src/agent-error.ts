@@ -11,6 +11,7 @@ export const AGENT_ERROR_CODES = [
   "validation",
   "not_found",
   "scope",
+  "auth",
   "unavailable",
   "usage",
   "reentry_required"
