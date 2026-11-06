@@ -746,6 +746,17 @@ describe("tool errors carry structuredContent.error", () => {
     expect(error.tellThePerson).toContain("OPENRHEN_TOKEN");
   });
 
+  it("words a missing-token 401 for credentials, not for 'this agent's token'", async () => {
+    const { error } = await failing(
+      1,
+      JSON.stringify({ error: "A named agent must present its token (X-OpenRhen-Token).", exitCode: 1, code: "auth" })
+    );
+    expect(error).toMatchObject({ code: "auth", retryable: false });
+    expect(error.message).toContain("did not accept the credentials for this call");
+    expect(error.message).not.toContain("this agent's token");
+    expect(error.tellThePerson).toContain("OPENRHEN_TOKEN");
+  });
+
   it("leaves the portal's own revoked-token text alone: it already says what to do", async () => {
     const revoked =
       'The agent token "mark" was revoked, so nothing was done. Do not retry. Tell the owner it was revoked and ask whether they want it replaced.';
