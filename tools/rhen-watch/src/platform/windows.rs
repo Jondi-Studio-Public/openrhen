@@ -60,10 +60,10 @@ fn wide(s: &str) -> Vec<u16> {
 }
 
 fn send(raw: Raw) {
-    if let Some(tx) = SENDER.get() {
-        if tx.try_send(raw).is_err() {
-            DROPPED.fetch_add(1, Ordering::Relaxed);
-        }
+    if let Some(tx) = SENDER.get()
+        && tx.try_send(raw).is_err()
+    {
+        DROPPED.fetch_add(1, Ordering::Relaxed);
     }
 }
 
