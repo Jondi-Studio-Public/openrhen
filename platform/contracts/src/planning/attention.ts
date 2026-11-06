@@ -479,6 +479,14 @@ export const ATTENTION_DOCTOR_TEMPLATES: Record<DoctorCheck, AttentionDoctorTemp
     title: "A backup needs a look",
     why: "A backup exists but its off-machine copy or restore check needs attention."
   },
+  backup_local_only: {
+    title: "Backups don't leave this machine",
+    why: "If this machine's disk is lost, the backups go with it."
+  },
+  backup_unverified: {
+    title: "Backups are not being restore-tested",
+    why: "A backup nobody has restored is a guess."
+  },
   backup_stale: {
     title: "The newest backup is old",
     why: "The newest recoverable copy of the plan is older than a night."

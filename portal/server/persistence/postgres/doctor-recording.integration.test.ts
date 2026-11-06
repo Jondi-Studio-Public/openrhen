@@ -55,9 +55,9 @@ afterAll(async () => {
   await sql?.end();
 });
 
-async function backupRun(status: string, startedAt: string) {
+async function backupRun(status: string, startedAt: string, summary: Record<string, unknown> = {}) {
   await sql`INSERT INTO integration_sync_runs (user_id, provider, trigger, started_at, finished_at, status, summary)
-    VALUES (${userId}, 'backup', 'scheduled', ${startedAt}, ${startedAt}, ${status}, '{}'::jsonb)`;
+    VALUES (${userId}, 'backup', 'scheduled', ${startedAt}, ${startedAt}, ${status}, ${JSON.stringify(summary)}::jsonb)`;
 }
 
 describe("readRecordingSlice", () => {
@@ -65,6 +65,23 @@ describe("readRecordingSlice", () => {
     const slice = await readRecordingSlice(sql as never, userId);
     expect(slice.backup).toBeNull();
     expect(slice.phonePing.lastPingAt).toBeNull();
+  });
+
+  it("carries the local-only and restore-skipped flags from the latest run's summary", async () => {
+    await backupRun("synced", "2026-10-17T03:00:00Z", { localOnly: true, restoreSkipped: true });
+    const slice = await readRecordingSlice(sql, userId);
+    expect(slice.backup).toMatchObject({ localOnly: true, restoreSkipped: true });
+  });
+
+  it("reads the flags whether the summary was stored as an object or as a JSON string", async () => {
+    await sql`DELETE FROM integration_sync_runs`;
+    await sql`INSERT INTO integration_sync_runs (user_id, provider, trigger, started_at, finished_at, status, summary)
+      VALUES (${userId}, 'backup', 'scheduled', '2026-10-17T03:00:00Z', '2026-10-17T03:00:00Z', 'synced', ${sql.json({ localOnly: true })})`;
+    expect((await readRecordingSlice(sql, userId)).backup).toMatchObject({ localOnly: true });
+    await sql`DELETE FROM integration_sync_runs`;
+    await sql`INSERT INTO integration_sync_runs (user_id, provider, trigger, started_at, finished_at, status, summary)
+      VALUES (${userId}, 'backup', 'scheduled', '2026-10-17T03:00:00Z', '2026-10-17T03:00:00Z', 'synced', to_jsonb(${JSON.stringify({ localOnly: true })}::text))`;
+    expect((await readRecordingSlice(sql, userId)).backup).toMatchObject({ localOnly: true });
   });
 
   it("reports the latest backup run and the last success separately", async () => {

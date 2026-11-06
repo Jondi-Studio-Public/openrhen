@@ -4,20 +4,21 @@
 // grace period, it alerts, which a script that only exits non-zero on failure could never do when the whole
 // container is down. the design notes
 //
-//   BACKUP_ENABLED      must be "true" to schedule anything; otherwise the container idles, so deploying the image changes nothing
+// Backups are on by default: there is no enable switch. With nothing else set it runs nightly and keeps the
+// backups on this machine (the Data check then says they do not leave it).
 //   BACKUP_TIME          24-hour HH:mm in TZ (default 03:30)
 //   BACKUP_RUN_ON_START  "true" runs once at start, then daily (use it to prove the setup)
-//   BACKUP_COPY_DIR      required when enabled (the share, with .openrhen-backup-target at its root), unless
-//   BACKUP_COPY          "off" keeps backups on this machine only (BACKUP_COPY_DIR may then be blank)
-//   BACKUP_PING_URL      required when enabled: healthchecks.io check URL, or "off" for no monitor. A run with any warning pings /fail; the
-//                        POST body carries the backup size. Missing COPY_DIR or PING_URL exits non-zero at start
+//   BACKUP_COPY_DIR      optional: the share to copy to, with .openrhen-backup-target at its root. Blank keeps backups on
+//                        this machine (a Data check finding, not a failure)
+//   BACKUP_COPY          "off" keeps backups on this machine on purpose (BACKUP_COPY_DIR is then ignored)
+//   BACKUP_PING_URL      optional: healthchecks.io check URL. Blank or "off" means no monitor. A run with any warning pings
+//                        /fail; the POST body carries the backup size
 import { spawn } from "node:child_process";
 import { connect } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { recordRunToDatabase } from "./record-run.mjs";
 import {
-  configProblems,
   copyDisabled,
   databaseEndpoint,
   msUntilNext,
@@ -41,22 +42,9 @@ for (const signal of ["SIGTERM", "SIGINT"]) {
   });
 }
 
-if (process.env.BACKUP_ENABLED !== "true") {
-  log("info", "Scheduled backup is disabled; set BACKUP_ENABLED=true on the server to turn it on.");
-  setInterval(() => {}, 2 ** 30); // idle rather than exit, so restart: unless-stopped does not loop
-  await new Promise(() => {});
-}
-
-// Enabled without an off-machine copy or a monitor is a setup that looks like protection and is not: refuse to start.
-const problems = configProblems(process.env);
-if (problems.length > 0) {
-  for (const problem of problems) log("error", `Backup is enabled but misconfigured: ${problem}`);
-  process.exit(1);
-}
-
 log("info", "Backup loop started", {
   time: process.env.BACKUP_TIME ?? "03:30",
-  copy: copyDisabled(process.env) ? "off (local only)" : "on",
+  copy: copyDisabled(process.env) || !process.env.BACKUP_COPY_DIR?.trim() ? "off (local only)" : "on",
   ping: pingDisabled(process.env) ? "off" : "on"
 });
 

@@ -77,6 +77,8 @@ export const DOCTOR_CHECKS = [
   "pulse_publish_failing",
   "backup_never",
   "backup_warning",
+  "backup_local_only",
+  "backup_unverified",
   "backup_stale",
   "location_ping_silent",
   "closed_stamp_stray",

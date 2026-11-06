@@ -180,10 +180,12 @@ services:
       - ${MIGRATE_BACKUP_HOST_DIR:-./var/backups/pre-migrate}:/backups
     restart: "no"
 
-  # The daily database backup (scripts/backup/scheduled.mjs; docs/operations/database-and-backups.md): create, verify by
-  # restoring into `<db>_restore_test`, copy to BACKUP_COPY_DIR, prune, then ping BACKUP_PING_URL (a healthchecks.io
-  # check), which alerts when a ping is missing. Verification needs POSTGRES_ADMIN_URL; without it the run fails
-  # loudly rather than skip, because an unverified backup is a guess. Never published; reaches only Postgres and the monitor.
+  # The daily database backup, on by default (scripts/backup/scheduled.mjs; docs/operations/database-and-backups.md):
+  # create, verify by restoring into `<db>_restore_test`, copy to BACKUP_COPY_DIR if set, prune, then ping
+  # BACKUP_PING_URL (a healthchecks.io check, blank means none). With no BACKUP_COPY_DIR the backups stay in the host
+  # folder BACKUP_HOST_DIR (a bind mount, so `compose down -v` cannot wipe them) and the Data check says they don't
+  # leave this machine. Verification needs POSTGRES_ADMIN_URL; without it the run warns in the Data check rather than
+  # skip silently. Never published; reaches only Postgres and the monitor.
   backup:
     profiles: ["planning", "app"]
     logging: *logging
@@ -196,7 +198,6 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL}
       POSTGRES_ADMIN_URL: ${POSTGRES_ADMIN_URL:-}
-      BACKUP_ENABLED: ${BACKUP_ENABLED:-false}
       BACKUP_RUN_ON_START: ${BACKUP_RUN_ON_START:-false}
       BACKUP_TIME: ${BACKUP_TIME:-03:30}
       BACKUP_PING_URL: ${BACKUP_PING_URL:-}

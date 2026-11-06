@@ -13,7 +13,8 @@
 //
 //   node scripts/backup/backup-and-copy.mjs
 //
-//   BACKUP_COPY_DIR      where the verified backup is copied (a mapped NAS/share). Unset: skipped with a warning (exit 3).
+//   BACKUP_COPY_DIR      where the verified backup is copied (a mapped NAS/share). Unset: the backup stays on this machine,
+//                        the run is ok with localOnly: true (the Data check says so), exit 0.
 //   BACKUP_COPY          "off": local-only backups chosen on purpose; copy, photo sync and guard skipped with one
 //                        info line, exit 0 (BACKUP_COPY_DIR is then ignored).
 //                        Needs .openrhen-backup-target at its root and max(5 GB, 3 x backup) free, else the run fails.
@@ -52,7 +53,7 @@ try {
   const written = await stat(created.backup);
   if (copyDirectory) await assertBackupTarget(copyDirectory, { backupBytes: written.size });
   const photos = await copyPhotos();
-  await verifyBackup(created.backup);
+  const restoreChecked = await verifyBackup(created.backup);
   const copiedTo = await copyBackup(created.backup);
   const prunedLocal = await prune(dirname(created.backup), keepLocal);
   const prunedCopies = copyDirectory ? await prune(copyDirectory, keepCopies) : 0;
@@ -60,8 +61,10 @@ try {
     backup: created.backup,
     backupBytes: written.size,
     records: created.records,
-    verified: true,
+    verified: restoreChecked,
+    ...(restoreChecked ? {} : { restoreSkipped: true }),
     ...(copiedTo ? { copiedTo } : {}),
+    ...(!copiedTo && !copyOptedOut ? { localOnly: true } : {}),
     ...(photos ? { photos } : {}),
     prunedLocal,
     prunedCopies,
@@ -98,7 +101,16 @@ async function createBackup() {
  * process mid-run cannot be verified in place of the one this run just made.
  */
 async function verifyBackup(backupPath) {
+  // The restore check needs the admin connection to make the scratch database. Without it the backup still ran, so
+  // skip the check but say so loudly (a warning, which pings /fail and shows in the Data check); never skip silently.
+  if (!process.env.POSTGRES_ADMIN_URL?.trim()) {
+    warnings.push(
+      "POSTGRES_ADMIN_URL is not set, so this backup was not restore-tested. Set it in .env (setup writes one) to turn the check on."
+    );
+    return false;
+  }
   await run(PNPM, ["db:restore:verify"], { BACKUP_FILE: backupPath });
+  return true;
 }
 
 /** Copies new photo blobs beside the backup, add-only. A size mismatch is a failure: it would look like protection. */
@@ -121,7 +133,10 @@ async function copyBackup(backupPath) {
     return null;
   }
   if (!copyDirectory) {
-    warnings.push("BACKUP_COPY_DIR is not set, so this backup exists only on this machine.");
+    // The default install has no second place to copy to. That is reported (localOnly), not a failure.
+    process.stdout.write(
+      `${JSON.stringify({ level: "info", message: "No BACKUP_COPY_DIR: this backup exists only on this machine." })}\n`
+    );
     return null;
   }
   // A copy that silently truncated is worse than no copy, because it looks like protection, so it

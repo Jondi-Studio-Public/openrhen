@@ -10,8 +10,8 @@ import type { PoolSql, Sql } from "./sql-pool";
  */
 export async function readRecordingSlice(sql: Sql, userId: string): Promise<DoctorRecordingSlice> {
   const [rows, lastPing] = await Promise.all([
-    sql<{ status: string; last_run_at: Date; last_success_at: Date | null }[]>`
-      SELECT r.status, r.started_at AS last_run_at,
+    sql<{ status: string; last_run_at: Date; last_success_at: Date | null; summary: unknown }[]>`
+      SELECT r.status, r.started_at AS last_run_at, r.summary,
         (SELECT max(COALESCE(s.finished_at, s.started_at)) FROM integration_sync_runs s
           WHERE s.user_id = r.user_id AND s.provider = 'backup' AND s.status IN ('synced', 'needs_review')) AS last_success_at
       FROM integration_sync_runs r
@@ -25,9 +25,28 @@ export async function readRecordingSlice(sql: Sql, userId: string): Promise<Doct
       ? {
           status: row.status,
           lastRunAt: row.last_run_at.toISOString(),
-          lastSuccessAt: row.last_success_at ? row.last_success_at.toISOString() : null
+          lastSuccessAt: row.last_success_at ? row.last_success_at.toISOString() : null,
+          ...(summaryFlag(row.summary, "localOnly") ? { localOnly: true } : {}),
+          ...(summaryFlag(row.summary, "restoreSkipped") ? { restoreSkipped: true } : {})
         }
       : null,
     phonePing: { configured: locationPingToken() !== undefined, lastPingAt: lastPing ? lastPing.toISOString() : null }
   };
+}
+
+/**
+ * True when the run's summary jsonb has `key: true`. Older rows and failed runs lack the key. scripts/backup/record-run.mjs
+ * passes the summary as a JSON string cast to jsonb, which postgres.js can store as a jsonb string rather than an object,
+ * so a string is parsed first.
+ */
+function summaryFlag(summary: unknown, key: string): boolean {
+  let value = summary;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return false;
+    }
+  }
+  return typeof value === "object" && value !== null && (value as Record<string, unknown>)[key] === true;
 }

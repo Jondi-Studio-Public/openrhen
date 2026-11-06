@@ -20,9 +20,10 @@ export function copyDisabled(env) {
   return env.BACKUP_COPY?.trim().toLowerCase() === "off";
 }
 
-/** True when BACKUP_PING_URL is the explicit opt-out "off" (case-insensitive): no monitor, chosen on purpose. */
+/** True when there is no monitor: BACKUP_PING_URL is blank or "off" (case-insensitive). Backups still run. */
 export function pingDisabled(env) {
-  return env.BACKUP_PING_URL?.trim().toLowerCase() === "off";
+  const value = env.BACKUP_PING_URL?.trim().toLowerCase();
+  return !value || value === "off";
 }
 
 /** Host and port of a database URL, or null when it cannot be read. Used to wait for the database, never logged. */
@@ -41,19 +42,6 @@ export function pingUrl(base, kind) {
   const trimmed = base?.trim().replace(/\/+$/, "");
   if (!trimmed || trimmed.toLowerCase() === "off") return null;
   return kind === "success" ? trimmed : `${trimmed}/${kind}`;
-}
-
-/**
- * Problems that make an enabled backup pointless: no off-machine copy, or no monitor to say it stopped. Empty when fine.
- * A blank value is a forgotten setting and refuses; BACKUP_COPY=off and BACKUP_PING_URL=off are explicit opt-outs and are accepted.
- */
-export function configProblems(env) {
-  const problems = [];
-  if (!copyDisabled(env) && !env.BACKUP_COPY_DIR?.trim())
-    problems.push("BACKUP_COPY_DIR is not set, so backups would never leave this machine.");
-  if (!pingDisabled(env) && !pingUrl(env.BACKUP_PING_URL, "success"))
-    problems.push("BACKUP_PING_URL is not set, so a missed or failed backup would alert nobody.");
-  return problems;
 }
 
 /** backup-and-copy.mjs exits with this when the backup completed but something needs attention. */
