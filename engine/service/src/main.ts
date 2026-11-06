@@ -3,10 +3,10 @@ import { handleRequest } from "./server.js";
 import { startupRefusal } from "./startup.js";
 
 /** A missing setting is a setup step, not a crash: one line saying what and how to fix it, no stack trace. */
-function refuseToStart(reason: string): never {
-  process.stderr.write(
-    `${JSON.stringify({ level: "error", message: `OpenRhen cannot start: ${reason}. Run "docker compose run --rm setup" to generate it (it never overwrites a value you set), then "docker compose up -d".` })}\n`
-  );
+const SETUP_FIX =
+  'Run "docker compose run --rm setup" to generate it (it never overwrites a value you set), then "docker compose up -d".';
+function refuseToStart(reason: string, fix = SETUP_FIX): never {
+  process.stderr.write(`${JSON.stringify({ level: "error", message: `OpenRhen cannot start: ${reason}. ${fix}` })}\n`);
   process.exit(1);
 }
 

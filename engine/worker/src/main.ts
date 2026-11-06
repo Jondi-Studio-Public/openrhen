@@ -43,16 +43,20 @@ import { portalHeaders } from "./portal-auth.js";
 import { PORTAL_WAIT_TIMEOUT_DEFAULT_MS, waitForPortal } from "./portal-ready.js";
 
 /** A missing setting is a setup step, not a crash: one line saying what and how to fix it, no stack trace. */
-function refuseToStart(reason: string): never {
-  process.stderr.write(
-    `${JSON.stringify({ level: "error", message: `OpenRhen cannot start: ${reason}. Run "docker compose run --rm setup" to generate it (it never overwrites a value you set), then "docker compose up -d".` })}\n`
-  );
+const SETUP_FIX =
+  'Run "docker compose run --rm setup" to generate it (it never overwrites a value you set), then "docker compose up -d".';
+function refuseToStart(reason: string, fix = SETUP_FIX): never {
+  process.stderr.write(`${JSON.stringify({ level: "error", message: `OpenRhen cannot start: ${reason}. ${fix}` })}\n`);
   process.exit(1);
 }
 
 const workerId = createWorkerId();
 const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) refuseToStart("DATABASE_URL is required");
+if (!databaseUrl)
+  refuseToStart(
+    "DATABASE_URL is required",
+    'Set it in .env (for the bundled database, "docker compose run --rm setup" writes it), then run "docker compose up -d".'
+  );
 const config = planForecastConfigFromEnv();
 if (!config.token) refuseToStart("PLAN_FORECAST_SERVICE_TOKEN is required");
 const retention = planningRetentionConfigFromEnv();
