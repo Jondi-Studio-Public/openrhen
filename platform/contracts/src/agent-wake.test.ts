@@ -61,8 +61,22 @@ describe("agent wake messages", () => {
     expect(text).toContain("reentry_required");
   });
 
+  it("send the attention wake to the feed's own tool and write no tool text of its own", () => {
+    const text = agentWakeMessage("attention_waiting", "x");
+    expect(text).toContain("rhen_attention");
+    expect(text).toContain("askOwner");
+    expect(text).toContain("nextCall");
+    expect(text).toContain("reentry_required");
+    expect(Object.keys((tool("rhen_attention").inputSchema as { properties: object }).properties)).toContain("since");
+  });
+
   it("covers every event and throws for an unknown one", () => {
-    expect([...AGENT_WAKE_EVENTS]).toEqual(["check_in_unanswered", "pulse_lapsed", "pulse_unknown"]);
+    expect([...AGENT_WAKE_EVENTS]).toEqual([
+      "check_in_unanswered",
+      "pulse_lapsed",
+      "pulse_unknown",
+      "attention_waiting"
+    ]);
     expect(() => agentWakeMessage("nope" as never, "x")).toThrow(/Unknown agent wake event/);
   });
 

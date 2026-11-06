@@ -1,3 +1,4 @@
+import { runAttentionWake } from "@/server/attention/attention-wake";
 import { ensurePulseRecorderSubscribed } from "@/server/events/state-events";
 import { redact, withRoute } from "@/server/logging";
 import { ensureUser } from "@/server/persistence/postgres/ensure-user";
@@ -7,7 +8,7 @@ import { sqlPool } from "@/server/persistence/postgres/sql-pool";
 import { databaseUrl } from "@/server/runtime-env";
 
 /**
- * Runs the pulse recorder, then the publisher (the pulse criteria and publish design note,
+ * Runs the pulse recorder, then the publisher and the waiting-attention wake (the pulse criteria and publish design note,
  * "Recording", "Publish"): the worker's 60s tick posts here, and the debounced `state_changed`
  * subscriber calls both directly in-process — the recorder and the publisher each take their own per-user advisory lock,
  * so this route is safe to call early or concurrently with that subscriber. Neither step here is
@@ -36,7 +37,15 @@ export const POST = withRoute("/api/integrations/pulse/tick", async (request, _c
       log.setError(error);
       publish = "error";
     }
-    return Response.json({ status: "ok", trigger, outcome: outcome.status, publish });
+    // Waking the agent about waiting attention never fails the tick either; the next one decides again.
+    let attention: string;
+    try {
+      attention = await runAttentionWake(sql);
+    } catch (error) {
+      log.setError(error);
+      attention = "error";
+    }
+    return Response.json({ status: "ok", trigger, outcome: outcome.status, publish, attention });
   } catch (error) {
     log.setError(error);
     return Response.json(

@@ -1,8 +1,10 @@
+import { cancelPendingAttentionWakes } from "@openrhen/database";
 import { requestAgent, requestScopes } from "@/server/agent-actor";
 import { readAttentionCounts } from "@/server/attention/counts";
 import { readAttention } from "@/server/attention/read-attention";
 import { parseAttentionSince } from "@/server/attention/since";
 import { withRoute } from "@/server/logging";
+import { ensureUser } from "@/server/persistence/postgres/ensure-user";
 import { sqlPool } from "@/server/persistence/postgres/sql-pool";
 import { databaseUrl } from "@/server/runtime-env";
 
@@ -36,6 +38,12 @@ export const GET = withRoute("/api/attention", async (request) => {
     const headers = new Headers(result.lapsed.headers);
     for (const [name, value] of Object.entries(HEADERS)) headers.set(name, value);
     return new Response(result.lapsed.body, { status: result.lapsed.status, headers });
+  }
+  // The feed was just read: a waiting-attention wake not yet sent has done its job. Best effort, never fails the read.
+  try {
+    await cancelPendingAttentionWakes(sql, await ensureUser(sql));
+  } catch {
+    // The wake then goes out and the agent finds the feed already read.
   }
   return reply(result.answer);
 });
