@@ -57,6 +57,32 @@ describe("PortalProvider command resilience", () => {
     expect(portal().saving).toBe(false);
   });
 
+  it("names the field that failed when the route refuses a command with schema issues", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string, init?: RequestInit) =>
+        init?.method === "POST"
+          ? Promise.resolve({
+              ok: false,
+              status: 400,
+              json: () =>
+                Promise.resolve({
+                  error: "Recalculation command validation failed.",
+                  issues: [{ path: ["reason"], message: "Required" }]
+                })
+            } as unknown as Response)
+          : okState()
+      )
+    );
+    const portal = mount();
+    await act(async () => {
+      await portal()
+        .recalculate()
+        .catch(() => undefined);
+    });
+    expect(portal().bannerText).toBe("Recalculation command validation failed. reason: Required");
+  });
+
   it("abandons a hung command after the timeout so the tab is not wedged", async () => {
     vi.useFakeTimers();
     // Only the first command hangs. Once it is abandoned the provider's own freshness check may ask
