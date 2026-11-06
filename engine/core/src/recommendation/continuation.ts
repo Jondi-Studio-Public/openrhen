@@ -110,7 +110,7 @@ export function simulateContinuation(
 }
 
 /** Why fewer minutes than asked are offered: the bound that capped it, so a refusal can be explained to the owner. */
-function limitNote(
+export function limitNote(
   requested: number | undefined,
   offered: number,
   action: { maximumSessionMinutes: number; remainingMinutes: number },
