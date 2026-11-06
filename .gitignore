@@ -9,3 +9,6 @@ coverage/
 .vinext/
 *.tsbuildinfo
 /var/
+
+# Rust build output
+target/

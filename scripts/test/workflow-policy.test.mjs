@@ -42,7 +42,7 @@ test("a self-hosted label fails, in a list or a matrix", () => {
   failsWith(ok.replace("ubuntu-latest", "mac-ci"), /self-hosted/);
   failsWith(ok.replace("ubuntu-latest", "macos-latest"), /runs-on macos-latest/);
   failsWith(
-    wrap("    runs-on: ${{ matrix.runner }}\n    strategy:\n      matrix:\n        runner: windows-latest\n"),
+    wrap("    runs-on: ${{ matrix.runner }}\n    strategy:\n      matrix:\n        runner: macos-latest\n"),
     /matrix runner/
   );
 });

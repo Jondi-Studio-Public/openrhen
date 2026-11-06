@@ -43,7 +43,7 @@ const maintainedRoots = [
     ...readWorkspace(root).map((workspacePackage) => workspacePackage.dir.split("/")[0])
   ])
 ];
-const ignoredNames = new Set(["node_modules", "dist", "coverage", ".next", ".vinext"]);
+const ignoredNames = new Set(["node_modules", "dist", "target", "coverage", ".next", ".vinext"]);
 const genericDirectories = new Set(["common", "helpers", "misc", "utils"]);
 const allowedIndexes = new Set([
   "engine/core/src/index.ts",
