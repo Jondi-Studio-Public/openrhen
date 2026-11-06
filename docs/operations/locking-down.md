@@ -6,6 +6,17 @@ With `OPENRHEN_OWNER_AUTH=off` (the default) the portal trusts its network, whic
 
 Under `require`, every API call needs one of: an owner credential (a signed-in browser's cookie, or an owner token in the `X-OpenRhen-Owner` header), a scoped agent token, or the route's own token (the worker's `X-OpenRhen-Worker` token on the few routes only it calls).
 
+## Getting the `rhen` command
+
+The steps below use `rhen`. From a checkout, `pnpm cli` runs it. With a Docker-only install you need only Node (no pnpm, no checkout): the portal serves the built CLI, and it is public by design because it holds no secrets. Download it once and run it with Node, then read `rhen` below as `node rhen.mjs`:
+
+```text
+curl -o rhen.mjs http://localhost:8787/api/cli/bundle
+node rhen.mjs --help
+```
+
+Use your portal's address in place of `localhost:8787`.
+
 ## Steps
 
 1. **Make the secrets.** Run `node scripts/setup/init-env.mjs --lockdown` (with Docker: `docker compose run --rm setup node scripts/setup/init-env.mjs --docker --lockdown`). It adds the worker token pair and an owner recovery token to `.env`. The plain recovery token is written to `var/owner-recovery-token.txt` and only the path is printed; store the token somewhere safe, then delete the file. A pair that already exists is skipped, so a rerun changes nothing.

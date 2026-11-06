@@ -26,7 +26,7 @@ docker compose up -d
 
 Open `http://localhost:8787`.
 
-`setup` writes `.env` from `.env.example` with generated secrets and never prints one; running it again changes nothing you set. The portal listens on this machine only (`PORTAL_HOST_IP=127.0.0.1`). Set `APP_TIMEZONE` in `.env` to your IANA timezone if `setup` asks you to. Compose may warn that some variables (for example `DATABASE_URL`) are unset; those warnings are harmless. A new install starts with an empty plan; the [user guide](../product/user-guide.md) covers first use.
+`setup` writes `.env` from `.env.example` with generated secrets and never prints one; running it again changes nothing you set. The portal listens on this machine only (`PORTAL_HOST_IP=127.0.0.1`). Set `APP_TIMEZONE` in `.env` to your IANA timezone if `setup` asks you to. Compose may warn that some variables (for example `DATABASE_URL`) are unset; those warnings are harmless. If `docker compose up -d` prints nothing and starts nothing, `.env` does not exist yet: run `docker compose run --rm setup` first. A new install starts with an empty plan; the [user guide](../product/user-guide.md) covers first use.
 
 `docker compose up` builds the images from your checkout the first time (published multi-arch images under `ghcr.io/jondi-studio-public/openrhen-*` are planned; once they exist, `up` will pull them). Run `docker compose up -d --build` to rebuild after changing the source. Set `IMAGE_PREFIX` and `IMAGE_TAG` in `.env` to use images from elsewhere.
 

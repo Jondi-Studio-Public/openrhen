@@ -221,7 +221,9 @@ export function initEnv({
   const zone = getValue(text, "APP_TIMEZONE");
   if (options.docker) {
     if (created || isBlank(zone))
-      hints.push("APP_TIMEZONE is UTC; set it to your IANA zone (for example Europe/London) in .env.");
+      hints.push(
+        "APP_TIMEZONE is UTC until you set it in .env (an IANA zone such as Europe/London); the first-run screen in the portal also asks for your timezone."
+      );
   } else if (created || isBlank(zone)) {
     const hostZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (hostZone) {
@@ -273,6 +275,12 @@ export function initEnv({
     );
   }
   for (const hint of hints) stdout.write(`hint: ${hint}\n`);
+  if (options.docker && !options.lockdown) {
+    const port = (getValue(text, "PORTAL_PORT") || "8787").trim();
+    stdout.write(
+      `Next: run "docker compose up -d", then open http://localhost:${port}. The first start builds the images, which takes a few minutes.\n`
+    );
+  }
   return 0;
 }
 
