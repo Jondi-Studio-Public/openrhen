@@ -117,8 +117,8 @@ export function agentPolicyLines(owner = "the person"): AgentPolicyLine[] {
     {
       id: "errors",
       full:
-        "A failed call carries structuredContent.error with code (guarded, conflict, validation, not_found, scope, unavailable, usage or reentry_required: call rhen_reenter first), " +
-        "retryable and suggestedPath; retry only when retryable, and only with the commandId it names.",
+        "A failed call carries structuredContent.error with code (guarded, conflict, validation, not_found, scope, auth, unavailable, usage or reentry_required: call rhen_reenter first), " +
+        "retryable and suggestedPath; retry only when retryable, and only with the commandId it names. On auth, stop and tell the owner.",
       brief:
         "Errors carry structuredContent.error (code, retryable, suggestedPath, commandId); reentry_required: call " +
         `rhen_reenter with no arguments first; run a named command, else tell ${owner} what it says.`

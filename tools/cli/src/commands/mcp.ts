@@ -692,10 +692,12 @@ function failureAgentError(
   const problems = describeIssues(parsed.details);
   if (problems !== null && !problems.every((line) => message.includes(line)))
     message = `${message} Problems: ${problems.join("; ")}.`;
-  // The portal does not accept this agent's token: no other call will work either, and only the person can fix it.
+  // The portal did not accept the credentials. Its own text for a revoked or expired token already says what to do
+  // and names the replacement command, so the generic stop-and-tell wording is added only when it does not.
   const authFailure = parsed.code === "auth";
-  if (authFailure)
-    message = `${message} Do not repeat this call or try another: the portal does not accept this agent's token, so every call will fail until the person replaces it.`;
+  const portalSaidWhatToDo = /do not retry/i.test(message);
+  if (authFailure && !portalSaidWhatToDo)
+    message = `${message} Do not repeat this call or try another: the portal did not accept the credentials for this call, so every call will fail until the person fixes them.`;
   message = selfContainedMessage(renderCommandsForMcp(message), parsed.details);
   return toAgentError({
     message,
@@ -711,11 +713,12 @@ function failureAgentError(
           ? portalCall
           : nextCall,
     validValues: parsed.validValues,
-    tellThePerson: authFailure
-      ? "OpenRhen did not accept this agent's token. It may be mistyped, revoked, expired, or for another server. Create a new agent token (rhen agent-token create) and set it as OPENRHEN_TOKEN for this agent."
-      : shell && nextCall === undefined
-        ? "The step the portal named is not available as a tool; ask the person to do it, or to change the token."
-        : undefined,
+    tellThePerson:
+      authFailure && !portalSaidWhatToDo
+        ? "OpenRhen did not accept the credentials for this call. Check that OPENRHEN_TOKEN holds a current agent token for this portal; if it does not, create one with `rhen agent-token create` and set it."
+        : shell && nextCall === undefined
+          ? "The step the portal named is not available as a tool; ask the person to do it, or to change the token."
+          : undefined,
     safeToRepeat: !spec.mutates
   });
 }

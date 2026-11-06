@@ -746,6 +746,15 @@ describe("tool errors carry structuredContent.error", () => {
     expect(error.tellThePerson).toContain("OPENRHEN_TOKEN");
   });
 
+  it("leaves the portal's own revoked-token text alone: it already says what to do", async () => {
+    const revoked =
+      'The agent token "mark" was revoked, so nothing was done. Do not retry. Tell the owner it was revoked and ask whether they want it replaced.';
+    const { error } = await failing(1, JSON.stringify({ error: revoked, exitCode: 1, code: "auth" }));
+    expect(error).toMatchObject({ code: "auth", retryable: false });
+    expect(error.message).toBe(revoked);
+    expect(error.tellThePerson).toBeUndefined();
+  });
+
   it("a guarded refusal is code guarded with suggestedPath from the JSON error", async () => {
     const { error } = await failing(
       1,
