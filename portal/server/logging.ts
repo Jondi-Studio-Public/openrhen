@@ -36,9 +36,33 @@ import { portalHostAllowed } from "@/server/security/allowed-hosts";
  * Nothing here may accept a request body, a header value, or a connection string into a log line (the agent
  * header and token are read only to name the request's actor, and are never logged). The only caller-supplied
  * value that reaches a line is the command discriminator, which is a closed enum in the contracts.
+ *
+ * `POST /mcp` adds the fields of `McpLogFields` through `setMcp`, and they obey the same rule. Each is a member of a
+ * closed set the server owns or a number the server computed: the manifest tool name (else `"unknown"`, never the
+ * caller's string), the method (`initialize`, `ping`, `tools/list`, `tools/call`, `notification`, else `"other"`),
+ * the outcome, the closed agent error code or a JSON-RPC code number (else `"other"`), byte lengths, and `idTag`, the
+ * first 8 hex of a per-process salted HMAC of a caller-given command id. No argument, answer, id or header value is
+ * ever written, only sizes and those tags.
  */
 
 export type LogLevel = "info" | "error";
+
+/** What a `POST /mcp` request may record about its call: closed sets and numbers only (see the file comment). */
+export interface McpLogFields {
+  mcpMethod?: "initialize" | "ping" | "tools/list" | "tools/call" | "notification" | "other" | undefined;
+  /** A manifest tool name, or `"unknown"`. */
+  mcpTool?: string | undefined;
+  mcpOutcome?: "ok" | "tool_error" | "protocol_error" | undefined;
+  /** A closed agent error code, `"other"`, or a JSON-RPC error code. Not `errorCode`, which is the SQLSTATE field. */
+  toolErrorCode?: string | number | undefined;
+  mcpRetryable?: boolean | undefined;
+  /** Byte length of the JSON `arguments`. */
+  argBytes?: number | undefined;
+  /** Byte length of the serialized answer body. */
+  resultBytes?: number | undefined;
+  /** First 8 hex of a salted HMAC of the caller's command id; same-process repeats only. */
+  idTag?: string | undefined;
+}
 
 export interface RequestLog {
   /**
@@ -52,6 +76,8 @@ export interface RequestLog {
    * that reason server-side without putting the internals in the response.
    */
   setError(error: unknown): void;
+  /** Records the MCP call fields. Merges with earlier calls; an `undefined` value is dropped. */
+  setMcp(fields: McpLogFields): void;
 }
 
 export interface RouteLogOptions {
@@ -66,7 +92,7 @@ export interface RouteLogOptions {
   probe?: boolean;
 }
 
-interface RequestLine {
+interface RequestLine extends McpLogFields {
   route: string;
   method: string;
   status: number;
@@ -333,12 +359,19 @@ export function withRoute<Context = unknown>(
     const startedAt = Date.now();
     let commandType: string | undefined;
     let caught: unknown;
+    let mcp: McpLogFields = {};
     const requestLog: RequestLog = {
       setCommandType(value) {
         commandType = value;
       },
       setError(error) {
         caught = error;
+      },
+      setMcp(fields) {
+        mcp = {
+          ...mcp,
+          ...Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined))
+        };
       }
     };
     const line = (status: number, error: unknown, withStack: boolean): RequestLine => ({
@@ -347,6 +380,7 @@ export function withRoute<Context = unknown>(
       status,
       durationMs: Date.now() - startedAt,
       ...(commandType === undefined ? {} : { commandType }),
+      ...mcp,
       ...(error === undefined
         ? {}
         : {

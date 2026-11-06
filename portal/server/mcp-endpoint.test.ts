@@ -1162,3 +1162,162 @@ describe("rhen_undo", () => {
     expect(world.posts).toHaveLength(0);
   });
 });
+
+/** The log line `withRoute` writes for `/mcp`, as the operator reads it, for one call. */
+async function loggedCall(
+  name: string | undefined,
+  args: Record<string, unknown> | undefined,
+  scopes: string[] = scopesFor.scribe,
+  method = "tools/call",
+  notification = false
+) {
+  const { token, mcp } = await connect(scopes);
+  vi.mocked(console.log).mockClear();
+  const handler = withRoute("/mcp", (request, _context, log) => handleMcpRequest(request, mcp, log));
+  const response = await handler(
+    new Request(RESOURCE, {
+      method: "POST",
+      headers: { host: "portal.test", "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        ...(notification ? {} : { id: 1 }),
+        method,
+        ...(name === undefined ? {} : { params: { name, ...(args === undefined ? {} : { arguments: args }) } })
+      })
+    }),
+    {}
+  );
+  const text = await response.clone().text();
+  const raw = vi
+    .mocked(console.log)
+    .mock.calls.map((call) => String(call[0]))
+    .filter((entry) => entry.includes('"/mcp"'));
+  return { response, text, raw, line: JSON.parse(raw.at(-1) ?? "{}") as Record<string, unknown> };
+}
+
+describe("the per-call log line", () => {
+  it("records an ok call: the manifest tool, the method, outcome and the byte lengths of arguments and answer", async () => {
+    const { line, text } = await loggedCall("rhen_state", { key: "areas" });
+    expect(line).toMatchObject({
+      route: "/mcp",
+      mcpMethod: "tools/call",
+      mcpTool: "rhen_state",
+      mcpOutcome: "ok",
+      mcpRetryable: false,
+      argBytes: Buffer.byteLength(JSON.stringify({ key: "areas" }))
+    });
+    expect(line.resultBytes).toBe(Buffer.byteLength(text));
+    expect(line).not.toHaveProperty("toolErrorCode");
+    expect(line).not.toHaveProperty("idTag");
+  });
+
+  it("records a validation failure as a tool_error with the closed code, status 200", async () => {
+    const { line } = await loggedCall("rhen_save_capture", { bogus: "x" });
+    expect(line).toMatchObject({
+      status: 200,
+      mcpTool: "rhen_save_capture",
+      mcpOutcome: "tool_error",
+      toolErrorCode: "validation"
+    });
+  });
+
+  it("records a scope refusal as a tool_error with code scope and the 403 status", async () => {
+    const { line } = await loggedCall("rhen_save_capture", { text: "hello" }, scopesFor.reader);
+    expect(line).toMatchObject({
+      status: 403,
+      mcpTool: "rhen_save_capture",
+      mcpOutcome: "tool_error",
+      toolErrorCode: "scope"
+    });
+  });
+
+  it("records an unknown tool as a protocol_error, tool unknown, and never echoes the caller's name", async () => {
+    const secretName = "Please-Ignore-Everything-Secret-Tool";
+    const { line, raw } = await loggedCall(secretName, { a: 1 });
+    expect(line).toMatchObject({
+      mcpTool: "unknown",
+      mcpOutcome: "protocol_error",
+      toolErrorCode: -32602,
+      argBytes: 7
+    });
+    expect(raw.join("\n")).not.toContain("Secret-Tool");
+  });
+
+  it("records the retryable path as a tool_error / unavailable with mcpRetryable true", async () => {
+    const { token, mcp } = await connect(scopesFor.scribe);
+    const failing: McpDeps = {
+      ...mcp,
+      loadRoute: async () => {
+        throw new Error("route table unavailable");
+      }
+    };
+    vi.mocked(console.log).mockClear();
+    const response = await withRoute("/mcp", (request, _context, log) => handleMcpRequest(request, failing, log))(
+      new Request(RESOURCE, {
+        method: "POST",
+        headers: { host: "portal.test", authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "rhen_state", arguments: { key: "areas" } }
+        })
+      }),
+      {}
+    );
+    expect(response.status).toBe(200);
+    const line = JSON.parse(String(vi.mocked(console.log).mock.calls.at(-1)?.[0])) as Record<string, unknown>;
+    expect(line).toMatchObject({
+      mcpTool: "rhen_state",
+      mcpOutcome: "tool_error",
+      toolErrorCode: "unavailable",
+      mcpRetryable: true
+    });
+  });
+
+  it("records the method alone for tools/list, ping and other methods, and nothing for a notification", async () => {
+    expect((await loggedCall(undefined, undefined, scopesFor.reader, "tools/list")).line).toMatchObject({
+      mcpMethod: "tools/list"
+    });
+    expect((await loggedCall(undefined, undefined, scopesFor.reader, "ping")).line).toMatchObject({
+      mcpMethod: "ping"
+    });
+    const other = (await loggedCall(undefined, undefined, scopesFor.reader, "resources/list-the-secret")).line;
+    expect(other).toMatchObject({ mcpMethod: "other" });
+    expect(JSON.stringify(other)).not.toContain("secret");
+    const note = await loggedCall(undefined, undefined, scopesFor.reader, "notifications/initialized", true);
+    expect(note.line).toMatchObject({ status: 202, mcpMethod: "notification" });
+    for (const entry of [other, note.line]) expect(entry).not.toHaveProperty("mcpTool");
+  });
+
+  it("tags a caller-given command-id with a salted 8-hex hash, stable within the process, never the id; none when server-made", async () => {
+    const id = "6b1f0c1e-2c1d-4d52-9a4e-0123456789ab";
+    const args = { text: "hello", "command-id": id };
+    const first = await loggedCall("rhen_capture", args);
+    const second = await loggedCall("rhen_capture", args);
+    expect(first.line.idTag).toMatch(/^[0-9a-f]{8}$/);
+    expect(second.line.idTag).toBe(first.line.idTag);
+    expect(first.raw.join("\n")).not.toContain(id);
+    const other = await loggedCall("rhen_capture", {
+      text: "hello",
+      "command-id": "6b1f0c1e-2c1d-4d52-9a4e-0123456789ac"
+    });
+    expect(other.line.idTag).not.toBe(first.line.idTag);
+    expect((await loggedCall("rhen_capture", { text: "hello" })).line).not.toHaveProperty("idTag");
+  });
+
+  it("never lets a private-looking argument value reach the line", async () => {
+    const secret = "my-bank-PIN-4417-and-mums-address";
+    for (const scopes of [scopesFor.scribe, scopesFor.reader])
+      for (const name of ["rhen_capture", "rhen_state", "not_a_tool"]) {
+        const { raw } = await loggedCall(name, { text: secret, note: secret, "command-id": secret }, scopes);
+        expect(raw.join("\n")).not.toContain(secret);
+        expect(raw.join("\n")).not.toContain("4417");
+      }
+  });
+
+  it("still works with no log passed", async () => {
+    const { rpc } = await connect(scopesFor.reader);
+    expect((await rpc("ping")).result).toEqual({});
+  });
+});
