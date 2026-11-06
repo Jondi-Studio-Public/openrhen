@@ -98,6 +98,7 @@ test("--docker keeps UTC and hints; a fresh host run takes the host time zone", 
   run(docker, ["--docker"]);
   assert.equal(envOf(docker).APP_TIMEZONE, "UTC");
   assert.match(docker.output(), /hint: APP_TIMEZONE/);
+  assert.match(docker.output(), /Next: run "docker compose up -d", then open http:\/\/localhost:8787/);
   const host = makeRoot();
   run(host);
   assert.equal(envOf(host).APP_TIMEZONE, Intl.DateTimeFormat().resolvedOptions().timeZone);
