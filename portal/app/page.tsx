@@ -754,12 +754,17 @@ export default function NowPage() {
       state.conditionDefinitions.some((entry) => entry.id === id && entry.kind === "location")
     )
   );
-  const blockedPlaces = blockedCandidate
-    ? (blockedCandidate.conditionMatch?.missing ?? []).flatMap((id) => {
-        const place = state.conditionDefinitions.find((entry) => entry.id === id && entry.kind === "location");
-        return place ? [{ id, name: place.name, actionTitle: blockedCandidate.action.title }] : [];
-      })
-    : [];
+  // Only offered when the engine's own re-run at that place leads with something before the boundary.
+  const atPlaceLeads = Boolean(
+    recommendation.why?.wouldChangeIf.some((item) => item.condition === "at_location" && item.thenPrimary)
+  );
+  const blockedPlaces =
+    blockedCandidate && atPlaceLeads
+      ? (blockedCandidate.conditionMatch?.missing ?? []).flatMap((id) => {
+          const place = state.conditionDefinitions.find((entry) => entry.id === id && entry.kind === "location");
+          return place ? [{ id, name: place.name, actionTitle: blockedCandidate.action.title }] : [];
+        })
+      : [];
   const kicker = firstRun
     ? "Welcome"
     : travelDirective

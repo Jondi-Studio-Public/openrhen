@@ -67,6 +67,7 @@ export function BoundaryPanel({
   // The extension is measured from the boundary when it is still ahead, and from now once the
   // horizon has already passed — otherwise "one more hour" after a 22:00 horizon at 23:30 would end
   // in the past and change nothing.
+  const namesNextFit = Boolean(nextFit) && directive.boundaryKind !== "daily_horizon";
   const extendFrom = Math.max(boundaryAt.getTime(), now.getTime());
   // An extension is for the planning day it is made in, so it stops at the next wake: past it the day
   // that begins then would inherit it. Options that would run past the wake collapse into one that
@@ -105,8 +106,9 @@ export function BoundaryPanel({
       <p className="reason">{explanation}</p>
       {nextFit ? (
         <p className="microcopy">
-          Next fit: <strong>{nextFit.title}</strong> for {nextFit.recommendedMinutes} minutes at{" "}
-          {when(new Date(nextFit.at))}.
+          Next fit: <strong>{nextFit.title}</strong> for {nextFit.recommendedMinutes} minutes
+          {/* The time is already the line above when that line names when things fit again. */}
+          {namesNextFit ? "." : <> at {when(new Date(nextFit.at))}.</>}
         </p>
       ) : (
         <p className="microcopy">Nothing after it fits inside the forecast either.</p>

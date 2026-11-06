@@ -202,17 +202,17 @@ describe("context-only recommendation explanation", () => {
     });
     expect(result.headline).toBe("Buy the remaining supplies needs you at shops");
     expect(result.explanation).toBe(
-      "Buy the remaining supplies is the closest suitable action, but it needs you at shops, so it is not suggested from here. Get to shops, or say you are there, and it can be recommended."
+      "Buy the remaining supplies is the closest suitable action, but it needs you at shops, so it is not suggested from here. If you are at shops, Buy the remaining supplies would lead for 30 minutes: get there, or say you are there."
     );
   });
 
-  it("keeps the action-led wording when a commitment boundary also leaves no room", () => {
+  const blockedBeforeCooking = (errandMinimum: number) => {
     const errand = {
       ...action,
       id: "errand",
       title: "Buy the remaining supplies",
       contexts: ["shops"],
-      minimumSessionMinutes: 30
+      minimumSessionMinutes: errandMinimum
     };
     const plain = { ...action, id: "plain", title: "Plain work", contexts: [], minimumSessionMinutes: 30 };
     const meeting = commitment({
@@ -230,7 +230,7 @@ describe("context-only recommendation explanation", () => {
       capacityWindows: [capacity],
       commitments: [meeting]
     });
-    const result = recommend({
+    return recommend({
       now: base,
       horizonEnd: at(120),
       projects: [project],
@@ -247,12 +247,22 @@ describe("context-only recommendation explanation", () => {
       timezone: "Australia/Sydney",
       locale: "en-AU"
     });
-    expect(result.headline).toMatch(/^Nothing to start until .*, after Craig Cooking$/);
+  };
+
+  it("promises the action only when being at the place would make it lead before the boundary", () => {
+    const result = blockedBeforeCooking(15);
+    expect(result.headline).toBe("Nothing to start until after Craig Cooking");
     expect(result.noFit?.kind).toBe("boundary");
-    expect(result.explanation).toBe(
-      "Buy the remaining supplies is the closest suitable action, but it needs you at shops, so it is not suggested from here. Get to shops, or say you are there, and it can be recommended."
-    );
-    expect(result.explanation).not.toContain("is needed for");
+    expect(result.explanation).toContain("If you are at shops, Buy the remaining supplies would lead for ");
+    expect(result.why.wouldChangeIf.find((item) => item.condition === "at_location")?.thenPrimary).not.toBeNull();
+  });
+
+  it("does not promise the action when the gap before the boundary is still too short", () => {
+    const result = blockedBeforeCooking(30);
+    expect(result.headline).toBe("Nothing to start until after Craig Cooking");
+    expect(result.explanation).toContain("Being at shops would not change that before then");
+    expect(result.explanation).not.toContain("would lead");
+    expect(result.why.wouldChangeIf.find((item) => item.condition === "at_location")).toBeUndefined();
   });
 
   it("keeps places and other needs apart when both block", () => {

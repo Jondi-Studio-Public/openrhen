@@ -333,16 +333,21 @@ export function recommend(args: RecommendArguments): Recommendation {
         ...(places.length ? [`you at ${formatList(places, args.locale)}`] : []),
         ...(others.length ? [formatList(others, args.locale)] : [])
       ].join(", plus ");
-      const clears =
-        places.length && !others.length
-          ? `Get to ${formatList(places, args.locale)}, or say you are there, and it can be recommended.`
+      // Only said when the re-run at that place actually leads with something; being there is useless if
+      // the work still would not fit (a session minimum longer than the gap, say).
+      const atPlace =
+        places.length && !others.length ? wouldChangeIf.find((item) => item.condition === "at_location") : undefined;
+      const clears = atPlace?.thenPrimary
+        ? `If you are at ${formatList(places, args.locale)}, ${atPlace.thenPrimary.title} would lead for ${atPlace.thenPrimary.recommendedMinutes} minutes: get there, or say you are there.`
+        : places.length && !others.length
+          ? `Being at ${formatList(places, args.locale)} would not change that before then, so there is nothing to do about it yet.`
           : "Once that is sorted, or you say it is, it can be recommended.";
       // Blocked by place while a boundary also leaves no room: the answer to "what do I do?" is that nothing
       // can be started until the first thing that fits, not the blocked action, so lead with that.
       const boundaryHeadline =
         !asking && noFit.kind === "boundary"
           ? noFit.nextFit && noFit.boundaryKind !== "daily_horizon"
-            ? `Nothing to start until ${formatDate(noFit.nextFit.at, args.timezone, args.locale)}, after ${
+            ? `Nothing to start until after ${
                 noFit.boundaryTitle ?? (noFit.boundaryKind === "sleep" ? "sleep" : "the next commitment")
               }`
             : boundaryWording(noFit, args.now, args.timezone, args.locale).headline

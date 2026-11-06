@@ -75,6 +75,20 @@ describe("BoundaryPanel", () => {
     expect(screen.getByText(/Nothing fits until .*, after College Class/)).toBeTruthy();
   });
 
+  it("states when things fit again once, not in the line and the footer", () => {
+    render(
+      <BoundaryPanel
+        {...props}
+        directive={{ ...directive, boundaryKind: "commitment", boundaryTitle: "Craig Cooking" }}
+        isDailyHorizon={false}
+      />
+    );
+    expect(screen.getByText(/Nothing fits until 8:00 am on Wed, 19 Aug, after Craig Cooking/)).toBeTruthy();
+    expect(screen.getByText("Draft the report").closest("p")?.textContent).toBe(
+      "Next fit: Draft the report for 45 minutes."
+    );
+  });
+
   it("offers one tap to say you are at the place the blocked action needs", () => {
     const save = vi.fn().mockResolvedValue(undefined);
     render(
