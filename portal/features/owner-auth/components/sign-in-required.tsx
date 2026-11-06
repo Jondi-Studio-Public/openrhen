@@ -67,7 +67,7 @@ export function SignInRequired({ expired = false }: { expired?: boolean }) {
       const body = (await response.json().catch(() => ({}))) as { error?: string };
       setError(body.error ?? "This browser could not be signed in.");
     } catch {
-      setError("This browser could not be signed in.");
+      setError("Could not reach OpenRhen to sign in. Check that it is running and your connection, then try again.");
     } finally {
       setBusy(false);
     }
@@ -116,7 +116,7 @@ export function SignInRequired({ expired = false }: { expired?: boolean }) {
             />
             <p id={`${id}-hint`} className={styles.hint}>
               {
-                "Make one on a signed-in device under You › Sign-in and devices, or use your recovery token, the plain value whose sha256 you set as OWNER_RECOVERY_TOKEN."
+                "Use the recovery token you stored when you turned sign-in on, or one made with `rhen owner-token create --label <device>`. The guide Locking down the API has the steps."
               }
             </p>
           </div>

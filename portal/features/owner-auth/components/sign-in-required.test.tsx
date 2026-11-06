@@ -23,15 +23,21 @@ describe("sign in screen", () => {
   it("says the sign-in expired and where the recovery token is kept", () => {
     render(<SignInRequired expired />);
     expect(screen.getByText(/sign-in has expired/)).toBeTruthy();
-    expect(
-      screen.getByText(/recovery token, the plain value whose sha256 you set as OWNER_RECOVERY_TOKEN/)
-    ).toBeTruthy();
+    expect(screen.getByText(/recovery token you stored when you turned sign-in on/)).toBeTruthy();
   });
 
   it("keeps the first-visit wording for a browser that was never signed in", () => {
     render(<SignInRequired />);
     expect(screen.getByText(/isn't signed in yet/)).toBeTruthy();
     expect(screen.queryByText(/expired/)).toBeNull();
+  });
+
+  it("says it could not reach OpenRhen, not that the token was wrong, when the request fails", async () => {
+    vi.stubGlobal("fetch", () => Promise.reject(new TypeError("fetch failed")));
+    render(<SignInRequired />);
+    fireEvent.change(screen.getByLabelText("Sign-in token"), { target: { value: "abc" } });
+    fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
+    expect(await screen.findByText(/Could not reach OpenRhen to sign in/)).toBeTruthy();
   });
 
   it("replaces the app when /api/state answers 401 for owner auth, and asks for nothing else", async () => {
@@ -117,7 +123,7 @@ describe("sign in screen", () => {
     ).toBeTruthy();
     expect(
       screen.getByText(
-        "Make one on a signed-in device under You › Sign-in and devices, or use your recovery token, the plain value whose sha256 you set as OWNER_RECOVERY_TOKEN."
+        "Use the recovery token you stored when you turned sign-in on, or one made with `rhen owner-token create --label <device>`. The guide Locking down the API has the steps."
       )
     ).toBeTruthy();
     expect((screen.getByLabelText("Name this device") as HTMLInputElement).value).toBe(

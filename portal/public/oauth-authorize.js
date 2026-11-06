@@ -27,7 +27,7 @@
           });
       })
       .catch(function () {
-        show("This browser could not be signed in.");
+        show("Could not reach OpenRhen to sign in. Check that it is running and your connection, then try again.");
       });
   });
 })();

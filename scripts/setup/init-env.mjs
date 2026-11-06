@@ -277,8 +277,10 @@ export function initEnv({
   for (const hint of hints) stdout.write(`hint: ${hint}\n`);
   if (options.docker && !options.lockdown) {
     const port = (getValue(text, "PORTAL_PORT") || "8787").trim();
+    const bound = (getValue(text, "PORTAL_HOST_IP") || "").trim();
+    const host = !bound || bound === "0.0.0.0" || bound === "127.0.0.1" ? "localhost" : bound;
     stdout.write(
-      `Next: run "docker compose up -d", then open http://localhost:${port}. The first start builds the images, which takes a few minutes.\n`
+      `Next: run "docker compose up -d", then open http://${host}:${port}. The first start builds the images, which takes a few minutes.\n`
     );
   }
   return 0;
