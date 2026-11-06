@@ -2,15 +2,17 @@ import { describe, expect, it } from "vitest";
 import { CAPABILITY_OPS, capabilityIdSchema, capabilityPath, opIdSchema } from "./capabilities.js";
 
 describe("capabilities", () => {
-  it("lists the six capabilities with their ops", () => {
+  it("lists the seven capabilities with their ops", () => {
     expect(capabilityIdSchema.options).toEqual([
       "calendar_source",
       "calendar_sink",
       "travel_time",
       "geocoding",
       "model_provider",
-      "status_publish"
+      "status_publish",
+      "video_metadata"
     ]);
+    expect(CAPABILITY_OPS.video_metadata).toEqual(["durations"]);
     expect(CAPABILITY_OPS.calendar_source).toEqual(["proof", "list_calendars", "read_events"]);
     expect(CAPABILITY_OPS.calendar_sink).toEqual(["status", "create", "update", "remove", "write_proof"]);
     expect(CAPABILITY_OPS.model_provider).toEqual(["extract", "stream", "embed", "probe"]);

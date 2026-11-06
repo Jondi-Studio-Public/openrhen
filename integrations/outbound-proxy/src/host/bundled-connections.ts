@@ -4,6 +4,7 @@ import { googleCalendarConnection } from "../connections/google-calendar/connect
 import { googleRoutesConnection } from "../connections/google-routes/connection.js";
 import { openaiConnection } from "../connections/openai/connection.js";
 import { pulseConnection } from "../connections/pulse/connection.js";
+import { youtubeDataConnection } from "../connections/youtube-data/connection.js";
 import "../drop-ins.js";
 import type { BoundConnection } from "./connection-api.js";
 import { registeredConnections } from "./connection-registry.js";
@@ -15,7 +16,8 @@ export const CORE_CONNECTIONS: readonly BoundConnection[] = [
   pulseConnection,
   openaiConnection,
   deepinfraConnection,
-  calendarFeedConnection
+  calendarFeedConnection,
+  youtubeDataConnection
 ];
 
 /** Every connection this host serves: the core list, then each registered drop-in connection. */

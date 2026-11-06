@@ -52,6 +52,8 @@ docker compose run --rm setup node scripts/setup/init-env.mjs --docker --lockdow
 
 Without Docker, run `node scripts/setup/init-env.mjs --lockdown`. Then set `OPENRHEN_OWNER_AUTH=require` and follow [Locking down the API](locking-down.md). Recreate the portal after editing `.env`: `docker compose up -d`.
 
+Saving a key under **Settings > Passwords and keys** also needs `OPENRHEN_SECRETS_KEY` in `.env`: 32 random bytes, base64. `init-env` makes one the first time and never replaces it (`openssl rand -base64 32` makes one by hand). Only the portal container gets it. Set it once and keep it with your other secrets: if it changes, saved keys show *unreadable* and are entered again. It protects database dumps and backups, not a compromised portal; `docker inspect` on the portal shows it. When you fetch video lengths, the key goes from the portal to the outbound proxy as plain HTTP inside the compose network (no published port, no TLS on that hop) and from the proxy to Google over https.
+
 If you put the portal behind a reverse proxy, terminate TLS there and set `PORTAL_ALLOWED_HOSTS` to the host names it serves. Several browser features (such as the secure-context cryptography the portal uses) require https once you leave localhost.
 
 ## Upgrading

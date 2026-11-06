@@ -8,6 +8,8 @@ const review = (over: Record<string, unknown> = {}) => ({
   from: "2026-10-08",
   to: "2026-11-06",
   hasData: true,
+  watchesHeld: 3,
+  lengths: { keyState: "unset", known: 0, missing: 3, unavailable: 0, quotaPaused: false },
   days: [
     { date: "2026-11-05", count: 3 },
     { date: "2026-11-06", count: 0 }
@@ -22,7 +24,193 @@ const review = (over: Record<string, unknown> = {}) => ({
 
 afterEach(() => vi.unstubAllGlobals());
 
+const lengthsResult = (over: Record<string, unknown> = {}) => ({
+  fetched: 3,
+  remaining: 0,
+  stopped: null,
+  message: "Looked up 3 videos; every watched video now has its length.",
+  ...over
+});
+
 describe("WatchHistoryPanel", () => {
+  it("keeps one polite status region in the page from the first render, empty until there is something to say", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise(() => {}))
+    );
+    render(<WatchHistoryPanel />);
+    const status = document.querySelector("[data-watch-status]")!;
+    expect(status.getAttribute("aria-live")).toBe("polite");
+    expect(status.textContent).toBe("");
+  });
+
+  it("says how many watches are held when none fall in the window", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          Response.json(
+            review({
+              total: 0,
+              watchesHeld: 12,
+              estimate: { lowMin: 0, highMin: 0, midMin: 0, videos: 0, sessions: 0, unknownCount: 0 },
+              days: Array.from({ length: 30 }, (_, i) => ({
+                date: `2026-10-${String(i + 1).padStart(2, "0")}`,
+                count: 0
+              }))
+            })
+          )
+        )
+      )
+    );
+    render(<WatchHistoryPanel />);
+    expect(await screen.findByText("12 watches held, none in the last 30 days.")).toBeTruthy();
+    expect(screen.queryByText(/No videos watched in this period/)).toBeNull();
+  });
+
+  it("asks for a YouTube key, linking to the page, when none is saved", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(Response.json(review())))
+    );
+    render(<WatchHistoryPanel />);
+    expect(
+      await screen.findByText(
+        "Add a YouTube API key in Settings > Passwords and keys to estimate time from video lengths."
+      )
+    ).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Passwords and keys" }).getAttribute("href")).toBe(
+      "/settings/passwords-and-keys"
+    );
+    expect(screen.queryByRole("button", { name: "Fetch video lengths" })).toBeNull();
+  });
+
+  it("fetches lengths on the button, repeating while videos remain, and then re-reads", async () => {
+    const lengths = { keyState: "set", known: 0, missing: 3, unavailable: 0, quotaPaused: false };
+    const answers = [
+      lengthsResult({ fetched: 2, remaining: 1, message: "Looked up 2 videos; 1 still to do." }),
+      lengthsResult({ fetched: 1 })
+    ];
+    const fetchMock = vi.fn((url: string, init?: RequestInit) =>
+      Promise.resolve(
+        init?.method === "POST" && url === "/api/review/watch-history/lengths"
+          ? Response.json(answers.shift())
+          : Response.json(review({ lengths }))
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WatchHistoryPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: "Fetch video lengths" }));
+    await waitFor(() => expect(screen.getByText(/every watched video now has its length/)).toBeTruthy());
+    expect(
+      fetchMock.mock.calls.filter(
+        ([url, init]) => url === "/api/review/watch-history/lengths" && init?.method === "POST"
+      )
+    ).toHaveLength(2);
+  });
+
+  it("stops on the server's reason and says it, without looping", async () => {
+    const lengths = { keyState: "set", known: 0, missing: 3, unavailable: 0, quotaPaused: false };
+    const fetchMock = vi.fn((url: string, init?: RequestInit) =>
+      Promise.resolve(
+        init?.method === "POST"
+          ? Response.json(
+              lengthsResult({
+                fetched: 0,
+                remaining: 3,
+                stopped: "quota",
+                message:
+                  "YouTube's daily quota is used up. Lengths resume on the next run, after midnight Pacific time."
+              })
+            )
+          : Response.json(review({ lengths }))
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WatchHistoryPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: "Fetch video lengths" }));
+    await waitFor(() => expect(screen.getByText(/daily quota is used up/)).toBeTruthy());
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  });
+
+  it("starts the length lookup by itself after an import when a key is saved", async () => {
+    const lengths = { keyState: "set", known: 0, missing: 3, unavailable: 0, quotaPaused: false };
+    const fetchMock = vi.fn((url: string) =>
+      Promise.resolve(
+        url === "/api/imports/watch-history"
+          ? Response.json({
+              importId: "i",
+              read: 3,
+              added: 3,
+              alreadyHeld: 0,
+              skipped: 0,
+              watches: 3,
+              ads: 0,
+              posts: 0,
+              music: 0
+            })
+          : url === "/api/review/watch-history/lengths"
+            ? Response.json(lengthsResult())
+            : Response.json(review({ lengths }))
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WatchHistoryPanel />);
+    fireEvent.click(await screen.findByText("Import Takeout"));
+    fireEvent.change(await screen.findByLabelText("Takeout file"), { target: { files: [new File(["[]"], "w.json")] } });
+    fireEvent.click(screen.getByRole("button", { name: "Import" }));
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url]) => url === "/api/review/watch-history/lengths")).toBe(true)
+    );
+  });
+
+  it("does not look up lengths after an import when no key is saved", async () => {
+    const fetchMock = vi.fn((url: string) =>
+      Promise.resolve(
+        url === "/api/imports/watch-history"
+          ? Response.json({
+              importId: "i",
+              read: 3,
+              added: 3,
+              alreadyHeld: 0,
+              skipped: 0,
+              watches: 3,
+              ads: 0,
+              posts: 0,
+              music: 0
+            })
+          : Response.json(review())
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WatchHistoryPanel />);
+    fireEvent.click(await screen.findByText("Import Takeout"));
+    fireEvent.change(await screen.findByLabelText("Takeout file"), { target: { files: [new File(["[]"], "w.json")] } });
+    fireEvent.click(screen.getByRole("button", { name: "Import" }));
+    await screen.findByText("3 watches added.");
+    expect(fetchMock.mock.calls.some(([url]) => url === "/api/review/watch-history/lengths")).toBe(false);
+  });
+
+  it("disables the delete button while its request is pending, so it cannot be sent twice", async () => {
+    let release: (value: Response) => void = () => {};
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) =>
+      init?.method === "DELETE"
+        ? new Promise<Response>((resolve) => {
+            release = resolve;
+          })
+        : Promise.resolve(Response.json(review()))
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WatchHistoryPanel />);
+    const button = await screen.findByRole("button", { name: "Delete import watch-history.json" });
+    fireEvent.click(button);
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(true));
+    fireEvent.click(button);
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(1);
+    release(Response.json({ deleted: true, removed: 3 }));
+    await waitFor(() => expect(screen.getByText("Import deleted: 3 entries removed.")).toBeTruthy());
+  });
+
   it("explains how to request a Takeout when nothing is imported", async () => {
     vi.stubGlobal(
       "fetch",

@@ -1,0 +1,8 @@
+// A fixture, not code: a route that reads a saved key and hands it back. The structure check must refuse this file.
+import { readSecret } from "@/server/secrets/read-secret";
+import { withRoute } from "@/server/logging";
+
+export const GET = withRoute("/api/leaky", async () => {
+  const key = await readSecret({} as never, "u", "youtube_data_api_key");
+  return Response.json({ key });
+});

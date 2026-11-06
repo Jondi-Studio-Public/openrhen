@@ -12,6 +12,7 @@ First setup is three short steps (when you sleep, where you spend your days, the
 - **Notifications**: leave-by alerts on this device.
 - **Disruptions and sharing**: the kinds of disruption you log, and status publishing.
 - **AI and add-ons**: which model each AI tool calls, plan map switches, reference codes, and agent tokens.
+- **Passwords and keys**: keys the app needs for outside services (today the YouTube Data API key), saved encrypted and never shown again.
 - **Sign-in and devices**: the browsers and phones signed in as you.
 
 ### Sleep, time and capacity
@@ -47,6 +48,12 @@ Setup time protects getting ready to leave; the journey is protected separately,
 
 The routine builder is where preparation tiles are arranged on a board, joined with arrows for real prerequisites, and tied to the commitment they lead to. A tile can stand in for a cadence action so it appears only on days that action is due. A routine preset is not a copy: editing it updates future commitments that use it. **Time bands** name windows of the day (Morning, Afternoon and Evening by default) that a flexible step can prefer.
 
+### Passwords and keys
+
+**Settings > Passwords and keys** holds keys you type in rather than put in server files. Each is a password field with **Save** (or **Replace**) and **Remove**; the page shows only *Saved 6 Nov*, *Saved but unreadable: re-enter* or *Not set*, and never shows a key back, to you or to an agent. To change a key, replace it. Today there is one: the **YouTube Data API key** (create a key for the YouTube Data API v3 in the Google Cloud console), which lets Review look up how long your watched videos are.
+
+Saving needs two things, and the page says which is missing and exactly how to set it: `OPENRHEN_SECRETS_KEY` in `.env` (32 random bytes, base64; `node scripts/setup/init-env.mjs` makes one and never replaces it), and `OPENRHEN_OWNER_AUTH=require` ([Locking down the API](../operations/locking-down.md)), because with sign-in off anyone who can reach the address could replace or delete a key. Keys are sealed with AES-256-GCM under the master key, so a database dump, a backup or SQL access sees only sealed text. It does not protect against someone who controls the running portal, or who can run `docker inspect` on it (both see the master key). The JSON backup leaves keys out, so after restoring from it enter them again; the database copy taken before an upgrade (in `/backups`) holds only the sealed text, and the master key is never stored there. If the master key changes, saved keys show *unreadable* and must be entered again; there is no other rotation.
+
 ### Notifications
 
 Leave-by reminders reach a phone once this page turns them on, one subscription per device. Setup is in [Web push](../operations/web-push.md). A phone can also report its location automatically; see [Location ping](../operations/location-ping.md).
@@ -67,6 +74,7 @@ Bundled connections:
 - **Google routes**: travel-time estimates, limited by a shared daily lookup budget shown on Now.
 - **OpenAI** and **DeepInfra**: language-model providers for extraction, chat and embeddings.
 - **Pulse**: the status publisher described above.
+- **YouTube Data API**: video lengths for [watch history](building-the-plan.md#watch-history). It needs no server setting: the key you save under Passwords and keys is sent with each request, and the proxy keeps none.
 
 To add one, see [Writing a connection](../architecture/writing-a-connection.md).
 

@@ -126,3 +126,20 @@ describe("watch history in the backup", () => {
     expect(restored.watch_events).toEqual(tables.watch_events);
   });
 });
+
+describe("passwords and keys in the backup", () => {
+  it("never carry a saved key into a backup, though the table holds one", async () => {
+    await sql`
+      INSERT INTO app_secrets (user_id, name, ciphertext, nonce) VALUES (${userId}, 'youtube_data_api_key', 'c2VhbGVk', 'bm9uY2U=')
+    `;
+    await sql`INSERT INTO youtube_quota_use (user_id, quota_date, units_spent) VALUES (${userId}, '2026-11-06', 3)`;
+    expect(BACKUP_TABLES).not.toContain("app_secrets");
+    expect(REGENERABLE_TABLES).toContain("app_secrets");
+    expect(REGENERABLE_TABLES).toContain("youtube_quota_use");
+    await expect(assertBackupCoverage(sql)).resolves.toBeUndefined();
+    const tables = await readAllTables(sql);
+    expect(tables).not.toHaveProperty("app_secrets");
+    expect(tables).not.toHaveProperty("youtube_quota_use");
+    expect(JSON.stringify(tables)).not.toContain("c2VhbGVk");
+  });
+});

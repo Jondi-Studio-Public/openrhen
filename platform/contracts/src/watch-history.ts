@@ -18,6 +18,40 @@ export const WATCH_REVIEW_MAX_DAYS = 366;
 /** The span Review shows when the caller names none. */
 export const WATCH_REVIEW_DEFAULT_DAYS = 30;
 
+/** Video ids per length lookup: the YouTube Data API's own limit for `videos.list`. */
+export const VIDEO_DURATIONS_BATCH = 50;
+/** Quota units the lookup allows itself a day: Google's default is 10,000, and the rest is left to the person's other uses. */
+export const YOUTUBE_DAILY_UNIT_LIMIT = 9_500;
+/** A real YouTube video id. Anything else in a Takeout file (a synthetic `x:` id, an odd address) is never looked up. */
+export const YOUTUBE_VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
+
+/**
+ * The portal's request to the `youtube_data` connection for video lengths. The key rides in the body, from the
+ * portal's encrypted store to the proxy, and the proxy sends it to Google in a header only.
+ */
+export const videoDurationsRequestSchema = z
+  .object({
+    apiKey: z.string().trim().min(1).max(2048),
+    ids: z.array(z.string().regex(YOUTUBE_VIDEO_ID)).min(1).max(VIDEO_DURATIONS_BATCH)
+  })
+  .strict();
+export type VideoDurationsRequest = z.infer<typeof videoDurationsRequestSchema>;
+
+/**
+ * One answer per id asked for. `durationS` is null with `unavailable: true` for a video that is private, deleted or
+ * not found, and null with `unavailable: false` for a live or zero-length one (no usable length, but not gone).
+ */
+export const videoDurationsResponseSchema = z.object({
+  videos: z.array(
+    z.object({
+      id: z.string(),
+      durationS: z.number().int().nonnegative().nullable(),
+      unavailable: z.boolean()
+    })
+  )
+});
+export type VideoDurationsResponse = z.infer<typeof videoDurationsResponseSchema>;
+
 export const importWatchHistorySchema = z.object({
   filename: z.string().trim().min(1).max(255),
   encoding: z.enum(["base64", "text"]),
@@ -55,6 +89,31 @@ export interface WatchEstimate {
   unknownCount: number;
 }
 
+/** How far the video-length lookup has got, for the Review panel. */
+export interface WatchLengths {
+  /** Whether a YouTube key is saved and readable. */
+  keyState: "set" | "unreadable" | "unset";
+  /** Watches in the range whose length is known (so the estimate used it). */
+  known: number;
+  /** Watches in the range with no length yet. */
+  missing: number;
+  /** Watches in the range whose video is private, deleted or has no usable length. */
+  unavailable: number;
+  /** Set when the last lookup stopped because Google's daily quota ran out; it resumes on the next run. */
+  quotaPaused: boolean;
+}
+
+export interface WatchLengthsFetchResult {
+  /** Lengths stored this run (including videos marked unavailable). */
+  fetched: number;
+  /** Ids still without a length after this run. */
+  remaining: number;
+  /** Why the run stopped early, or null when it finished. */
+  stopped: "no_key" | "key_unreadable" | "bad_key" | "quota" | "rate_limited" | "unreachable" | "not_ready" | null;
+  /** A plain sentence for the person. */
+  message: string;
+}
+
 export interface WatchImportSummary {
   id: string;
   filename: string;
@@ -69,12 +128,15 @@ export interface WatchHistoryReview {
   to: string;
   /** Whether any watch has ever been imported. */
   hasData: boolean;
+  /** Takeout YouTube watches held in all, whatever the range (ads, posts and YouTube Music not counted). */
+  watchesHeld: number;
   /** Every local date in the range, zero where nothing was watched. */
   days: { date: string; count: number }[];
   /** Watches by local hour of day, 24 entries. */
   hours: number[];
   total: number;
   estimate: WatchEstimate;
+  lengths: WatchLengths;
   /** Rows held but not counted as watches. */
   excluded: { ads: number; posts: number; music: number };
   imports: WatchImportSummary[];

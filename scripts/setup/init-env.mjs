@@ -45,6 +45,11 @@ export const GENERATED = [
   "OUTBOUND_PROXY_TOKEN",
   "LOCATION_PING_TOKEN"
 ];
+/**
+ * The portal's master key for passwords and keys typed into the app (Settings, Passwords and keys): 32 random bytes,
+ * base64. Made once and never replaced, because a different key makes every saved password unreadable.
+ */
+export const SECRETS_KEY = "OPENRHEN_SECRETS_KEY";
 export const VAPID_KEYS = ["WEB_PUSH_VAPID_PUBLIC_KEY", "WEB_PUSH_VAPID_PRIVATE_KEY"];
 const URL_KEYS = ["DATABASE_URL", "POSTGRES_ADMIN_URL"];
 const PASSWORD_TOKEN = "__POSTGRES_PASSWORD__";
@@ -69,6 +74,10 @@ export function generateVapidKeys() {
     publicKey: base64UrlEncode(ecdh.getPublicKey()),
     privateKey: base64UrlEncode(padVapidPrivateKey(ecdh.getPrivateKey()))
   };
+}
+
+export function generateSecretsKey() {
+  return randomBytes(32).toString("base64");
 }
 
 export function parseArgs(argv) {
@@ -185,6 +194,11 @@ export function initEnv({
       generated.push(key);
     } else kept.push(key);
   }
+
+  if (needsValue(getValue(text, SECRETS_KEY))) {
+    text = setValue(text, SECRETS_KEY, generateSecretsKey());
+    generated.push(SECRETS_KEY);
+  } else kept.push(SECRETS_KEY);
 
   const addon = applyAddonEnv({ cwd, text });
   ({ text } = addon);

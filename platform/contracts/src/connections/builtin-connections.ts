@@ -67,5 +67,15 @@ export const BUILTIN_CONNECTIONS: readonly ConnectionManifest[] = [
     capabilities: ["status_publish"],
     secrets: { anyOf: [["PULSE_PUBLISH_URL", "PULSE_PUBLISH_SECRET"]] },
     config: {}
+  },
+  {
+    // Video lengths for watch history. The key is typed into the app, stored encrypted in the portal, and sent in each
+    // request's body; the proxy holds none, so it is always ready and reads nothing from its environment.
+    id: "youtube_data",
+    label: "YouTube Data API",
+    capabilities: ["video_metadata"],
+    secrets: { anyOf: [] },
+    credentialSource: "request",
+    config: {}
   }
 ];

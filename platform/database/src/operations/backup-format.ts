@@ -183,7 +183,13 @@ const CORE_REGENERABLE_TABLES = [
   // A recorded disruption: short-lived, and losing one only lapses the pulse.
   "pulse_disruptions",
   // Public video lengths fetched from YouTube: no user data, refetched on demand, so never backed up.
-  "video_info"
+  "video_info",
+  // Passwords and keys the person typed in, encrypted under OPENRHEN_SECRETS_KEY. A backup is not encrypted and may
+  // be copied off the machine, so it never carries them; restoring means entering the keys again. No format bump:
+  // the table is not part of what a backup contains.
+  "app_secrets",
+  // The day's YouTube Data API quota use: bookkeeping that resets daily.
+  "youtube_quota_use"
 ] as const;
 
 export const REGENERABLE_TABLES: readonly BackupTable[] = [

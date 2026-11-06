@@ -14,6 +14,7 @@ A connection declares one or more capabilities, each with a fixed set of operati
 | `geocoding` | `geocode` | Turning a place name into coordinates |
 | `model_provider` | `extract`, `stream`, `embed`, `probe` | Language-model calls |
 | `status_publish` | `config`, `publish` | Sending a redacted on-plan/off-plan reading to an endpoint you run |
+| `video_metadata` | `durations` | Video lengths for watch history (YouTube Data API) |
 
 The host serves each operation at `POST /capabilities/<capability>/<connection id>/<operation>` and lists installed connections at `GET /connections`.
 
@@ -24,6 +25,7 @@ Every connection has a manifest, validated by `connectionManifestSchema`:
 - `id` and `label`.
 - `capabilities`, and optionally `ops` to declare only some of a capability's operations.
 - `secrets.anyOf`: groups of environment variable names; the connection is configured when every name in at least one group is set. Use several groups for alternative sign-in methods.
+- `credentialSource`: `env` (the default) reads the credential from the proxy's environment. `request` is for a key the person typed into the app: `secrets.anyOf` is empty, the connection is always ready, and each call carries the key in its body (`youtube_data` does: `body.apiKey`). Such a connection sends the key to the provider in a header only, never in a URL, returns only fixed failure messages (a thrown error can quote a header), and logs nothing that could hold it.
 - `config`: other environment variables, each `required` or not, with an optional default.
 - `telemetryName`: the name used in the Connections page's call statistics.
 - `calendarSource` (required exactly when the connection has `calendar_source`): the `role`, the `sourceType` written on imported records, the `diffProfile` that decides how events are compared, which failures count as a sign-in problem, and the `schedule`, either an interval or a daily local time, each read from an environment variable with a default.
@@ -56,7 +58,7 @@ export const exampleConnection: BoundConnection = {
 Rules an operation follows:
 
 - Use `call.fetch` and `call.signal`, so a client disconnect or timeout cancels the upstream request and the host can record timing.
-- Read secrets from the `env` passed to `create`. Never log or return one.
+- Read secrets from the `env` passed to `create` (or, for `credentialSource: "request"`, from the call's body). Never log or return one, and never include a thrown error's message in a response: scrub it.
 - A failure returns a status of 400 or more with a body that matches `capabilityFailureSchema`, so the portal can show a safe, specific reason.
 - Return a real, specific error for a missing configuration; do not throw.
 - Set `rate: "ai"` or `"embedding"` on operations that should use the host's rate limiter.

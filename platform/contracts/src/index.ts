@@ -1186,13 +1186,22 @@ export {
   WATCH_REVIEW_DEFAULT_DAYS,
   WATCH_REVIEW_MAX_DAYS,
   WATCH_SESSION_GAP_MINUTES,
-  importWatchHistorySchema
+  VIDEO_DURATIONS_BATCH,
+  YOUTUBE_DAILY_UNIT_LIMIT,
+  YOUTUBE_VIDEO_ID,
+  importWatchHistorySchema,
+  videoDurationsRequestSchema,
+  videoDurationsResponseSchema
 } from "./watch-history.js";
 export type {
   ImportWatchHistory,
   WatchEstimate,
+  VideoDurationsRequest,
+  VideoDurationsResponse,
   WatchHistoryReview,
   WatchImportResult,
+  WatchLengths,
+  WatchLengthsFetchResult,
   WatchImportSummary
 } from "./watch-history.js";
 export { UNTRUSTED_SOURCE_LABELS, fenceUntrusted, newFenceNonce } from "./untrusted-fence.js";
@@ -1441,6 +1450,19 @@ export type {
   ConnectionStatus,
   ConnectionsResponse
 } from "./connections/wire.js";
+
+export {
+  SECRET_LABELS,
+  SECRET_MAX_LENGTH,
+  SECRET_NAMES,
+  putSecretSchema,
+  secretNameSchema,
+  secretStateSchema,
+  secretStatusResponseSchema,
+  secretStatusSchema,
+  secretsRefusalMessage
+} from "./secrets.js";
+export type { PutSecret, SecretName, SecretState, SecretStatus, SecretStatusResponse } from "./secrets.js";
 
 export { CLOSED_STATUSES, CLOSED_TABLES, HIDING_STATUS, isClosedStatus } from "./closed-status.js";
 export type { ClosedTable, ClosedTableRule } from "./closed-status.js";

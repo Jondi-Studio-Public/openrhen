@@ -11,7 +11,8 @@ describe("the connection host's lists", () => {
       "pulse",
       "openai",
       "deepinfra",
-      "calendar_feed"
+      "calendar_feed",
+      "youtube_data"
     ]);
   });
 

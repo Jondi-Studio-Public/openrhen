@@ -6,6 +6,7 @@ import {
   assertSupportedManifestVersion,
   connectionStatuses,
   loadConnections,
+  manifestReadiness,
   secretReadiness,
   setConnectionHostForTests
 } from "./connection-host.js";
@@ -68,6 +69,16 @@ describe("the calendar feed connection is not ready until its field exists", () 
       ready: true,
       missing: []
     });
+  });
+});
+
+describe("a connection that takes its credential from each request", () => {
+  it("is ready with an empty environment, and the youtube_data connection is bound that way", () => {
+    const none = { secrets: { anyOf: [] } };
+    expect(manifestReadiness({ ...none, credentialSource: "request" }, {})).toEqual({ ready: true, missing: [] });
+    expect(manifestReadiness({ ...none, credentialSource: "env" }, {}).ready).toBe(false);
+    const status = loadConnections(bundledConnections(), {}).find(({ bound }) => bound.manifest.id === "youtube_data");
+    expect(status).toMatchObject({ ready: true, missing: [], failed: false });
   });
 });
 

@@ -268,3 +268,12 @@ describe("older backup formats", () => {
     expect(asked).toEqual([]);
   });
 });
+
+describe("passwords and keys stay out of the backup", () => {
+  it("lists the encrypted secret store and the quota counter as regenerable, never as backed up", () => {
+    for (const table of ["app_secrets", "youtube_quota_use"]) {
+      expect(BACKUP_TABLES, table).not.toContain(table);
+      expect(REGENERABLE_TABLES, table).toContain(table);
+    }
+  });
+});

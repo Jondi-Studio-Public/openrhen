@@ -6,7 +6,8 @@ export const capabilityIdSchema = z.enum([
   "travel_time",
   "geocoding",
   "model_provider",
-  "status_publish"
+  "status_publish",
+  "video_metadata"
 ]);
 
 export type CapabilityId = z.infer<typeof capabilityIdSchema>;
@@ -17,7 +18,8 @@ export const CAPABILITY_OPS = {
   travel_time: ["matrix"],
   geocoding: ["geocode"],
   model_provider: ["extract", "stream", "embed", "probe"],
-  status_publish: ["config", "publish"]
+  status_publish: ["config", "publish"],
+  video_metadata: ["durations"]
 } as const satisfies Record<CapabilityId, readonly string[]>;
 
 export type OpId = (typeof CAPABILITY_OPS)[CapabilityId][number];
@@ -38,7 +40,8 @@ export const opIdSchema = z.enum([
   "embed",
   "probe",
   "config",
-  "publish"
+  "publish",
+  "durations"
 ]);
 
 /** The host path of one op, e.g. `/capabilities/calendar_source/google_calendar/read_events`. */
