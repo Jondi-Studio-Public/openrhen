@@ -131,6 +131,13 @@ describe("validateToolArguments", () => {
     expect(validateToolArguments(schema, [])).toMatchObject({ ok: false });
   });
 
+  it("takes a real boolean for rhen_disrupt's text flag exclusive, as its header documents", () => {
+    const disrupt = mcpManifestTool("rhen_disrupt")!.inputSchema;
+    expect(validateToolArguments(disrupt, { exclusive: true })).toEqual({ ok: true, args: { exclusive: "true" } });
+    expect(validateToolArguments(disrupt, { exclusive: false })).toEqual({ ok: true, args: { exclusive: "false" } });
+    expect(validateToolArguments(disrupt, { exclusive: "true" })).toEqual({ ok: true, args: { exclusive: "true" } });
+  });
+
   it('reads a flag sent as "true" or "false" as that boolean, refuses other text, and takes one text as a list', () => {
     const flags: McpToolInputSchema = {
       type: "object",

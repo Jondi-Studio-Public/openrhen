@@ -350,6 +350,7 @@ export function explainContinuationRefusal(
     return {
       message:
         `The plan lets this session continue for exactly ${allowed} minutes, not ${requestedMinutes}. ` +
+        (typeof continuation.reason === "string" ? `Why: ${continuation.reason} ` : "") +
         `Repeat the same rhen_session call with minutes ${allowed}.`,
       nextCall: {
         tool: "rhen_session",
@@ -415,6 +416,20 @@ export function explainActivityRefusal(
       nextCall: statusCall,
       validValues: { minutes: [String(planned)] }
     };
+  const recommendation = asRecord(result.recommendation) ?? {};
+  const holder = asRecord(recommendation.protectedCommitment);
+  if (holder !== null && typeof holder.title === "string") {
+    const until = typeof holder.protectedEndAt === "string" ? ` until ${holder.protectedEndAt}` : "";
+    return {
+      message:
+        `The plan is not tracking that ${label} now because the commitment "${holder.title}" (id ${String(holder.id)}) holds ` +
+        `this time${until}, so there is nothing to start. Nothing is wrong with the ${label} itself. A commitment keeps ` +
+        "its protected block until it ends, even when its session was finished or the owner has said they are done early. " +
+        "Do not retry this start: ask the owner whether they want the commitment released; the plan frees the time " +
+        "when the block ends or the owner releases the commitment from Now.",
+      nextCall: statusCall
+    };
+  }
   return {
     message:
       `That ${label} is not present in the current Plan and Forecast Engine result: the plan is not tracking it now, ` +

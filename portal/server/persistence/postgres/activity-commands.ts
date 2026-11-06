@@ -13,6 +13,7 @@ import {
   wrongSessionState,
   wrongState
 } from "./command-errors";
+import { noOpenSession } from "./missing-session";
 import { stableUuid } from "./command-values";
 import { applyDeliverableStepOutcome } from "./deliverable-session-rollover";
 import { ensureUser } from "./ensure-user";
@@ -343,7 +344,7 @@ export async function applyActivityCommand(
         started_at: Date;
       }[]
     >`SELECT id,target_id,target_step_id,target_type,status,version,planned_end_at,paused_remaining_seconds,started_at FROM sessions WHERE id=${command.sessionId} AND user_id=${userId} AND ended_at IS NULL FOR UPDATE`;
-    if (!session[0]) throw notFound("session", command.sessionId, "The open activity session");
+    if (!session[0]) throw await noOpenSession(tx, userId, command.sessionId, "The open activity session");
     if (command.expectedVersion !== session[0].version)
       throw versionConflict("session", command.sessionId, command.expectedVersion, session[0].version);
     // An action session (`target_type` 'action', the column's default) belongs to `runSessionCommand`. Nothing below knows

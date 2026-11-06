@@ -12,6 +12,7 @@ import {
   versionConflict,
   wrongSessionState
 } from "./command-errors";
+import { noOpenSession } from "./missing-session";
 import { stableUuid } from "./command-values";
 import { ensureUser } from "./ensure-user";
 import { claimCommandReceipt, commandRequestHash, hasCommandReceipt } from "./command-receipt";
@@ -227,7 +228,7 @@ export async function applySessionCommand(
     >`
         SELECT id, action_id, occurrence_id, target_type, target_step_id, status, version, planned_end_at, paused_remaining_seconds, remaining_before_minutes, started_at FROM sessions WHERE id=${command.sessionId} AND user_id=${userId} AND ended_at IS NULL FOR UPDATE
       `;
-    if (!session[0]) throw notFound("session", command.sessionId);
+    if (!session[0]) throw await noOpenSession(tx, userId, command.sessionId);
     if (command.expectedVersion !== session[0].version)
       throw versionConflict("session", command.sessionId, command.expectedVersion, session[0].version);
     // Every command below that gets this far changes the session row.

@@ -95,7 +95,9 @@ export function simulateContinuation(
       return {
         safe: true,
         recommendedMinutes: minutes,
-        reason: `${minutes} minutes fit before ${window.boundary.toISOString()} without making a more urgent project infeasible.`,
+        reason:
+          `${minutes} minutes fit before ${window.boundary.toISOString()} without making a more urgent project infeasible.` +
+          limitNote(args.requestedMinutes, minutes, action, window.minutes),
         displacedProjectIds: []
       };
   }
@@ -105,6 +107,23 @@ export function simulateContinuation(
     reason: "Continuing would consume capacity reserved for a more urgent project.",
     displacedProjectIds: lastDisplaced
   };
+}
+
+/** Why fewer minutes than asked are offered: the bound that capped it, so a refusal can be explained to the owner. */
+function limitNote(
+  requested: number | undefined,
+  offered: number,
+  action: { maximumSessionMinutes: number; remainingMinutes: number },
+  windowMinutes: number
+): string {
+  if (requested === undefined || requested <= offered) return "";
+  if (offered === windowMinutes)
+    return ` ${requested} were asked for, but only ${offered} minutes are free before the next thing that can't move.`;
+  if (offered === action.remainingMinutes)
+    return ` ${requested} were asked for, but only ${offered} minutes of work are left on this action.`;
+  if (offered === action.maximumSessionMinutes)
+    return ` ${requested} were asked for, but one session on this action is capped at ${offered} minutes.`;
+  return ` ${requested} were asked for, but a longer run would make a more urgent project infeasible, so ${offered} is the most the plan allows.`;
 }
 
 function continuationCandidates(limit: number, minimum: number): number[] {
