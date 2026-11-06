@@ -30,6 +30,8 @@ describe("limitNote", () => {
     expect(limitNote(60, 15, action, 15)).toContain("free before the next thing that can't move");
     expect(limitNote(60, 40, action, 120)).toContain("40 minutes of work are left");
     expect(limitNote(120, 90, { maximumSessionMinutes: 90, remainingMinutes: 200 }, 300)).toContain("capped at 90");
-    expect(limitNote(60, 30, { maximumSessionMinutes: 90, remainingMinutes: 200 }, 300)).toContain("more urgent project");
+    expect(limitNote(60, 30, { maximumSessionMinutes: 90, remainingMinutes: 200 }, 300)).toContain(
+      "more urgent project"
+    );
   });
 });
