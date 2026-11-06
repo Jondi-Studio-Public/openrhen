@@ -325,14 +325,18 @@ export function recommend(args: RecommendArguments): Recommendation {
         args.locale
       );
       const one = blockers.length === 1;
-      // What the action needs, said as the person would: a place is somewhere to be, anything else is named.
-      const needs = formatList(
-        blockers.map((id) => {
-          const name = conditionName(definitions, id);
-          return definitions.find((item) => item.id === id)?.kind === "location" ? `you at ${name}` : name;
-        }),
-        args.locale
-      );
+      // What the action needs, said as the person would: places are somewhere to be, anything else is named.
+      const isPlace = (id: string) => definitions.find((item) => item.id === id)?.kind === "location";
+      const places = blockers.filter(isPlace).map((id) => conditionName(definitions, id));
+      const others = blockers.filter((id) => !isPlace(id)).map((id) => conditionName(definitions, id));
+      const needs = [
+        ...(places.length ? [`you at ${formatList(places, args.locale)}`] : []),
+        ...(others.length ? [formatList(others, args.locale)] : [])
+      ].join(", plus ");
+      const clears =
+        places.length && !others.length
+          ? `Get to ${formatList(places, args.locale)}, or say you are there, and it can be recommended.`
+          : "Once that is sorted, or you say it is, it can be recommended.";
       const ifYes =
         noFit.kind === "answer" && noFit.candidate
           ? ` If yes, ${noFit.candidate.title} would lead for ${noFit.candidate.recommendedMinutes} minutes.`
@@ -344,11 +348,11 @@ export function recommend(args: RecommendArguments): Recommendation {
         needsAnswer,
         reachable,
         headline: asking
-          ? `${contexts} ${one ? "is" : "are"} unanswered for ${conditionBlocked.action.title}`
+          ? `${conditionBlocked.action.title} needs an answer: ${blockers.map((id) => conditionQuestion(definitions, id)).join(" ")}`
           : `${conditionBlocked.action.title} needs ${needs}`,
         explanation: asking
           ? `${conditionBlocked.action.title} is the closest suitable action, but nothing has said whether ${contexts} ${one ? "is" : "are"} available. Answer that and it can be recommended.${ifYes}`
-          : `${conditionBlocked.action.title} is the closest suitable action, but it needs ${needs}.`,
+          : `${conditionBlocked.action.title} is the closest suitable action, but it needs ${needs}, so it is not suggested from here. ${clears}`,
         evidence: conditionBlocked.exclusionReasons,
         why,
         noFit,

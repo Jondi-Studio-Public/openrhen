@@ -61,7 +61,7 @@ describe("BoundaryPanel", () => {
         isDailyHorizon={false}
       />
     );
-    expect(screen.getByText(/Nothing fits before Dinner and reset/)).toBeTruthy();
+    expect(screen.getByText(/Nothing fits until .*, after Dinner and reset/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "+2 hours" })).toBeNull();
     unmount();
     // Protection ENDS at the boundary: the wording must not claim the commitment starts there.
@@ -72,7 +72,7 @@ describe("BoundaryPanel", () => {
         isDailyHorizon={false}
       />
     );
-    expect(screen.getByText(/Nothing fits until College Class's protection ends/)).toBeTruthy();
+    expect(screen.getByText(/Nothing fits until .*, after College Class/)).toBeTruthy();
   });
 
   it("extends from now once the horizon has already passed", () => {

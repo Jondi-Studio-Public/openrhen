@@ -91,10 +91,12 @@ export function BoundaryPanel({
   return (
     <>
       <p className="time">
-        {directive.boundaryEdge === "end"
-          ? `Nothing fits until ${boundaryName(directive)}'s protection ends`
-          : `Nothing fits before ${boundaryName(directive)}`}{" "}
-        · {when(boundaryAt)}
+        {nextFit && directive.boundaryKind !== "daily_horizon"
+          ? // The first time that fits is the one that matters; the boundary is only why it is not sooner.
+            `Nothing fits until ${when(new Date(nextFit.at))}, after ${boundaryName(directive)}`
+          : directive.boundaryEdge === "end"
+            ? `Nothing fits until ${boundaryName(directive)}'s protection ends · ${when(boundaryAt)}`
+            : `Nothing fits before ${boundaryName(directive)} · ${when(boundaryAt)}`}
       </p>
       <p className="reason">{explanation}</p>
       {nextFit ? (

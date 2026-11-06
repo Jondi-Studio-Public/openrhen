@@ -202,7 +202,7 @@ describe("context-only recommendation explanation", () => {
     });
     expect(result.headline).toBe("Buy the remaining supplies needs you at shops");
     expect(result.explanation).toBe(
-      "Buy the remaining supplies is the closest suitable action, but it needs you at shops."
+      "Buy the remaining supplies is the closest suitable action, but it needs you at shops, so it is not suggested from here. Get to shops, or say you are there, and it can be recommended."
     );
   });
 
@@ -250,9 +250,28 @@ describe("context-only recommendation explanation", () => {
     expect(result.headline).toBe("Buy the remaining supplies needs you at shops");
     expect(result.noFit?.kind).toBe("boundary");
     expect(result.explanation).toBe(
-      "Buy the remaining supplies is the closest suitable action, but it needs you at shops."
+      "Buy the remaining supplies is the closest suitable action, but it needs you at shops, so it is not suggested from here. Get to shops, or say you are there, and it can be recommended."
     );
     expect(result.explanation).not.toContain("is needed for");
+  });
+
+  it("keeps places and other needs apart when both block", () => {
+    const errand = { ...action, id: "errand", title: "Buy supplies", contexts: ["shops", "wallet"] };
+    const result = recommend({
+      now: base,
+      horizonEnd: at(120),
+      projects: [project],
+      actions: [errand],
+      capacityWindows: [capacity],
+      commitments: [],
+      conditionDefinitions: [
+        conditionDefinitionSchema.parse({ id: "shops", name: "shops", kind: "location", portability: "fixed" }),
+        conditionDefinitionSchema.parse({ id: "wallet", name: "wallet", kind: "capability", portability: "portable" })
+      ],
+      currentSituation: currentSituationSchema.parse({ locationId: "home", overrides: { wallet: "unavailable" } }),
+      currentEnergy: "high"
+    });
+    expect(result.headline).toBe("Buy supplies needs you at shops, plus wallet");
   });
 
   it("asks rather than refuses when the blocking context is merely unanswered", () => {
@@ -270,7 +289,7 @@ describe("context-only recommendation explanation", () => {
       currentSituation: currentSituationSchema.parse({}),
       currentEnergy: "high"
     });
-    expect(result.headline).toContain("unanswered");
+    expect(result.headline).toBe("Draft assignment needs an answer: Do you have laptop?");
     expect(result.needsAnswer.map((candidate) => candidate.action.id)).toEqual(["draft"]);
     expect(result.reachable).toEqual([]);
   });
