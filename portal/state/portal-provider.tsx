@@ -48,6 +48,7 @@ import { HeroSkeleton } from "@/components/hero-skeleton";
 import { swapHero } from "@/features/now/hero-transition";
 import { createClientId } from "@/shared/client-id";
 import { CommandRefusal } from "@/shared/command-refusal";
+import { withValidationIssues } from "@/shared/validation-message";
 import { storedActionPayload } from "@/shared/stored-action-payload";
 import { canSnooze, snoozeRefusal, snoozeSubject } from "@/features/now/snooze";
 import { freezeClock, readNow } from "@/shared/clock";
@@ -1115,6 +1116,7 @@ export function PortalProvider({ children }: { children: React.ReactNode }) {
         // A proxy 502/504 answers with HTML; never let the parse error become the banner text.
         const result = (await response.json().catch(() => ({}))) as Body & {
           error?: string;
+          issues?: unknown;
           currentVersion?: number;
           nextCall?: AgentCall;
           validValues?: Record<string, string[]>;
@@ -1131,7 +1133,7 @@ export function PortalProvider({ children }: { children: React.ReactNode }) {
             if (refreshed?.state) showState(normalizePortalState(refreshed.state));
           }
           const message =
-            result.error ??
+            (result.error === undefined ? undefined : withValidationIssues(result.error, result.issues)) ??
             (response.ok
               ? "The change was not saved."
               : "The server could not be reached just now. The change may not have been saved; check and try again.");
