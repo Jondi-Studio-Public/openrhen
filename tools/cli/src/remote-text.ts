@@ -3,6 +3,7 @@ import {
   ARCHIVE_TYPES,
   CANCEL_TYPES,
   CATCH_UP_BULKS,
+  MCP_COMMON_PARAMS,
   REENTRY_ENERGIES,
   STRETCH_CHOICES,
   catchUpEntryVerdictSchema,
@@ -40,19 +41,8 @@ export interface RemoteToolText {
   schemas?: Record<string, Record<string, unknown>>;
 }
 
-/**
- * Arguments every write shares, described once here in plain terms: no `--flag`, no exit code. A property of this name
- * on a mutating tool takes the text (a command that describes its own `dry-run` or `command-id` differently keeps
- * its own only where it is listed in a tool's `params`).
- */
-export const COMMON_PARAMS: Record<string, string> = {
-  "command-id": "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout.",
-  basis:
-    "stated (owner's words go in evidence), observed (read from mail, page or file), inferred (your guess; default).",
-  evidence: "Owner's words; required with basis stated.",
-  "dry-run": "true: preview only; checks shape, not ids, evidence or scopes.",
-  "expected-version": "The record's `version` from rhen_show or rhen_list; a changed record is refused with a conflict."
-};
+/** Arguments every write shares; the text lives in `@openrhen/contracts` so generated extension tools can refer to it. */
+export const COMMON_PARAMS: Record<string, string> = MCP_COMMON_PARAMS;
 
 /** Closes the descriptions of the two tools that read the past: where the week ahead is. */
 const WEEK_AHEAD_POINTER =

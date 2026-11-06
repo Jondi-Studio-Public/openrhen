@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { registerContractsExtension, suspendContractsExtensions, type McpToolOverrides } from "./extensions.js";
+import { MCP_COMMON_PARAMS } from "./mcp-common-params.js";
 import {
+  MCP_CORE_TOOL_MANIFEST,
   MCP_TOOL_MANIFEST,
+  withExtensionTools,
   mcpManifestTool,
   mcpToolAllowed,
   mcpToolsForScopes,
@@ -254,5 +258,107 @@ describe("dates in tool text (F3-04)", () => {
         .map((text) => `${tool.name}: ${text.slice(0, 120)}`)
     );
     expect(offenders).toEqual([]);
+  });
+});
+
+const entry = (name: string, basis: string, extra = ""): (typeof MCP_TOOL_MANIFEST)[number] => ({
+  name,
+  command: name,
+  description: `${name} ${extra}`.trim(),
+  inputSchema: {
+    type: "object",
+    properties: { basis: { type: "string", description: basis } },
+    additionalProperties: false
+  },
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  scopes: []
+});
+
+/** Builds the extended list with one extension registered, then puts the registry back. */
+function extended(core: ReturnType<typeof entry>[], placement: Parameters<typeof registerContractsExtension>[0]) {
+  const restore = suspendContractsExtensions();
+  try {
+    registerContractsExtension(placement);
+    return withExtensionTools(core);
+  } finally {
+    restore();
+  }
+}
+
+describe("a tool placement's overrides", () => {
+  const core = [entry("rhen_one", "core one"), entry("rhen_two", "core two"), entry("rhen_three", "core three")];
+
+  it("still replace the core entry of the same name when written out as a list", () => {
+    const replaced = entry("rhen_two", "written out", "extra");
+    const tools = extended(core, {
+      id: "list-form",
+      mcpTools: { after: "rhen_one", tools: [entry("rhen_added", "own")], overrides: [replaced] }
+    });
+    expect(tools.map((tool) => tool.name)).toEqual(["rhen_one", "rhen_added", "rhen_two", "rhen_three"]);
+    expect(tools.find((tool) => tool.name === "rhen_two")).toBe(replaced);
+  });
+
+  it("can be a function of the core entries, so the replacement carries core's own text", () => {
+    const derive: McpToolOverrides = (entries) =>
+      entries
+        .filter((tool) => tool.name === "rhen_two")
+        .map((tool) => ({ ...tool, description: `${tool.description} extra` }));
+    const tools = extended(core, { id: "fn-form", mcpTools: { after: "rhen_one", tools: [], overrides: derive } });
+    expect(tools.find((tool) => tool.name === "rhen_two")).toEqual({ ...core[1], description: "rhen_two extra" });
+    // Entries the function leaves out stay core's own.
+    expect(tools.find((tool) => tool.name === "rhen_three")).toBe(core[2]);
+  });
+
+  it("follow a change to the core text without being edited", () => {
+    const derive: McpToolOverrides = (entries) =>
+      entries
+        .filter((tool) => tool.name === "rhen_two")
+        .map((tool) => ({ ...tool, description: `${tool.description} extra` }));
+    const placement = { id: "fn-follows", mcpTools: { after: "rhen_one", tools: [], overrides: derive } };
+    const before = extended(core, placement);
+    const reworded = [core[0]!, entry("rhen_two", "core two, reworded"), core[2]!];
+    const after = extended(reworded, placement);
+    const basis = (tools: typeof before) =>
+      (tools.find((tool) => tool.name === "rhen_two")!.inputSchema.properties.basis as { description: string })
+        .description;
+    expect(basis(before)).toBe("core two");
+    expect(basis(after)).toBe("core two, reworded");
+  });
+
+  it("are given the core entries only, not another extension's changes", () => {
+    const seen: string[][] = [];
+    const restore = suspendContractsExtensions();
+    try {
+      registerContractsExtension({ id: "first", mcpTools: { after: "rhen_one", tools: [entry("rhen_added", "own")] } });
+      registerContractsExtension({
+        id: "second",
+        mcpTools: {
+          after: "rhen_one",
+          tools: [],
+          overrides: (entries) => {
+            seen.push(entries.map((tool) => tool.name));
+            return [];
+          }
+        }
+      });
+      withExtensionTools(core);
+    } finally {
+      restore();
+    }
+    expect(seen).toEqual([["rhen_one", "rhen_two", "rhen_three"]]);
+  });
+});
+
+describe("MCP_COMMON_PARAMS", () => {
+  it("is the text the generated core manifest carries on its shared arguments", () => {
+    // Fails when the text here is edited without running `pnpm --filter @openrhen/cli manifest`.
+    const described = new Set(
+      MCP_CORE_TOOL_MANIFEST.flatMap((tool) =>
+        Object.values(tool.inputSchema.properties).map((property) => (property as { description?: string }).description)
+      )
+    );
+    for (const [argument, text] of Object.entries(MCP_COMMON_PARAMS)) {
+      expect(described.has(text), argument).toBe(true);
+    }
   });
 });

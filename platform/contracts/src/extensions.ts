@@ -42,12 +42,22 @@ export interface RouteExtension {
   workerRoutes?: string[];
 }
 
-/** Where an extension's MCP tools sit in the manifest, and the core entries it changes (by name). */
+/**
+ * Where an extension's MCP tools sit in the manifest, and the core entries it changes (by name).
+ *
+ * `overrides` is either the replacement entries, written out, or a function that derives them from the core entries
+ * (`MCP_CORE_TOOL_MANIFEST`, before any extension). Prefer the function: it copies nothing from core, so a core text
+ * change reaches the replacement without anyone regenerating it. It runs once, when the extended manifest is built,
+ * and must be pure; it receives the core entries only, so it cannot read the manifest it is part of.
+ */
 export interface McpToolPlacement {
   after: string;
   tools: McpToolManifestEntry[];
-  overrides?: McpToolManifestEntry[];
+  overrides?: McpToolManifestEntry[] | McpToolOverrides;
 }
+
+/** Derives the replacement entries from the core entries; each replaces the core entry of the same name. */
+export type McpToolOverrides = (coreEntries: readonly McpToolManifestEntry[]) => McpToolManifestEntry[];
 
 /** How often a worker runs a provider, and how late its last success may be before doctor says so. */
 export interface SyncCadence {
