@@ -45,7 +45,36 @@ describe("describeFetchFailure", () => {
     expect(describeFetchFailure(failure({ code: "ECONNREFUSED" }))).toMatch(/^connection refused .*docker compose ps/);
     expect(describeFetchFailure(failure({ code: "ENOTFOUND" }))).toMatch(/^no such host/);
     expect(describeFetchFailure(failure({ code: "DEPTH_ZERO_SELF_SIGNED_CERT" }))).toContain("certificate");
-    expect(describeFetchFailure(failure({ message: "unexpected redirect" }))).toMatch(/redirected/);
+    expect(describeFetchFailure(failure({ message: "unexpected redirect" }))).toMatch(/redirect/);
+  });
+
+  it("points at docker compose only for a loopback address", () => {
+    const refused = failure({ code: "ECONNREFUSED" });
+    expect(describeFetchFailure(refused, "http://localhost:8787")).toContain("docker compose ps");
+    expect(describeFetchFailure(refused, "http://127.0.0.1:8787")).toContain("docker compose ps");
+    const remote = describeFetchFailure(refused, "http://192.168.0.92:8787");
+    expect(remote).toMatch(/^connection refused/);
+    expect(remote).not.toContain("docker compose");
+  });
+
+  it("calls a temporary DNS failure temporary, not a typo", () => {
+    const text = describeFetchFailure(failure({ code: "EAI_AGAIN" }));
+    expect(text).toContain("temporary DNS");
+    expect(text).not.toContain("typos");
+  });
+
+  it("reads the code from an AggregateError when the cause has none", () => {
+    const aggregate = Object.assign(new AggregateError([{ code: "ECONNREFUSED" }, { code: "ECONNREFUSED" }]), {});
+    expect(describeFetchFailure(Object.assign(new TypeError("fetch failed"), { cause: aggregate }))).toMatch(
+      /^connection refused/
+    );
+  });
+
+  it("does not claim to know where a redirect went", () => {
+    const text = describeFetchFailure(failure({ message: "unexpected redirect" }));
+    expect(text).toMatch(/redirect/);
+    expect(text).toContain("does not follow");
+    expect(text).not.toContain("redirects to <");
   });
 
   it("keeps what it has when the cause is unknown or missing", () => {
