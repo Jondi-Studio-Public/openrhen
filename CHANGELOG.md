@@ -4,6 +4,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Added
+
+- **I'm free**: say you are free of a running commitment (the Now button, `rhen free <id>`, or an agent saving `free: true`) and the planner recommends your next task at once, without ending or moving the commitment. Undo restores it. An agent's request on a commitment shared with the family calendar waits for your confirmation. Adds the nullable column `commitments.freed_from` (migration 0143, additive).
+
 ### Changed
 
 - **Agents reading status no longer count as the owner seeing a check-in**: `status` peeks at the open check-in without marking it shown (so it cannot push the pulse toward a lapse), and its attention count now includes an open check-in and a due catch-up, matching `rhen_attention`.

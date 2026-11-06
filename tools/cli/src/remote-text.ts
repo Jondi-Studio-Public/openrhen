@@ -527,7 +527,7 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
     description:
       "Use when a check-in answer was deviated, or the owner says they are doing something other than the plan. Records the " +
       "deviation so the pulse stays on plan; unrecorded, a deviation lapses the pulse at once and rhen_reenter " +
-      "is needed. It does not change the plan, a commitment or the headline. It is not rhen_disruption (that logs an interruption such as a call or visitor as a commitment). " +
+      "is needed. It does not change the plan, a commitment or the headline; to free a commitment's time call rhen_save_commitment {fields:{id,free:true}}, then rhen_status. It is not rhen_disruption (that logs an interruption such as a call or visitor as a commitment). " +
       "Required together: doing (or target), until, location, contexts (at least one) and exclusive. Missing fields are " +
       "named and nothing is recorded. With NO options it is read-only: it returns what is in " +
       "force and the ids and names of the places and contexts you can name. end: true ends the one in force early. " +

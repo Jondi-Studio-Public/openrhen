@@ -107,7 +107,7 @@ Health is one of ahead, on track, at risk, behind or unknown, taken from margin,
 
 ## 8. The current recommendation
 
-**Hard precedence.** A protected commitment wins before ordinary ranking. Failing that, sleep and routine directives precede ordinary actions. Deliberate recovery is the directive only when nothing fits inside an open recovery window. A journey to a located commitment, or home for sleep, is protected additively: setup, travel, an arrival margin, the commitment, then its transition and the leg on.
+**Hard precedence.** A protected commitment wins before ordinary ranking, unless the person said they are free of it (`freedFrom`): a freed commitment is released like an open anchor for the live ranking, while forecasts and the day plan stay pessimistic and still draw the block. Failing that, sleep and routine directives precede ordinary actions. Deliberate recovery is the directive only when nothing fits inside an open recovery window. A journey to a located commitment, or home for sleep, is protected additively: setup, travel, an arrival margin, the commitment, then its transition and the leg on.
 
 **Travel.** Journey time comes from the best available source in order: a live sample under 30 minutes old, past trips for the same pair, mode and time of day, any past trips for the pair and mode, the destination's stored minutes, then a straight line. The figure is the 95th percentile when lateness matters (the default) and the 80th otherwise, never below the median.
 

@@ -173,6 +173,8 @@ when the next useful thing is elsewhere), its session length, planned end time, 
 including the runner-up and what would change the choice (wouldChangeIf, often empty; the reading-data topic says what empty means). Blocking it or choosing an alternative records
 a reason rather than silently overriding the ranking. "rhen status" also carries the engine's planned journey: a travel directive's leaveBy and source, and each commitment's journey (leave-by, minutes and basis to and from it).
 
+free early — a running commitment is released for the live ranking without ending it by saving the commitment with free true (free false undoes it; the CLI shortcut is "rhen free <id>"), then read status.
+
 anchor commitments — presence "anchor" holds the hour in every plan and forecast (the week outlook counts it
 fully engaged, on purpose) but leaves it free for work now. Free is the default once arrival is asserted
 ("arrive <place>"; a place-less one: its prep steps done) and no session runs against it; status shows

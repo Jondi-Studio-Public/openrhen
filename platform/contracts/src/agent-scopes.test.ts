@@ -43,6 +43,7 @@ const REGISTRY_WRITE_TOOLS = [
   "deliverable",
   "disrupt",
   "disruption",
+  "free",
   "import",
   "inbox-act",
   "propose",

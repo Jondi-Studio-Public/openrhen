@@ -565,6 +565,7 @@ export function printOutcome(
     timeZone?: string;
     replayOf?: string;
     placement?: string;
+    extra?: Record<string, unknown>;
   }
 ): void {
   const items = options.stateKey ? getPath(state, options.stateKey) : undefined;
@@ -596,6 +597,8 @@ export function emitSaved(
     replayOf?: string | undefined;
     /** For a new action: it is not on the day plan yet, and which calls show where it lands. */
     placement?: string | undefined;
+    /** More flags for the JSON answer (a free write's `awaitingRecalculation` and the next call). */
+    extra?: Record<string, unknown> | undefined;
   }
 ): void {
   const replay = options.replayOf !== undefined;
@@ -608,7 +611,12 @@ export function emitSaved(
     const withId = commandIdOf(context);
     const flags = replay
       ? { applied: false, replayed: true, ...withId, message }
-      : { applied: true, ...withId, ...(options.placement ? { placement: options.placement } : {}) };
+      : {
+          applied: true,
+          ...withId,
+          ...(options.placement ? { placement: options.placement } : {}),
+          ...options.extra
+        };
     context.stdout(
       toJson(record ? { ...flags, ...record } : { ok: true, ...flags, message: message ?? options.fallback }, true)
     );

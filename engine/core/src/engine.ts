@@ -95,6 +95,7 @@ import type { ScheduleArguments } from "./scheduling/schedule.js";
 import {
   defaultPlanningConfig,
   effectiveCommitmentEnd,
+  isFreedNow,
   isRemoteCommitment,
   isRunningLate,
   type CommitmentTravelLeg
@@ -1933,7 +1934,14 @@ function deriveCommitmentRepeats(state: WireState, now: Date, horizonEnd: Date):
       state,
       now
     );
-    if (!custom) return trackedEndedAt ? { ...occurrence, trackedEndedAt } : undefined;
+    // "I'm free" rides on the stored row whether or not it is custom, like overtime: the rule is
+    // untouched and only this date's occurrence carries the fact.
+    const freedFrom = row?.freedFrom ? new Date(row.freedFrom) : undefined;
+    if (!custom) {
+      return trackedEndedAt || freedFrom
+        ? { ...occurrence, ...(trackedEndedAt ? { trackedEndedAt } : {}), ...(freedFrom ? { freedFrom } : {}) }
+        : undefined;
+    }
     // Strip every overlaid field off the generated occurrence first, then re-add only what the row
     // actually carries — an omitted key (e.g. the row cleared its place) must clear the field, not
     // fall back to the rule's copy still sitting in `occurrence`.
@@ -1959,7 +1967,8 @@ function deriveCommitmentRepeats(state: WireState, now: Date, horizonEnd: Date):
       ...(row!.latenessMatters !== undefined ? { latenessMatters: row!.latenessMatters } : {}),
       ...(row!.transportMode !== undefined ? { transportMode: row!.transportMode } : {}),
       ...(row!.contactId !== undefined ? { contactId: row!.contactId } : {}),
-      ...(trackedEndedAt ? { trackedEndedAt } : {})
+      ...(trackedEndedAt ? { trackedEndedAt } : {}),
+      ...(freedFrom ? { freedFrom } : {})
     };
   };
   return rules
@@ -1968,7 +1977,11 @@ function deriveCommitmentRepeats(state: WireState, now: Date, horizonEnd: Date):
 }
 
 /**
- * The `anchor` commitments whose own hour is running with no engagement session against it.
+ * The commitments whose own hour is released to the live ranking: an `anchor` whose hour is running
+ * with no engagement session against it, and any commitment the person has said they are free from
+ * (`freedFrom <= now`, "I'm free"). The explicit statement wins over presence, an open session and
+ * running late. It lapses by itself at the effective end, and the setup, journey and transition
+ * stay protected like an anchor's.
  *
  * Only the active phase qualifies. Setup, the journey, the arrival margin and the transition are the
  * minutes of getting there and getting back, and every commitment consumes those whatever its
@@ -1991,11 +2004,12 @@ function openAnchorsNow(
 ): FixedCommitment[] {
   return commitments.filter(
     (item) =>
-      item.presence === "anchor" &&
       item.startsAt <= now &&
       effectiveCommitmentEnd(item) > now &&
-      !(session?.targetType === "fixed_commitment" && session.targetId === item.id) &&
-      !isRunningLate({ commitment: item, now, routineSteps, arrivedLocationId })
+      (isFreedNow(item, now) ||
+        (item.presence === "anchor" &&
+          !(session?.targetType === "fixed_commitment" && session.targetId === item.id) &&
+          !isRunningLate({ commitment: item, now, routineSteps, arrivedLocationId })))
   );
 }
 
@@ -2098,7 +2112,8 @@ function protectedCommitments(state: WireState, commitmentRepeats: FixedCommitme
         ...(() => {
           const trackedEndedAt = resolveTrackedEndedAt(item, new Date(item.endsAt), state, now);
           return trackedEndedAt ? { trackedEndedAt } : {};
-        })()
+        })(),
+        ...(item.freedFrom !== undefined ? { freedFrom: new Date(item.freedFrom) } : {})
       })),
     ...commitmentRepeats
       .filter((item) => !cancelledOccurrenceIds.has(item.id))

@@ -76,7 +76,7 @@ const words = (list: string) => list.split(/\s+/).filter(Boolean);
 export const VISIBLE_COLUMNS: Readonly<Record<string, ReadonlySet<string>>> = Object.fromEntries(
   Object.entries({
     commitments:
-      "title starts_at ends_at status location location_id presence blocking project_id attendance in_person preferred_location_id transport_mode lateness_matters contact_id private check_in_extra_minutes",
+      "title starts_at ends_at status location location_id presence blocking project_id attendance in_person preferred_location_id transport_mode lateness_matters contact_id private check_in_extra_minutes freed_from",
     commitment_recurrence_rules:
       "title start_date end_date interval_unit days interval_days interval_months interval_weeks weekdays local_start_time local_end_time location location_id presence blocking status project_id transport_mode private check_in_extra_minutes",
     actions:

@@ -1244,6 +1244,12 @@ export const commitments = pgTable(
      * (`DEFAULT_CHECK_IN_EXTRA_MINUTES`, 15).
      */
     checkInExtraMinutes: integer("check_in_extra_minutes"),
+    /**
+     * "I'm free": the instant the person released the rest of this occurrence to the planner. Null means
+     * not freed. The commitment is not ended, finished, moved or cancelled; the engine reads it as an
+     * open window from this instant to the effective end (`isFreedNow`), and it lapses by itself.
+     */
+    freedFrom: timestamp("freed_from", { withTimezone: true }),
     ...timestamps,
     ...closedColumns
   },

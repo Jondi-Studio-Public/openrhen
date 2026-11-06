@@ -334,6 +334,10 @@
       "fixtures": 15
     },
     {
+      "path": "state.commitments[].freedFrom",
+      "fixtures": 15
+    },
+    {
       "path": "state.commitments[].id",
       "fixtures": 15
     },
@@ -1017,6 +1021,7 @@
       "fields": [
         "[].attendance",
         "[].endsAt",
+        "[].freedFrom",
         "[].id",
         "[].latenessMatters",
         "[].location",

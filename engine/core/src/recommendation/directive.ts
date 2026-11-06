@@ -1,7 +1,7 @@
 import type { CurrentDirective, PlanForecastRequest, TransportMode } from "@openrhen/contracts";
 import { zonedDateTime } from "@openrhen/contracts";
 import { addLocalDays, localDate } from "../recurrence/recurrence.js";
-import { effectiveCommitmentEnd } from "../model/types.js";
+import { effectiveCommitmentEnd, isFreedNow } from "../model/types.js";
 import { ORDINARY_RANK } from "./score.js";
 import type {
   CommitmentTravelLeg,
@@ -170,6 +170,7 @@ export function selectCurrentDirective(input: SelectDirectiveInput): CurrentDire
       )
       .filter((entry): entry is [string, Date] => entry[1] !== undefined)
   );
+  const freedCommitmentIds = new Set(commitments.filter((item) => isFreedNow(item, now)).map((item) => item.id));
   const stepMootOnArrival = (item: WireRoutineStep): boolean => {
     // A sleep-anchored step carries no `commitmentId` at all, so every lookup below misses
     // and this returns `false` (never moot on arrival) — arrival-driven mootness is a commitment-only
@@ -301,6 +302,9 @@ export function selectCurrentDirective(input: SelectDirectiveInput): CurrentDire
     const step = state.routineSteps
       .filter((item) => {
         if (late && item.commitmentId !== recommendation.protectedCommitment!.id) return false;
+        // The person said they are free from this commitment: its prep steps are not what they are
+        // doing, so none is directed while the statement holds.
+        if (item.commitmentId && freedCommitmentIds.has(item.commitmentId)) return false;
         const chainEndsAt = item.commitmentId
           ? commitmentEndsAtById.get(item.commitmentId)
           : sleepAnchorEndsAtByKey.get(`${item.anchorId}:${item.purpose}`);
