@@ -10,6 +10,6 @@ export function startupRefusal(env: Record<string, string | undefined>): string 
   const token = env.PLAN_FORECAST_SERVICE_TOKEN ?? "";
   if (!token) return "PLAN_FORECAST_SERVICE_TOKEN is required";
   if (token.trim() === PLACEHOLDER_TOKEN && env.OPENRHEN_OWNER_AUTH?.trim().toLowerCase() === "require")
-    return "PLAN_FORECAST_SERVICE_TOKEN is still the compose placeholder and OPENRHEN_OWNER_AUTH=require; set a real secret";
+    return "PLAN_FORECAST_SERVICE_TOKEN is still the compose placeholder and OPENRHEN_OWNER_AUTH=require";
   return undefined;
 }
