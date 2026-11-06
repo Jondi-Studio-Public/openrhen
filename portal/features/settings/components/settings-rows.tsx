@@ -6,7 +6,7 @@ import { usePortal } from "@/state/portal-provider";
 import { clockLabel, settingsSections } from "../settings-sections";
 
 /**
- * The seven settings rows, each opening its first page. Sleep says the times it holds, because that is
+ * The eight settings rows, each opening its first page. Sleep says the times it holds, because that is
  * the one setting people check rather than change; the rest say what is inside.
  */
 export function SettingsRows() {

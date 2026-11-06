@@ -50,6 +50,13 @@
       "when": 1794019709480,
       "tag": "0145_watch_history",
       "breakpoints": true
+    },
+    {
+      "idx": 146,
+      "version": "7",
+      "when": 1794106109480,
+      "tag": "0146_app_secrets",
+      "breakpoints": true
     }
   ]
 }

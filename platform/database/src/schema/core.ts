@@ -3378,3 +3378,46 @@ export const videoInfo = pgTable("video_info", {
   fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
   unavailable: boolean("unavailable").notNull().default(false)
 });
+
+/**
+ * A password or key the person typed into the web app (Settings, Passwords and keys): one row per named secret.
+ * `ciphertext` and `nonce` are base64 of an AES-256-GCM sealing under `OPENRHEN_SECRETS_KEY`, with the user id, name
+ * and `key_version` bound as additional authenticated data, so a row copied under another name or user cannot be
+ * opened. The value is written and never read back by any route; only the proxy-call helper decrypts it. Not a plan
+ * input, and in `REGENERABLE_TABLES`: a backup must not carry a key (restoring means entering the keys again).
+ */
+export const appSecrets = pgTable(
+  "app_secrets",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    ciphertext: text("ciphertext").notNull(),
+    nonce: text("nonce").notNull(),
+    keyVersion: integer("key_version").notNull().default(1),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.name] })]
+);
+
+/**
+ * Units of the YouTube Data API's daily quota the video-length lookup has used, per quota day (Google resets at
+ * midnight Pacific time). `exhausted_at` is set when Google answered "quota exceeded", so the rest of that day's runs
+ * stop without asking. Regenerable bookkeeping: left out of backups.
+ */
+export const youtubeQuotaUse = pgTable(
+  "youtube_quota_use",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    quotaDate: date("quota_date").notNull(),
+    unitsSpent: integer("units_spent").notNull().default(0),
+    exhaustedAt: timestamp("exhausted_at", { withTimezone: true })
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.quotaDate] }),
+    check("youtube_quota_use_units_check", sql`${table.unitsSpent} >= 0`)
+  ]
+);

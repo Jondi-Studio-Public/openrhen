@@ -3,6 +3,7 @@ import { config } from "dotenv";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { integrationDatabaseName } from "./integration-database.js";
 import {
@@ -124,5 +125,37 @@ describe("watch history in the backup", () => {
       )
     ).toEqual([]);
     expect(restored.watch_events).toEqual(tables.watch_events);
+  });
+});
+
+describe("passwords and keys in the backup", () => {
+  it("never carry a saved key into a backup, though the table holds one", async () => {
+    await sql`
+      INSERT INTO app_secrets (user_id, name, ciphertext, nonce) VALUES (${userId}, 'youtube_data_api_key', 'c2VhbGVk', 'bm9uY2U=')
+    `;
+    await sql`INSERT INTO youtube_quota_use (user_id, quota_date, units_spent) VALUES (${userId}, '2026-11-06', 3)`;
+    expect(BACKUP_TABLES).not.toContain("app_secrets");
+    expect(REGENERABLE_TABLES).toContain("app_secrets");
+    expect(REGENERABLE_TABLES).toContain("youtube_quota_use");
+    await expect(assertBackupCoverage(sql)).resolves.toBeUndefined();
+    const tables = await readAllTables(sql);
+    expect(tables).not.toHaveProperty("app_secrets");
+    expect(tables).not.toHaveProperty("youtube_quota_use");
+    expect(JSON.stringify(tables)).not.toContain("c2VhbGVk");
+  });
+
+  it("are emptied by a restore, because its TRUNCATE ... CASCADE of the users table clears them", async () => {
+    await sql`
+      INSERT INTO app_secrets (user_id, name, ciphertext, nonce) VALUES (${userId}, 'youtube_data_api_key', 'c2VhbGVk', 'bm9uY2U=')
+    `;
+    await sql`INSERT INTO youtube_quota_use (user_id, quota_date, units_spent) VALUES (${userId}, '2026-11-06', 3)`;
+    // The statement restore.ts runs; the source check keeps this test from drifting away from it.
+    const source = readFileSync(resolve(process.cwd(), "src/operations/restore.ts"), "utf8");
+    expect(source).toContain("TRUNCATE TABLE ${targets} RESTART IDENTITY CASCADE");
+    expect(BACKUP_TABLES).toContain("users");
+    const targets = BACKUP_TABLES.map((table) => `"${table}"`).join(", ");
+    await sql.unsafe(`TRUNCATE TABLE ${targets} RESTART IDENTITY CASCADE`);
+    expect(await sql`SELECT 1 FROM app_secrets`).toHaveLength(0);
+    expect(await sql`SELECT 1 FROM youtube_quota_use`).toHaveLength(0);
   });
 });

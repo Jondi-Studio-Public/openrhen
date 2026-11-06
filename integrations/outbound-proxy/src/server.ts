@@ -6,7 +6,7 @@ import {
   isAllowedPushEndpoint,
   pushSendRequestSchema
 } from "@openrhen/contracts";
-import { connectionStatuses, secretReadiness } from "./host/connection-host.js";
+import { connectionStatuses, manifestReadiness } from "./host/connection-host.js";
 import { routeCapability } from "./host/capability-router.js";
 import {
   fetchWithSignal,
@@ -44,7 +44,7 @@ export function providerReadiness(env: Record<string, string | undefined> = proc
   return Object.fromEntries(
     ids.map((id) => {
       const manifest = connectionManifest(id);
-      return [id, manifest ? secretReadiness(manifest.secrets.anyOf, env).ready : false];
+      return [id, manifest ? manifestReadiness(manifest, env).ready : false];
     })
   );
 }

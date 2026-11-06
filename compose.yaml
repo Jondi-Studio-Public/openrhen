@@ -95,7 +95,10 @@ services:
 
   # Every third-party call the portal makes - Google Routes, OpenAI - goes through here,
   # so that the credentials for them live in a container that is never published on the LAN. The
-  # portal holds only OUTBOUND_PROXY_URL and a bearer token, and reaches this over internal HTTP.
+  # portal holds OUTBOUND_PROXY_URL and a bearer token, and reaches this over internal HTTP. The one
+  # exception is keys the person types into the app (Settings > Passwords and keys, e.g. the YouTube
+  # Data API key): the portal stores those encrypted under OPENRHEN_SECRETS_KEY, write-only, and sends one to
+  # this service in the body of a single request, for the call that needs it; this service keeps none.
   # Any new outbound HTTPS call belongs here for the same reason.
   #
   # Deliberately never published: it has no `ports:` entry, so it is reachable only from the compose
@@ -313,6 +316,10 @@ services:
       # the sha256 (hex) of a token you keep in your secrets manager, accepted only at the enrol route, the way back in under require.
       OPENRHEN_OWNER_AUTH: ${OPENRHEN_OWNER_AUTH:-off}
       OWNER_RECOVERY_TOKEN: ${OWNER_RECOVERY_TOKEN:-}
+      # The master key (32 random bytes, base64) that seals passwords and keys typed into the app. This service
+      # only: no other container gets it. Blank refuses to save any key; a changed value makes saved keys
+      # unreadable until re-entered. init-env makes one. See docs/operations/self-hosting.md.
+      OPENRHEN_SECRETS_KEY: ${OPENRHEN_SECRETS_KEY:-}
       # The worker's token for the routes only it calls (sha256 hex; the plain token is OPENRHEN_WORKER_TOKEN on engine-worker).
       WORKER_TOKEN_HASH: ${WORKER_TOKEN_HASH:-}
       # A companion device's token for the two device routes (sha256 hex; the device holds the plain token).

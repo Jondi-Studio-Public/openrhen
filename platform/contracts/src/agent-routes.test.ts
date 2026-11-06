@@ -618,6 +618,30 @@ describe("scopesForRoute: watch history", () => {
   });
 });
 
+describe("scopesForRoute: passwords and keys", () => {
+  it("keeps saving, removing and listing keys, and fetching video lengths, to the owner", () => {
+    expect(scopesForRoute("PUT", "/api/settings/secrets/[name]", {})).toMatchObject({
+      kind: "refused",
+      reason: "owner-only"
+    });
+    expect(scopesForRoute("DELETE", "/api/settings/secrets/[name]")).toMatchObject({
+      kind: "refused",
+      reason: "owner-only"
+    });
+    expect(scopesForRoute("GET", "/api/settings/secrets")).toMatchObject({ kind: "refused", reason: "owner-only" });
+    expect(scopesForRoute("POST", "/api/review/watch-history/lengths", {})).toMatchObject({
+      kind: "refused",
+      reason: "owner-only"
+    });
+  });
+
+  it("offers no secret route to an agent under any other method", () => {
+    for (const method of ["GET", "POST", "PATCH"])
+      expect(scopesForRoute(method, "/api/settings/secrets/[name]", {}).kind, method).toBe("refused");
+    expect(scopesForRoute("POST", "/api/settings/secrets", {}).kind).toBe("refused");
+  });
+});
+
 describe("scopesForRoute: re-entry", () => {
   it("lets a token holding only write:catch-up read what re-entry needs and re-enter", () => {
     expect(scopesForRoute("GET", "/api/commands/reenter")).toMatchObject({

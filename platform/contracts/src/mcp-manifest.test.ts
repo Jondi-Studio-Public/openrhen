@@ -256,3 +256,17 @@ describe("dates in tool text (F3-04)", () => {
     expect(offenders).toEqual([]);
   });
 });
+
+describe("passwords and keys stay out of every tool", () => {
+  it("names no secret store, key setting or secret route in any tool, listed or not", () => {
+    const text = JSON.stringify(MCP_TOOL_MANIFEST).toLowerCase();
+    for (const forbidden of [
+      "settings/secrets",
+      "app_secrets",
+      "passwords and keys",
+      "api key",
+      "youtube_data_api_key"
+    ])
+      expect(text, forbidden).not.toContain(forbidden);
+  });
+});
