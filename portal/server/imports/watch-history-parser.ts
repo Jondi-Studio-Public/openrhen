@@ -186,14 +186,20 @@ export async function readWatchHistoryZip(bytes: Uint8Array): Promise<string> {
     );
   if (candidates.length > 1)
     throw new WatchHistoryParseError("That zip holds more than one watch-history.json; import them one at a time.");
-  const entry = await readZipEntryCapped(candidates[0]!, WATCH_IMPORT_MAX_FILE_BYTES, "The watch history");
+  const entry = await readZipEntryCapped(
+    candidates[0]!,
+    WATCH_IMPORT_MAX_FILE_BYTES,
+    "The watch history (the limit is 50 MB unpacked)"
+  );
   return new TextDecoder("utf-8").decode(entry);
 }
 
 /** A bare JSON file, or a zip (told by its `PK` signature, not the filename), parsed to rows. */
 export async function parseWatchHistoryUpload(bytes: Uint8Array): Promise<ParsedWatchHistory> {
   if (bytes.byteLength > WATCH_IMPORT_MAX_FILE_BYTES && !(bytes[0] === 0x50 && bytes[1] === 0x4b))
-    throw new WatchHistoryParseError("That file is too large. Export a shorter date range from Takeout.");
+    throw new WatchHistoryParseError(
+      `That file is too large: the limit is ${Math.round(WATCH_IMPORT_MAX_FILE_BYTES / 1048576)} MB unpacked. Export a shorter date range from Takeout.`
+    );
   const isZip = bytes[0] === 0x50 && bytes[1] === 0x4b;
   const json = isZip ? await readWatchHistoryZip(bytes) : new TextDecoder("utf-8").decode(bytes);
   return parseWatchHistoryJson(json);

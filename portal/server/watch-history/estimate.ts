@@ -27,9 +27,18 @@ export interface EstimateEvent {
   durationS?: number | null;
 }
 
+export interface EstimateContext {
+  /**
+   * The first watch after the events given. It is never counted; it only bounds the last counted watch, so a range
+   * that ends mid-session does not treat its final watch as the end of a session.
+   */
+  after?: EstimateEvent | undefined;
+}
+
 export function estimateWatchTime(
   events: readonly EstimateEvent[],
-  gapMinutes = WATCH_SESSION_GAP_MINUTES
+  gapMinutes = WATCH_SESSION_GAP_MINUTES,
+  context: EstimateContext = {}
 ): WatchEstimate {
   const thresholdMs = gapMinutes * 60_000;
   const sorted = [...events].sort(
@@ -41,7 +50,7 @@ export function estimateWatchTime(
   let unknownCount = 0;
   for (let i = 0; i < sorted.length; i += 1) {
     const current = sorted[i]!;
-    const next = sorted[i + 1];
+    const next = sorted[i + 1] ?? context.after;
     const gap = next ? next.watchedAt.getTime() - current.watchedAt.getTime() : Number.POSITIVE_INFINITY;
     const startsSession = i === 0 || current.watchedAt.getTime() - sorted[i - 1]!.watchedAt.getTime() > thresholdMs;
     if (startsSession) sessions += 1;

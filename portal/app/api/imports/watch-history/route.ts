@@ -1,11 +1,17 @@
-import { importWatchHistorySchema, WATCH_IMPORT_MAX_BODY_BYTES } from "@openrhen/contracts";
+import {
+  importWatchHistorySchema,
+  WATCH_IMPORT_MAX_BODY_BYTES,
+  WATCH_IMPORT_MAX_FILE_BYTES
+} from "@openrhen/contracts";
+import { BodyTooLargeError, readBodyCapped } from "@/server/imports/capped-body";
 import { withRoute } from "@/server/logging";
 import { parseWatchHistoryUpload, WatchHistoryParseError } from "@/server/imports/watch-history-parser";
 import { importWatchHistory } from "@/server/persistence/postgres/watch-history-store";
 import { sqlPool } from "@/server/persistence/postgres/sql-pool";
 import { databaseUrl } from "@/server/runtime-env";
 
-const TOO_LARGE = "That file is too large. Export a shorter date range from Takeout and try again.";
+const mb = (bytes: number) => Math.round(bytes / (1024 * 1024));
+const TOO_LARGE = `That upload is too large: the limit is ${mb(WATCH_IMPORT_MAX_FILE_BYTES)} MB for the history file (a zip may be about a third larger when sent). Export a shorter date range from Takeout and try again.`;
 
 /**
  * Imports a Google Takeout YouTube watch history: a bare `watch-history.json` or the Takeout zip, sent as JSON
@@ -13,11 +19,13 @@ const TOO_LARGE = "That file is too large. Export a shorter date range from Take
  * transaction, and idempotent: uploading the same file again adds nothing. The person's own record: no agent route.
  */
 export const POST = withRoute("/api/imports/watch-history", async (request, _context, log) => {
-  const declared = Number(request.headers.get("content-length") ?? 0);
-  if (declared > WATCH_IMPORT_MAX_BODY_BYTES) return Response.json({ error: TOO_LARGE }, { status: 413 });
-  const body = await request.text();
-  if (Buffer.byteLength(body) > WATCH_IMPORT_MAX_BODY_BYTES)
-    return Response.json({ error: TOO_LARGE }, { status: 413 });
+  let body: string;
+  try {
+    body = await readBodyCapped(request, WATCH_IMPORT_MAX_BODY_BYTES);
+  } catch (error) {
+    if (error instanceof BodyTooLargeError) return Response.json({ error: TOO_LARGE }, { status: 413 });
+    throw error;
+  }
   let input: unknown = null;
   try {
     input = JSON.parse(body);

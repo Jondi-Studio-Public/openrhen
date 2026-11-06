@@ -6,7 +6,7 @@ import { databaseUrl } from "@/server/runtime-env";
 const notFound = () => Response.json({ error: "No such watch-history import." }, { status: 404 });
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Undoes one watch-history import: the import and every event it added. */
+/** Undoes one watch-history import: the import and exactly the events it added (not ones an earlier file held). */
 export const DELETE = withRoute(
   "/api/imports/watch-history/[id]",
   async (_request: Request, { params }: { params: Promise<{ id: string }> }) => {

@@ -65,14 +65,14 @@ describe("WatchHistoryPanel", () => {
     const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
       if (init?.method === "DELETE") {
         deleted = true;
-        return Promise.resolve(Response.json({ deleted: true }));
+        return Promise.resolve(Response.json({ deleted: true, removed: 3 }));
       }
       return Promise.resolve(Response.json(deleted ? review({ hasData: false, imports: [], total: 0 }) : review()));
     });
     vi.stubGlobal("fetch", fetchMock);
     render(<WatchHistoryPanel />);
     fireEvent.click(await screen.findByText("Delete this import"));
-    await waitFor(() => expect(screen.getByText("Import deleted.")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Import deleted: 3 entries removed.")).toBeTruthy());
     expect(fetchMock).toHaveBeenCalledWith("/api/imports/watch-history/imp-1", { method: "DELETE" });
   });
 
@@ -134,6 +134,19 @@ describe("WatchHistoryPanel", () => {
     );
     const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST")!;
     expect(JSON.parse(String(post[1]!.body))).toMatchObject({ encoding: "base64", data: "UEsDBA==" });
+  });
+
+  it("refuses a file over the limit before reading it, saying the limit", async () => {
+    const fetchMock = vi.fn((_url: string, _init?: RequestInit) => Promise.resolve(Response.json(review())));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WatchHistoryPanel />);
+    fireEvent.click(await screen.findByText("Import Takeout"));
+    const big = new File(["[]"], "big.json");
+    Object.defineProperty(big, "size", { value: 60 * 1024 * 1024 });
+    fireEvent.change(await screen.findByLabelText("Takeout file"), { target: { files: [big] } });
+    fireEvent.click(screen.getByRole("button", { name: "Import" }));
+    expect(await screen.findByText(/That file is 60 MB; the limit is 50 MB/)).toBeTruthy();
+    expect(fetchMock.mock.calls.every(([, init]) => init?.method !== "POST")).toBe(true);
   });
 
   it("shows the server's reason when an import is refused, and adds nothing", async () => {

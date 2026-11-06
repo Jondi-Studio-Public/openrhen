@@ -113,14 +113,33 @@ describe("importing a watch history", () => {
   it("undoes one import and only that import", async () => {
     const one = await importWatchHistory(sql, "one.json", file([entry("aaaaaaaaaa1", "2026-11-01T10:00:00Z")]));
     await importWatchHistory(sql, "two.json", file([entry("bbbbbbbbbb2", "2026-11-02T10:00:00Z")]));
-    expect(await deleteWatchImport(sql, one.importId!)).toBe(true);
+    expect(await deleteWatchImport(sql, one.importId!)).toEqual({ deleted: true, removed: 1 });
     expect(await count("watch_events")).toBe(1);
     expect(await count("watch_imports")).toBe(1);
-    expect(await deleteWatchImport(sql, one.importId!)).toBe(false);
+    expect((await deleteWatchImport(sql, one.importId!)).deleted).toBe(false);
     // Undone, the same file imports again.
     expect(
       await importWatchHistory(sql, "one.json", file([entry("aaaaaaaaaa1", "2026-11-01T10:00:00Z")]))
     ).toMatchObject({ added: 1 });
+  });
+
+  it("deletes only the rows an import added: overlapping imports keep each other's unique rows", async () => {
+    const a = entry("aaaaaaaaaa1", "2026-11-01T10:00:00Z");
+    const b = entry("bbbbbbbbbb2", "2026-11-01T11:00:00Z");
+    const c = entry("cccccccccc3", "2026-11-01T12:00:00Z");
+    const first = await importWatchHistory(sql, "first.json", file([a, b]));
+    const second = await importWatchHistory(sql, "second.json", file([b, c]));
+    expect(second).toMatchObject({ added: 1, alreadyHeld: 1 });
+    // Deleting the second removes only c; the first's rows (a and b) stay.
+    expect(await deleteWatchImport(sql, second.importId!)).toEqual({ deleted: true, removed: 1 });
+    expect(await count("watch_events")).toBe(2);
+    // Re-import the second, then delete the first: it takes the two rows it added; the second's own c survives.
+    const again = await importWatchHistory(sql, "second.json", file([b, c]));
+    expect(again).toMatchObject({ added: 1 });
+    expect(await deleteWatchImport(sql, first.importId!)).toEqual({ deleted: true, removed: 2 });
+    const left = await sql<{ video_id: string }[]>`SELECT video_id FROM watch_events`;
+    expect(left.map((row) => row.video_id)).toEqual(["cccccccccc3"]);
+    expect(await deleteWatchImport(sql, first.importId!)).toEqual({ deleted: false, removed: 0 });
   });
 
   it("does not delete another person's import", async () => {
@@ -128,7 +147,7 @@ describe("importing a watch history", () => {
     const [imported] = await sql<{ id: string }[]>`
       INSERT INTO watch_imports (user_id, filename) VALUES (${other[0]!.id}, 'x.json') RETURNING id
     `;
-    expect(await deleteWatchImport(sql, imported!.id)).toBe(false);
+    expect((await deleteWatchImport(sql, imported!.id)).deleted).toBe(false);
     expect(await count("watch_imports")).toBe(1);
   });
 });
@@ -202,6 +221,39 @@ describe("the review read", () => {
     // The repeated 01:00 hour on the fall-back day lands in hour 1 twice.
     expect(fall.hours[1]).toBe(2);
     expect(spring.hours[2]).toBe(0);
+  });
+
+  it("rejects years outside 2005 to 2100 with an input error, not a database failure", async () => {
+    for (const range of [
+      { from: "0001-01-01" },
+      { from: "9999-12-31", to: "9999-12-31" },
+      { to: "2004-12-31" },
+      { from: "2005-01-01", to: "2101-01-01" }
+    ])
+      await expect(readWatchHistoryReview(sql, userId, range, now)).rejects.toThrow(WatchHistoryInputError);
+    await expect(
+      readWatchHistoryReview(sql, userId, { from: "2100-12-31", to: "2100-12-31" }, now)
+    ).resolves.toBeTruthy();
+  });
+
+  it("does not call the last in-range watch session-last when a watch follows the range", async () => {
+    await sql`UPDATE users SET timezone = 'UTC' WHERE id = ${userId}`;
+    await importWatchHistory(
+      sql,
+      "edge.json",
+      file([
+        entry("aaaaaaaaaa1", "2026-11-02T09:00:00Z"),
+        entry("bbbbbbbbbb2", "2026-11-02T23:50:00Z"),
+        entry("cccccccccc3", "2026-11-03T00:20:00Z"),
+        entry("dddddddddd4", "2026-11-03T00:30:00Z")
+      ])
+    );
+    const day2 = await readWatchHistoryReview(sql, userId, { from: "2026-11-02", to: "2026-11-02" }, now);
+    expect(day2.total).toBe(2);
+    // b is followed 30 minutes later by c (outside the range): that gap counts toward the high end.
+    expect(day2.estimate).toMatchObject({ videos: 2, sessions: 2, highMin: 30, unknownCount: 1 });
+    const day3 = await readWatchHistoryReview(sql, userId, { from: "2026-11-03", to: "2026-11-03" }, now);
+    expect(day3.estimate).toMatchObject({ videos: 2, sessions: 1, highMin: 10, unknownCount: 1 });
   });
 
   it("rejects bad dates and ranges instead of guessing", async () => {

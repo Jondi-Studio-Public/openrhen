@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { WatchHistoryReview, WatchImportResult } from "@openrhen/contracts";
+import { WATCH_IMPORT_MAX_FILE_BYTES, type WatchHistoryReview, type WatchImportResult } from "@openrhen/contracts";
 import { Sheet } from "@/components/sheet";
 import { Button } from "@/components/ui/button";
 import { displayLocale } from "@/shared/locale";
@@ -65,6 +65,12 @@ export function WatchHistoryPanel() {
 
   const upload = async () => {
     if (!file || busy) return;
+    if (file.size > WATCH_IMPORT_MAX_FILE_BYTES) {
+      setProblem(
+        `That file is ${Math.round(file.size / 1048576)} MB; the limit is ${Math.round(WATCH_IMPORT_MAX_FILE_BYTES / 1048576)} MB. Export a shorter date range from Takeout.`
+      );
+      return;
+    }
     setBusy(true);
     setProblem("");
     try {
@@ -98,7 +104,12 @@ export function WatchHistoryPanel() {
     setMessage("");
     try {
       const response = await fetch(`/api/imports/watch-history/${encodeURIComponent(id)}`, { method: "DELETE" });
-      setMessage(response.ok ? "Import deleted." : "That import could not be deleted.");
+      const payload = response.ok ? ((await response.json().catch(() => null)) as { removed?: number } | null) : null;
+      setMessage(
+        response.ok
+          ? `Import deleted${typeof payload?.removed === "number" ? `: ${payload.removed} ${payload.removed === 1 ? "entry" : "entries"} removed` : ""}.`
+          : "That import could not be deleted."
+      );
     } catch {
       setMessage("That import could not be deleted.");
     }
@@ -222,7 +233,8 @@ export function WatchHistoryPanel() {
           </ol>
           <p className={styles.quiet}>
             The file is read in this browser and sent to your own server. Importing the same file twice adds nothing.
-            Shorts look the same as other videos in the export. If the file is too large, export a shorter date range.
+            Shorts look the same as other videos in the export. Files up to 50 MB are accepted (and the history inside a
+            zip must unpack to under 50 MB); if yours is larger, export a shorter date range.
           </p>
           <input
             type="file"

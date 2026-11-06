@@ -81,4 +81,23 @@ describe("estimateWatchTime", () => {
     expect(run("2026-03-08T05:00:00Z", 23).highMin).toBe(23 * 60);
     expect(run("2026-11-01T04:00:00Z", 25).highMin).toBe(25 * 60);
   });
+
+  it("bounds the last in-range watch by the first watch after the range", () => {
+    const inRange = minutes("2026-11-01T10:00:00Z", 0, 10);
+    const after = at("2026-11-01T10:25:00Z", "after");
+    // Without context the last watch is session-last: [0, 10]. With the next watch 15 minutes on, its gap counts.
+    expect(estimateWatchTime(inRange)).toMatchObject({ highMin: 10, unknownCount: 1, sessions: 1 });
+    expect(estimateWatchTime(inRange, undefined, { after })).toMatchObject({
+      highMin: 25,
+      videos: 2,
+      sessions: 1,
+      unknownCount: 0
+    });
+    // The watch after is context only: never counted as a video, and a far-off one changes nothing.
+    expect(estimateWatchTime(inRange, undefined, { after: at("2026-11-01T14:00:00Z", "later") })).toMatchObject({
+      highMin: 10,
+      videos: 2,
+      unknownCount: 1
+    });
+  });
 });

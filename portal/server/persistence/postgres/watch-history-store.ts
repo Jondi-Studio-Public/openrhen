@@ -26,8 +26,14 @@ export function addLocalDays(date: string, days: number): string {
   return new Date(Date.parse(`${date}T00:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10);
 }
 
+/** Plausible years only: YouTube began in 2005, and extreme dates would fail inside Postgres instead of here. */
+const MIN_YEAR = 2005;
+const MAX_YEAR = 2100;
+
 function validDate(value: string): boolean {
-  return LOCAL_DATE.test(value) && addLocalDays(value, 0) === value;
+  if (!LOCAL_DATE.test(value)) return false;
+  const year = Number(value.slice(0, 4));
+  return year >= MIN_YEAR && year <= MAX_YEAR && addLocalDays(value, 0) === value;
 }
 
 /** A zone name Postgres and Intl both know; anything else reads as UTC rather than failing the panel. */
@@ -100,11 +106,27 @@ export async function importWatchHistory(
   };
 }
 
-/** Removes one import and every event it added. False when the id is not the person's. */
-export async function deleteWatchImport(sql: PoolSql, importId: string): Promise<boolean> {
+/**
+ * Removes one import and exactly the events it added (`watch_events.import_id` is set on insert only, and an event an
+ * earlier import already held keeps that import's id, so a later overlapping file never claims it). Entries two files
+ * share therefore belong to whichever was imported first: deleting that one removes them, deleting the later one does
+ * not. `deleted` is false when the id is not the person's.
+ */
+export async function deleteWatchImport(
+  sql: PoolSql,
+  importId: string
+): Promise<{ deleted: boolean; removed: number }> {
   const userId = await ensureUser(sql);
-  const rows = await sql`DELETE FROM watch_imports WHERE id = ${importId} AND user_id = ${userId} RETURNING id`;
-  return rows.length > 0;
+  return sql.begin(async (tx) => {
+    const [owned] = await tx<
+      { id: string }[]
+    >`SELECT id FROM watch_imports WHERE id = ${importId} AND user_id = ${userId}`;
+    if (!owned) return { deleted: false, removed: 0 };
+    const removed =
+      await tx`DELETE FROM watch_events WHERE import_id = ${importId} AND user_id = ${userId} RETURNING id`;
+    await tx`DELETE FROM watch_imports WHERE id = ${importId} AND user_id = ${userId}`;
+    return { deleted: true, removed: removed.length };
+  });
 }
 
 export interface WatchReviewRange {
@@ -127,9 +149,9 @@ export async function readWatchHistoryReview(
   const [user] = await sql<{ timezone: string | null }[]>`SELECT timezone FROM users WHERE id = ${userId}`;
   const timezone = usableZone(user?.timezone);
   if (range.from !== undefined && !validDate(range.from))
-    throw new WatchHistoryInputError("from must be a date as YYYY-MM-DD.");
+    throw new WatchHistoryInputError(`from must be a date as YYYY-MM-DD, between ${MIN_YEAR} and ${MAX_YEAR}.`);
   if (range.to !== undefined && !validDate(range.to))
-    throw new WatchHistoryInputError("to must be a date as YYYY-MM-DD.");
+    throw new WatchHistoryInputError(`to must be a date as YYYY-MM-DD, between ${MIN_YEAR} and ${MAX_YEAR}.`);
   const [today] = await sql<
     { day: string }[]
   >`SELECT to_char((${now}::timestamptz AT TIME ZONE ${timezone})::date, 'YYYY-MM-DD') AS day`;
@@ -151,6 +173,13 @@ export async function readWatchHistoryReview(
       AND watched_at >= (${from}::date)::timestamp AT TIME ZONE ${timezone}
       AND watched_at < (${toExclusive}::date)::timestamp AT TIME ZONE ${timezone}
     ORDER BY watched_at, id
+  `;
+  // The first watch after the range bounds the last one inside it, so a range that ends mid-session is not cut short.
+  const [following] = await sql<{ id: string; watched_at: Date }[]>`
+    SELECT id, watched_at FROM watch_events
+    WHERE user_id = ${userId} AND source = 'youtube_takeout' AND kind = 'watch'
+      AND watched_at >= (${toExclusive}::date)::timestamp AT TIME ZONE ${timezone}
+    ORDER BY watched_at, id LIMIT 1
   `;
   const perDay = new Map<string, number>();
   const hours = Array.from({ length: 24 }, () => 0);
@@ -181,7 +210,11 @@ export async function readWatchHistoryReview(
     days,
     hours,
     total: rows.length,
-    estimate: estimateWatchTime(rows.map((row) => ({ id: row.id, watchedAt: row.watched_at }))),
+    estimate: estimateWatchTime(
+      rows.map((row) => ({ id: row.id, watchedAt: row.watched_at })),
+      undefined,
+      { after: following ? { id: following.id, watchedAt: following.watched_at } : undefined }
+    ),
     excluded: { ads: held?.ads ?? 0, posts: held?.posts ?? 0, music: held?.music ?? 0 },
     imports: imports.map((row) => ({
       id: row.id,
