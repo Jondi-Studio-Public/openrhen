@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { recommend, resolveProtectedCommitment } from "../../src/index.js";
+import { planSchedule, recommend, resolveProtectedCommitment } from "../../src/index.js";
 import type { Action, CapacityWindow, FixedCommitment, Project } from "../../src/index.js";
 import { conditionDefinitionSchema, currentSituationSchema } from "@openrhen/contracts";
 import { holding } from "../model/situation.js";
@@ -183,6 +183,76 @@ describe("context-only recommendation explanation", () => {
     expect(result.headline).toContain("desktop and online");
     expect(result.explanation).toContain("Draft assignment is the closest suitable action");
     expect(result.explanation).toContain("it needs desktop and online");
+  });
+
+  it("leads with the action and says where, not with the raw context name as the subject", () => {
+    const errand = { ...action, id: "errand", title: "Buy the remaining supplies", contexts: ["shops"] };
+    const result = recommend({
+      now: base,
+      horizonEnd: at(120),
+      projects: [project],
+      actions: [errand],
+      capacityWindows: [capacity],
+      commitments: [],
+      conditionDefinitions: [
+        conditionDefinitionSchema.parse({ id: "shops", name: "shops", kind: "location", portability: "fixed" })
+      ],
+      currentSituation: currentSituationSchema.parse({ locationId: "home" }),
+      currentEnergy: "high"
+    });
+    expect(result.headline).toBe("Buy the remaining supplies needs you at shops");
+    expect(result.explanation).toBe(
+      "Buy the remaining supplies is the closest suitable action, but it needs you at shops."
+    );
+  });
+
+  it("keeps the action-led wording when a commitment boundary also leaves no room", () => {
+    const errand = {
+      ...action,
+      id: "errand",
+      title: "Buy the remaining supplies",
+      contexts: ["shops"],
+      minimumSessionMinutes: 30
+    };
+    const plain = { ...action, id: "plain", title: "Plain work", contexts: [], minimumSessionMinutes: 30 };
+    const meeting = commitment({
+      title: "Craig Cooking",
+      startsAt: at(20),
+      endsAt: at(60),
+      setupBeforeMinutes: 0,
+      transitionAfterMinutes: 0
+    });
+    const planning = planSchedule({
+      now: base,
+      horizonEnd: at(120),
+      projects: [project],
+      actions: [errand, plain],
+      capacityWindows: [capacity],
+      commitments: [meeting]
+    });
+    const result = recommend({
+      now: base,
+      horizonEnd: at(120),
+      projects: [project],
+      actions: [errand, plain],
+      planning,
+      forecasts: planning.forecasts,
+      capacityWindows: [capacity],
+      commitments: [meeting],
+      conditionDefinitions: [
+        conditionDefinitionSchema.parse({ id: "shops", name: "shops", kind: "location", portability: "fixed" })
+      ],
+      currentSituation: currentSituationSchema.parse({ locationId: "home" }),
+      currentEnergy: "high",
+      timezone: "Australia/Sydney",
+      locale: "en-AU"
+    });
+    expect(result.headline).toBe("Buy the remaining supplies needs you at shops");
+    expect(result.noFit?.kind).toBe("boundary");
+    expect(result.explanation).toBe(
+      "Buy the remaining supplies is the closest suitable action, but it needs you at shops."
+    );
+    expect(result.explanation).not.toContain("is needed for");
   });
 
   it("asks rather than refuses when the blocking context is merely unanswered", () => {

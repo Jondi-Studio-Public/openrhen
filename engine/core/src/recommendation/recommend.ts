@@ -325,6 +325,14 @@ export function recommend(args: RecommendArguments): Recommendation {
         args.locale
       );
       const one = blockers.length === 1;
+      // What the action needs, said as the person would: a place is somewhere to be, anything else is named.
+      const needs = formatList(
+        blockers.map((id) => {
+          const name = conditionName(definitions, id);
+          return definitions.find((item) => item.id === id)?.kind === "location" ? `you at ${name}` : name;
+        }),
+        args.locale
+      );
       const ifYes =
         noFit.kind === "answer" && noFit.candidate
           ? ` If yes, ${noFit.candidate.title} would lead for ${noFit.candidate.recommendedMinutes} minutes.`
@@ -337,10 +345,10 @@ export function recommend(args: RecommendArguments): Recommendation {
         reachable,
         headline: asking
           ? `${contexts} ${one ? "is" : "are"} unanswered for ${conditionBlocked.action.title}`
-          : `${contexts} ${one ? "is" : "are"} needed for ${conditionBlocked.action.title}`,
+          : `${conditionBlocked.action.title} needs ${needs}`,
         explanation: asking
           ? `${conditionBlocked.action.title} is the closest suitable action, but nothing has said whether ${contexts} ${one ? "is" : "are"} available. Answer that and it can be recommended.${ifYes}`
-          : `${conditionBlocked.action.title} is the closest suitable action, but it needs ${contexts}.`,
+          : `${conditionBlocked.action.title} is the closest suitable action, but it needs ${needs}.`,
         evidence: conditionBlocked.exclusionReasons,
         why,
         noFit,
