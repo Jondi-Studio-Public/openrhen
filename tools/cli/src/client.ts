@@ -78,9 +78,52 @@ function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => Error)
   return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
 }
 
+/**
+ * What actually went wrong, from the error Node's fetch throws. It is always the bare "fetch failed"; the real
+ * reason (connection refused, no such host, a certificate or redirect problem) sits on `cause`, and when Node
+ * tried several addresses the cause is an AggregateError that holds one error per attempt.
+ */
+export function describeFetchFailure(error: unknown, url?: string): string {
+  const message = error instanceof Error ? error.message : String(error);
+  type Cause = { code?: unknown; message?: unknown; errors?: unknown };
+  const cause = error instanceof Error ? (error.cause as Cause | undefined) : undefined;
+  const codeOf = (value: Cause | undefined) => (typeof value?.code === "string" ? value.code : "");
+  let code = codeOf(cause);
+  if (!code && Array.isArray(cause?.errors))
+    code = cause.errors.map((inner) => codeOf(inner as Cause)).find(Boolean) ?? "";
+  if (code === "ECONNREFUSED")
+    return isLocalAddress(url)
+      ? "connection refused (is OpenRhen running? try: docker compose ps)"
+      : "connection refused (is OpenRhen running at that address, and is the port reachable from this machine?)";
+  if (code === "ENOTFOUND") return "no such host (check the address for typos)";
+  if (code === "EAI_AGAIN") return "the host name could not be looked up just now (temporary DNS trouble; try again)";
+  if (code === "ECONNRESET" || code === "UND_ERR_SOCKET") return "the connection was closed by the other end";
+  if (
+    code.startsWith("ERR_TLS") ||
+    code.includes("CERT") ||
+    code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE" ||
+    code === "DEPTH_ZERO_SELF_SIGNED_CERT"
+  )
+    return `the certificate was not accepted (${code})`;
+  if (/redirect/i.test(message) || /redirect/i.test(String(cause?.message ?? "")))
+    return "the portal answered with a redirect, which the CLI does not follow (for example from http to https); re-run with --url (or OPENRHEN_URL) set to the https:// address";
+  const detail = typeof cause?.message === "string" && cause.message ? cause.message : code;
+  return detail && !message.includes(detail) ? `${message}: ${detail}` : message;
+}
+
+function isLocalAddress(url: string | undefined): boolean {
+  if (!url) return true;
+  try {
+    const host = new URL(url).hostname;
+    return host === "localhost" || host === "[::1]" || host.startsWith("127.");
+  } catch {
+    return false;
+  }
+}
+
 function unreachableMessage(config: CliConfig, reason: string): string {
   return config.fromDefault
-    ? `No portal at ${config.url}. Set OPENRHEN_URL or \`url\` in ~/.openrhen/config.json.`
+    ? `No portal at ${config.url} (${reason}). Set OPENRHEN_URL or \`url\` in ~/.openrhen/config.json.`
     : `Cannot reach the portal at ${config.url}: ${reason}`;
 }
 
@@ -137,7 +180,7 @@ export function createClient(config: CliConfig, options: ClientOptions = {}): Po
         signal: AbortSignal.timeout(config.timeoutMs)
       });
     } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
+      const reason = describeFetchFailure(error, config.url);
       const timedOut = error instanceof Error && error.name === "TimeoutError";
       throw new NetworkError(
         timedOut
@@ -186,7 +229,7 @@ export function createClient(config: CliConfig, options: ClientOptions = {}): Po
         signal: AbortSignal.timeout(config.timeoutMs)
       });
     } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
+      const reason = describeFetchFailure(error, config.url);
       const timedOut = error instanceof Error && error.name === "TimeoutError";
       throw new NetworkError(
         timedOut

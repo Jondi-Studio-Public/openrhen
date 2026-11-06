@@ -13,7 +13,7 @@ import {
 } from "./command.js";
 import { renderCommandHelp, renderOverview } from "./commands/help.js";
 import { defaultConfigSources, resolveConfig, type ConfigSources } from "./config.js";
-import { REENTRY_REQUIRED_INSTRUCTION, type PulseReentryView } from "@openrhen/contracts";
+import { closestNames, REENTRY_REQUIRED_INSTRUCTION, type PulseReentryView } from "@openrhen/contracts";
 import { CliError, EXIT } from "./errors.js";
 import { describeIssues } from "./issues.js";
 import { stripTerminalControls, toJson, type OutputMode } from "./output.js";
@@ -98,10 +98,15 @@ export async function runCli(rawArgv: readonly string[], rawIo: CliIo): Promise<
     if (first.startsWith("-"))
       throw new CliError(`Unknown option ${first}. The command comes first: rhen <command> [options].`);
     const spec = findCommand(first);
-    if (!spec)
+    if (!spec) {
+      const names = commands.map((command) => command.name);
+      const close = closestNames(first, names);
       throw new CliError(
-        `Unknown command "${first}". Commands: ${commands.map((command) => command.name).join(", ")}.`
+        close.length > 0
+          ? `Unknown command "${first}". Did you mean ${close.map((name) => `"${name}"`).join(" or ")}? Run "rhen help" for every command.`
+          : `Unknown command "${first}". Commands: ${names.join(", ")}.`
       );
+    }
     flagNames = Object.keys(spec.options);
     const args = parseCommandArgs(spec, rest);
     mode = outputMode(args.values);

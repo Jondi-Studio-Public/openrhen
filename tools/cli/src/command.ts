@@ -1,5 +1,5 @@
 import { parseArgs, type ParseArgsConfig } from "node:util";
-import { AGENT_BASES, MAX_PLANNED_SESSION_MINUTES } from "@openrhen/contracts";
+import { AGENT_BASES, closestNames, MAX_PLANNED_SESSION_MINUTES } from "@openrhen/contracts";
 import type { PortalClient } from "./client.js";
 import { CliError, EXIT } from "./errors.js";
 import type { StoredLinkSource } from "./plan-map/stored-links.js";
@@ -215,8 +215,20 @@ export function parseCommandArgs(spec: CommandSpec, argv: readonly string[]): Pa
     });
     return { values: values as OptionValues, positionals };
   } catch (error) {
-    const reason = error instanceof Error ? error.message.replace(/\.$/, "") : String(error);
-    throw new CliError(`${reason}. Run "rhen help ${spec.name}" for usage.`, EXIT.usage);
+    const raw = error instanceof Error ? error.message : String(error);
+    // Node's own text for a mistyped option ends with advice about positional arguments that is rarely the
+    // cause; say which option it probably was instead.
+    const unknown = /^Unknown option '(-{1,2}[^']+)'/.exec(raw);
+    if (unknown?.[1]) {
+      const typed = unknown[1];
+      const close = closestNames(typed.replace(/^-+/, ""), Object.keys({ ...globalOptions, ...spec.options }));
+      throw new CliError(
+        `Unknown option ${typed}.${close.length > 0 ? ` Did you mean ${close.map((name) => `--${name}`).join(" or ")}?` : ""} ` +
+          `Run "rhen help ${spec.name}" for usage.`,
+        EXIT.usage
+      );
+    }
+    throw new CliError(`${raw.replace(/\.$/, "")}. Run "rhen help ${spec.name}" for usage.`, EXIT.usage);
   }
 }
 

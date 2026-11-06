@@ -82,6 +82,22 @@ describe("runCli: dispatcher basics", () => {
     for (const command of commands) expect(stderr[0]).toContain(command.name);
   });
 
+  it("suggests the command a near-miss was meant to be, instead of listing every command", async () => {
+    const { io: options, stderr } = io();
+    const code = await runCli(["stauts"], options);
+    expect(code).toBe(EXIT.usage);
+    expect(stderr[0]).toContain('Unknown command "stauts". Did you mean "status"');
+    expect(stderr[0]).not.toContain("recurrence-goal");
+  });
+
+  it("suggests the option a near-miss was meant to be, without Node's positional-argument advice", async () => {
+    const { io: options, stderr } = io();
+    const code = await runCli(["status", "--jsno"], options);
+    expect(code).toBe(EXIT.usage);
+    expect(stderr[0]).toContain("Unknown option --jsno. Did you mean --json or --jsonl?");
+    expect(stderr[0]).not.toContain("positional");
+  });
+
   it("--help on a command prints that command's help", async () => {
     const { io: options, stdout } = io();
     const code = await runCli(["help", "--help"], options);
