@@ -42,11 +42,19 @@ import { createWorkerId } from "./worker-id.js";
 import { portalHeaders } from "./portal-auth.js";
 import { PORTAL_WAIT_TIMEOUT_DEFAULT_MS, waitForPortal } from "./portal-ready.js";
 
+/** A missing setting is a setup step, not a crash: one line saying what and how to fix it, no stack trace. */
+function refuseToStart(reason: string): never {
+  process.stderr.write(
+    `${JSON.stringify({ level: "error", message: `OpenRhen cannot start: ${reason}. Run "docker compose run --rm setup" to generate it (it never overwrites a value you set), then "docker compose up -d".` })}\n`
+  );
+  process.exit(1);
+}
+
 const workerId = createWorkerId();
 const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) throw new Error("DATABASE_URL is required");
+if (!databaseUrl) refuseToStart("DATABASE_URL is required");
 const config = planForecastConfigFromEnv();
-if (!config.token) throw new Error("PLAN_FORECAST_SERVICE_TOKEN is required");
+if (!config.token) refuseToStart("PLAN_FORECAST_SERVICE_TOKEN is required");
 const retention = planningRetentionConfigFromEnv();
 // One connection per loop that can hold one at once: the job loop, the three database ticks, and headroom.
 const sql = postgres(databaseUrl, {

@@ -1,12 +1,20 @@
 import { createServer, type ServerResponse } from "node:http";
 import { PLACEHOLDER_CREDENTIAL, handleRequest, placeholderCredentialWarnings } from "./server.js";
 
+/** A missing setting is a setup step, not a crash: one line saying what and how to fix it, no stack trace. */
+function refuseToStart(reason: string): never {
+  process.stderr.write(
+    `${JSON.stringify({ level: "error", message: `OpenRhen cannot start: ${reason}. Run "docker compose run --rm setup" to generate it (it never overwrites a value you set), then "docker compose up -d".` })}\n`
+  );
+  process.exit(1);
+}
+
 const host = process.env.OUTBOUND_PROXY_HOST ?? "0.0.0.0";
 const port = integer(process.env.OUTBOUND_PROXY_PORT, 4200);
 const token = process.env.OUTBOUND_PROXY_TOKEN ?? "";
-if (!token) throw new Error("OUTBOUND_PROXY_TOKEN is required");
+if (!token) refuseToStart("OUTBOUND_PROXY_TOKEN is required");
 if (token.trim() === PLACEHOLDER_CREDENTIAL)
-  throw new Error("OUTBOUND_PROXY_TOKEN is still the compose placeholder; set a real secret");
+  refuseToStart("OUTBOUND_PROXY_TOKEN is still the compose placeholder; set a real secret");
 
 // A provider credential still holding compose.yaml's placeholder is not fatal — that provider's
 // routes simply answer "not configured" — but it is easy to miss until something tries to use it.
