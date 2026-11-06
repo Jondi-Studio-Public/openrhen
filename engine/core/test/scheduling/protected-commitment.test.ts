@@ -247,7 +247,7 @@ describe("context-only recommendation explanation", () => {
       timezone: "Australia/Sydney",
       locale: "en-AU"
     });
-    expect(result.headline).toBe("Buy the remaining supplies needs you at shops");
+    expect(result.headline).toMatch(/^Nothing to start until .*, after Craig Cooking$/);
     expect(result.noFit?.kind).toBe("boundary");
     expect(result.explanation).toBe(
       "Buy the remaining supplies is the closest suitable action, but it needs you at shops, so it is not suggested from here. Get to shops, or say you are there, and it can be recommended."

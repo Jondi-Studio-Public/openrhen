@@ -337,6 +337,16 @@ export function recommend(args: RecommendArguments): Recommendation {
         places.length && !others.length
           ? `Get to ${formatList(places, args.locale)}, or say you are there, and it can be recommended.`
           : "Once that is sorted, or you say it is, it can be recommended.";
+      // Blocked by place while a boundary also leaves no room: the answer to "what do I do?" is that nothing
+      // can be started until the first thing that fits, not the blocked action, so lead with that.
+      const boundaryHeadline =
+        !asking && noFit.kind === "boundary"
+          ? noFit.nextFit && noFit.boundaryKind !== "daily_horizon"
+            ? `Nothing to start until ${formatDate(noFit.nextFit.at, args.timezone, args.locale)}, after ${
+                noFit.boundaryTitle ?? (noFit.boundaryKind === "sleep" ? "sleep" : "the next commitment")
+              }`
+            : boundaryWording(noFit, args.now, args.timezone, args.locale).headline
+          : null;
       const ifYes =
         noFit.kind === "answer" && noFit.candidate
           ? ` If yes, ${noFit.candidate.title} would lead for ${noFit.candidate.recommendedMinutes} minutes.`
@@ -349,7 +359,7 @@ export function recommend(args: RecommendArguments): Recommendation {
         reachable,
         headline: asking
           ? `${conditionBlocked.action.title} needs an answer: ${blockers.map((id) => conditionQuestion(definitions, id)).join(" ")}`
-          : `${conditionBlocked.action.title} needs ${needs}`,
+          : (boundaryHeadline ?? `${conditionBlocked.action.title} needs ${needs}`),
         explanation: asking
           ? `${conditionBlocked.action.title} is the closest suitable action, but nothing has said whether ${contexts} ${one ? "is" : "are"} available. Answer that and it can be recommended.${ifYes}`
           : `${conditionBlocked.action.title} is the closest suitable action, but it needs ${needs}, so it is not suggested from here. ${clears}`,

@@ -75,6 +75,21 @@ describe("BoundaryPanel", () => {
     expect(screen.getByText(/Nothing fits until .*, after College Class/)).toBeTruthy();
   });
 
+  it("offers one tap to say you are at the place the blocked action needs", () => {
+    const save = vi.fn().mockResolvedValue(undefined);
+    render(
+      <BoundaryPanel
+        {...props}
+        saveEntityCommand={save}
+        directive={{ ...directive, boundaryKind: "commitment", boundaryTitle: "Craig Cooking" }}
+        isDailyHorizon={false}
+        blockedPlaces={[{ id: "shops", name: "shops", actionTitle: "Buy supplies" }]}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "I am at shops" }));
+    expect(save.mock.calls[0]![0].entity.currentSituation.locationId).toBe("shops");
+  });
+
   it("extends from now once the horizon has already passed", () => {
     const save = vi.fn().mockResolvedValue(undefined);
     render(

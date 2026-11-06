@@ -1,5 +1,6 @@
 "use client";
 
+import { situationCommand } from "@/components/situation-panel";
 import { createClientId } from "@/shared/client-id";
 import type { PortalState } from "@/state/portal-state";
 import { clock, localDate } from "@/features/now/now-formatting";
@@ -41,6 +42,7 @@ export function BoundaryPanel({
   saving,
   explanation,
   evidence,
+  blockedPlaces = [],
   saveEntityCommand
 }: {
   directive: BoundaryDirective;
@@ -51,6 +53,8 @@ export function BoundaryPanel({
   saving: boolean;
   explanation: string;
   evidence: readonly string[];
+  /** Places the closest suitable action is waiting on; one tap says the person is there. */
+  blockedPlaces?: readonly { id: string; name: string; actionTitle: string }[];
   saveEntityCommand: SaveEntityCommand;
 }) {
   const boundaryAt = new Date(directive.boundaryAt);
@@ -106,6 +110,23 @@ export function BoundaryPanel({
         </p>
       ) : (
         <p className="microcopy">Nothing after it fits inside the forecast either.</p>
+      )}
+      {blockedPlaces.length > 0 && (
+        <div className="actions">
+          {blockedPlaces.map((place) => (
+            <button
+              disabled={saving}
+              key={place.id}
+              onClick={() => void saveEntityCommand(situationCommand(state, { locationId: place.id }))}
+            >
+              I am at {place.name}
+            </button>
+          ))}
+          <small className="microcopy">
+            Says you are there now, so {blockedPlaces[0]!.actionTitle} can be recommended. Same as changing it under
+            Available right now.
+          </small>
+        </div>
       )}
       {isDailyHorizon && extensions.length > 0 && (
         <div className="actions horizon-extension">
