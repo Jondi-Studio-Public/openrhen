@@ -1179,6 +1179,22 @@ export type {
   ReportedSession,
   TimedSession
 } from "./agent-sessions.js";
+export {
+  WATCH_IMPORT_BATCH_ROWS,
+  WATCH_IMPORT_MAX_BODY_BYTES,
+  WATCH_IMPORT_MAX_FILE_BYTES,
+  WATCH_REVIEW_DEFAULT_DAYS,
+  WATCH_REVIEW_MAX_DAYS,
+  WATCH_SESSION_GAP_MINUTES,
+  importWatchHistorySchema
+} from "./watch-history.js";
+export type {
+  ImportWatchHistory,
+  WatchEstimate,
+  WatchHistoryReview,
+  WatchImportResult,
+  WatchImportSummary
+} from "./watch-history.js";
 export { UNTRUSTED_SOURCE_LABELS, fenceUntrusted, newFenceNonce } from "./untrusted-fence.js";
 export type { UntrustedOutputKind } from "./untrusted-fence.js";
 export { contractsExtensions, extensionContractSnapshotTools, registerContractsExtension } from "./extensions.js";

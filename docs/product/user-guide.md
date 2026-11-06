@@ -30,7 +30,7 @@ Something that has already taken your time goes in as a **Disruption**, straight
 3. Open **Settings > Planning** to say how much of your free time is realistically usable, and add fixed commitments from **Day**.
 4. Return to **Now**. If an action fits, start it and use the session controls while you work.
 5. When you stop, report what happened and how much effort remains.
-6. Use **Review** to find planning problems and **History** to inspect recorded sessions.
+6. Use **Review** to find planning problems (it can also count the YouTube you watched, from a Takeout file you import: see [Watch history](building-the-plan.md#watch-history)) and **History** to inspect recorded sessions.
 
 If **Now** says nothing fits, expand **Why nothing fits**. Usually you need more usable free time, a corrected condition or energy requirement on an action, or a missing dependency resolved.
 

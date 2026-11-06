@@ -22,6 +22,7 @@ import { OverdueProposalsPanel } from "@/features/review/components/overdue-prop
 import { WeekOutlookPanel } from "@/features/review/components/week-outlook-panel";
 import { MonthlyCheckPanel } from "@/features/review/components/monthly-check-panel";
 import { AgentTimeLine } from "@/features/review/components/agent-time-line";
+import { WatchHistoryPanel } from "@/features/review/components/watch-history-panel";
 import { AgentChangesPanel } from "@/features/review/components/agent-changes-panel";
 import { ReviewStep, StaleProjects, stepStates, type StaleChoice } from "@/features/review/components/weekly-review";
 import { recordInState } from "@/shared/record-in-state";
@@ -1011,6 +1012,9 @@ export default function ReviewPage() {
           <Card as="div" padded className={cx(styles.sideCard, styles.agents)}>
             <AgentChangesPanel timezone={timezone} />
             <AgentTimeLine />
+          </Card>
+          <Card as="div" padded className={styles.sideCard}>
+            <WatchHistoryPanel />
           </Card>
           <div className={styles.tally}>
             <CheckInTally />

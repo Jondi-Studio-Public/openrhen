@@ -1,0 +1,109 @@
+/* Plan > Review > Watch history: counts per day and hour in the side column, with an import sheet. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  margin: 0;
+}
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+.head h2 {
+  margin: 0;
+  font-size: var(--fs-small);
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.quiet {
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+}
+.error {
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--danger-ink);
+}
+.caveat {
+  margin: 0;
+  font-size: var(--fs-caption);
+  color: var(--ink-3);
+}
+.figure {
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--ink);
+}
+.bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 48px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.bars li {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+}
+.bar {
+  display: block;
+  width: 100%;
+  min-height: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+}
+.bar[data-empty="true"] {
+  background: var(--line);
+}
+.axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--fs-caption);
+  color: var(--ink-3);
+}
+.subhead {
+  margin: var(--s2) 0 0;
+  font-size: var(--fs-caption);
+  color: var(--ink-2);
+}
+.imports {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.imports li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+}
+.imports span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  margin: 0;
+}
+.steps {
+  margin: 0;
+  padding-left: var(--s5);
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+}

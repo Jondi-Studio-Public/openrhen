@@ -192,11 +192,11 @@ describe("backup table count", () => {
   // Adding a table to BACKUP_TABLES changes this count; that is the prompt to bump `formatVersion`, freeze
   // the previous list as a literal and update the number here, in that order.
   it("pins BACKUP_TABLES.length to the current formatVersion so an added table forces a bump", () => {
-    expect(BACKUP_TABLES.length).toBe(66 + groupBackupTables("current").length); // 75 in OpenRhen
+    expect(BACKUP_TABLES.length).toBe(68 + groupBackupTables("current").length); // 77 in OpenRhen
   });
 });
 
-describe("backup format 19", () => {
+describe("backup format 20", () => {
   it("pins the format strings: the one written, and the one the reader also accepts", () => {
     expect(BACKUP_FORMAT).toBe("priorities-postgresql-logical-backup");
     expect(ACCEPTED_BACKUP_FORMATS).toContain("openrhen-postgresql-logical-backup");
@@ -217,7 +217,7 @@ describe("backup format 19", () => {
 
   it("rejects a format newer than this build reads", () => {
     expect(() => validateBackup(backupOf(CURRENT_BACKUP_FORMAT_VERSION + 1, BACKUP_TABLES))).toThrow(
-      /^Unsupported backup formatVersion 20$/
+      /^Unsupported backup formatVersion 21$/
     );
   });
 });
@@ -235,15 +235,15 @@ describe("older backup formats", () => {
     return import("./backup-format.js");
   };
 
-  it("refuses an older format, saying this build restores format 19 only, when no reader recognises it", async () => {
+  it("refuses an older format, saying this build restores format 20 only, when no reader recognises it", async () => {
     const { validateBackup: validate, BACKUP_TABLES: tables } = await withSeam(() => undefined);
-    for (const version of [1, 5, 18]) {
+    for (const version of [1, 5, 19]) {
       expect(() => validate(backupOf(version, tables))).toThrow(
-        `Unsupported backup formatVersion ${version}: this build restores format 19 backups only`
+        `Unsupported backup formatVersion ${version}: this build restores format 20 backups only`
       );
     }
     expect(() => validate(backupOf(0, tables))).toThrow(/^Unsupported backup formatVersion 0$/);
-    expect(() => validate(backupOf(19, tables))).not.toThrow();
+    expect(() => validate(backupOf(20, tables))).not.toThrow();
   });
 
   it("validates an older format against the table list the reader returns for its version", async () => {
@@ -254,7 +254,7 @@ describe("older backup formats", () => {
     });
     expect(() => validate(backupOf(7, ["portal_state", "users"]))).not.toThrow();
     expect(() => validate(backupOf(7, ["portal_state"]))).toThrow("Backup is missing table users");
-    expect(() => validate(backupOf(6, ["portal_state", "users"]))).toThrow(/format 19 backups only/);
+    expect(() => validate(backupOf(6, ["portal_state", "users"]))).toThrow(/format 20 backups only/);
     expect(asked).toEqual([7, 7, 6]);
   });
 
@@ -264,7 +264,7 @@ describe("older backup formats", () => {
       asked.push(version);
       return undefined;
     });
-    validate(backupOf(19, tables));
+    validate(backupOf(20, tables));
     expect(asked).toEqual([]);
   });
 });

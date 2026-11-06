@@ -41,7 +41,7 @@ Create a checksummed logical backup of every table holding authored data:
 corepack pnpm db:backup
 ```
 
-`platform/database/src/operations/backup-format.ts` sorts every table into one of two lists. `BACKUP_TABLES` holds authored data, ordered so that restoring in sequence never violates a foreign key. `REGENERABLE_TABLES` holds planning output, the job queue and audit logs, all recomputed from the first list. A backup fails if any table in the database appears in neither list, so adding a table forces a decision about it. Where an authored table references a regenerable one, the reference is cleared on restore.
+`platform/database/src/operations/backup-format.ts` sorts every table into one of two lists. `BACKUP_TABLES` holds authored data, ordered so that restoring in sequence never violates a foreign key. `REGENERABLE_TABLES` holds planning output, the job queue and audit logs, all recomputed from the first list. A backup fails if any table in the database appears in neither list, so adding a table forces a decision about it. Where an authored table references a regenerable one, the reference is cleared on restore. Format 20 added `watch_imports` and `watch_events` (Takeout watch history) to the first list and `video_info` (public video lengths) to the second; this build restores format 20 only.
 
 Backups are written under `var/backups`, which is git-ignored because they contain your tasks, notes and imported content. The format is versioned and checksummed but **not encrypted**: treat access to a backup as access to the database.
 

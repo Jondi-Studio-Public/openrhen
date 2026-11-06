@@ -114,7 +114,12 @@ const CORE_BACKUP_TABLES = [
   // `projects`, all earlier in this list. Authored.
   "daily_plan_desired_actions",
   "daily_plan_deferred_actions",
-  "planning_focus_projects"
+  "planning_focus_projects",
+  // Watch history (format 20): each uploaded Takeout file, then its raw events. Authored, kept so a restore
+  // does not lose years of history; `watch_events` references `watch_imports` and `users`, so it comes second.
+  // Neither is a plan input and the engine never reads them.
+  "watch_imports",
+  "watch_events"
 ] as const;
 
 export const BACKUP_TABLES: readonly BackupTable[] = [...CORE_BACKUP_TABLES, ...groupBackupTables("current")];
@@ -176,7 +181,9 @@ const CORE_REGENERABLE_TABLES = [
   // `user_preferences` and `check_in_extra_minutes` on commitments and rules ride inside their own tables.
   "pulse_state",
   // A recorded disruption: short-lived, and losing one only lapses the pulse.
-  "pulse_disruptions"
+  "pulse_disruptions",
+  // Public video lengths fetched from YouTube: no user data, refetched on demand, so never backed up.
+  "video_info"
 ] as const;
 
 export const REGENERABLE_TABLES: readonly BackupTable[] = [
@@ -202,7 +209,7 @@ export type BackupTables = Record<CoreBackupTable, Record<string, unknown>[]> &
   Record<string, Record<string, unknown>[]>;
 
 /** The format a new backup is written in. A format bump changes this one constant and nothing else. */
-export const CURRENT_BACKUP_FORMAT_VERSION = 19 as const;
+export const CURRENT_BACKUP_FORMAT_VERSION = 20 as const;
 
 /** Only a current-format backup is held to a row-for-row content check on restore (S8-11). */
 export function isContentVerifiedFormat(formatVersion: number): boolean {
@@ -300,7 +307,7 @@ export function validateBackup(value: unknown): OpenRhenBackup {
     throw new Error("Unsupported or incomplete OpenRhen backup");
   }
   const version = backup.formatVersion;
-  // An older format is read only where the private reader registers its table list; this build restores format 19 alone.
+  // An older format is read only where the private reader registers its table list; this build restores format 20 alone.
   const required =
     version === CURRENT_BACKUP_FORMAT_VERSION
       ? BACKUP_TABLES

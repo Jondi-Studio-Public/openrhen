@@ -43,6 +43,13 @@
       "when": 1793933309480,
       "tag": "0144_agent_wake_attention_waiting",
       "breakpoints": true
+    },
+    {
+      "idx": 145,
+      "version": "7",
+      "when": 1794019709480,
+      "tag": "0145_watch_history",
+      "breakpoints": true
     }
   ]
 }
