@@ -104,6 +104,13 @@ test("--docker keeps UTC and hints; a fresh host run takes the host time zone", 
   assert.equal(envOf(host).APP_TIMEZONE, Intl.DateTimeFormat().resolvedOptions().timeZone);
 });
 
+test("the Next line names the LAN address when the portal is published beyond loopback", () => {
+  const root = makeRoot();
+  writeFileSync(join(root.cwd, ".env"), "PORTAL_HOST_IP=192.168.0.92\nPORTAL_PORT=9000\n");
+  run(root, ["--docker"]);
+  assert.match(root.output(), /Next: run "docker compose up -d", then open http:\/\/192\.168\.0\.92:9000/);
+});
+
 test("bad arguments exit 2; a missing .env.example exits 1", () => {
   const root = makeRoot();
   assert.equal(run(root, ["--nope"]), 2);
