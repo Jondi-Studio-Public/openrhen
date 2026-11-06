@@ -49,7 +49,15 @@ export function digest(lines) {
     totalCalls += 1;
     let tool = byTool.get(entry.mcpTool);
     if (!tool) {
-      tool = { durations: [], sizes: [], errors: 0, byErrorCode: {}, tags: new Map(), retryable: 0, calls: 0 };
+      tool = {
+        durations: [],
+        sizes: [],
+        errors: 0,
+        byErrorCode: Object.create(null),
+        tags: new Map(),
+        retryable: 0,
+        calls: 0
+      };
       byTool.set(entry.mcpTool, tool);
     }
     tool.calls += 1;
@@ -71,13 +79,13 @@ export function digest(lines) {
       calls: tool.calls,
       errors: tool.errors,
       errorRate: tool.errors / tool.calls,
-      byErrorCode: tool.byErrorCode,
+      byErrorCode: { ...tool.byErrorCode },
       durationMs: {
         p50: percentile(tool.durations, 50),
         p95: percentile(tool.durations, 95),
-        max: Math.max(...tool.durations)
+        max: tool.durations.reduce((m, v) => Math.max(m, v), 0)
       },
-      resultBytes: { p50: percentile(tool.sizes, 50), max: Math.max(...tool.sizes) },
+      resultBytes: { p50: percentile(tool.sizes, 50), max: tool.sizes.reduce((m, v) => Math.max(m, v), 0) },
       retriedCalls: [...tool.tags.values()].reduce((sum, count) => sum + (count - 1), 0),
       retryable: tool.retryable
     }))
