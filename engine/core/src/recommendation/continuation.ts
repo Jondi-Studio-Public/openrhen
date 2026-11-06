@@ -109,7 +109,10 @@ export function simulateContinuation(
   };
 }
 
-/** Why fewer minutes than asked are offered: the bound that capped it, so a refusal can be explained to the owner. */
+/**
+ * Why fewer minutes than asked are offered, so a refusal can be explained to the owner. Best-effort attribution: the
+ * bound is identified by equality (coinciding bounds resolve to the first), and the last case is the displacement check.
+ */
 export function limitNote(
   requested: number | undefined,
   offered: number,
