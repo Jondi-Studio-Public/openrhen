@@ -98,10 +98,15 @@ export function describeFetchFailure(error: unknown, url?: string): string {
   if (code === "ENOTFOUND") return "no such host (check the address for typos)";
   if (code === "EAI_AGAIN") return "the host name could not be looked up just now (temporary DNS trouble; try again)";
   if (code === "ECONNRESET" || code === "UND_ERR_SOCKET") return "the connection was closed by the other end";
-  if (code.startsWith("ERR_TLS") || code.includes("CERT") || code === "DEPTH_ZERO_SELF_SIGNED_CERT")
+  if (
+    code.startsWith("ERR_TLS") ||
+    code.includes("CERT") ||
+    code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE" ||
+    code === "DEPTH_ZERO_SELF_SIGNED_CERT"
+  )
     return `the certificate was not accepted (${code})`;
   if (/redirect/i.test(message) || /redirect/i.test(String(cause?.message ?? "")))
-    return "the portal answered with a redirect, which the CLI does not follow (for example from http to https); try the address with https://, or the one the portal redirects to";
+    return "the portal answered with a redirect, which the CLI does not follow (for example from http to https); re-run with --url (or OPENRHEN_URL) set to the https:// address";
   const detail = typeof cause?.message === "string" && cause.message ? cause.message : code;
   return detail && !message.includes(detail) ? `${message}: ${detail}` : message;
 }

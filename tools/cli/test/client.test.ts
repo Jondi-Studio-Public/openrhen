@@ -74,7 +74,7 @@ describe("describeFetchFailure", () => {
     const text = describeFetchFailure(failure({ message: "unexpected redirect" }));
     expect(text).toMatch(/redirect/);
     expect(text).toContain("does not follow");
-    expect(text).not.toContain("redirects to <");
+    expect(text).toContain("--url");
   });
 
   it("keeps what it has when the cause is unknown or missing", () => {
