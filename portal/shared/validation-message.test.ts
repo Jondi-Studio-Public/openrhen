@@ -5,7 +5,16 @@ describe("withValidationIssues", () => {
   it("names the field and the problem after the route's sentence", () => {
     expect(
       withValidationIssues("Project command validation failed.", [{ path: ["project", "name"], message: "Required" }])
-    ).toBe("Project command validation failed. project.name: Required");
+    ).toBe("Project command validation failed. project, name: Required");
+  });
+
+  it("counts list items from one and drops request wrappers", () => {
+    expect(withValidationIssues("Failed.", [{ path: ["payload", "steps", 0, "title"], message: "Required" }])).toBe(
+      "Failed. steps, item 1, title: Required"
+    );
+    expect(withValidationIssues("Failed.", [{ path: ["payload"], message: "Invalid input" }])).toBe(
+      "Failed. payload: Invalid input"
+    );
   });
 
   it("shows two issues and counts the rest", () => {
