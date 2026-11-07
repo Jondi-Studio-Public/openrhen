@@ -1,6 +1,6 @@
 # OpenRhen documentation
 
-OpenRhen is a self-hosted planner that works out what you should do right now, for how long, and why. The rules are deterministic: the same plan and the same clock always give the same answer.
+OpenRhen is a self-hosted planner that works out what to do right now (see the [README](../README.md)).
 
 Start with the guide that matches what you want to do. Open only what you need.
 
@@ -11,10 +11,13 @@ Start with the guide that matches what you want to do. Open only what you need.
 | Understand how a plan is calculated | [Engine logic](engine/logic.md) |
 | Understand how the parts fit together | [Architecture overview](architecture/overview.md) |
 | Connect an outside service | [Writing a connection](architecture/writing-a-connection.md) |
+| Extend it with your own pages, services and settings | [Writing an add-on](architecture/writing-an-addon.md) |
 | Build against the agent surface or the seams | [Protocol](protocol/README.md): [versions](protocol/versions.md), [auth](protocol/auth.md), [proposing changes](protocol/changes.md) |
+| Record what you did on a Windows PC | [Desktop activity agent](architecture/desktop-activity-agent.md), [rhen-watch](../tools/rhen-watch/README.md) |
 | Run it safely beyond one machine | [Locking down the API](operations/locking-down.md) |
 | Back up, restore, upgrade | [Database and backups](operations/database-and-backups.md) |
 | Get leave-by reminders on a phone | [Web push](operations/web-push.md), [Location ping](operations/location-ping.md) |
+| Record what your iPhone does | [iPhone Shortcuts feed](operations/iphone-shortcuts-feed.md) |
 | Contribute | [CONTRIBUTING](../CONTRIBUTING.md), [GOVERNANCE](../GOVERNANCE.md) |
 
 Each document owns its subject. If two documents seem to disagree, the code and its tests are the final word; please open an issue.
