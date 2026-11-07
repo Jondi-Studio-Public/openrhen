@@ -114,9 +114,18 @@ fn cmd_wipe(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// True while an agent holds `run.lock` (the OS drops it if the process dies).
+pub fn agent_running(dir: &std::path::Path) -> bool {
+    match std::fs::OpenOptions::new().write(true).open(dir.join("run.lock")) {
+        Ok(f) => matches!(f.try_lock(), Err(std::fs::TryLockError::WouldBlock)),
+        Err(_) => false,
+    }
+}
+
 fn cmd_status() -> Result<(), String> {
     let d = dir()?;
     println!("data directory: {}", d.display());
+    println!("agent: {}", if agent_running(&d) { "running" } else { "not running" });
     let db = d.join("activity.db");
     if !db.exists() {
         println!("no database yet; run `rhen-watch run`");
@@ -448,11 +457,35 @@ fn cmd_install() -> Result<(), String> {
     let gui = dest.join("rhen-watchw.exe");
     platform::windows::set_autostart(&format!("\"{}\" run", gui.display()))?;
     // DETACHED_PROCESS | CREATE_NO_WINDOW: the agent outlives this console and shows no window of its own.
-    std::process::Command::new(&gui)
+    let mut child = std::process::Command::new(&gui)
         .arg("run")
         .creation_flags(0x0000_0008 | 0x0800_0000)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .spawn()
         .map_err(|e| format!("installed, but could not start it: {e}"))?;
+    // Prove it is alive: it holds run.lock once it is recording, and it must not have exited.
+    let data = paths::data_dir()?;
+    let started = std::time::Instant::now();
+    loop {
+        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+            return Err(format!(
+                "installed, but the agent exited at once ({status}); see rhen-watch.log in {}",
+                data.display()
+            ));
+        }
+        if agent_running(&data) {
+            break;
+        }
+        if started.elapsed() > std::time::Duration::from_secs(5) {
+            return Err(format!(
+                "installed, but the agent did not start recording within 5 seconds; see rhen-watch.log in {}",
+                data.display()
+            ));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
     crate::log::info(&format!("installed to {}", dest.display()));
     println!("It starts when you log on and is running now (look for the tray icon).");
     println!("Report:    {}\\rhen-watch.exe report", dest.display());

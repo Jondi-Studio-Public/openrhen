@@ -629,8 +629,10 @@ pub fn local_offset_minutes() -> i32 {
 
 /// The current user's SID string, from `whoami /user`.
 fn current_sid() -> Result<String, String> {
+    use std::os::windows::process::CommandExt;
     let out = std::process::Command::new("whoami")
         .args(["/user", "/fo", "csv", "/nh"])
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map_err(|e| format!("whoami: {e}"))?;
     let text = String::from_utf8_lossy(&out.stdout);

@@ -832,3 +832,22 @@ fn while_paused_signals_are_not_even_resolved() {
     );
     assert!(rows.iter().any(|e| e.kind == "paused"));
 }
+
+#[test]
+fn agent_running_follows_the_run_lock() {
+    let dir = std::env::temp_dir().join(format!("rhen-watch-lock-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    assert!(!crate::cli::agent_running(&dir), "no lock file: not running");
+    let f = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(dir.join("run.lock"))
+        .unwrap();
+    assert!(!crate::cli::agent_running(&dir), "file present but unlocked: not running");
+    f.try_lock().unwrap();
+    assert!(crate::cli::agent_running(&dir), "lock held: running");
+    drop(f);
+    assert!(!crate::cli::agent_running(&dir));
+    let _ = std::fs::remove_dir_all(&dir);
+}
