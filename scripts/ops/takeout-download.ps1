@@ -308,6 +308,9 @@ finally {
 
 Write-Host ''
 Write-Host ('Fetched {0} part(s), {1:N2} GB.' -f $fetched, ($totalBytes / 1GB))
+if ($stoppedForLogin) {
+  Write-Host 'Stopped at the first sign-in failure; later parts were not tried.'
+}
 if ($failed.Count -gt 0) {
   Write-Host ('Failed parts: ' + ($failed -join ',') + '. Refresh the request file if the cookies expired, then run the same command again (finished parts are skipped, partial ones resume). Leftover partN.headers files are harmless response headers and are replaced on the next run.')
   exit 1
