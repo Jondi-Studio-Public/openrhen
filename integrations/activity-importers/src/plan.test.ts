@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -105,6 +105,16 @@ describe("planImport", () => {
     const bare = join(dir, "BrowserHistory.json");
     writeFileSync(bare, "{}");
     await expect(planImport("takeout", bare)).rejects.toThrow(/single file/);
+  });
+
+  it("tells the user when two zip parts carry the same path", async () => {
+    const folder = join(dir, "parts");
+    mkdirSync(folder);
+    const chrome = JSON.stringify({ "Browser History": [] });
+    writeFileSync(join(folder, "a.zip"), makeZip([{ name: "Takeout/Chrome/BrowserHistory.json", data: chrome }]));
+    writeFileSync(join(folder, "b.zip"), makeZip([{ name: "Takeout/Chrome/BrowserHistory.json", data: chrome }]));
+    const plan = await planImport("takeout", folder);
+    expect(plan.notes.some((note) => /1 path.*more than one zip.*first copy/.test(note))).toBe(true);
   });
 
   it("reads a bare My Activity file with the folder it sits in as the product", async () => {

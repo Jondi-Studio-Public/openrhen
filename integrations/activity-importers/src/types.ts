@@ -30,12 +30,24 @@ export interface Stats {
   /** Rows that are valid but not wanted (another record type, a product another route covers). */
   ignored: number;
   reasons: Record<string, number>;
+  /** The first word of titles skipped for an unknown verb, counted (at most `MAX_VERBS` distinct), so a summary can name them. */
+  verbs: Record<string, number>;
   /** The input ended inside a structure (a cut-off download). Events read before that are still emitted. */
   truncated: boolean;
 }
 
 export function newStats(): Stats {
-  return { read: 0, emitted: 0, skipped: 0, ignored: 0, reasons: {}, truncated: false };
+  return { read: 0, emitted: 0, skipped: 0, ignored: 0, reasons: {}, verbs: {}, truncated: false };
+}
+
+export const MAX_VERBS = 200;
+
+/** Counts a skipped title's first word. */
+export function noteVerb(stats: Stats, title: string): void {
+  const word = title.trim().split(/\s+/, 1)[0]?.slice(0, 30) ?? "";
+  if (!word) return;
+  if (word in stats.verbs || Object.keys(stats.verbs).length < MAX_VERBS)
+    stats.verbs[word] = (stats.verbs[word] ?? 0) + 1;
 }
 
 /** Counts a skipped row under a reason. Reasons are fixed phrases, so the tally stays small. */
@@ -50,6 +62,7 @@ export function mergeStats(into: Stats, from: Stats): void {
   into.skipped += from.skipped;
   into.ignored += from.ignored;
   into.truncated ||= from.truncated;
+  for (const [verb, count] of Object.entries(from.verbs)) into.verbs[verb] = (into.verbs[verb] ?? 0) + count;
   for (const [reason, count] of Object.entries(from.reasons))
     into.reasons[reason] = (into.reasons[reason] ?? 0) + count;
 }

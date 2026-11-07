@@ -1,4 +1,4 @@
-import { archiveSha256, openArchive, sourceSha256, type Archive } from "./archive.js";
+import { archiveHasher, openArchive, sourceSha256, type Archive } from "./archive.js";
 import { parseAppleHealth } from "./parsers/apple-health.js";
 import { parseChromeHistory } from "./parsers/chrome.js";
 import { channelIdFromFolder, parseDiscordMessagesCsv, parseDiscordMessagesJson } from "./parsers/discord.js";
@@ -257,12 +257,17 @@ export async function planImport(source: ImportSourceName, path: string): Promis
         ? `Nothing this importer reads was found in ${path}. Expected a Takeout with Chrome, My Activity, Maps, Fit or YouTube history. Export those products from takeout.google.com in JSON format.`
         : `No ${EXPECTED[source]} found in ${path}. Check that you chose the right source and the right export.`
     );
+  if (archive.duplicates.length > 0)
+    notes.push(
+      `${archive.duplicates.length} path(s) appear in more than one zip part (for example ${archive.duplicates[0]}); only the first copy was read.`
+    );
+  const hash = archiveHasher(archive);
   return {
     archive,
     jobs,
     notes,
     async sha256For(job) {
-      const container = await archiveSha256(archive, job.files);
+      const container = await hash(job.files);
       // A bare file is recorded under its own hash. A container (zip or folder) can feed several sources, and one
       // hash can name only one import, so each source's import is recorded under a hash of the container and the source.
       return archive.kind === "file" ? container : sourceSha256(container, job.source);
