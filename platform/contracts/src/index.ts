@@ -1204,6 +1204,54 @@ export type {
   WatchLengthsFetchResult,
   WatchImportSummary
 } from "./watch-history.js";
+export {
+  ACTIVITY_ATTRS_MAX_BYTES,
+  ACTIVITY_CONTENT_GATE_NOTE,
+  ACTIVITY_CONTENT_MAX_BYTES,
+  ACTIVITY_CORRECTION_KIND,
+  ACTIVITY_DEVICE_MAX_CHARS,
+  ACTIVITY_FILENAME_MAX_CHARS,
+  ACTIVITY_FUTURE_SLACK_HOURS,
+  ACTIVITY_KEY_MAX_CHARS,
+  ACTIVITY_MAX_BATCH,
+  ACTIVITY_MAX_BODY_BYTES,
+  ACTIVITY_PURGE_BATCH,
+  ACTIVITY_READ_DEFAULT_LIMIT,
+  ACTIVITY_READ_MAX_LIMIT,
+  ACTIVITY_SCHEMA_VERSION,
+  ACTIVITY_SOURCES,
+  ACTIVITY_SOURCE_NAMES,
+  activityEnvelopeSchema,
+  activityEventSchema,
+  activityEventsJsonSchema,
+  activityImportRefSchema,
+  activityKindsOf,
+  activityShorthandSchema,
+  describeTimeProblem,
+  describeUnstorableText,
+  activitySourceNameSchema,
+  activitySourceSettingsSchema,
+  ingestActivityEventsSchema,
+  isActivityShorthand,
+  isKnownActivitySource,
+  offsetMinutesOf,
+  validateActivityEvent
+} from "./activity-events.js";
+export type {
+  ActivityEventInput,
+  ActivityEventRow,
+  ActivityEventsPage,
+  ActivityEventVerdict,
+  ActivityIngestResult,
+  ActivityRejection,
+  ActivityShorthand,
+  ActivitySourceEntry,
+  ActivitySourceSettings,
+  ActivitySourceSummary,
+  ActivitySummary,
+  IngestActivityEvents,
+  ValidActivityEvent
+} from "./activity-events.js";
 export { UNTRUSTED_SOURCE_LABELS, fenceUntrusted, newFenceNonce } from "./untrusted-fence.js";
 export type { UntrustedOutputKind } from "./untrusted-fence.js";
 export { contractsExtensions, extensionContractSnapshotTools, registerContractsExtension } from "./extensions.js";

@@ -348,6 +348,9 @@ export function isKnownScope(scope: string): boolean {
     knownScopes.add("write:inbox");
     // Posting session records for agent time. Not a CLI tool, so not in FIXED_TOOL_SCOPES.
     knownScopes.add("write:agent-session");
+    // The activity store: capture posts events; reading them back (content included) is its own scope.
+    knownScopes.add("write:activity-event");
+    knownScopes.add("read:activity-event");
     knownScopes.add("write:plan-map");
     // A token holding this scope has its settle applied directly.
     knownScopes.add("write:catch-up");

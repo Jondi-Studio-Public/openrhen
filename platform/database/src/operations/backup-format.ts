@@ -123,7 +123,15 @@ const CORE_BACKUP_TABLES = [
   // The Now offer log (format 21): what Now offered and what happened next. Append-only history nothing regenerates
   // (`plan-retention.ts` deletes the recommendations it describes after a week). References only `users`. A format 20
   // backup has no such table and restores with it empty (`legacy-backups.ts`). The planner never reads it.
-  "offer_log"
+  "offer_log",
+  // The activity store (format 22): import records first, then the append-only events that reference them, then the
+  // per-source settings (content gate, retention; the poller cursor rides along). All authored or irreplaceable
+  // (an export file cannot always be re-read), none a plan input, and the engine never reads them. A format 20 or 21
+  // backup has none of these tables and restores with them empty (`legacy-backups.ts`). Format 22 follows the offer
+  // log's 21: both were developed side by side, and format numbers go in merge order.
+  "activity_imports",
+  "activity_events",
+  "activity_source_state"
 ] as const;
 
 export const BACKUP_TABLES: readonly BackupTable[] = [...CORE_BACKUP_TABLES, ...groupBackupTables("current")];
@@ -219,7 +227,7 @@ export type BackupTables = Record<CoreBackupTable, Record<string, unknown>[]> &
   Record<string, Record<string, unknown>[]>;
 
 /** The format a new backup is written in. A format bump changes this one constant and nothing else. */
-export const CURRENT_BACKUP_FORMAT_VERSION = 21 as const;
+export const CURRENT_BACKUP_FORMAT_VERSION = 22 as const;
 
 /** Only a current-format backup is held to a row-for-row content check on restore (S8-11). */
 export function isContentVerifiedFormat(formatVersion: number): boolean {
@@ -235,12 +243,29 @@ export const BACKUP_FORMAT = "priorities-postgresql-logical-backup" as const;
  */
 export const ACCEPTED_BACKUP_FORMATS = [BACKUP_FORMAT, "openrhen-postgresql-logical-backup"] as const;
 
+/**
+ * The most `activity_events` rows the single-JSON backup carries. The backup is one string with one checksum built in
+ * memory: measured, 1,000,000 synthetic rows made a 453 MB file and about 2.4 GB of process memory, and 2,000,000 threw
+ * `Invalid string length` (V8's limit), failing the whole backup including the plan. Above this the events are skipped,
+ * loudly and on record, until the activity tables get a streamed section of their own.
+ */
+export const ACTIVITY_BACKUP_MAX_ROWS = 500_000;
+
+/** A table the backup left out on purpose, and why. Written into the backup file as `skipped` and printed by the backup command. */
+export interface SkippedBackupTable {
+  table: string;
+  rows: number;
+  reason: string;
+}
+
 export interface OpenRhenBackup {
   format: (typeof ACCEPTED_BACKUP_FORMATS)[number];
   formatVersion: number;
   createdAt: string;
   sourceDatabase: string;
   tables: BackupTables;
+  /** Tables left out because they were too large for this format; absent when nothing was. Not covered by the checksum. */
+  skipped?: SkippedBackupTable[];
   sha256: string;
 }
 
@@ -258,10 +283,27 @@ export function databaseName(connectionString: string): string {
  * the portal or a worker cannot land in the backup as an orphan or as skew between tables (S8-04).
  * The reads are sequential on that transaction's one connection.
  */
-export async function readAllTables(sql: postgres.Sql): Promise<BackupTables> {
+export async function readAllTables(
+  sql: postgres.Sql,
+  skipped?: SkippedBackupTable[],
+  options: { maxActivityRows?: number } = {}
+): Promise<BackupTables> {
+  const maxActivityRows = options.maxActivityRows ?? ACTIVITY_BACKUP_MAX_ROWS;
   return (await sql.begin("isolation level repeatable read read only", async (transaction) => {
     const entries: (readonly [string, Record<string, unknown>[]])[] = [];
     for (const table of BACKUP_TABLES) {
+      if (table === "activity_events") {
+        const [held] = await transaction.unsafe<{ n: number }[]>(`SELECT count(*)::int AS n FROM "activity_events"`);
+        if (held!.n > maxActivityRows) {
+          skipped?.push({
+            table,
+            rows: held!.n,
+            reason: `${held!.n} rows is over the ${maxActivityRows} the JSON backup holds, and a larger one would fail the whole backup. The activity events are NOT in this backup; the pg_dump taken before a migration does hold them.`
+          });
+          entries.push([table, []] as const);
+          continue;
+        }
+      }
       const rows = await transaction.unsafe<Record<string, unknown>[]>(`SELECT * FROM "${table}" ORDER BY 1`);
       entries.push([table, [...rows]] as const);
     }
@@ -317,7 +359,7 @@ export function validateBackup(value: unknown): OpenRhenBackup {
     throw new Error("Unsupported or incomplete OpenRhen backup");
   }
   const version = backup.formatVersion;
-  // An older format is read only where the legacy reader registers its table list (format 20 is registered there).
+  // An older format is read only where the legacy reader registers its table list (formats 20 and 21 are registered there).
   const required =
     version === CURRENT_BACKUP_FORMAT_VERSION
       ? BACKUP_TABLES

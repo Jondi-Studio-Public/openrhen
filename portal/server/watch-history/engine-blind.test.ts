@@ -11,11 +11,13 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "..", "..", "..");
 const WATCH_TABLES = ["watch_events", "watch_imports", "video_info"];
 /**
- * The watch-history tables and the tables that support them (saved keys, the YouTube quota counter), and the Now offer
- * log: none feeds the plan. The offer log is write-only for planning: `plan-forecast-runtime.ts` appends an `offered`
- * row through `offer-log/offer-log.ts`, which lives outside `planning/`, and no planning or engine file names the table.
+ * The watch-history tables, the activity store (`activity_events`, its import records and per-source settings), the
+ * tables that support them (saved keys, the YouTube quota counter), and the Now offer log: none feeds the plan. The
+ * offer log is write-only for planning: `plan-forecast-runtime.ts` appends an `offered` row through
+ * `offer-log/offer-log.ts`, which lives outside `planning/`, and no planning or engine file names the table.
  */
-const BLIND_TABLES = [...WATCH_TABLES, "app_secrets", "youtube_quota_use", "offer_log"];
+const ACTIVITY_TABLES = ["activity_events", "activity_imports", "activity_source_state"];
+const BLIND_TABLES = [...WATCH_TABLES, ...ACTIVITY_TABLES, "app_secrets", "youtube_quota_use", "offer_log"];
 
 const SKIPPED_DIRECTORIES = new Set([
   "node_modules",
@@ -45,6 +47,7 @@ function sources(dir: string): { path: string; text: string }[] {
 const MAY_NAME_BLIND_TABLES = new Set([
   "portal/server/persistence/postgres/watch-history-store.ts",
   "portal/server/persistence/postgres/video-lengths-store.ts",
+  "portal/server/persistence/postgres/activity-store.ts",
   "portal/server/persistence/postgres/app-secrets-store.ts",
   "portal/server/secrets/read-secret.ts",
   "platform/database/src/schema/core.ts",
@@ -113,5 +116,31 @@ describe("watch history is blind to the engine", () => {
     expect(naming.filter((path) => !MAY_NAME_BLIND_TABLES.has(path))).toEqual([]);
     // The allowance list does not rot: each file on it still names a table.
     expect(naming).toEqual([...MAY_NAME_BLIND_TABLES].sort());
+  });
+
+  it("keeps the activity store's code and drizzle names out of every file but its own routes and store", () => {
+    // snake_case names are covered above; this catches the module and the drizzle table objects, which a file could
+    // import without ever writing a table name.
+    const NAMES = [/activity-store(?!\.md)/, /\bactivityEvents\b/, /\bactivityImports\b/, /\bactivitySourceState\b/];
+    const MAY_USE_ACTIVITY_CODE = new Set([
+      "portal/server/persistence/postgres/activity-store.ts",
+      "portal/server/activity-ingest.ts",
+      "portal/app/api/activity-events/route.ts",
+      "portal/app/api/activity-events/summary/route.ts",
+      "portal/app/api/activity-imports/route.ts",
+      "portal/app/api/activity-imports/[id]/route.ts",
+      "portal/app/api/activity-sources/[source]/route.ts",
+      "portal/app/api/activity-sources/[source]/events/route.ts",
+      "platform/database/src/schema/core.ts"
+    ]);
+    const roots = ["engine", "portal", "platform", "integrations", "tools", "scripts"];
+    const files = roots.flatMap((name) => sources(join(repo, name)));
+    const using = files
+      .filter((file) => NAMES.some((pattern) => pattern.test(file.text)))
+      .map((file) => relative(repo, file.path).split(sep).join("/"))
+      .sort();
+    expect(using.filter((path) => !MAY_USE_ACTIVITY_CODE.has(path))).toEqual([]);
+    // The allowance does not rot: each file on it still uses the activity code.
+    expect(using).toEqual([...MAY_USE_ACTIVITY_CODE].sort());
   });
 });

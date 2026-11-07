@@ -437,7 +437,7 @@ export function withRoute<Context = unknown>(
     try {
       // A lapsed pulse holds every agent call but re-entry; the owner is not held here.
       if (identity.actor && !owner.owner) {
-        const held = await reentryGate(route);
+        const held = await reentryGate(route, new Date(), request.method);
         if (held) {
           log("info", "Portal request refused", line(held.status, undefined, false));
           return held;

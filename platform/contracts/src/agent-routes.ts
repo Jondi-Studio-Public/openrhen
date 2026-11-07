@@ -594,6 +594,8 @@ const WRITE_RULES: Record<string, Rule> = {
   "POST /api/agent-proposals": proposalWrite,
   // Agent time ingest: its own narrow scope, never a proposal, nothing on the hard floor.
   "POST /api/agent-sessions": () => ({ kind: "scopes", scopes: ["write:agent-session"] }),
+  // Activity store ingest: its own narrow scope, never a proposal, nothing on the hard floor.
+  "POST /api/activity-events": () => ({ kind: "scopes", scopes: ["write:activity-event"] }),
   "POST /api/imports/extract": fixed({ tool: "import", action: "extract" }),
   "POST /api/imports/preview": fixed({ tool: "import", action: "preview" }),
   "POST /api/imports/[id]/commit": fixed({ tool: "import", action: "commit" }),
@@ -636,6 +638,10 @@ const OWNER_ROUTES: Record<string, string> = {
   // Watch history is the person's own viewing record, held where the engine cannot see it; no agent reads or writes it.
   "POST /api/imports/watch-history": "Importing a watch-history file",
   "DELETE /api/imports/watch-history/[id]": "Undoing a watch-history import",
+  // The activity store's settings and deletions are the owner's: the content gate, retention, undoing an import, purging a source.
+  "PUT /api/activity-sources/[source]": "Setting a source's content gate or retention",
+  "DELETE /api/activity-sources/[source]/events": "Purging every event of a source",
+  "DELETE /api/activity-imports/[id]": "Undoing an activity import",
   // Passwords and keys the person typed in: write-only, and never an agent's to set, list or remove. Nothing reads a value back.
   "PUT /api/settings/secrets/[name]": "Saving a password or key",
   "DELETE /api/settings/secrets/[name]": "Removing a password or key",
@@ -716,6 +722,10 @@ const READ_RULES: Record<string, string | "public"> = {
   // propose (see `READ_ANY_OF`).
   "/api/commands/reenter": "write:catch-up",
   "/api/changes": "read:changes",
+  // The activity store read-back exposes content over a token, so it has its own scope. The import check is the
+  // capture token's own question (is this file already held), so it takes the capture scope, not the read one.
+  "/api/activity-events": "read:activity-event",
+  "/api/activity-imports": "write:activity-event",
   "/api/agent-proposals": "read:proposals",
   "/api/deliverable-source-files/[id]": "read:files",
   "/api/deliverables/[id]/chat": "read:files",
@@ -745,6 +755,7 @@ const OWNER_READS = new Set([
   "/oauth/authorize",
   "/api/agent-tokens",
   "/api/agent-sessions",
+  "/api/activity-events/summary",
   "/api/agent-changes",
   "/api/agent-changes/[id]",
   "/api/review/watch-history",

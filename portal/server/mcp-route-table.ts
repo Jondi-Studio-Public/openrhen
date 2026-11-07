@@ -9,6 +9,12 @@ export type RouteModule = Partial<Record<RouteMethod, RouteHandler>>;
 
 /** Routes the core ships; `MCP_ROUTE_TABLE` adds the private ones. */
 export const CORE_MCP_ROUTE_TABLE: Record<string, () => Promise<RouteModule>> = {
+  "/api/activity-events": () => import("@/app/api/activity-events/route"),
+  "/api/activity-events/summary": () => import("@/app/api/activity-events/summary/route"),
+  "/api/activity-imports": () => import("@/app/api/activity-imports/route"),
+  "/api/activity-imports/[id]": () => import("@/app/api/activity-imports/[id]/route"),
+  "/api/activity-sources/[source]": () => import("@/app/api/activity-sources/[source]/route"),
+  "/api/activity-sources/[source]/events": () => import("@/app/api/activity-sources/[source]/events/route"),
   "/api/agent-changes": () => import("@/app/api/agent-changes/route"),
   "/api/agent-changes/[id]": () => import("@/app/api/agent-changes/[id]/route"),
   "/api/agent-changes/[id]/undo": () => import("@/app/api/agent-changes/[id]/undo/route"),
