@@ -15,7 +15,7 @@ Two sources, both validated by the activity store's registry:
 | `iphone-shortcuts` | `app_open`, `app_close`, `focus_on`, `focus_off`, `charger_on`, `charger_off`, `place_arrive`, `place_leave`, `wifi`, `wake`, `alarm` | the automation fires |
 | `iphone-health` | `steps_day`, `sleep`, `workout`, `heart_rate_day`, `energy_day` | once a day |
 
-Anything you add to the Dictionary the automation hands to the shared shortcut (below) arrives as `attrs`, so `name`, `battery`, `place` and so on need no server change. Whether text such as an app name or place name is stored is decided by the source's content setting in portal Settings.
+Anything you add to the Dictionary the automation hands to the shared shortcut (below) arrives as `attrs`, so `name`, `battery`, `place` and so on need no server change. App and place names go in `attrs`, which is always stored. The source's content setting in portal Settings gates only the separate `content` field, which these recipes do not use.
 
 ## 1. Make the token
 
@@ -48,13 +48,7 @@ The server fills in the event id, so a retry of the same second is not double-co
 
 ## 3. Test it
 
-Run `Rhen Event` once by hand from a tiny test shortcut: **Dictionary** with `kind` = `app_open` and `name` = `Test`, then **Run Shortcut** `Rhen Event` with that Dictionary as input. Then in PowerShell on your PC (token in `$env:RHEN_TOKEN`, host in `$h`):
-
-```powershell
-Invoke-RestMethod "https://$h/api/activity-events/summary" -Headers @{ 'X-OpenRhen-Token' = $env:RHEN_TOKEN }
-```
-
-The summary lists a last event for `iphone-shortcuts`. If **Get Contents of URL** shows an error body, it names the exact field to fix.
+Run `Rhen Event` once by hand from a tiny test shortcut: **Dictionary** with `kind` = `app_open` and `name` = `Test`, then **Run Shortcut** `Rhen Event` with that Dictionary as input. Then open the portal's Review screen: the activity line lists a last event for `iphone-shortcuts`. (The summary route is owner-only, so a token cannot read it.) If **Get Contents of URL** shows an error body, it names the exact field to fix.
 
 ## 4. The automations
 
@@ -90,7 +84,7 @@ In `Rhen Health`:
    - `end`: **DayEnd** formatted ISO 8601
    - `device`: `iphone`
    - `attrs` (Dictionary): `total` = **Steps**
-6. Repeat 4 and 5 for each other metric you want: **Sleep Analysis** (sum of asleep durations in hours, `kind` = `sleep`), **Workouts** (one event per workout, `kind` = `workout`, with its start, end and type), **Heart Rate** (average and maximum, `heart_rate_day`), **Active Energy** (sum, `energy_day`).
+6. Repeat 4 and 5 for each other metric you want: **Sleep Analysis** (sum of asleep durations in hours, `kind` = `sleep`), **Workouts** (one event per workout, `kind` = `workout`, with its start, end and type, and `id` = `DayText:workout:` followed by the workout's start time, since several can happen in a day), **Heart Rate** (average and maximum, `heart_rate_day`), **Active Energy** (sum, `energy_day`).
 
 Because `id` is the day plus the kind, running it twice for the same day is `alreadyHeld` and changes nothing. The first run asks permission to read each Health type; allow all of them.
 
