@@ -68,4 +68,5 @@ Pure logic is tested on Linux and Windows runners: interval building, de-duplica
 - A suspend whose resume message is lost would leave the `suspended` interval open until the next resume or stop.
 - `rhen-watch stop` uses a per-logon-session event, so a remote desktop session cannot stop an agent running in the console session; use Ctrl+C there.
 - Store writes that fail are kept in memory and retried each second; the agent exits after about a minute of consecutive failures.
+- Pause drops any lock, remote or suspend state in progress; resume reads the foreground again but does not restore those, so a lock that began before pausing is not recorded.
 - Retention purge runs on the first tick of each UTC day, then shrinks the write-ahead log.

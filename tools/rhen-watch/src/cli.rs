@@ -22,6 +22,8 @@ USAGE
 ";
 
 pub fn main() {
+    // The no-console build has nowhere to show a panic, so put it in the log.
+    std::panic::set_hook(Box::new(|info| crate::log::error(&format!("internal error: {info}"))));
     let args: Vec<String> = std::env::args().skip(1).collect();
     let code = match real_main(&args) {
         Ok(()) => 0,
@@ -365,6 +367,26 @@ fn install_dir() -> Result<PathBuf, String> {
         .ok_or_else(|| "LOCALAPPDATA is not set".to_string())
 }
 
+/// Wait until none of `files` is held open by a running copy (Windows will not replace or delete a running program).
+#[cfg(windows)]
+fn wait_released(files: &[PathBuf]) -> Result<(), String> {
+    use std::time::{Duration, Instant};
+    let started = Instant::now();
+    loop {
+        let busy: Vec<_> = files
+            .iter()
+            .filter(|f| f.exists() && std::fs::OpenOptions::new().write(true).open(f).is_err())
+            .collect();
+        if busy.is_empty() {
+            return Ok(());
+        }
+        if started.elapsed() > Duration::from_secs(10) {
+            return Err(format!("{} is still running; close it and try again", busy[0].display()));
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
 /// Ask a running agent to stop and wait until its lock is free.
 #[cfg(windows)]
 fn stop_and_wait() -> Result<(), String> {
@@ -402,9 +424,25 @@ fn cmd_install() -> Result<(), String> {
     }
     stop_and_wait()?;
     std::fs::create_dir_all(&dest).map_err(|e| format!("cannot create {}: {e}", dest.display()))?;
-    if src_dir != dest {
-        for n in names {
-            std::fs::copy(src_dir.join(n), dest.join(n)).map_err(|e| format!("cannot copy {n}: {e}"))?;
+    let same = match (src_dir.canonicalize(), dest.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    };
+    if !same {
+        let targets: Vec<PathBuf> = names.iter().map(|n| dest.join(n)).collect();
+        wait_released(&targets)?;
+        // Copy both under temporary names first, so a failure leaves the old pair untouched.
+        let staged: Vec<(PathBuf, PathBuf)> = names.iter().map(|n| (dest.join(format!("{n}.new")), dest.join(n))).collect();
+        for (n, (tmp, _)) in names.iter().zip(&staged) {
+            if let Err(e) = std::fs::copy(src_dir.join(n), tmp) {
+                for (t, _) in &staged {
+                    let _ = std::fs::remove_file(t);
+                }
+                return Err(format!("cannot copy {n}: {e}"));
+            }
+        }
+        for (tmp, target) in &staged {
+            std::fs::rename(tmp, target).map_err(|e| format!("cannot replace {}: {e}", target.display()))?;
         }
     }
     let gui = dest.join("rhen-watchw.exe");
@@ -428,15 +466,17 @@ fn cmd_install() -> Result<(), String> {
 
 #[cfg(windows)]
 fn cmd_uninstall(args: &[String]) -> Result<(), String> {
-    stop_and_wait()?;
-    platform::windows::clear_autostart()?;
     let dest = install_dir()?;
+    stop_and_wait()?;
+    let gui = dest.join("rhen-watchw.exe");
+    wait_released(&[gui])?;
+    platform::windows::clear_autostart()?;
     let mut leftovers = Vec::new();
     for n in ["rhen-watch.exe", "rhen-watchw.exe"] {
         let p = dest.join(n);
         if p.exists() {
             // The console copy may be the program running this very command; Windows will not delete it.
-            if std::env::current_exe().is_ok_and(|me| me == p) {
+            if std::env::current_exe().ok().and_then(|me| me.canonicalize().ok()) == p.canonicalize().ok() {
                 leftovers.push(p);
             } else if let Err(e) = std::fs::remove_file(&p) {
                 return Err(format!("cannot remove {}: {e}", p.display()));

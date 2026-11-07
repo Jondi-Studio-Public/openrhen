@@ -27,13 +27,16 @@ use windows_sys::Win32::System::Threading::*;
 use windows_sys::Win32::System::Time::*;
 use windows_sys::Win32::UI::Accessibility::*;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
-use windows_sys::Win32::UI::Shell::*;
+use windows_sys::Win32::UI::Shell::{NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW, Shell_NotifyIconW};
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 use windows_sys::core::{BOOL, GUID};
 
 use crate::engine::{Fg, PowerEvt, SessionEvt};
 use crate::model::Ms;
 use crate::runner::{Control, Raw, Sys};
+
+/// Keeps helper programs from flashing a console when the no-console build starts them.
+pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 pub static STOP: AtomicBool = AtomicBool::new(false);
 /// Set by `main` once open intervals are closed and flushed; the console handler and WM_ENDSESSION wait for it.
@@ -312,10 +315,17 @@ unsafe fn show_menu(hwnd: HWND) {
         PostMessageW(hwnd, WM_NULL, 0, 0);
         DestroyMenu(menu);
         match cmd {
-            ID_TOGGLE => send(Raw::Control(if state == 1 { Control::Resume } else { Control::Pause })),
+            ID_TOGGLE => {
+                // A click must not be lost to a full queue, so this one waits for room.
+                if let Some(tx) = SENDER.get() {
+                    let _ = tx.send(Raw::Control(if state == 1 { Control::Resume } else { Control::Pause }));
+                }
+            }
             ID_FOLDER => {
+                // explorer.exe needs no COM setup on this thread, unlike ShellExecute.
                 if let Some(dir) = DATA_DIR.get() {
-                    ShellExecuteW(null_mut(), wide("open").as_ptr(), dir.as_ptr(), null(), null(), SW_SHOWNORMAL);
+                    let path = String::from_utf16_lossy(&dir[..dir.len().saturating_sub(1)]);
+                    let _ = std::process::Command::new("explorer.exe").arg(path).spawn();
                 }
             }
             ID_QUIT => STOP.store(true, Ordering::SeqCst),
@@ -635,7 +645,9 @@ fn current_sid() -> Result<String, String> {
 /// is by SID, so a domain or Microsoft-account name cannot resolve to the wrong principal.
 pub fn restrict_dir(dir: &std::path::Path) -> Result<(), String> {
     let sid = current_sid()?;
+    use std::os::windows::process::CommandExt;
     let out = std::process::Command::new("icacls")
+        .creation_flags(CREATE_NO_WINDOW)
         .arg(dir)
         .args(["/inheritance:r", "/grant:r"])
         .arg(format!("*{sid}:(OI)(CI)F"))

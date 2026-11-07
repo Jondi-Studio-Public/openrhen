@@ -121,6 +121,10 @@ impl<S: Sys> Runner<S> {
     }
 
     pub fn handle(&mut self, raw: Raw) -> Result<(), String> {
+        if self.engine.paused() && !matches!(raw, Raw::Control(_)) {
+            // Paused means paused: do not even look the window up.
+            return Ok(());
+        }
         let signal = match raw {
             Raw::Foreground(hwnd) => Signal::Foreground(self.sys.resolve(hwnd)),
             Raw::Session(e) => Signal::Session(e),
@@ -176,7 +180,7 @@ impl<S: Sys> Runner<S> {
         }
         if now - self.last_idle >= IDLE_EVERY_MS {
             self.last_idle = now;
-            if !self.engine.suppressed() {
+            if !self.engine.suppressed() && !self.engine.paused() {
                 match self.sys.idle_ms() {
                     Some(idle) => return self.feed_then_beat(Signal::Idle(idle), now),
                     None if !self.idle_unavailable => {
