@@ -1,6 +1,6 @@
 # Activity store
 
-Status: implemented (ingest, store and owner routes); importers and live pollers are later changes. Owns: the append-only `activity_events` table, its ingest and read routes, the source registry, the content gate, retention and undo. The capture side is [Desktop activity agent](desktop-activity-agent.md). The published request schema is `platform/contracts/activity-events-schema.v1.json`.
+Status: implemented (ingest, store and owner routes); the importers are in `integrations/activity-importers` and [Importing your data](../operations/importing-your-data.md); live pollers are a later change. Owns: the append-only `activity_events` table, its ingest and read routes, the source registry, the content gate, retention and undo. The capture side is [Desktop activity agent](desktop-activity-agent.md). The published request schema is `platform/contracts/activity-events-schema.v1.json`.
 
 Every non-plan data source (the desktop agent, browser history, plays, messages, sleep, weather, phone shortcuts) lands as rows in one table, so a later predictor reads one place. Nothing in the engine, scheduler or pulse reads these tables: a write queues no recalculation, and `portal/server/watch-history/engine-blind.test.ts` fails if any other source file names them. There are no MCP tools for it (the tool list is capped).
 

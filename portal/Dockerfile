@@ -7,6 +7,7 @@ COPY portal/package.json portal/package.json
 COPY platform/contracts/package.json platform/contracts/package.json
 COPY platform/database/package.json platform/database/package.json
 COPY tools/cli/package.json tools/cli/package.json
+COPY integrations/activity-importers/package.json integrations/activity-importers/package.json
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm-store \
     pnpm config set store-dir /pnpm-store && \
     pnpm install --frozen-lockfile
@@ -14,6 +15,7 @@ COPY portal portal
 COPY platform/contracts platform/contracts
 COPY platform/database platform/database
 COPY tools/cli tools/cli
+COPY integrations/activity-importers integrations/activity-importers
 
 # The build takes no configuration: `vinext build` emits dist/standalone/, and the server reads
 # DATABASE_URL and the rest from the environment at start (portal/server/runtime-env.ts). Nothing
