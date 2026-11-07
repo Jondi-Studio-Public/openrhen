@@ -27,6 +27,11 @@ export interface ProfileUnderTest {
    * `publishedRemoteIds`), so the echo scenario can check it is never proposed back.
    */
   makeEcho: () => { event: CalendarEvent; publishedRemoteIds?: ReadonlySet<string> };
+  /**
+   * Optional: inputs the scenarios start from in place of the defaults (date window, timezone, mapping inputs such as
+   * locations or calendar names), for a profile that needs them. Each scenario still sets its own events and links.
+   */
+  input?: Partial<CalendarDiffInput>;
 }
 
 const base = (overrides: Partial<CalendarEvent> = {}): CalendarEvent => ({
@@ -48,7 +53,7 @@ const base = (overrides: Partial<CalendarEvent> = {}): CalendarEvent => ({
   ...overrides
 });
 
-const input = (overrides: Partial<CalendarDiffInput> = {}): CalendarDiffInput => ({
+const baseInput = (overrides: Partial<CalendarDiffInput> = {}): CalendarDiffInput => ({
   timezone: "Australia/Adelaide",
   timeMin: "2026-08-01T00:00:00.000Z",
   timeMax: "2026-09-01T00:00:00.000Z",
@@ -94,7 +99,9 @@ export const defaultEvent = base;
 export function describeProfileConformance(entries: readonly ProfileUnderTest[]): void {
   describe.each(entries)(
     "diff orchestration through the registry: $name",
-    ({ name, provider, label, makeEvent, makeEcho }) => {
+    ({ name, provider, label, makeEvent, makeEcho, input: profileInput }) => {
+      const input = (overrides: Partial<CalendarDiffInput> = {}): CalendarDiffInput =>
+        baseInput({ ...profileInput, ...overrides });
       const profile = registeredDiffProfile(name, provider, label)!;
 
       it("is registered", () => expect(profile).toBeDefined());

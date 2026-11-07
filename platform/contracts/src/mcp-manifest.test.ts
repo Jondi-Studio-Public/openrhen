@@ -332,6 +332,22 @@ describe("a tool placement's overrides", () => {
     expect(basis(after)).toBe("core two, reworded");
   });
 
+  it("throw, naming the extension and tool, when an override matches no registered tool", () => {
+    const restore = suspendContractsExtensions();
+    try {
+      registerContractsExtension({
+        id: "typo-ext",
+        mcpTools: { after: "rhen_one", tools: [], overrides: () => [entry("rhen_twoo", "typo")] }
+      });
+      expect(() => withExtensionTools(core)).toThrow(/"typo-ext".*"rhen_twoo".*not a registered tool/);
+    } finally {
+      restore();
+    }
+    expect(() =>
+      extended(core, { id: "list-typo", mcpTools: { after: "rhen_one", tools: [], overrides: [entry("nope", "x")] } })
+    ).toThrow(/"list-typo".*"nope"/);
+  });
+
   it("are given the core entries only, not another extension's changes", () => {
     const seen: string[][] = [];
     const restore = suspendContractsExtensions();
@@ -357,6 +373,10 @@ describe("a tool placement's overrides", () => {
 });
 
 describe("MCP_COMMON_PARAMS", () => {
+  it("is frozen", () => {
+    expect(Object.isFrozen(MCP_COMMON_PARAMS)).toBe(true);
+  });
+
   it("is the text the generated core manifest carries on its shared arguments", () => {
     // Fails when the text here is edited without running `pnpm --filter @openrhen/cli manifest`.
     const described = new Set(
