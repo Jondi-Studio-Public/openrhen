@@ -65,6 +65,16 @@ rhen import fit "C:\path\to\2026-01-02.csv"
 rhen import youtube "C:\path\to\watch-history.json"
 ```
 
+### Downloading a large Takeout without clicking every part
+
+Google gives no download API, so `scripts/ops/takeout-download.ps1` replays one download request your browser already made, once per part. Copy a part's download as "cURL (bash)" from the browser's Network tab into a private text file, then:
+
+```powershell
+.\scripts\ops\takeout-download.ps1 -RequestFile C:\Users\you\Documents\data-exports\request.txt -OutDir C:\Users\you\Documents\data-exports\takeout -From 0 -To 35
+```
+
+The file holds your login cookies, so delete it afterwards. Cookies lapse after about an hour; copy a fresh request and rerun with `-Only` for the parts that failed. Finished parts are skipped, and `download-log.txt` in the folder maps each part number to its file name. The script's header has the full steps.
+
 Notes on what Takeout gives and what this reads:
 
 - **YouTube** is not parsed by the importers. The CLI takes only the `history/watch-history.json` entry out of the zip and sends it to the YouTube history import that Review already uses, which holds a file of at most 50 MB. A larger history needs a shorter date range from Takeout. My Activity folders for YouTube and YouTube Music are skipped so nothing is counted twice.
