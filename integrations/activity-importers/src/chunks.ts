@@ -1,5 +1,5 @@
 import { StringDecoder } from "node:string_decoder";
-import type { ByteSource } from "./types.js";
+import { ImportReadError, type ByteSource } from "./types.js";
 
 /** Decodes a byte or text source to strings, keeping multi-byte characters whole across chunk boundaries. */
 export async function* textChunks(source: ByteSource): AsyncGenerator<string> {
@@ -19,8 +19,14 @@ export async function* textChunks(source: ByteSource): AsyncGenerator<string> {
 }
 
 /** Reads a whole (small) source to a string. */
-export async function readText(source: ByteSource): Promise<string> {
+export async function readText(source: ByteSource, maxChars = 64 * 1024 * 1024): Promise<string> {
   let out = "";
-  for await (const part of textChunks(source)) out += part;
+  for await (const part of textChunks(source)) {
+    out += part;
+    if (out.length > maxChars)
+      throw new ImportReadError(
+        `A file that should be small is over ${maxChars} characters; it is not the file this importer expects.`
+      );
+  }
   return out;
 }

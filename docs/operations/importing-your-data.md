@@ -123,6 +123,12 @@ Add `--json` for the same information as data. The import id each block ends wit
 
 ## Running an import again
 
-The command asks the portal whether the file is already held, by its SHA-256. If it is, the command says so and sends nothing. An import that stopped half way (a network error) is also "held", so to continue it run the same command with `--yes`: events already stored are skipped, the rest are added. A zip or folder that feeds several sources is recorded once per source, under a hash of the file and the source name, so Chrome, My Activity and the others from one Takeout are separate imports and can be undone separately.
+The command asks the portal whether the file is already held, by its SHA-256. If it is, the command says so, gives the number of events held, and sends nothing. An import that stopped half way (a network error) is also "held", so a held file is not proof that it finished: to resume it, run the same command with `--yes`. Sending again is safe: events already stored are skipped and the rest are added. A zip or folder that feeds several sources is recorded once per source, under a hash of the file and the source name, so Chrome, My Activity and the others from one Takeout are separate imports and can be undone separately.
 
 `rhen import` also keeps its older actions (`list`, `preview`, `commit` and the rest) for reviewed planning-data batches. A source name is how the CLI tells the two apart. Importing a data export runs only from the command line; it is not available over MCP, because it reads a file on your computer.
+
+## Known limits
+
+- **Place names and device names bypass the content gate, by design.** A Maps place name (`maps-places`) and an Apple Health `sourceName` (`apple-health`, for example "Jo's iPhone") are stored in `attrs`, not `content`, so they are kept even when the source's content gate is off. Everything else that is text (titles, search text, page addresses, track names, message text) is in `content` and obeys the gate.
+- **Spotify duplicates from the live poller.** The export and the later live poller (a separate change) can round a play's end time differently, so a play seen by both may be stored twice until the poller change adds a proximity rule (same track, end within 3 seconds). Importing only the export is not affected.
+- A single event whose JSON is over 1 MB is not sent and is counted as skipped, and a CSV record with a field over 1 MB is skipped and counted.

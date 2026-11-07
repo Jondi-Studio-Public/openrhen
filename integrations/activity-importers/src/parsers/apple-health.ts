@@ -161,6 +161,18 @@ export async function* parseAppleHealth(source: ByteSource, stats: Stats): Async
       };
     }
   }
+  // A cut-off file's last bucket per device may be missing records, and its key would then be held for good with
+  // a low count, so those are left out; the next full export adds them.
+  if (stats.truncated) {
+    const last = new Map<string, number>();
+    for (const bucket of buckets.values())
+      last.set(bucket.sourceName, Math.max(last.get(bucket.sourceName) ?? 0, bucket.startMs));
+    for (const [key, bucket] of buckets)
+      if (last.get(bucket.sourceName) === bucket.startMs) {
+        buckets.delete(key);
+        stats.ignored += 1;
+      }
+  }
   for (const bucket of [...buckets.values()].sort(
     (a, b) => a.startMs - b.startMs || a.sourceName.localeCompare(b.sourceName)
   )) {

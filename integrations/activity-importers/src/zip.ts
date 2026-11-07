@@ -156,6 +156,8 @@ export async function* readZipEntry(zipPath: string, entry: ZipEntry): AsyncGene
     for await (const chunk of source as AsyncIterable<Buffer>) {
       crc = crc32(chunk, crc);
       length += chunk.length;
+      if (length > entry.size)
+        throw notZip(zipPath, `${entry.path} inflates past its declared size of ${entry.size} bytes`);
       yield chunk;
     }
   } finally {

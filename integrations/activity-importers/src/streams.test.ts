@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { csvRecords } from "./csv-stream.js";
+import { MAX_FIELD_CHARS, csvRecords } from "./csv-stream.js";
 import { chunked, collect } from "./fixtures.js";
+import { ImportReadError } from "./types.js";
 import { jsonArrayObjects } from "./json-stream.js";
 import { xmlStartTags } from "./xml-stream.js";
 
@@ -61,6 +62,19 @@ describe("csvRecords", () => {
     expect(truncated).toBe(true);
   });
 
+  it("skips a record with a field over the cap and keeps the rest", async () => {
+    let skipped = 0;
+    const big = "x".repeat(MAX_FIELD_CHARS + 10);
+    const records = await collect(
+      csvRecords(chunked(`a,b\n1,${big}\n2,ok\n`, 100_000), undefined, () => (skipped += 1))
+    );
+    expect(records).toEqual([
+      ["a", "b"],
+      ["2", "ok"]
+    ]);
+    expect(skipped).toBe(1);
+  });
+
   it("skips a leading byte order mark", async () => {
     expect(await collect(csvRecords(chunked("﻿ID,x\n1,2\n", 2)))).toEqual([
       ["ID", "x"],
@@ -85,6 +99,12 @@ describe("xmlStartTags", () => {
     expect(tags.map((t) => t.name)).toEqual(["HealthData", "Record", "Workout", "MetadataEntry"]);
     expect(tags[1]!.attrs).toEqual({ type: "A", value: "x > y & A", sourceName: 'Jo\'s "Phone"' });
     expect(tags[3]!.attrs.value).toBe("a>b");
+  });
+
+  it("throws an ImportReadError for a tag that never closes", async () => {
+    await expect(collect(xmlStartTags(chunked("<a " + "x".repeat(1_100_000), 100_000)))).rejects.toBeInstanceOf(
+      ImportReadError
+    );
   });
 
   it("flags a file that ends inside a tag", async () => {
