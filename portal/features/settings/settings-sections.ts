@@ -1,5 +1,5 @@
 /**
- * The seven settings rows You and the Settings page list, and the pages each row owns. A row with more
+ * The eight settings rows You and the Settings page list, and the pages each row owns. A row with more
  * than one page shows them as tabs (Planning | Buffers | Estimates), so every settings page knows its
  * siblings from this one list rather than each page linking its own.
  */
@@ -67,6 +67,12 @@ export const settingsSections: readonly SettingsSection[] = [
     title: "AI and add-ons",
     meta: "Models, map add-ons, agent tokens",
     pages: [{ href: "/settings/ai", label: "AI and add-ons" }]
+  },
+  {
+    id: "passwords",
+    title: "Passwords and keys",
+    meta: "Keys for outside services, saved encrypted and never shown again",
+    pages: [{ href: "/settings/passwords-and-keys", label: "Passwords and keys" }]
   },
   {
     id: "sign-in",

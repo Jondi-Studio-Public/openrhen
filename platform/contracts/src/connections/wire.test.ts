@@ -11,7 +11,9 @@ describe("connection wire", () => {
       "unreachable",
       "unknown_connection",
       "unsupported_operation",
-      "not_ready"
+      "not_ready",
+      "quota_exceeded",
+      "rate_limited"
     ]) {
       expect(connectionFailureReasonSchema.safeParse(reason).success).toBe(true);
     }

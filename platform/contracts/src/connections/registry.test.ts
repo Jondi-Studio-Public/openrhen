@@ -15,7 +15,14 @@ import {
 
 describe("built-in connections", () => {
   it("are in order, parse, are unique and none is reserved", () => {
-    expect(BUILTIN_CONNECTIONS.map((c) => c.id)).toEqual(["google_calendar", "google", "openai", "deepinfra", "pulse"]);
+    expect(BUILTIN_CONNECTIONS.map((c) => c.id)).toEqual([
+      "google_calendar",
+      "google",
+      "openai",
+      "deepinfra",
+      "pulse",
+      "youtube_data"
+    ]);
     for (const manifest of BUILTIN_CONNECTIONS) {
       expect(connectionManifestSchema.safeParse(manifest).success).toBe(true);
       expect(connectionIdSchema.safeParse(manifest.id).success).toBe(true);

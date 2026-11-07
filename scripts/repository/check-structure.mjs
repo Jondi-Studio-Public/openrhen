@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { EXTRA_EDGES, packageOf, readWorkspace } from "../ci/affected.mjs";
 import { findCollisions, listRoutes, loadAddonWriters } from "./addon-routes.mjs";
+import { findSecretReaderViolations, findStaleSecretReaderAllowances } from "./secret-reader-rule.mjs";
 import { PLAN_INPUT_TABLES, WRITERS } from "./write-path-registry.mjs";
 
 const ARCHIVE_DIR = ["docs", "archive"].join("/"); // the private repository's retired documents; absent in the export
@@ -288,6 +289,14 @@ for (const [writerPath, entry] of writerEntries) {
     }
   }
 }
+
+// A saved password or key is decrypted by `readSecret` and nothing else may import it but the proxy-call helper
+// (scripts/repository/secret-reader-rule.mjs).
+const secretReaderFiles = maintainedFiles
+  .map((absolute) => posix(relative(root, absolute)))
+  .filter((source) => [".ts", ".tsx", ".mjs"].includes(extname(source)))
+  .map((source) => ({ source, text: readFileSync(resolve(root, source), "utf8") }));
+errors.push(...findSecretReaderViolations(secretReaderFiles), ...findStaleSecretReaderAllowances(secretReaderFiles));
 
 // Open-source core: a provider leaves the keep set by being excluded from the export, so
 // nothing the export keeps may name it except through the registry or drop-in directory it registers with. The keep

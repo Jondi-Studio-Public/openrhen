@@ -11,7 +11,7 @@ const context = {
 vi.mock("@/state/portal-provider", () => ({ usePortal: () => context }));
 
 describe("Settings landing page", () => {
-  it("lists the seven rows, each opening its first page", async () => {
+  it("lists the eight rows, each opening its first page", async () => {
     const { default: SettingsPage } = await import("./page");
     render(<SettingsPage />);
     expect(screen.getByRole("heading", { level: 1, name: "Settings" })).toBeTruthy();
@@ -23,6 +23,7 @@ describe("Settings landing page", () => {
       "/settings/notifications",
       "/settings/disruptions",
       "/settings/ai",
+      "/settings/passwords-and-keys",
       "/settings/advanced"
     ]);
     expect(links.map((link) => link.querySelector("span span")?.textContent)).toEqual(
@@ -53,6 +54,7 @@ describe("Settings landing page", () => {
       "/settings/pulse",
       "/settings/notifications",
       "/settings/ai",
+      "/settings/passwords-and-keys",
       "/settings/advanced"
     ])
       expect(pages, href).toContain(href);

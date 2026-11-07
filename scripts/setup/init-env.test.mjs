@@ -5,7 +5,16 @@ import { join } from "node:path";
 import test from "node:test";
 import { readDotenv } from "../deploy/required-secrets.mjs";
 import { makeRoot } from "./fixture.mjs";
-import { GENERATED, generateVapidKeys, initEnv, padVapidPrivateKey, parseArgs, sha256Hex } from "./init-env.mjs";
+import {
+  GENERATED,
+  SECRETS_KEY,
+  generateSecretsKey,
+  generateVapidKeys,
+  initEnv,
+  padVapidPrivateKey,
+  parseArgs,
+  sha256Hex
+} from "./init-env.mjs";
 
 const run = (root, argv = [], stdout = root.stdout) => initEnv({ cwd: root.cwd, argv, env: {}, stdout });
 const envOf = (root) => readDotenv(join(root.cwd, ".env"));
@@ -174,4 +183,38 @@ test("a private scalar that Node returns short is padded back to 32 bytes (the 1
   assert.equal(padded[0], 0);
   assert.deepEqual(padded.subarray(1), short);
   assert.equal(padVapidPrivateKey(Buffer.alloc(32, 9)).length, 32);
+});
+
+test("makes OPENRHEN_SECRETS_KEY as 32 random bytes of base64, once, and never prints or overwrites it", () => {
+  assert.equal(SECRETS_KEY, "OPENRHEN_SECRETS_KEY");
+  assert.equal(Buffer.from(generateSecretsKey(), "base64").length, 32);
+  assert.notEqual(generateSecretsKey(), generateSecretsKey());
+  const root = makeRoot();
+  run(root);
+  const env = envOf(root);
+  assert.match(env.OPENRHEN_SECRETS_KEY, /^[A-Za-z0-9+/]{43}=$/);
+  assert.equal(Buffer.from(env.OPENRHEN_SECRETS_KEY, "base64").length, 32);
+  assert.match(root.output(), /generated: .*OPENRHEN_SECRETS_KEY/);
+  assert.ok(!root.output().includes(env.OPENRHEN_SECRETS_KEY), "the key leaked into the output");
+  // A second run keeps it: a changed key would make every saved password unreadable.
+  const second = makeRoot();
+  run(root, [], second.stdout);
+  assert.equal(envOf(root).OPENRHEN_SECRETS_KEY, env.OPENRHEN_SECRETS_KEY);
+  assert.doesNotMatch(second.output(), /generated: .*OPENRHEN_SECRETS_KEY/);
+  assert.match(second.output(), /kept: .*OPENRHEN_SECRETS_KEY/);
+});
+
+test("keeps a OPENRHEN_SECRETS_KEY you set yourself", () => {
+  const root = makeRoot();
+  const mine = Buffer.alloc(32, 7).toString("base64");
+  writeFileSync(join(root.cwd, ".env"), `OPENRHEN_SECRETS_KEY=${mine}\n`);
+  run(root);
+  assert.equal(envOf(root).OPENRHEN_SECRETS_KEY, mine);
+});
+
+test("adds OPENRHEN_SECRETS_KEY to an .env made before it existed", () => {
+  const root = makeRoot();
+  writeFileSync(join(root.cwd, ".env"), "POSTGRES_PASSWORD=mine\n");
+  run(root);
+  assert.match(envOf(root).OPENRHEN_SECRETS_KEY, /^[A-Za-z0-9+/]{43}=$/);
 });

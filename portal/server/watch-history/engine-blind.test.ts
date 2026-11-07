@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -10,22 +10,49 @@ import { describe, expect, it } from "vitest";
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "..", "..", "..");
 const WATCH_TABLES = ["watch_events", "watch_imports", "video_info"];
+/** The watch-history tables and the tables that support them (saved keys, the YouTube quota counter): none feeds the plan. */
+const BLIND_TABLES = [...WATCH_TABLES, "app_secrets", "youtube_quota_use"];
+
+const SKIPPED_DIRECTORIES = new Set([
+  "node_modules",
+  "dist",
+  "build",
+  ".next",
+  ".vinext",
+  "coverage",
+  "drizzle",
+  ".git"
+]);
 
 function sources(dir: string): { path: string; text: string }[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name);
-    if (entry.isDirectory()) return sources(path);
-    if (!entry.name.endsWith(".ts") || entry.name.endsWith(".test.ts")) return [];
+    if (entry.isDirectory()) return SKIPPED_DIRECTORIES.has(entry.name) ? [] : sources(path);
+    if (!/\.(?:ts|tsx|mjs)$/.test(entry.name) || /\.test\.(?:ts|tsx|mjs)$/.test(entry.name)) return [];
     return [{ path, text: readFileSync(path, "utf8") }];
   });
 }
+
+/**
+ * Every non-test source file that is allowed to name one of those tables, and nothing else may: the stores that own
+ * them, the saved-key reader, the schema and the backup lists. A new file that touches them has to be added here on
+ * purpose, which is the moment to ask whether it should be a plan input.
+ */
+const MAY_NAME_BLIND_TABLES = new Set([
+  "portal/server/persistence/postgres/watch-history-store.ts",
+  "portal/server/persistence/postgres/video-lengths-store.ts",
+  "portal/server/persistence/postgres/app-secrets-store.ts",
+  "portal/server/secrets/read-secret.ts",
+  "platform/database/src/schema/core.ts",
+  "platform/database/src/operations/backup-format.ts"
+]);
 
 describe("watch history is blind to the engine", () => {
   it("is absent from PLAN_INPUT_TABLES", () => {
     const registry = readFileSync(join(repo, "scripts", "repository", "write-path-registry.mjs"), "utf8");
     const list = /export const PLAN_INPUT_TABLES = \[([\s\S]*?)\]/.exec(registry)?.[1];
     expect(list).toBeTruthy();
-    for (const table of WATCH_TABLES) expect(list).not.toContain(`"${table}"`);
+    for (const table of BLIND_TABLES) expect(list).not.toContain(`"${table}"`);
     // The list is really the one that guards plan inputs: it still names a table the engine reads.
     expect(list).toContain('"actions"');
   });
@@ -41,6 +68,19 @@ describe("watch history is blind to the engine", () => {
     ];
     expect(files.length).toBeGreaterThan(5);
     for (const file of files)
-      for (const table of WATCH_TABLES) expect(file.text, `${file.path} names ${table}`).not.toContain(table);
+      for (const table of BLIND_TABLES) expect(file.text, `${file.path} names ${table}`).not.toContain(table);
+  });
+
+  it("is named by no other non-test source in the repository", () => {
+    const roots = ["engine", "portal", "platform", "integrations", "tools", "scripts"];
+    const files = roots.flatMap((name) => sources(join(repo, name)));
+    expect(files.length).toBeGreaterThan(500);
+    const naming = files
+      .filter((file) => BLIND_TABLES.some((table) => file.text.includes(table)))
+      .map((file) => relative(repo, file.path).split(sep).join("/"))
+      .sort();
+    expect(naming.filter((path) => !MAY_NAME_BLIND_TABLES.has(path))).toEqual([]);
+    // The allowance list does not rot: each file on it still names a table.
+    expect(naming).toEqual([...MAY_NAME_BLIND_TABLES].sort());
   });
 });

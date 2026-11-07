@@ -2,11 +2,14 @@ import {
   WATCH_IMPORT_BATCH_ROWS,
   WATCH_REVIEW_DEFAULT_DAYS,
   WATCH_REVIEW_MAX_DAYS,
+  YOUTUBE_DAILY_UNIT_LIMIT,
   resolveTimezone,
   type WatchHistoryReview,
   type WatchImportResult
 } from "@openrhen/contracts";
 import { estimateWatchTime } from "@/server/watch-history/estimate";
+import { secretsPolicy } from "@/server/secrets/secrets-policy";
+import { secretStatuses } from "./app-secrets-store";
 import type { ParsedWatchHistory } from "@/server/imports/watch-history-parser";
 import type { PoolSql, Sql } from "./sql-pool";
 import { ensureUser } from "./ensure-user";
@@ -164,15 +167,30 @@ export async function readWatchHistoryReview(
   const toExclusive = addLocalDays(to, 1);
 
   // The range as instants: local midnight of `from` up to local midnight after `to`.
-  const rows = await sql<{ id: string; watched_at: Date; day: string; hour: number }[]>`
-    SELECT id, watched_at,
-      to_char((watched_at AT TIME ZONE ${timezone})::date, 'YYYY-MM-DD') AS day,
-      EXTRACT(HOUR FROM watched_at AT TIME ZONE ${timezone})::int AS hour
-    FROM watch_events
-    WHERE user_id = ${userId} AND source = 'youtube_takeout' AND kind = 'watch'
-      AND watched_at >= (${from}::date)::timestamp AT TIME ZONE ${timezone}
-      AND watched_at < (${toExclusive}::date)::timestamp AT TIME ZONE ${timezone}
-    ORDER BY watched_at, id
+  // Each watch carries its video's stored length when a lookup has found one; `has_info` tells "looked up, no usable
+  // length" (private, deleted, live) from "not looked up yet".
+  const rows = await sql<
+    {
+      id: string;
+      watched_at: Date;
+      day: string;
+      hour: number;
+      duration_s: number | null;
+      unavailable: boolean | null;
+      has_info: boolean;
+      synthetic: boolean;
+    }[]
+  >`
+    SELECT e.id, e.watched_at,
+      to_char((e.watched_at AT TIME ZONE ${timezone})::date, 'YYYY-MM-DD') AS day,
+      EXTRACT(HOUR FROM e.watched_at AT TIME ZONE ${timezone})::int AS hour,
+      v.duration_s, v.unavailable, (v.video_id IS NOT NULL) AS has_info, (e.video_id LIKE 'x:%') AS synthetic
+    FROM watch_events e
+    LEFT JOIN video_info v ON v.video_id = e.video_id
+    WHERE e.user_id = ${userId} AND e.source = 'youtube_takeout' AND e.kind = 'watch'
+      AND e.watched_at >= (${from}::date)::timestamp AT TIME ZONE ${timezone}
+      AND e.watched_at < (${toExclusive}::date)::timestamp AT TIME ZONE ${timezone}
+    ORDER BY e.watched_at, e.id
   `;
   // The first watch after the range bounds the last one inside it, so a range that ends mid-session is not cut short.
   const [following] = await sql<{ id: string; watched_at: Date }[]>`
@@ -198,6 +216,13 @@ export async function readWatchHistoryReview(
       count(*) FILTER (WHERE source = 'youtube_music_takeout')::int AS music
     FROM watch_events WHERE user_id = ${userId}
   `;
+  const [quota] = await sql<{ paused: boolean }[]>`
+    SELECT (exhausted_at IS NOT NULL OR units_spent >= ${YOUTUBE_DAILY_UNIT_LIMIT}) AS paused
+    FROM youtube_quota_use WHERE user_id = ${userId} AND quota_date = (now() AT TIME ZONE 'America/Los_Angeles')::date
+  `;
+  const keyStatus = (await secretStatuses(sql, userId, secretsPolicy().master)).find(
+    (status) => status.name === "youtube_data_api_key"
+  );
   const imports = await sql<{ id: string; filename: string; event_count: number; imported_at: Date }[]>`
     SELECT id, filename, event_count, imported_at FROM watch_imports
     WHERE user_id = ${userId} ORDER BY imported_at DESC, id LIMIT 50
@@ -206,15 +231,24 @@ export async function readWatchHistoryReview(
     timezone,
     from,
     to,
+    watchesHeld: held?.watches ?? 0,
     hasData: (held?.watches ?? 0) + (held?.ads ?? 0) + (held?.posts ?? 0) + (held?.music ?? 0) > 0,
     days,
     hours,
     total: rows.length,
     estimate: estimateWatchTime(
-      rows.map((row) => ({ id: row.id, watchedAt: row.watched_at })),
+      rows.map((row) => ({ id: row.id, watchedAt: row.watched_at, durationS: row.duration_s })),
       undefined,
       { after: following ? { id: following.id, watchedAt: following.watched_at } : undefined }
     ),
+    lengths: {
+      keyState: keyStatus?.state ?? "unset",
+      known: rows.filter((row) => row.duration_s !== null).length,
+      // A removed video has a synthetic `x:` id that is never looked up, so it is not "still to do" (as `countMissingLengths`).
+      missing: rows.filter((row) => !row.has_info && !row.synthetic).length,
+      unavailable: rows.filter((row) => row.has_info && row.duration_s === null).length,
+      quotaPaused: quota?.paused ?? false
+    },
     excluded: { ads: held?.ads ?? 0, posts: held?.posts ?? 0, music: held?.music ?? 0 },
     imports: imports.map((row) => ({
       id: row.id,

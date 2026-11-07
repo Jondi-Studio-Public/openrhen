@@ -44,8 +44,14 @@ export const connectionManifestSchema = z
       .refine((c) => new Set(c).size === c.length, "duplicate capability"),
     /** A subset of a capability's ops, when the connection implements only part of it. */
     ops: z.partialRecord(capabilityIdSchema, z.array(opIdSchema).min(1)).optional(),
-    /** Ready when every name in one group is set and not `replace-before-lan-use`. */
-    secrets: z.object({ anyOf: z.array(z.array(envNameSchema).min(1)).min(1) }),
+    /** Ready when every name in one group is set and not `replace-before-lan-use`. Empty exactly when each request carries its own credential. */
+    secrets: z.object({ anyOf: z.array(z.array(envNameSchema).min(1)) }),
+    /**
+     * Where the credential comes from. `env` (the default): the proxy's environment, and readiness follows it.
+     * `request`: the caller sends it in the body of each call (a key the person typed into the app), the proxy holds
+     * none, `secrets.anyOf` is empty and the connection is always ready.
+     */
+    credentialSource: z.enum(["env", "request"]).default("env"),
     /** Non-secret env the connection reads. */
     config: z.record(envNameSchema, z.object({ required: z.boolean(), default: z.string().optional() })),
     telemetryName: z.string().min(1).optional(),
@@ -64,10 +70,19 @@ export const connectionManifestSchema = z
         }
       }
     }
+    if ((manifest.credentialSource === "request") !== (manifest.secrets.anyOf.length === 0)) {
+      ctx.addIssue({
+        code: "custom",
+        message: "secrets.anyOf must be empty exactly when credentialSource is request"
+      });
+    }
     if (manifest.capabilities.includes("calendar_source") !== (manifest.calendarSource !== undefined)) {
       ctx.addIssue({ code: "custom", message: "calendarSource is required exactly for calendar_source" });
     }
   });
 
-/** `version` is optional on the type so in-code manifests need not state it; the schema fills in 1 when parsing. */
-export type ConnectionManifest = Omit<z.infer<typeof connectionManifestSchema>, "version"> & { version?: number };
+/** `version` and `credentialSource` are optional on the type so in-code manifests need not state them; the schema fills in 1 and `env` when parsing. */
+export type ConnectionManifest = Omit<z.infer<typeof connectionManifestSchema>, "version" | "credentialSource"> & {
+  version?: number;
+  credentialSource?: "env" | "request";
+};

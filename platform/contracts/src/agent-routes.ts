@@ -636,6 +636,10 @@ const OWNER_ROUTES: Record<string, string> = {
   // Watch history is the person's own viewing record, held where the engine cannot see it; no agent reads or writes it.
   "POST /api/imports/watch-history": "Importing a watch-history file",
   "DELETE /api/imports/watch-history/[id]": "Undoing a watch-history import",
+  // Passwords and keys the person typed in: write-only, and never an agent's to set, list or remove. Nothing reads a value back.
+  "PUT /api/settings/secrets/[name]": "Saving a password or key",
+  "DELETE /api/settings/secrets/[name]": "Removing a password or key",
+  "POST /api/review/watch-history/lengths": "Fetching video lengths with the saved YouTube key",
   "POST /api/integrations/pulse/tick": "The pulse job",
   "POST /api/integrations/push/drain": "The push queue",
   "POST /api/integrations/travel/tick": "The travel job",
@@ -744,6 +748,7 @@ const OWNER_READS = new Set([
   "/api/agent-changes",
   "/api/agent-changes/[id]",
   "/api/review/watch-history",
+  "/api/settings/secrets",
   "/api/closed",
   "/api/closed/summary",
   "/api/owner/credentials",
