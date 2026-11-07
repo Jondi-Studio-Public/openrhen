@@ -813,3 +813,22 @@ fn a_final_write_that_cannot_be_made_is_reported() {
     let err = r.stop().unwrap_err();
     assert!(err.contains("could not be written"), "{err}");
 }
+
+#[test]
+fn while_paused_signals_are_not_even_resolved() {
+    let now = Rc::new(Cell::new(1_000_000_000_000i64));
+    let mut r = fake(&now, Config::default(), Store::in_memory().unwrap());
+    r.start().unwrap();
+    r.handle(Raw::Control(crate::runner::Control::Pause)).unwrap();
+    r.handle(Raw::Foreground(1)).unwrap();
+    r.handle(Raw::Session(SessionEvt::Lock)).unwrap();
+    r.stop().unwrap();
+    let rows = r.store().events_between(0, i64::MAX).unwrap();
+    assert!(
+        !rows
+            .iter()
+            .any(|e| e.kind == "locked" || (e.source == "foreground" && e.attrs["exe"] == "chrome.exe")),
+        "{rows:?}"
+    );
+    assert!(rows.iter().any(|e| e.kind == "paused"));
+}
