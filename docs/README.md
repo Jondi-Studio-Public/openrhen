@@ -15,6 +15,7 @@ Start with the guide that matches what you want to do. Open only what you need.
 | Build against the agent surface or the seams | [Protocol](protocol/README.md): [versions](protocol/versions.md), [auth](protocol/auth.md), [proposing changes](protocol/changes.md) |
 | Record what you did on a Windows PC | [Desktop activity agent](architecture/desktop-activity-agent.md), [rhen-watch](../tools/rhen-watch/README.md) |
 | Store and read back what a PC, phone or export recorded | [Activity store](architecture/activity-store.md) |
+| Load a Google Takeout, Spotify, Discord or Apple Health export | [Importing your data](operations/importing-your-data.md) |
 | Run it safely beyond one machine | [Locking down the API](operations/locking-down.md) |
 | Back up, restore, upgrade | [Database and backups](operations/database-and-backups.md) |
 | Get leave-by reminders on a phone | [Web push](operations/web-push.md), [Location ping](operations/location-ping.md) |
