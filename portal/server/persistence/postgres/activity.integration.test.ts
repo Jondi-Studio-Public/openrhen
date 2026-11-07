@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { config } from "dotenv";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
@@ -185,6 +185,86 @@ describe("append-only", () => {
       sql`INSERT INTO activity_events (user_id, source, kind, event_key, ts_start, ts_end)
           VALUES (${userId}, 'rhen-watch', 'idle', 'z', '2026-11-07T10:00:00Z', '2026-11-07T09:00:00Z')`
     ).rejects.toThrow(/time_order/);
+  });
+});
+
+describe("content from an explicit file import", () => {
+  const stored = async () =>
+    await sql<
+      { event_key: string; content: string | null }[]
+    >`SELECT event_key, content FROM activity_events ORDER BY event_key`;
+
+  it("is kept with the gate off, on the first batch and on a later one joined by importId", async () => {
+    const first = await ingest([event("a", { source: "discord-package", kind: "message", content: "hello" })], {
+      import: { sha256: sha("e"), filename: "messages.json" }
+    });
+    expect(first).toMatchObject({ added: 1, contentDropped: 0 });
+    const later = await ingest([event("b", { source: "discord-package", kind: "message", content: "again" })], {
+      importId: first.importId!
+    });
+    expect(later).toMatchObject({ added: 1, contentDropped: 0 });
+    expect(await stored()).toEqual([
+      { event_key: "a", content: "hello" },
+      { event_key: "b", content: "again" }
+    ]);
+    expect((await readActivitySummary(sql)).sources.find((x) => x.source === "discord-package")!.contentEnabled).toBe(
+      false
+    );
+  });
+
+  it("is dropped, and counted, for the same source arriving without an import", async () => {
+    const result = await ingest([event("a", { source: "discord-package", kind: "message", content: "hello" })]);
+    expect(result).toMatchObject({ added: 1, contentDropped: 1 });
+    expect(await stored()).toEqual([{ event_key: "a", content: null }]);
+  });
+
+  it("is kept for an import even when the owner has turned the gate off explicitly", async () => {
+    await setActivitySourceSettings(sql, "discord-package", { contentEnabled: false });
+    const result = await ingest([event("a", { source: "discord-package", kind: "message", content: "hello" })], {
+      import: { sha256: sha("f"), filename: "m.json" }
+    });
+    expect(result.contentDropped).toBe(0);
+    expect(await stored()).toEqual([{ event_key: "a", content: "hello" }]);
+  });
+});
+
+describe("OPENRHEN_ACTIVITY_CONTENT_DEFAULT", () => {
+  const original = process.env.OPENRHEN_ACTIVITY_CONTENT_DEFAULT;
+  afterEach(() => {
+    if (original === undefined) delete process.env.OPENRHEN_ACTIVITY_CONTENT_DEFAULT;
+    else process.env.OPENRHEN_ACTIVITY_CONTENT_DEFAULT = original;
+  });
+  const post = () => ingest([event("a", { content: "window title" })]);
+  const content = async () =>
+    (await sql<{ content: string | null }[]>`SELECT content FROM activity_events`)[0]!.content;
+
+  it("off (and unset) drops content for a source with no saved setting", async () => {
+    delete process.env.OPENRHEN_ACTIVITY_CONTENT_DEFAULT;
+    expect(await post()).toMatchObject({ contentDropped: 1 });
+    expect(await content()).toBeNull();
+  });
+
+  it("on keeps content for a source with no saved setting, and the summary shows it", async () => {
+    process.env.OPENRHEN_ACTIVITY_CONTENT_DEFAULT = "on";
+    expect(await post()).toMatchObject({ contentDropped: 0 });
+    expect(await content()).toBe("window title");
+    expect((await readActivitySummary(sql)).sources.find((x) => x.source === "rhen-watch")!.contentEnabled).toBe(true);
+  });
+
+  it("a saved setting wins in both directions", async () => {
+    process.env.OPENRHEN_ACTIVITY_CONTENT_DEFAULT = "on";
+    await setActivitySourceSettings(sql, "rhen-watch", { contentEnabled: false });
+    expect(await post()).toMatchObject({ contentDropped: 1 });
+    await sql`TRUNCATE TABLE activity_events`;
+    process.env.OPENRHEN_ACTIVITY_CONTENT_DEFAULT = "off";
+    await setActivitySourceSettings(sql, "rhen-watch", { contentEnabled: true });
+    expect(await post()).toMatchObject({ contentDropped: 0 });
+  });
+
+  it("saving only retention under default on records the effective setting, so nothing flips", async () => {
+    process.env.OPENRHEN_ACTIVITY_CONTENT_DEFAULT = "on";
+    await setActivitySourceSettings(sql, "rhen-watch", { retentionDays: 30 });
+    expect(await post()).toMatchObject({ contentDropped: 0 });
   });
 });
 
