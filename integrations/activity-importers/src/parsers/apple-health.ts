@@ -11,7 +11,7 @@ import { skip, type ActivityEventDraft, type ByteSource, type Stats } from "../t
  *  - `workout`: `Workout` elements, with type, duration and (when the element carries them) distance and energy.
  * Dates look like `2026-01-02 03:04:05 +1100`. Heart rate and the other record types are ignored (counted).
  * Records with an unreadable date, a negative or non-numeric step value, or an unknown sleep stage are skipped
- * and counted. Step buckets are emitted when the file ends, so a bucket is never emitted twice with part of its sum.
+ * and counted. Step buckets are emitted when the file ends, minus the newest hour of each device (it may be partial).
  */
 const DATE = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2}) ([+-])(\d{2})(\d{2})$/;
 
@@ -161,18 +161,16 @@ export async function* parseAppleHealth(source: ByteSource, stats: Stats): Async
       };
     }
   }
-  // A cut-off file's last bucket per device may be missing records, and its key would then be held for good with
-  // a low count, so those are left out; the next full export adds them.
-  if (stats.truncated) {
-    const last = new Map<string, number>();
-    for (const bucket of buckets.values())
-      last.set(bucket.sourceName, Math.max(last.get(bucket.sourceName) ?? 0, bucket.startMs));
-    for (const [key, bucket] of buckets)
-      if (last.get(bucket.sourceName) === bucket.startMs) {
-        buckets.delete(key);
-        stats.ignored += 1;
-      }
-  }
+  // The newest hour of each device may be partial: a mid-hour export has only its first records, and its key would
+  // then be held for good with a low count. It is left out, always; the next export that goes past it adds it.
+  const newest = new Map<string, number>();
+  for (const bucket of buckets.values())
+    newest.set(bucket.sourceName, Math.max(newest.get(bucket.sourceName) ?? 0, bucket.startMs));
+  for (const [key, bucket] of buckets)
+    if (newest.get(bucket.sourceName) === bucket.startMs) {
+      buckets.delete(key);
+      stats.ignored += 1;
+    }
   for (const bucket of [...buckets.values()].sort(
     (a, b) => a.startMs - b.startMs || a.sourceName.localeCompare(b.sourceName)
   )) {
