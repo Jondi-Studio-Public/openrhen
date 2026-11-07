@@ -312,6 +312,9 @@ services:
       # self-declared agent name that carries no token; off (default) accepts it as before.
       OPENRHEN_AGENT_TOKENS: ${OPENRHEN_AGENT_TOKENS:-}
       OPENRHEN_AGENT_AUTH: ${OPENRHEN_AGENT_AUTH:-off}
+      # Activity store: on keeps the text of events from continuous collectors for a source with no saved
+      # setting; off (default) drops it. A saved per-source setting wins; an explicit file import always keeps text.
+      OPENRHEN_ACTIVITY_CONTENT_DEFAULT: ${OPENRHEN_ACTIVITY_CONTENT_DEFAULT:-off}
       # Owner sign-in: off | shadow | require. OWNER_RECOVERY_TOKEN is
       # the sha256 (hex) of a token you keep in your secrets manager, accepted only at the enrol route, the way back in under require.
       OPENRHEN_OWNER_AUTH: ${OPENRHEN_OWNER_AUTH:-off}

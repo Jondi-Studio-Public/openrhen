@@ -15,6 +15,7 @@ import {
   type ActivitySummary,
   type ValidActivityEvent
 } from "@openrhen/contracts";
+import { runtimeEnv } from "@/server/runtime-env";
 import { ensureUser } from "./ensure-user";
 import type { PoolSql, Sql } from "./sql-pool";
 
@@ -37,6 +38,11 @@ export class ActivityInputError extends Error {
 
 const INSERT_CHUNK = 500;
 
+/** The gate for a source with no `activity_source_state` row: `OPENRHEN_ACTIVITY_CONTENT_DEFAULT` = `on`, otherwise off. */
+export function activityContentDefault(): boolean {
+  return runtimeEnv().OPENRHEN_ACTIVITY_CONTENT_DEFAULT?.trim().toLowerCase() === "on";
+}
+
 export interface ActivityBatch {
   device?: string | undefined;
   import?: { sha256: string; filename: string; source?: string | undefined } | undefined;
@@ -53,7 +59,7 @@ interface SourceStateRow {
 /**
  * Takes one batch. Each event is judged alone: a bad one is reported with the exact fix and the rest are stored.
  * A key already held (in the store, or earlier in this batch) is `alreadyHeld`, never an error and never a change.
- * Content is dropped, and counted, for a source whose gate is off. Runs in one transaction.
+ * Content is dropped, and counted, for a source whose gate is off, except in a file import, which always keeps it. Runs in one transaction.
  */
 export async function ingestActivityEvents(
   sql: PoolSql,
@@ -140,11 +146,17 @@ export async function ingestActivityEvents(
             SELECT source, content_enabled, retention_days FROM activity_source_state
             WHERE user_id = ${userId} AND source IN ${tx(sources)}`;
     const gate = new Map(states.map((row) => [row.source, row.content_enabled]));
+    const defaultOn = activityContentDefault();
 
+    // An explicit file import (a batch that names an import) is the owner deliberately loading their own file, so
+    // its text is kept whatever the gate says. The gate governs continuous collectors. A source with no state row
+    // takes the server default; a saved row wins in both directions.
+    const fromImport = importId !== null;
     let contentDropped = 0;
     const rows = valid.map((event) => {
       let content = event.content;
-      if (content !== null && gate.get(event.source) !== true) {
+      const open = fromImport || (gate.get(event.source) ?? defaultOn);
+      if (content !== null && !open) {
         content = null;
         contentDropped += 1;
       }
@@ -244,7 +256,7 @@ export async function readActivitySummary(sql: Sql): Promise<ActivitySummary> {
       events: count?.n ?? 0,
       lastEventAt: count?.last_start?.toISOString() ?? null,
       lastIngestedAt: count?.last_ingested?.toISOString() ?? null,
-      contentEnabled: state?.content_enabled ?? false,
+      contentEnabled: state?.content_enabled ?? activityContentDefault(),
       retentionDays: state?.retention_days ?? null,
       retentionPurge: state?.retention_days == null ? ("not_set" as const) : ("not_running" as const)
     };
@@ -275,7 +287,7 @@ export async function setActivitySourceSettings(sql: PoolSql, source: string, se
     const [current] = await tx<SourceStateRow[]>`
       SELECT source, content_enabled, retention_days FROM activity_source_state
       WHERE user_id = ${userId} AND source = ${source} FOR UPDATE`;
-    const contentEnabled = settings.contentEnabled ?? current?.content_enabled ?? false;
+    const contentEnabled = settings.contentEnabled ?? current?.content_enabled ?? activityContentDefault();
     const retentionDays =
       settings.retentionDays === undefined ? (current?.retention_days ?? null) : settings.retentionDays;
     await tx`

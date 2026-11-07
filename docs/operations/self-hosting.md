@@ -77,6 +77,8 @@ With nothing else set, backups stay on this machine, and the Data check says "Ba
 
 Back up now with `docker compose run --rm backup corepack pnpm db:backup`. Retention, restore and recovery are in [Database and backups](database-and-backups.md).
 
+**Activity text** (`OPENRHEN_ACTIVITY_CONTENT_DEFAULT`, `on` or `off`, default `off`): whether the activity store keeps the text of events from continuous collectors (window titles, messages) for a source you have not set in Settings. A saved per-source setting wins, and a file you import keeps its text either way. See [Activity store](../architecture/activity-store.md).
+
 ## Calendar feed and agent wake
 
 Both are optional; leave them out and nothing changes.
