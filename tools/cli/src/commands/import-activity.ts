@@ -29,6 +29,8 @@ import { toJson } from "../output.js";
 
 /** A batch is held under the route's 2 MB body limit with room for the envelope. */
 const BATCH_BYTES = 1_500_000;
+/** One event over this size is dropped and counted: a real event is far smaller, and the batch limit is 2 MB. */
+const MAX_EVENT_BYTES = 1_000_000;
 const REASON_GROUPS_SHOWN = 15;
 
 interface BatchResponse {
@@ -169,6 +171,7 @@ async function runEvents(
   let batchStart = 0;
   let sent = 0;
   let batches = 0;
+  let oversized = 0;
   const flush = async () => {
     if (batch.length === 0) return;
     const body: Record<string, unknown> = { schema: 1, events: batch };
@@ -210,10 +213,15 @@ async function runEvents(
 
   for await (const event of job.events()) {
     if (options.dryRun) {
-      summary.sent += 1;
+      if (Buffer.byteLength(JSON.stringify(event)) + 1 > MAX_EVENT_BYTES) oversized += 1;
+      else summary.sent += 1;
       continue;
     }
     const size = Buffer.byteLength(JSON.stringify(event)) + 1;
+    if (size > MAX_EVENT_BYTES) {
+      oversized += 1;
+      continue;
+    }
     if (batch.length >= ACTIVITY_MAX_BATCH || (batch.length > 0 && batchBytes + size > BATCH_BYTES)) await flush();
     batch.push(event);
     batchBytes += size;
@@ -224,7 +232,11 @@ async function runEvents(
   summary.read = stats.read;
   summary.skipped = stats.skipped;
   summary.ignored = stats.ignored;
-  summary.skippedReasons = stats.reasons;
+  summary.skippedReasons = { ...stats.reasons };
+  if (oversized > 0) {
+    summary.skipped += oversized;
+    summary.skippedReasons["event is larger than 1 MB, so it was not sent"] = oversized;
+  }
   summary.truncated = stats.truncated;
   summary.importId = importId;
   summary.rejections = [...groups.values()].sort((a, b) => b.count - a.count);
@@ -258,7 +270,7 @@ function renderSummary(summary: SourceSummary): string {
   const files = summary.files.length === 1 ? basename(summary.files[0]!) : `${summary.files.length} files`;
   if (summary.status === "already-held") {
     lines.push(
-      `${summary.source} (${files}): already imported (${summary.alreadyHeld} events, import ${summary.importId ?? "unknown"}). Nothing sent. Add --yes to send it again; events already held are never duplicated.`
+      `${summary.source} (${files}): the portal already holds an import of this file (${summary.alreadyHeld} events, import ${summary.importId ?? "unknown"}). Nothing was sent. A previous run may have been interrupted before it finished, so this does not prove the file is complete: run the same command again with --yes to resume. Sending again is safe, because events already held are never duplicated.`
     );
     return lines.join("\n");
   }

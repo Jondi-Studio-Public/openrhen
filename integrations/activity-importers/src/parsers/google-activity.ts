@@ -46,7 +46,7 @@ export async function* parseGoogleActivity(
       skip(stats, "time is missing or has no time zone");
       continue;
     }
-    const title = typeof row.title === "string" ? row.title : "";
+    const title = typeof row.title === "string" ? row.title.replace(/[\u00a0\u202f]/g, " ") : "";
     const match = PREFIXES.find(([prefix]) => title.startsWith(prefix));
     if (!match) {
       skip(stats, "title starts with a verb this importer does not know");

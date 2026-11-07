@@ -67,9 +67,16 @@ const parentOf = (path: string) => {
   return parts.length > 1 ? parts[parts.length - 2]! : "";
 };
 
-async function readAll(chunks: AsyncIterable<Uint8Array | string>): Promise<Uint8Array> {
+async function readAll(chunks: AsyncIterable<Uint8Array | string>, declaredSize: number): Promise<Uint8Array> {
   const parts: Buffer[] = [];
-  for await (const chunk of chunks) parts.push(typeof chunk === "string" ? Buffer.from(chunk) : Buffer.from(chunk));
+  let total = 0;
+  for await (const chunk of chunks) {
+    const part = typeof chunk === "string" ? Buffer.from(chunk) : Buffer.from(chunk);
+    total += part.length;
+    if (total > declaredSize)
+      throw new ImportReadError(`The file holds more than its declared ${declaredSize} bytes; it is damaged.`);
+    parts.push(part);
+  }
   return Buffer.concat(parts);
 }
 
@@ -194,7 +201,7 @@ function youtubeJob(archive: Archive): YoutubeJob | null {
     source: "youtube",
     file: entry.path,
     size: entry.size,
-    read: () => readAll(archive.open(entry.path))
+    read: () => readAll(archive.open(entry.path), entry.size)
   };
 }
 

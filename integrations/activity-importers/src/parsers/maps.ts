@@ -44,7 +44,7 @@ export async function* parseMapsPlaces(
       skip(stats, "place has no date, so it has no time to be placed at");
       continue;
     }
-    const location = (properties.Location ?? {}) as Record<string, unknown>;
+    const location = (properties.Location ?? properties.location ?? {}) as Record<string, unknown>;
     const nameValue = properties.Title ?? properties.name ?? location["Business Name"];
     const name = typeof nameValue === "string" ? nameValue.replace(/\s+/g, " ").trim() : "";
     if (!name) {

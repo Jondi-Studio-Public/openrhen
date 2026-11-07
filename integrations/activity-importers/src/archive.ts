@@ -115,7 +115,7 @@ export async function archiveSha256(archive: Archive, paths: readonly string[]):
   const wanted = new Set(paths);
   for (const entry of archive.entries
     .filter((candidate) => wanted.has(candidate.path))
-    .sort((a, b) => a.path.localeCompare(b.path))) {
+    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))) {
     const part = createHash("sha256");
     for await (const chunk of archive.open(entry.path)) part.update(chunk);
     hash.update(`${entry.path}\0${entry.size}\0${part.digest("hex")}\n`);

@@ -47,6 +47,19 @@ describe("the streaming zip reader", () => {
     await expect(collect(readZipEntry(path, entry!))).rejects.toThrow(/fails its checksum/);
   });
 
+  it("stops as soon as an entry inflates past its declared size", async () => {
+    const path = join(dir, "bomb.zip");
+    writeFileSync(path, makeZip([{ name: "x.txt", data: "a".repeat(1_000_000) }]));
+    const [entry] = await listZip(path);
+    let read = 0;
+    await expect(
+      (async () => {
+        for await (const chunk of readZipEntry(path, { ...entry!, size: 1000 })) read += chunk.length;
+      })()
+    ).rejects.toThrow(/inflates past its declared size/);
+    expect(read).toBe(0);
+  });
+
   it("explains a file that is not a zip, or was cut off", async () => {
     const whole = makeZip([{ name: "x.json", data: big }]);
     const cut = join(dir, "cut.zip");
@@ -112,6 +125,20 @@ describe("openArchive", () => {
     expect(await archiveSha256(await openArchive(folder), ["a.json"])).toBe(first);
     writeFileSync(join(folder, "a.json"), "[1]");
     expect(await archiveSha256(await openArchive(folder), ["a.json"])).not.toBe(first);
+    // Sorting is by code unit, so the hash does not depend on the machine's locale.
+    const names = mkdtempSync(join(tmpdir(), "activity-sort-"));
+    writeFileSync(join(names, "B.json"), "1");
+    writeFileSync(join(names, "a.json"), "2");
+    const sorted = await openArchive(names);
+    const { createHash } = await import("node:crypto");
+    const expected = createHash("sha256");
+    for (const [n, c] of [
+      ["B.json", "1"],
+      ["a.json", "2"]
+    ] as const)
+      expected.update(`${n}\0${c.length}\0${createHash("sha256").update(c).digest("hex")}\n`);
+    expect(await archiveSha256(sorted, ["a.json", "B.json"])).toBe(expected.digest("hex"));
+    rmSync(names, { recursive: true, force: true });
     expect(sourceSha256("ab", "spotify")).not.toBe(sourceSha256("ab", "fit"));
     expect(sourceSha256("ab", "spotify")).toMatch(/^[0-9a-f]{64}$/);
   });

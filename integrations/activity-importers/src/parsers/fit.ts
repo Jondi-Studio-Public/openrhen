@@ -40,9 +40,16 @@ export async function* parseFitMetrics(
 ): AsyncGenerator<ActivityEventDraft> {
   let columns: Map<string, number> | null = null;
   const fileDate = FILE_DATE.exec(fileName)?.[1] ?? null;
-  for await (const record of csvRecords(source, (end) => {
-    if (end.truncated) stats.truncated = true;
-  })) {
+  for await (const record of csvRecords(
+    source,
+    (end) => {
+      if (end.truncated) stats.truncated = true;
+    },
+    () => {
+      stats.read += 1;
+      skip(stats, "a field is larger than 1 MB");
+    }
+  )) {
     if (!columns) {
       columns = headerIndex(record);
       if (!columns.has(STEP_COLUMN)) {
@@ -73,7 +80,10 @@ export async function* parseFitMetrics(
     const dateIndex = columns.get("date");
     if (startIndex !== undefined && endIndex !== undefined && fileDate) {
       const start = clockToUtc(fileDate, record[startIndex] ?? "");
-      const end = clockToUtc(fileDate, record[endIndex] ?? "");
+      let end = clockToUtc(fileDate, record[endIndex] ?? "");
+      // An interval that runs to midnight ends at 00:00 of the next day, which the file name's date does not say.
+      if (start && end && end.ms < start.ms && /^00:00:00(?:\.0+)?(?:Z|[+-])/i.test((record[endIndex] ?? "").trim()))
+        end = { ...end, ms: end.ms + 24 * 3_600_000 };
       if (!start || !end || end.ms < start.ms) {
         skip(stats, "start or end time is missing, has no offset, or ends before it starts");
         continue;
