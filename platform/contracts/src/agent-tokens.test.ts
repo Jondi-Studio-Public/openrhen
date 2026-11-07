@@ -87,3 +87,14 @@ describe("the assistant preset", () => {
       );
   });
 });
+
+describe("the activity-capture preset", () => {
+  it("grants only the scope that posts activity events, and never the one that reads them back", () => {
+    expect(resolveScopeList("activity-capture")).toEqual({ ok: true, scopes: ["write:activity-event"] });
+    expect(AGENT_SCOPE_PRESETS["activity-capture"]).not.toContain("read:activity-event");
+  });
+
+  it("accepts the read scope by name, so a predictor token can be issued", () => {
+    expect(resolveScopeList("read:activity-event")).toEqual({ ok: true, scopes: ["read:activity-event"] });
+  });
+});

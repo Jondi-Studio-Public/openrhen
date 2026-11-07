@@ -119,7 +119,13 @@ const CORE_BACKUP_TABLES = [
   // does not lose years of history; `watch_events` references `watch_imports` and `users`, so it comes second.
   // Neither is a plan input and the engine never reads them.
   "watch_imports",
-  "watch_events"
+  "watch_events",
+  // The activity store (format 22): import records first, then the append-only events that reference them, then the
+  // per-source settings (content gate, retention; the poller cursor rides along). All authored or irreplaceable
+  // (an export file cannot always be re-read), none a plan input, and the engine never reads them.
+  "activity_imports",
+  "activity_events",
+  "activity_source_state"
 ] as const;
 
 export const BACKUP_TABLES: readonly BackupTable[] = [...CORE_BACKUP_TABLES, ...groupBackupTables("current")];
@@ -215,7 +221,7 @@ export type BackupTables = Record<CoreBackupTable, Record<string, unknown>[]> &
   Record<string, Record<string, unknown>[]>;
 
 /** The format a new backup is written in. A format bump changes this one constant and nothing else. */
-export const CURRENT_BACKUP_FORMAT_VERSION = 20 as const;
+export const CURRENT_BACKUP_FORMAT_VERSION = 22 as const;
 
 /** Only a current-format backup is held to a row-for-row content check on restore (S8-11). */
 export function isContentVerifiedFormat(formatVersion: number): boolean {
@@ -313,7 +319,7 @@ export function validateBackup(value: unknown): OpenRhenBackup {
     throw new Error("Unsupported or incomplete OpenRhen backup");
   }
   const version = backup.formatVersion;
-  // An older format is read only where the private reader registers its table list; this build restores format 20 alone.
+  // An older format is read only where the private reader registers its table list; this build restores format 22 alone.
   const required =
     version === CURRENT_BACKUP_FORMAT_VERSION
       ? BACKUP_TABLES

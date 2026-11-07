@@ -799,3 +799,38 @@ describe("scopesForRoute: archive and cancel (POST /api/commands/close)", () => 
     expect(hardFloorReason(small.floor!)).toBeNull();
   });
 });
+
+describe("scopesForRoute: the activity store", () => {
+  it("lets the capture scope post events, and nothing else posts them", () => {
+    expect(scopesForRoute("POST", "/api/activity-events", {})).toEqual({
+      kind: "scopes",
+      scopes: ["write:activity-event"]
+    });
+    expect(AGENT_SCOPE_PRESETS["activity-capture"]).toEqual(["write:activity-event"]);
+  });
+
+  it("opens the read-back to the read scope only, and the import check to the capture scope only", () => {
+    expect(scopesForRoute("GET", "/api/activity-events")).toEqual({ kind: "scopes", scopes: ["read:activity-event"] });
+    expect(scopesForRoute("GET", "/api/activity-imports")).toEqual({
+      kind: "scopes",
+      scopes: ["write:activity-event"]
+    });
+    for (const scope of ["read:activity-event", "write:activity-event"]) expect(isKnownScope(scope)).toBe(true);
+  });
+
+  it("keeps the summary, the source settings and every deletion with the owner", () => {
+    expect(scopesForRoute("GET", "/api/activity-events/summary")).toMatchObject({
+      kind: "refused",
+      reason: "owner-only"
+    });
+    for (const [method, route] of [
+      ["PUT", "/api/activity-sources/[source]"],
+      ["DELETE", "/api/activity-sources/[source]/events"],
+      ["DELETE", "/api/activity-imports/[id]"]
+    ] as const)
+      expect(scopesForRoute(method, route, {}), `${method} ${route}`).toMatchObject({
+        kind: "refused",
+        reason: "owner-only"
+      });
+  });
+});

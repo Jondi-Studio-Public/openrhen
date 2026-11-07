@@ -11,7 +11,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "..", "..", "..");
 const WATCH_TABLES = ["watch_events", "watch_imports", "video_info"];
 /** The watch-history tables and the tables that support them (saved keys, the YouTube quota counter): none feeds the plan. */
-const BLIND_TABLES = [...WATCH_TABLES, "app_secrets", "youtube_quota_use"];
+/** The activity store (activity_events and its import records and per-source settings) is blind to the engine the same way. */
+const ACTIVITY_TABLES = ["activity_events", "activity_imports", "activity_source_state"];
+const BLIND_TABLES = [...WATCH_TABLES, ...ACTIVITY_TABLES, "app_secrets", "youtube_quota_use"];
 
 const SKIPPED_DIRECTORIES = new Set([
   "node_modules",
@@ -41,6 +43,7 @@ function sources(dir: string): { path: string; text: string }[] {
 const MAY_NAME_BLIND_TABLES = new Set([
   "portal/server/persistence/postgres/watch-history-store.ts",
   "portal/server/persistence/postgres/video-lengths-store.ts",
+  "portal/server/persistence/postgres/activity-store.ts",
   "portal/server/persistence/postgres/app-secrets-store.ts",
   "portal/server/secrets/read-secret.ts",
   "platform/database/src/schema/core.ts",

@@ -1,6 +1,6 @@
 # Desktop activity agent (rhen-watch)
 
-Status: design for phase 1, Windows only. Owns: what the device agent in `tools/rhen-watch` captures, stores and shows, and the rules that bound it. The server half (ingest endpoint, tables, retention setting) is a later change and is described only where phase 1 must not preclude it.
+Status: design for phase 1, Windows only. Owns: what the device agent in `tools/rhen-watch` captures, stores and shows, and the rules that bound it. The server half is the [activity store](activity-store.md); the uploader in this agent is a later change.
 
 ## What it is
 
@@ -49,9 +49,9 @@ SQLite in WAL mode (with `secure_delete`) at `%LOCALAPPDATA%\rhen-watch\activity
 
 Under 1% of one core on average and under 50 MB working set for phase 1, measured by the agent's own metrics over a normal day. The spike numbers are PowerShell numbers, so no Rust figure is claimed until measured.
 
-## Server half (not in this change)
+## Server half
 
-A later change adds one migration, an ingest endpoint with its own scope, a retention setting, and a boundary rule and test that keep the engine, scheduler and pulse from reading the new tables. It adds no MCP tools (the `tools/list` budget is capped).
+The server side is built and documented in [Activity store](activity-store.md): `POST /api/activity-events` (scope `write:activity-event`, preset `activity-capture`, header `X-OpenRhen-Token`), the append-only `activity_events` table (migration 0147), per-source content gate and retention, and the read-back route. It adds no MCP tools (the `tools/list` budget is capped), and `portal/server/watch-history/engine-blind.test.ts` keeps the engine, scheduler and pulse from reading the tables. The uploader in `rhen-watch` is not built yet. When it is, each local event posts as `source: "rhen-watch"` with the local kind as `kind`, the local `id` as the event key (so retries are idempotent), the device id, and `tzOffsetMin`. Titles and OCR text are `content`, stored only when the owner turns the gate on for `rhen-watch`.
 
 ## Tests
 

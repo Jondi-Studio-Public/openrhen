@@ -1,0 +1,263 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openrhen.example/schemas/activity-events.v1.json",
+  "title": "OpenRhen activity events, version 1",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "type": "number",
+      "const": 1
+    },
+    "device": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "import": {
+      "type": "object",
+      "properties": {
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "filename": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "source": {
+          "description": "The source the file feeds; defaults to the first event's source.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sha256",
+        "filename"
+      ]
+    },
+    "importId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "events": {
+      "minItems": 1,
+      "maxItems": 1000,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The event key: unique per (source, id). Posting it again is reported as alreadyHeld and changes nothing."
+          },
+          "source": {
+            "type": "string",
+            "description": "A registered source name, e.g. rhen-watch. A wrong name is answered with the list."
+          },
+          "kind": {
+            "type": "string",
+            "description": "A kind registered for that source."
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339. Second or millisecond precision; an offset such as +11:00 is accepted, normalised to UTC, and recorded as tz_offset_min."
+          },
+          "end": {
+            "description": "Omit or null for an instant event; otherwise not before start.",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tzOffsetMin": {
+            "description": "Minutes east of UTC at the event. Overrides the offset in start when both are given.",
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -840,
+                "maximum": 840
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "approximate": {
+            "description": "True for a derived value rather than an observed one.",
+            "type": "boolean"
+          },
+          "attrs": {
+            "description": "Small structured facts, at most 8 KB as JSON.",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "content": {
+            "description": "Text (titles, messages, search text). Dropped unless the source's content gate is on. At most 64 KB.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "source",
+          "kind",
+          "start"
+        ]
+      }
+    }
+  },
+  "required": [
+    "schema",
+    "events"
+  ],
+  "x-sources": {
+    "rhen-watch": {
+      "schemaVersion": 1,
+      "kinds": [
+        "foreground",
+        "idle",
+        "locked",
+        "remote",
+        "logon",
+        "logoff",
+        "suspended",
+        "display_off",
+        "ac",
+        "battery",
+        "suppressed",
+        "unknown",
+        "clock_jump",
+        "dropped",
+        "title",
+        "ocr",
+        "correction"
+      ]
+    },
+    "chrome-takeout": {
+      "schemaVersion": 1,
+      "kinds": [
+        "visit",
+        "correction"
+      ]
+    },
+    "google-activity": {
+      "schemaVersion": 1,
+      "kinds": [
+        "search",
+        "view",
+        "ask",
+        "correction"
+      ]
+    },
+    "maps-places": {
+      "schemaVersion": 1,
+      "kinds": [
+        "place",
+        "correction"
+      ]
+    },
+    "fit": {
+      "schemaVersion": 1,
+      "kinds": [
+        "steps",
+        "activity",
+        "correction"
+      ]
+    },
+    "spotify": {
+      "schemaVersion": 1,
+      "kinds": [
+        "play",
+        "correction"
+      ]
+    },
+    "discord-package": {
+      "schemaVersion": 1,
+      "kinds": [
+        "message",
+        "correction"
+      ]
+    },
+    "apple-health": {
+      "schemaVersion": 1,
+      "kinds": [
+        "sleep",
+        "workout",
+        "steps",
+        "correction"
+      ]
+    },
+    "steam": {
+      "schemaVersion": 1,
+      "kinds": [
+        "session",
+        "correction"
+      ]
+    },
+    "weather": {
+      "schemaVersion": 1,
+      "kinds": [
+        "observation",
+        "correction"
+      ]
+    },
+    "gmail": {
+      "schemaVersion": 1,
+      "kinds": [
+        "message",
+        "correction"
+      ]
+    },
+    "derived": {
+      "schemaVersion": 1,
+      "kinds": [
+        "invite",
+        "ask",
+        "fact_status",
+        "correction"
+      ]
+    },
+    "iphone-shortcuts": {
+      "schemaVersion": 1,
+      "kinds": [
+        "app_open",
+        "app_close",
+        "focus_on",
+        "focus_off",
+        "charger_on",
+        "charger_off",
+        "place_arrive",
+        "place_leave",
+        "wifi",
+        "wake",
+        "alarm",
+        "correction"
+      ]
+    },
+    "iphone-health": {
+      "schemaVersion": 1,
+      "kinds": [
+        "steps_day",
+        "sleep",
+        "workout",
+        "heart_rate_day",
+        "energy_day",
+        "correction"
+      ]
+    }
+  }
+}

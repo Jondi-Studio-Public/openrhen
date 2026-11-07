@@ -3369,6 +3369,101 @@ export const watchEvents = pgTable(
 );
 
 /**
+ * One file (or other bulk load) held in the activity store, kept so the load can be undone and a file already held can
+ * be recognised by its sha256 (activity-store design). Created by the first batch of an import. `(user_id, sha256)` is
+ * unique so two concurrent first batches of one file resolve to a single row. Authored data: backed up, and listed
+ * before `activity_events` for the foreign key. Never a plan input.
+ */
+export const activityImports = pgTable(
+  "activity_imports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    source: text("source").notNull(),
+    filename: text("filename").notNull(),
+    sha256: text("sha256").notNull(),
+    eventCount: integer("event_count").notNull().default(0),
+    importedAt: timestamp("imported_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    uniqueIndex("activity_imports_user_sha_idx").on(table.userId, table.sha256),
+    index("activity_imports_user_idx").on(table.userId, table.importedAt)
+  ]
+);
+
+/**
+ * The append-only activity store: every non-plan data source (desktop activity, browser history, plays, messages,
+ * sleep, weather) lands here. `source` and `kind` are validated in code against a registry, not by CHECK, so a new
+ * source needs no migration. Rows are never updated (a trigger in migration 0147 rejects UPDATE); the store deletes
+ * only for undo-import, purge-by-source and the retention purge. `content` is stored only when the source's content
+ * gate is on. `(user_id, source, event_key)` is the idempotency key. Deliberately NOT in `PLAN_INPUT_TABLES`: the
+ * engine never sees it and a write queues no recalculation.
+ */
+export const activityEvents = pgTable(
+  "activity_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    source: text("source").notNull(),
+    kind: text("kind").notNull(),
+    eventKey: text("event_key").notNull(),
+    device: text("device"),
+    tsStart: timestamp("ts_start", { withTimezone: true }).notNull(),
+    tsEnd: timestamp("ts_end", { withTimezone: true }),
+    /** Minutes east of UTC at the event; null when the source does not carry it. */
+    tzOffsetMin: smallint("tz_offset_min"),
+    /** True for a value derived rather than observed (a Steam playtime delta). */
+    approximate: boolean("approximate").notNull().default(false),
+    attrs: jsonb("attrs")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    content: text("content"),
+    importId: uuid("import_id").references(() => activityImports.id, { onDelete: "cascade" }),
+    /** The name of the agent token that posted the row; null for rows the portal wrote itself. */
+    ingestedVia: text("ingested_via"),
+    ingestedAt: timestamp("ingested_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    check("activity_events_time_order_check", sql`${table.tsEnd} IS NULL OR ${table.tsEnd} >= ${table.tsStart}`),
+    uniqueIndex("activity_events_key_idx").on(table.userId, table.source, table.eventKey),
+    index("activity_events_user_source_time_idx").on(table.userId, table.source, table.tsStart),
+    index("activity_events_import_idx").on(table.importId),
+    // Reply state is read at query time: a later from_self event with the same attrs.thread_id.
+    index("activity_events_thread_idx")
+      .on(table.userId, table.source, sql`(${table.attrs}->>'thread_id')`, table.tsStart)
+      .where(sql`${table.attrs} ? 'thread_id'`)
+  ]
+);
+
+/**
+ * Per-source settings for the activity store: the content gate, retention and a live poller's resume point. An
+ * absent row means the defaults (content off, kept permanently). The settings are authored, so the table is backed
+ * up; the cursor rides along harmlessly.
+ */
+export const activitySourceState = pgTable(
+  "activity_source_state",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    source: text("source").notNull(),
+    contentEnabled: boolean("content_enabled").notNull().default(false),
+    retentionDays: integer("retention_days"),
+    cursor: jsonb("cursor"),
+    lastOkAt: timestamp("last_ok_at", { withTimezone: true }),
+    lastError: text("last_error")
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.source] }),
+    check("activity_source_state_retention_check", sql`${table.retentionDays} IS NULL OR ${table.retentionDays} >= 1`)
+  ]
+);
+
+/**
  * Public video metadata (length) fetched later from YouTube; no user column because it is not personal.
  * Regenerable, so left out of backups. Empty in the first release.
  */

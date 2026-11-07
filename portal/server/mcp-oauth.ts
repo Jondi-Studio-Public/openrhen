@@ -34,7 +34,9 @@ export const SCOPES_SUPPORTED: string[] = [
     ...READ_SCOPES,
     ...MCP_TOOL_MANIFEST.flatMap((tool) => tool.scopes),
     ...AGENT_DRIVE_WRITE_SCOPES,
-    "write:agent-session"
+    "write:agent-session",
+    "write:activity-event",
+    "read:activity-event"
   ])
 ];
 

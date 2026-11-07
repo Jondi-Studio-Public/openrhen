@@ -56,6 +56,8 @@ export const AGENT_SCOPE_PRESETS: Record<string, readonly string[]> = {
   "read-only": ["read:plan", "read:changes", "read:proposals"],
   /** Posts session records for agent time and can do nothing else. */
   "agent-time": ["write:agent-session"],
+  /** Posts activity events (a device agent, a phone shortcut, an importer) and checks whether an import file is held; reads nothing back. */
+  "activity-capture": ["write:activity-event"],
   /** Reads, and can only file things for the owner: captures, proposals, and save/bulk downgraded to proposals. */
   scribe: [
     "read:plan",
