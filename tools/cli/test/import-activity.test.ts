@@ -1,0 +1,264 @@
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { afterAll, describe, expect, it } from "vitest";
+import { runCli } from "../src/cli.js";
+import { runActivityImport } from "../src/commands/import-activity.js";
+import { CliError, EXIT } from "../src/errors.js";
+import { fakeFetch, type FakeResponse, type RecordedCall } from "./fake-fetch.js";
+import { fixtureNow } from "./fixture-state.js";
+
+const dir = mkdtempSync(join(tmpdir(), "cli-activity-import-"));
+afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+type Route = FakeResponse | ((call: RecordedCall) => FakeResponse);
+
+async function run(argv: readonly string[], routes: Record<string, Route>) {
+  const calls: RecordedCall[] = [];
+  const out: string[] = [];
+  const err: string[] = [];
+  const exitCode = await runCli(argv, {
+    stdout: (text) => out.push(text),
+    stderr: (text) => err.push(text),
+    env: {},
+    readConfigFile: () => null,
+    now: () => fixtureNow,
+    fetchImpl: fakeFetch(routes, calls)
+  });
+  return { exitCode, stdout: out.join("\n"), stderr: err.join("\n"), calls };
+}
+
+function write(path: string, content: string): string {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, content);
+  return path;
+}
+
+const sha = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
+
+/** A stand-in for the portal: holds event ids per source, can reject by kind, and records what it was sent. */
+function fakePortal(options: { held?: boolean; failOnBatch?: number; rejectStartingAfter?: string } = {}) {
+  const seen = new Set<string>();
+  const batches: Record<string, unknown>[] = [];
+  const routes: Record<string, Route> = {
+    "/api/activity-imports": () => ({
+      body: options.held
+        ? { held: true, importId: "11111111-1111-4111-8111-111111111111", eventCount: 42 }
+        : { held: false }
+    }),
+    "/api/activity-events": (call) => {
+      const body = call.body as { events: { id: string; start: string }[]; importId?: string };
+      batches.push(body as unknown as Record<string, unknown>);
+      if (options.failOnBatch === batches.length) return { status: 500, body: { error: "database is down" } };
+      let added = 0;
+      let alreadyHeld = 0;
+      const rejected: { index: number; reason: string }[] = [];
+      body.events.forEach((event, index) => {
+        if (options.rejectStartingAfter && event.start > options.rejectStartingAfter) {
+          rejected.push({
+            index,
+            reason: `start (${event.start}) is more than 24 hours in the future. Check the device clock and time zone.`
+          });
+        } else if (seen.has(event.id)) alreadyHeld += 1;
+        else {
+          seen.add(event.id);
+          added += 1;
+        }
+      });
+      return {
+        body: {
+          added,
+          alreadyHeld,
+          contentDropped: 0,
+          rejected,
+          importId: body.importId ?? "22222222-2222-4222-8222-222222222222"
+        }
+      };
+    }
+  };
+  return { routes, batches, seen };
+}
+
+const play = (n: number, extra: Record<string, unknown> = {}) => ({
+  ts: new Date(Date.UTC(2026, 3, 5, 6, 0, 0) + n * 1000).toISOString(),
+  ms_played: 1000,
+  spotify_track_uri: `spotify:track:${String(n).padStart(22, "a")}`,
+  ...extra
+});
+
+describe("rhen import <source> <path>", () => {
+  it("checks whether the file is held, then posts the first batch with the import object and counts the result", async () => {
+    const file = write(
+      join(dir, "one", "Streaming_History_Audio_2026_0.json"),
+      JSON.stringify([play(1), play(2), play(3)])
+    );
+    const portal = fakePortal();
+    const result = await run(["import", "spotify", file], portal.routes);
+    expect(result.exitCode).toBe(0);
+    expect(result.calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      "GET /api/activity-imports",
+      "POST /api/activity-events"
+    ]);
+    expect(result.calls[0]!.url).toContain(`sha256=${sha(file)}`);
+    const body = result.calls[1]!.body as { schema: number; import: unknown; events: { source: string }[] };
+    expect(body.schema).toBe(1);
+    expect(body.import).toEqual({
+      sha256: sha(file),
+      filename: "Streaming_History_Audio_2026_0.json",
+      source: "spotify"
+    });
+    expect(body.events).toHaveLength(3);
+    expect(result.stdout).toContain(
+      "spotify (Streaming_History_Audio_2026_0.json): read 3 rows; sent 3: added 3, already held 0, rejected 0"
+    );
+  });
+
+  it("sends at most 1000 events per batch, and later batches carry importId instead of import", async () => {
+    const rows = Array.from({ length: 2500 }, (_, i) => play(i));
+    const file = write(join(dir, "many", "Streaming_History_Audio_2026_1.json"), JSON.stringify(rows));
+    const portal = fakePortal();
+    const result = await run(["import", "spotify", file], portal.routes);
+    expect(result.exitCode).toBe(0);
+    expect(portal.batches.map((b) => (b.events as unknown[]).length)).toEqual([1000, 1000, 500]);
+    expect(portal.batches[0]).toHaveProperty("import");
+    expect(portal.batches[1]).toMatchObject({ importId: "22222222-2222-4222-8222-222222222222" });
+    expect(portal.batches[1]).not.toHaveProperty("import");
+    expect(result.stdout).toContain("added 2500");
+  });
+
+  it("keeps each batch under the 2 MB body limit when events are large", async () => {
+    const names = "x".repeat(300_000);
+    const rows = Array.from({ length: 12 }, (_, i) => play(i, { master_metadata_track_name: names }));
+    const file = write(join(dir, "big", "Streaming_History_Audio_2026_2.json"), JSON.stringify(rows));
+    const portal = fakePortal();
+    const result = await run(["import", "spotify", file], portal.routes);
+    expect(result.exitCode).toBe(0);
+    expect(portal.batches.length).toBeGreaterThan(1);
+    for (const batch of portal.batches) expect(Buffer.byteLength(JSON.stringify(batch))).toBeLessThan(2 * 1024 * 1024);
+    expect(portal.batches.flatMap((b) => b.events as unknown[])).toHaveLength(12);
+  });
+
+  it("prints every rejection reason with its count and where it first happened", async () => {
+    const file = write(
+      join(dir, "rej", "Streaming_History_Audio_2026_3.json"),
+      JSON.stringify([play(1), play(500), play(600), { ts: "bad", ms_played: 1 }])
+    );
+    const portal = fakePortal({ rejectStartingAfter: play(100).ts });
+    const result = await run(["import", "spotify", file], portal.routes);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("rejected 2");
+    expect(result.stdout).toMatch(
+      /rejected 2: start \(.*\) is more than 24 hours in the future\. Check the device clock and time zone\. \(first at event 2\)/
+    );
+    expect(result.stdout).toContain("skipped 1: ts is missing or has no time zone");
+  });
+
+  it("does not send a file the portal already holds, unless --yes", async () => {
+    const file = write(join(dir, "held", "Streaming_History_Audio_2026_4.json"), JSON.stringify([play(1)]));
+    const held = await run(["import", "spotify", file], fakePortal({ held: true }).routes);
+    expect(held.exitCode).toBe(0);
+    expect(held.calls.map((c) => c.method)).toEqual(["GET"]);
+    expect(held.stdout).toContain("already imported (42 events");
+    const again = await run(["import", "spotify", file, "--yes"], fakePortal({ held: true }).routes);
+    expect(again.calls.map((c) => c.method)).toEqual(["GET", "POST"]);
+  });
+
+  it("--dry-run parses and counts without any request", async () => {
+    const file = write(join(dir, "dry", "Streaming_History_Audio_2026_5.json"), JSON.stringify([play(1), play(2)]));
+    const result = await run(["import", "spotify", file, "--dry-run"], {});
+    expect(result.exitCode).toBe(0);
+    expect(result.calls).toEqual([]);
+    expect(result.stdout).toContain("dry run, nothing sent. Read 2 rows; 2 would be sent");
+  });
+
+  it("stops with the portal's error and says how to resume when a batch fails", async () => {
+    const file = write(
+      join(dir, "fail", "Streaming_History_Audio_2026_6.json"),
+      JSON.stringify(Array.from({ length: 1500 }, (_, i) => play(i)))
+    );
+    const result = await run(["import", "spotify", file], fakePortal({ failOnBatch: 2 }).routes);
+    expect(result.exitCode).toBe(EXIT.unavailable);
+    expect(result.stderr).toContain("again with --yes");
+  });
+
+  it("sends a Takeout's YouTube history to the watch-history route and the rest to the activity store", async () => {
+    const root = join(dir, "takeout");
+    write(
+      join(root, "Takeout", "Chrome", "BrowserHistory.json"),
+      JSON.stringify({
+        "Browser History": [
+          { url: "https://example.test/", title: "T", time_usec: 1767323045000000, page_transition: "LINK" }
+        ]
+      })
+    );
+    const history = JSON.stringify([
+      { title: "Watched x", titleUrl: "https://www.youtube.com/watch?v=abcdefghijk", time: "2026-02-03T04:05:06Z" }
+    ]);
+    write(join(root, "Takeout", "YouTube and YouTube Music", "history", "watch-history.json"), history);
+    const portal = fakePortal();
+    const result = await run(["import", "takeout", root], {
+      ...portal.routes,
+      "/api/imports/watch-history": {
+        body: {
+          importId: "33333333-3333-4333-8333-333333333333",
+          read: 1,
+          added: 1,
+          alreadyHeld: 0,
+          skipped: 0,
+          watches: 1,
+          ads: 0,
+          posts: 0,
+          music: 0
+        }
+      }
+    });
+    expect(result.exitCode).toBe(0);
+    const youtube = result.calls.find((c) => c.path === "/api/imports/watch-history")!;
+    expect(youtube.body).toEqual({
+      filename: "watch-history.json",
+      encoding: "base64",
+      data: Buffer.from(history).toString("base64")
+    });
+    expect(portal.batches).toHaveLength(1);
+    expect(result.stderr).toContain("No My Activity/<product>/MyActivity.json found");
+    expect(result.stdout).toContain("chrome-takeout");
+    expect(result.stdout).toContain("youtube (");
+  });
+
+  it("prints machine-readable counts with --json", async () => {
+    const file = write(join(dir, "json", "Streaming_History_Audio_2026_7.json"), JSON.stringify([play(1)]));
+    const result = await run(["import", "spotify", file, "--json"], fakePortal().routes);
+    const parsed = JSON.parse(result.stdout) as { sources: { source: string; added: number; status: string }[] };
+    expect(parsed.sources[0]).toMatchObject({ source: "spotify", added: 1, status: "imported" });
+  });
+
+  it("names the expected file when the export has none for the source, and a missing path", async () => {
+    const empty = write(join(dir, "none", "other.json"), "[]");
+    const wrong = await run(["import", "apple-health", dir + "/none"], {});
+    expect(wrong.exitCode).toBe(EXIT.usage);
+    expect(wrong.stderr).toContain("No apple_health_export/export.xml found");
+    expect(empty).toBeTruthy();
+    const missing = await run(["import", "spotify", join(dir, "nope.zip")], {});
+    expect(missing.exitCode).toBe(EXIT.usage);
+    expect(missing.stderr).toContain("does not exist");
+    const noPath = await run(["import", "spotify"], {});
+    expect(noPath.exitCode).toBe(EXIT.usage);
+    expect(noPath.stderr).toContain("Missing <path>");
+  });
+
+  it("keeps the reviewed-batch actions and lists the sources in the unknown-action error", async () => {
+    const result = await run(["import", "whatever"], {});
+    expect(result.exitCode).toBe(EXIT.usage);
+    expect(result.stderr).toContain(
+      "takeout, chrome, google-activity, maps, fit, youtube, spotify, discord, apple-health"
+    );
+  });
+
+  it("refuses to read a local file for an MCP caller", async () => {
+    const context = { mcp: true } as never;
+    await expect(
+      runActivityImport(context, { positionals: ["spotify", "/etc/passwd"], values: {} })
+    ).rejects.toBeInstanceOf(CliError);
+  });
+});

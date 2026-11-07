@@ -19,6 +19,7 @@ import {
 import { DRY_RUN_NOTICE, newCommandId } from "../write.js";
 import { CliError, EXIT } from "../errors.js";
 import { renderTable, toJson } from "../output.js";
+import { SOURCE_NAMES_TEXT, isActivityImportSource, runActivityImport } from "./import-activity.js";
 
 /** A batch summary row as `GET /api/imports` sends it (see portal/app/api/imports/route.ts). */
 interface ImportBatchSummary {
@@ -80,10 +81,16 @@ export const importCommand: CommandSpec = {
     "import update 3f2a1c4e-... --from fixes.json",
     "import commit 3f2a1c4e-... --yes",
     "import commit 3f2a1c4e-... --ready-only --yes",
-    "import delete 3f2a1c4e-... --yes"
+    "import delete 3f2a1c4e-... --yes",
+    "import takeout C:\\Users\\you\\Documents\\data-exports\\takeout-001.zip",
+    "import spotify C:\\Users\\you\\Documents\\data-exports\\my_spotify_data.zip --dry-run",
+    "import apple-health C:\\Users\\you\\Documents\\data-exports\\export.zip"
   ],
   async run(context, args) {
     const action = requirePositional(importCommand, args, 0);
+    // `import <source> <path>` loads an export file into the activity store; it never touches the reviewed
+    // batches below. It reads a local file, so it refuses over MCP (see runActivityImport).
+    if (isActivityImportSource(action)) return runActivityImport(context, args);
     switch (action) {
       case "list":
         return runList(context);
@@ -99,7 +106,7 @@ export const importCommand: CommandSpec = {
         return runDelete(context, args);
       default:
         throw new CliError(
-          `Unknown import action "${action}". Actions: list, preview, show, update, commit, delete.`,
+          `Unknown import action "${action}". Actions: list, preview, show, update, commit, delete. To load a data export, name its source: ${SOURCE_NAMES_TEXT}.`,
           EXIT.usage
         );
     }
