@@ -4,13 +4,15 @@ import {
   leaveByPrompts,
   resolveNowActivity,
   settingsLocale,
+  shownTargetFor,
   type ActivityCommand,
   type LeaveByCommitment,
   type LeaveByLeg,
   type NowActivityResolution,
   type NowProtectedInfo,
   type PlanningEntityCommand,
-  type SessionCommand
+  type SessionCommand,
+  type ShownTarget
 } from "@openrhen/contracts";
 import { stableUuid } from "@/server/persistence/postgres/command-values";
 import { ensureUser } from "@/server/persistence/postgres/ensure-user";
@@ -500,6 +502,17 @@ function resolveDeviceState(state: PortalState, now: Date): ResolvedDeviceState 
     late: buildLate(activity.protectedInfo, now),
     arrival: buildArrival(state, activity.protectedInfo)
   };
+}
+
+/**
+ * The offer-log `shown` target for what this snapshot's activity stands for, built from the real resolution and the
+ * hydrated engine primary (never the trimmed wire `DeviceActivity`), by the same `shownTargetFor` the Now page uses,
+ * so the same state logs the same session, travel and suppressedBy keys on both surfaces.
+ */
+export function deviceShownTarget(state: PortalState, now: Date): ShownTarget {
+  const { resolution } = resolveDeviceState(state, now);
+  const primary = hydrateJson<DeviceRecommendation>(state.planning?.result?.recommendation ?? null)?.primary ?? null;
+  return shownTargetFor(resolution, primary);
 }
 
 /**
