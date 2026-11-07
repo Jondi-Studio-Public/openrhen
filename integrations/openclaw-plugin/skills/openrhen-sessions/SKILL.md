@@ -33,8 +33,10 @@ while a session runs, so start one when they start.
     `rhen_session` `continue` with `minutes` set to the figure they want. The plan allows exactly one
     figure, so a different one is refused, and the refusal names that figure: repeat the same `continue` with it.
     If it says the session cannot be continued, make the `finish` call instead.
-- A sleep running is ended with `rhen_activity` `finish`, never a session finish. An action session
-  ends with `rhen_session` `finish`, never `rhen_activity`.
+- A session on a sleep, a deliverable step, a routine step or a commitment is ended with `rhen_activity`
+  `finish` (and driven with the other `rhen_activity` subcommands), never `rhen_session`. An action session
+  ends with `rhen_session` `finish`, never `rhen_activity`. `rhen_status` shows which kind is open. A finish on a
+  session that already ended is refused with the time it ended; it does not need repeating.
 - A session over a deliverable credits the step they are on. If no step is current the time is not credited to one.
 
 ## Check-ins (`rhen_check_in`)

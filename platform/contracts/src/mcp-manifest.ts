@@ -171,6 +171,9 @@ function parsedJson(text: string): unknown {
  * as it was, for `propertyProblem` to refuse.
  */
 function fromOldTextForm(property: McpToolProperty, value: unknown): unknown {
+  // A flag the schema declares as text (an enum of "true"/"false"), sent as a real boolean.
+  if (typeof value === "boolean")
+    return property.type === "string" && property.enum?.includes(String(value)) ? String(value) : value;
   if (typeof value !== "string") return value;
   // "true" and "false" exactly, so a flag sent as text means what it says; any other text is refused.
   if (property.type === "boolean") return value === "true" ? true : value === "false" ? false : value;
