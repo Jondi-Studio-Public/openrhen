@@ -303,9 +303,42 @@ jobs:
           node-version: 24
       - run: node scripts/addon/conformance.mjs
 
+  # The device agent in tools/rhen-watch (Rust). Its rules are pure and tested on any OS; the Windows layer is
+  # compiled and linted on windows-latest, which is the only place that proves it builds. No Rust toolchain
+  # action: the hosted images carry stable Rust, and the org only allows GitHub-owned actions.
+  rhen-watch:
+    name: rhen-watch (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+          - runner: windows-latest
+    defaults:
+      run:
+        working-directory: tools/rhen-watch
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
+      - run: cargo build --locked --release
+      # The agent records locally and must stay that way: no network crate in its dependency tree.
+      - name: No network code
+        shell: bash
+        run: |
+          if cargo tree --locked --prefix none | grep -Ei '^(reqwest|hyper|ureq|curl|isahc|surf|attohttpc|native-tls|rustls|openssl|tokio|socket2|mio|tonic) '; then
+            echo "::error::rhen-watch must not depend on a network crate"
+            exit 1
+          fi
+
   ci-ok:
     name: ci-ok
-    needs: [check, typecheck, unit, benchmark, integration, build, smoke, selfhost-smoke, hygiene, reuse, addon-conformance]
+    needs: [rhen-watch, check, typecheck, unit, benchmark, integration, build, smoke, selfhost-smoke, hygiene, reuse, addon-conformance]
     # Runs even when a job above failed or was cancelled, so the required check is red, never missing.
     if: always()
     runs-on: ubuntu-latest

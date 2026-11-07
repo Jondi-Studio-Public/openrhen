@@ -6,7 +6,7 @@
 // `github.event.*`, `head_ref` and `ref_name` hold attacker-chosen text (titles, branch names) and must
 // reach a shell through `env:`, never by being pasted into a `run:` script; actions are pinned by sha.
 
-export const HOSTED_RUNNERS = ["ubuntu-latest", "ubuntu-24.04-arm"];
+export const HOSTED_RUNNERS = ["ubuntu-latest", "ubuntu-24.04-arm", "windows-latest"];
 export const FORBIDDEN_TRIGGERS = [
   "pull_request_target",
   "workflow_run",
