@@ -30,6 +30,14 @@
       "fixtures": 8
     },
     {
+      "path": "state.actions[].consequenceRefined",
+      "fixtures": 8
+    },
+    {
+      "path": "state.actions[].consequenceRefinedForStars",
+      "fixtures": 8
+    },
+    {
       "path": "state.actions[].contexts",
       "fixtures": 8
     },
@@ -562,6 +570,14 @@
       "fixtures": 13
     },
     {
+      "path": "state.projects[].consequenceRefined",
+      "fixtures": 13
+    },
+    {
+      "path": "state.projects[].consequenceRefinedForStars",
+      "fixtures": 13
+    },
+    {
       "path": "state.projects[].createdAt",
       "fixtures": 13
     },
@@ -936,6 +952,8 @@
       "fields": [
         "[].availableFrom",
         "[].consequence",
+        "[].consequenceRefined",
+        "[].consequenceRefinedForStars",
         "[].contexts",
         "[].createdAt",
         "[].deadlineAt",
@@ -1103,6 +1121,8 @@
       "fields": [
         "[].actualCompletionRatio",
         "[].consequence",
+        "[].consequenceRefined",
+        "[].consequenceRefinedForStars",
         "[].createdAt",
         "[].externalDeadlineAt",
         "[].id",

@@ -6,6 +6,7 @@ import {
   CRITICAL_START_LOOKAHEAD_MS,
   ORDINARY_RANK,
   effectiveConsequence,
+  effectiveConsequenceRefined,
   effectiveDeadline,
   deadlineIsExternal,
   projectDeadlineIsExternal,
@@ -1355,7 +1356,7 @@ export function compareCandidates(
   const aSlack = forecasts.get(a.action.projectId)?.marginRatio ?? Number.MAX_SAFE_INTEGER;
   const bSlack = forecasts.get(b.action.projectId)?.marginRatio ?? Number.MAX_SAFE_INTEGER;
   if (aSlack !== bSlack) return { order: aSlack - bSlack, factor: "margin" };
-  const consequenceDifference = consequenceFor(b, projects) - consequenceFor(a, projects);
+  const consequenceDifference = consequenceRefinedFor(b, projects) - consequenceRefinedFor(a, projects);
   if (consequenceDifference) return { order: consequenceDifference, factor: "consequence" };
   const completes = completionRank(b) - completionRank(a);
   if (completes) return { order: completes, factor: "completion" };
@@ -1456,8 +1457,13 @@ function latestSafeStartFor(candidate: RecommendationCandidate, forecasts: Map<s
 function imminentRank(candidate: RecommendationCandidate, forecasts: Map<string, ProjectForecast>, now: Date) {
   return latestSafeStartFor(candidate, forecasts, now) <= now.getTime() + CRITICAL_START_LOOKAHEAD_MS ? 0 : 1;
 }
+/** Stars only: deadline tiers must never read a comparison-refined value. */
 function consequenceFor(candidate: RecommendationCandidate, projects: Map<string, Project>) {
   return effectiveConsequence(candidate.action, projects.get(candidate.action.projectId));
+}
+/** Refined when present: the ordinary-tier tiebreak only. */
+function consequenceRefinedFor(candidate: RecommendationCandidate, projects: Map<string, Project>) {
+  return effectiveConsequenceRefined(candidate.action, projects.get(candidate.action.projectId));
 }
 function deadlineFor(
   candidate: RecommendationCandidate,
