@@ -145,3 +145,61 @@ export async function recordOutcome(sql: Sql, userId: string, input: OutcomeInpu
     VALUES (${userId}, clock_timestamp(), ${input.event}, ${recommendationId}, 'server', ${input.resolutionKind ?? null}, ${input.targetType}, ${input.targetId}, ${input.executionOptionId ?? null}, ${input.label ?? null}, ${rank}, ${rankBasis}, ${input.actor}, ${input.commandId}, ${sql.json(detail as never)})
     ON CONFLICT (command_id, event, target_id) WHERE command_id IS NOT NULL DO NOTHING`;
 }
+
+/** An identical (user, surface, target, resolution kind) `shown` repeat inside this many minutes is dropped. */
+export const SHOWN_DEDUPE_MINUTES = 5;
+
+export interface ShownInput {
+  surface: "portal" | "handheld";
+  resolutionKind: string;
+  targetType: string;
+  targetId: string;
+  executionOptionId?: string | null | undefined;
+  label?: string | null | undefined;
+  /** The engine's primary when the screen showed something else on top of it. */
+  suppressedBy?:
+    | {
+        targetType: string;
+        targetId: string;
+        executionOptionId?: string | null | undefined;
+        label?: string | null | undefined;
+      }
+    | null
+    | undefined;
+  /** The browser's idempotency id; null for a surface that has none (the handheld). */
+  commandId?: string | null | undefined;
+  actor: string | null;
+}
+
+/**
+ * Appends a `shown` row: what a screen actually resolved, so the denominator for "is the engine's rank-1 what I do"
+ * is exposure, not recalculations. Drops a repeat of the same (user, surface, target, resolution kind) within five
+ * minutes; there is no cross-surface suppression. The recommendation id is the latest `offered` row's. Returns whether
+ * a row was written. A replayed `commandId` writes nothing (conflict target named, never a bare DO NOTHING).
+ *
+ * `shown` is a lower bound: background tabs, several surfaces and polling all make it miss or repeat exposure.
+ */
+export async function recordShown(sql: Sql, userId: string, input: ShownInput): Promise<boolean> {
+  // Serialise concurrent beacons for one user so two simultaneous identical posts cannot both pass the repeat check.
+  await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`offer_log_shown:${userId}`}, 0))`;
+  const repeat = await sql<{ id: string }[]>`
+    SELECT id FROM offer_log
+    WHERE user_id=${userId} AND event='shown' AND surface=${input.surface}
+      AND target_type=${input.targetType} AND target_id=${input.targetId}
+      AND resolution_kind=${input.resolutionKind}
+      AND occurred_at > clock_timestamp() - make_interval(mins => ${SHOWN_DEDUPE_MINUTES})
+    LIMIT 1`;
+  if (repeat[0]) return false;
+  const latest = await sql<{ recommendation_id: string | null }[]>`
+    SELECT recommendation_id FROM offer_log
+    WHERE user_id=${userId} AND event='offered'
+    ORDER BY occurred_at DESC, id DESC LIMIT 1`;
+  const detail: Record<string, unknown> = { timezone: await timezoneOf(sql, userId) };
+  if (input.suppressedBy) detail.suppressed_by = input.suppressedBy;
+  const inserted = await sql<{ id: string }[]>`
+    INSERT INTO offer_log (user_id, occurred_at, event, recommendation_id, surface, resolution_kind, target_type, target_id, execution_option_id, label, actor, command_id, detail)
+    VALUES (${userId}, clock_timestamp(), 'shown', ${latest[0]?.recommendation_id ?? null}, ${input.surface}, ${input.resolutionKind}, ${input.targetType}, ${input.targetId}, ${input.executionOptionId ?? null}, ${input.label ?? null}, ${input.actor}, ${input.commandId ?? null}, ${sql.json(detail as never)})
+    ON CONFLICT (command_id, event, target_id) WHERE command_id IS NOT NULL DO NOTHING
+    RETURNING id`;
+  return inserted.length > 0;
+}

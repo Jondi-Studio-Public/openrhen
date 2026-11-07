@@ -55,7 +55,7 @@ The worker runs independent loops, so a slow one delays only itself: planning jo
 
 ## Persistence
 
-PostgreSQL is required. The portal reads `DATABASE_URL` and refuses to serve planning state without it. Migrations are append-only: a correction is a new migration, never an edit. Uploaded source files are stored in the database as bounded records with a content hash, so a backup is one artefact; the payload can move behind object storage later without changing identifiers. Backups are logical, verified by restoring them, and described in [Database and backups](../operations/database-and-backups.md).
+PostgreSQL is required. The portal reads `DATABASE_URL` and refuses to serve planning state without it. Migrations are append-only: a correction is a new migration, never an edit. Uploaded source files are stored in the database as bounded records with a content hash, so a backup is one artefact; the payload can move behind object storage later without changing identifiers. Backups are logical, verified by restoring them, and described in [Database and backups](../operations/database-and-backups.md). The append-only Now offer log (`offer_log`) also records what each surface resolved (`shown`, from the open portal tab and the handheld); that is a lower bound on what you saw, since a background tab, a second surface or a missed request leaves no row.
 
 ## Closing plan items
 

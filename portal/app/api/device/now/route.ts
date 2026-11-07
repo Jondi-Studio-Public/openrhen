@@ -1,6 +1,7 @@
 import { withRoute } from "@/server/logging";
 import { getStateStore } from "@/server/persistence/state-store";
 import { buildDeviceSnapshot, deviceETag, deviceETagMatches, readDeviceCheckIn } from "@/server/device/device-now";
+import { logDeviceShown } from "@/server/device/device-shown";
 import { getCachedDeviceState, setCachedDeviceState } from "@/server/device/device-state-cache";
 import type { PortalState } from "@/state/portal-state";
 
@@ -32,5 +33,7 @@ export const GET = withRoute("/api/device/now", async (request) => {
   const etag = deviceETag(snapshot.stateVersion);
   if (deviceETagMatches(request.headers.get("if-none-match"), snapshot.stateVersion))
     return new Response(null, { status: 304, headers: { ...HEADERS, ETag: etag } });
+  // A changed ETag is a new thing on the handheld's screen: record it, off the response path and never able to fail it.
+  void logDeviceShown(snapshot.activity);
   return Response.json(snapshot, { headers: { ...HEADERS, ETag: etag } });
 });

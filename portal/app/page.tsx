@@ -13,6 +13,7 @@ import { situationCommand, type LocationPromptView } from "@/components/situatio
 import type { ActiveSession, PortalState, StoredCommitment } from "@/state/portal-state";
 import { useNow } from "@/shared/clock";
 import { openCaptureSheet } from "@/shared/use-capture-sheet";
+import { useOfferShown } from "@/shared/use-offer-shown";
 import { dismissPendingLocationSuggestion, useLocationObservation } from "@/shared/use-location-observation";
 import { activeDisruption } from "@/features/disruptions/disruption-summary";
 import { RenegotiationPanel } from "@/features/disruptions/components/renegotiation-panel";
@@ -371,7 +372,8 @@ export default function NowPage() {
     needs,
     stretchOffer,
     stretch,
-    energyCost
+    energyCost,
+    activity: resolvedActivity
   } = model;
   // Keyed to the specific plan rather than just "on/off" so a reload can tell a still-current early
   // start from a stale one left over from a previous night's plan, which by then has a different id.
@@ -408,6 +410,8 @@ export default function NowPage() {
     enabled: ready && !replay,
     refreshKey: situationLocationTrusted
   });
+  // The offer log's `shown` beacon: what this page resolved to, never during a frozen replay. No UI.
+  useOfferShown({ enabled: ready && !replay, activity: resolvedActivity, primary });
   // A phone-sourced suggestion is answered for the rest of this page's life once declined, the same
   // as a browser one; a fresh reading replacing it (a new `observedAt`) is what earns it another ask.
   const [phoneLocationSuggestionDismissed, setPhoneLocationSuggestionDismissed] = useState(false);

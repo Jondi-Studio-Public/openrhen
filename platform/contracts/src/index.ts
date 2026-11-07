@@ -500,6 +500,8 @@ export type {
   StepBlockReason,
   StepReadiness
 } from "./planning/deliverable-readiness.js";
+export { NOW_RESOLUTION_KINDS, offerLogShownSchema } from "./planning/offer-log-shown.js";
+export type { NowResolutionKind, OfferLogShown } from "./planning/offer-log-shown.js";
 export {
   locationObservationSchema,
   locationObserveResponseSchema,

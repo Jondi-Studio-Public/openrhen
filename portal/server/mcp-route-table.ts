@@ -97,6 +97,7 @@ export const CORE_MCP_ROUTE_TABLE: Record<string, () => Promise<RouteModule>> = 
   "/api/owner/enroll": () => import("@/app/api/owner/enroll/route"),
   "/api/owner/session": () => import("@/app/api/owner/session/route"),
   "/api/owner/signout": () => import("@/app/api/owner/signout/route"),
+  "/api/offer-log/shown": () => import("@/app/api/offer-log/shown/route"),
   "/api/photo-checkins": () => import("@/app/api/photo-checkins/route"),
   "/api/photo-checkins/[id]": () => import("@/app/api/photo-checkins/[id]/route"),
   "/api/photo-checkins/[id]/photo": () => import("@/app/api/photo-checkins/[id]/photo/route"),
