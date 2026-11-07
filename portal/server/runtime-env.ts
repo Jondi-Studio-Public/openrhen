@@ -51,6 +51,12 @@ export interface RuntimeEnv {
   OPENRHEN_AGENT_TOKENS?: string;
   /** `off` (default) or `require`: with `require`, a self-declared agent name without a token is refused. */
   OPENRHEN_AGENT_AUTH?: string;
+  /**
+   * `off` (default) or `on`: whether the activity store keeps the text of events from a continuous collector whose
+   * source has no saved setting. A source's own saved setting (PUT /api/activity-sources/:source) wins either way,
+   * and an explicit file import always keeps its text.
+   */
+  OPENRHEN_ACTIVITY_CONTENT_DEFAULT?: string;
 }
 
 const DEFAULT_OUTBOUND_REQUEST_TIMEOUT_MS = 30_000;

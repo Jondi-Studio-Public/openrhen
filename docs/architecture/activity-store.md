@@ -8,7 +8,7 @@ Every non-plan data source (the desktop agent, browser history, plays, messages,
 
 - `activity_events`: `id`, `user_id`, `source`, `kind`, `event_key` (idempotency, unique with user and source), `device`, `ts_start`, `ts_end` (null for an instant), `tz_offset_min` (minutes east of UTC at the event, null when unknown), `approximate`, `attrs` (jsonb, at most 8 KB), `content` (text, at most 64 KB, only when the source's gate is on), `import_id`, `ingested_via` (the posting agent's name), `ingested_at`. A trigger refuses every `UPDATE`. `DELETE` and `TRUNCATE` stay possible: restore and the test harness truncate every backup table. Store code deletes only for undo-import, purge-by-source and the retention purge. A wrong interval is corrected by a new row of kind `correction` whose `attrs.corrects` names the event key; raw rows are never rewritten.
 - `activity_imports`: one row per file loaded in bulk (`source`, `filename`, `sha256`, `event_count`), unique per user and `sha256`, so concurrent first batches of one file resolve to a single row.
-- `activity_source_state`: per source, `content_enabled` (default false), `retention_days` (null keeps permanently), and a `cursor` for later pollers. An absent row means the defaults.
+- `activity_source_state`: per source, `content_enabled` (default false), `retention_days` (null keeps permanently), and a `cursor` for later pollers. An absent row means the defaults: the gate takes `OPENRHEN_ACTIVITY_CONTENT_DEFAULT` (off unless set to `on`), retention is permanent.
 
 `source` and `kind` are checked in code against the registry (`ACTIVITY_SOURCES` in `platform/contracts/src/activity-events.ts`), not by a database constraint, so a new source needs no migration. Each source has a `schemaVersion`; `correction` is accepted as a kind for every source.
 
@@ -24,7 +24,7 @@ The response is `{message, schema, added, alreadyHeld, contentDropped, rejected:
 
 - A bad event rejects itself, not the batch; its reason names the exact fix (the known sources or kinds, the limit, the field). A rejected shorthand event answers 400 with that reason as `error`.
 - A key already held (in the store, or earlier in the same batch) is `alreadyHeld`: never an error, never a change.
-- Content is dropped, and counted in `contentDropped`, when the source's gate is off.
+- Content is dropped, and counted in `contentDropped`, when the source's gate is off, except in a file import (a batch that carries `import` or `importId`): importing your own file is the consent, so its text is kept whatever the gate says. The gate governs continuous collectors (rhen-watch, phone shortcuts, pollers); a collector must not send `import` to get around a gate that is off. A source with no saved setting takes the server default, `OPENRHEN_ACTIVITY_CONTENT_DEFAULT` (`on` or `off`, default `off`); a saved setting wins both ways.
 - While the pulse is lapsed a token is held with a 428 on every route except `POST /api/activity-events` and `GET /api/activity-imports`: a passive recorder (rhen-watch, a phone shortcut with no retry) posts exactly while the owner is away, and the post stores events but returns none. Reading events back stays held.
 - Whole-request errors: malformed JSON, a wrong `schema`, an empty or oversized list (400), a body over 2 MB (413), a failed token.
 
@@ -38,7 +38,7 @@ The response is `{message, schema, added, alreadyHeld, contentDropped, rejected:
 
 Owner session only, never a token: `GET /api/activity-events/summary` (counts, last event and settings per source, recent imports), `PUT /api/activity-sources/:source` (`{contentEnabled?, retentionDays?}`), `DELETE /api/activity-imports/:id` (undo an import: its events and its record), `DELETE /api/activity-sources/:source/events` (purge a source, including its import records; not undoable).
 
-The content gate decides whether text is stored from then on; turning it off deletes nothing already stored (use the purge for that). It is a consent gate, not a feature switch.
+The content gate decides whether a continuous collector's text is stored from then on (a file import always keeps its text); turning it off deletes nothing already stored (use the purge for that). It is a consent gate, not a feature switch.
 
 ## Retention
 
