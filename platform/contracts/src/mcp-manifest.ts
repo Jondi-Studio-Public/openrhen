@@ -90,7 +90,12 @@ export function withExtensionTools(core: readonly McpToolManifestEntry[]): McpTo
       // A function derives its entries from the core ones, so it never sees another extension's changes.
       for (const override of typeof overrides === "function" ? overrides(core) : (overrides ?? [])) {
         const at = tools.findIndex((tool) => tool.name === override.name);
-        if (at >= 0) tools[at] = override;
+        if (at < 0) {
+          throw new Error(
+            `Extension "${extension.id}" overrides MCP tool "${override.name}", which is not a registered tool, so the override would be dropped. Return only entries whose name matches a core tool (filter the entries passed in by name), or put a new tool in \`tools\` instead.`
+          );
+        }
+        tools[at] = override;
       }
       const anchor = tools.findIndex((tool) => tool.name === placement.after);
       tools.splice(anchor < 0 ? tools.length : anchor + 1, 0, ...placement.tools);
