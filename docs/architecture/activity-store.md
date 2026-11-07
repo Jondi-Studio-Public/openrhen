@@ -10,6 +10,8 @@ Every non-plan data source (the desktop agent, browser history, plays, messages,
 - `activity_imports`: one row per file loaded in bulk (`source`, `filename`, `sha256`, `event_count`), unique per user and `sha256`, so concurrent first batches of one file resolve to a single row.
 - `activity_source_state`: per source, `content_enabled` (default false), `retention_days` (null keeps permanently), and a `cursor` for later pollers. An absent row means the defaults: the gate takes `OPENRHEN_ACTIVITY_CONTENT_DEFAULT` (off unless set to `on`), retention is permanent.
 
+Sources and kinds added with the Takeout importers (Timeline, Google Chat, Access Log Activity, Google Photos; formats unverified against a real export, see [Importing your data](../operations/importing-your-data.md)): `timeline` (`place_visit`, `activity_segment`, `point`), `google-chat` (`message`, the Gmail attrs shape with `thread_id` the space id), `google-access-log` (`access`; attrs hold only product and activity type, never an IP address or user-agent) and `google-photos` (`photo`, `video`; sidecar metadata only, the media is never read).
+
 `source` and `kind` are checked in code against the registry (`ACTIVITY_SOURCES` in `platform/contracts/src/activity-events.ts`), not by a database constraint, so a new source needs no migration. Each source has a `schemaVersion`; `correction` is accepted as a kind for every source.
 
 ## Ingest

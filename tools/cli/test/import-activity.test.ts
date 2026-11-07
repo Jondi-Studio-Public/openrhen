@@ -307,7 +307,7 @@ describe("rhen import <source> <path>", () => {
     const result = await run(["import", "whatever"], {});
     expect(result.exitCode).toBe(EXIT.usage);
     expect(result.stderr).toContain(
-      "takeout, chrome, google-activity, maps, fit, youtube, spotify, discord, apple-health"
+      "takeout, chrome, google-activity, maps, fit, timeline, google-chat, access-log, google-photos, youtube, spotify, discord, apple-health"
     );
   });
 

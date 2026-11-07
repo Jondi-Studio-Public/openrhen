@@ -179,6 +179,37 @@
         "correction"
       ]
     },
+    "timeline": {
+      "schemaVersion": 1,
+      "kinds": [
+        "place_visit",
+        "activity_segment",
+        "point",
+        "correction"
+      ]
+    },
+    "google-chat": {
+      "schemaVersion": 1,
+      "kinds": [
+        "message",
+        "correction"
+      ]
+    },
+    "google-access-log": {
+      "schemaVersion": 1,
+      "kinds": [
+        "access",
+        "correction"
+      ]
+    },
+    "google-photos": {
+      "schemaVersion": 1,
+      "kinds": [
+        "photo",
+        "video",
+        "correction"
+      ]
+    },
     "spotify": {
       "schemaVersion": 1,
       "kinds": [

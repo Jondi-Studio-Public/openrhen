@@ -45,3 +45,29 @@ export function plausible(date: Date, now: Date = new Date()): boolean {
   const time = date.getTime();
   return time >= Date.UTC(1995, 0, 1) && time <= now.getTime() + 24 * 3_600_000;
 }
+
+/** Epoch milliseconds as a number or a 12 to 13 digit string, within the plausible span; anything else (seconds, microseconds, text) is null, never rescaled. */
+export function fromEpochMillis(value: unknown, now: Date = new Date()): Date | null {
+  const millis =
+    typeof value === "number" && Number.isInteger(value)
+      ? value
+      : typeof value === "string" && /^\d{12,13}$/.test(value.trim())
+        ? Number(value)
+        : NaN;
+  if (!Number.isFinite(millis) || millis <= 0) return null;
+  const date = new Date(millis);
+  return Number.isNaN(date.getTime()) || !plausible(date, now) ? null : date;
+}
+
+/** Epoch seconds as a number or a 9 to 11 digit string, within the plausible span; anything else is null, never rescaled. */
+export function fromEpochSeconds(value: unknown, now: Date = new Date()): Date | null {
+  const seconds =
+    typeof value === "number" && Number.isInteger(value)
+      ? value
+      : typeof value === "string" && /^\d{9,11}$/.test(value.trim())
+        ? Number(value)
+        : NaN;
+  if (!Number.isFinite(seconds) || seconds <= 0 || seconds > 99_999_999_999) return null;
+  const date = new Date(seconds * 1000);
+  return Number.isNaN(date.getTime()) || !plausible(date, now) ? null : date;
+}
