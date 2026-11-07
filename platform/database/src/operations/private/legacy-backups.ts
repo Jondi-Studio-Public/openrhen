@@ -1,4 +1,4 @@
-// This export reads the current backup format, and formats 20 and 21 (the ones before the Now offer log and the activity store).
+// This export reads the current backup format (23), and the legacy formats 22, 21 and 20.
 import type { BackupTable, OpenRhenBackup } from "../backup-format.js";
 import { groupBackupTables } from "../../schema/table-groups.js";
 
@@ -81,8 +81,21 @@ const FORMAT_20_CORE_TABLES = [
 
 const FORMAT_21_CORE_TABLES = [...FORMAT_20_CORE_TABLES, "offer_log"] as const;
 
+/**
+ * Format 22 is format 21 plus the three activity tables, all in the JSON (a 22 backup may carry a `skipped` entry when
+ * `activity_events` was over its 500,000-row guard; it then restores with that table empty and says so). Format 23 has
+ * the same tables but keeps `activity_events` rows in a streamed section, so it is the current list.
+ */
+const FORMAT_22_CORE_TABLES = [
+  ...FORMAT_21_CORE_TABLES,
+  "activity_imports",
+  "activity_events",
+  "activity_source_state"
+] as const;
+
 export function legacyRequiredTables(formatVersion: number): readonly BackupTable[] | undefined {
   if (formatVersion === 20) return [...FORMAT_20_CORE_TABLES, ...groupBackupTables("current")];
+  if (formatVersion === 22) return [...FORMAT_22_CORE_TABLES, ...groupBackupTables("current")];
   if (formatVersion === 21) return [...FORMAT_21_CORE_TABLES, ...groupBackupTables("current")];
   return undefined;
 }

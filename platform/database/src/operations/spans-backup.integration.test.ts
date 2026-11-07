@@ -16,6 +16,11 @@ import {
   validateBackup
 } from "./backup-format.js";
 
+/** These suites hold no activity events, so the streamed section a current-format backup names is an empty one. */
+const NO_ACTIVITY_ROWS = {
+  activity_events: { file: "none.activity-events.ndjson", rows: 0, bytes: 0, sha256: "0".repeat(64) }
+};
+
 /**
  * the design notes: spans are authored, so a backup carries them and a restore brings them
  * back unchanged, window and project link included. The restore step is the one `restore.ts` runs
@@ -100,7 +105,8 @@ describe("spans in the backup", () => {
           createdAt: new Date().toISOString(),
           sourceDatabase: testDatabaseName,
           tables,
-          sha256: checksum(tables)
+          sha256: checksum(tables),
+          streamed: NO_ACTIVITY_ROWS
         })
       )
     );

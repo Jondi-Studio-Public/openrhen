@@ -39,7 +39,7 @@ const keepCopies = positiveInteger(process.env.BACKUP_KEEP_COPIES, 60);
 const startedAt = Date.now();
 const warnings = [];
 
-// The names `db:backup` writes, and the only names pruning will ever delete.
+// The names `db:backup` writes, and the only names pruning will ever delete (plus the `.ndjson` sections that sit beside one).
 const BACKUP_FILENAME = /^(?:priorities|openrhen)-.*\.json$/;
 // Node refuses to spawn a .cmd without a shell on Windows, and pnpm is a .cmd there.
 const PNPM = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
@@ -51,15 +51,16 @@ try {
   // copy is add-only, so doing it first can never lose anything.
   // Nothing is written to the copy folder until it is proven to be the mounted share with room to spare.
   const written = await stat(created.backup);
-  if (copyDirectory) await assertBackupTarget(copyDirectory, { backupBytes: written.size });
+  const backupBytes = written.size + created.sections.reduce((total, section) => total + section.bytes, 0);
+  if (copyDirectory) await assertBackupTarget(copyDirectory, { backupBytes });
   const photos = await copyPhotos();
   const restoreChecked = await verifyBackup(created.backup);
-  const copiedTo = await copyBackup(created.backup);
+  const copiedTo = await copyBackup(created.backup, created.sections);
   const prunedLocal = await prune(dirname(created.backup), keepLocal);
   const prunedCopies = copyDirectory ? await prune(copyDirectory, keepCopies) : 0;
   summarise("ok", {
     backup: created.backup,
-    backupBytes: written.size,
+    backupBytes,
     records: created.records,
     verified: restoreChecked,
     ...(restoreChecked ? {} : { restoreSkipped: true }),
@@ -92,7 +93,12 @@ async function createBackup() {
   const parsed = JSON.parse(line);
   if (typeof parsed.backup !== "string") throw new Error("db:backup summary did not name a backup file.");
   await stat(parsed.backup);
-  return { backup: resolve(parsed.backup), records: parsed.records ?? null };
+  // Streamed sections (the activity events) are separate files beside the JSON; the JSON is useless without them.
+  const sections = Array.isArray(parsed.sections)
+    ? parsed.sections.map((section) => ({ path: resolve(section.path), bytes: Number(section.bytes) || 0 }))
+    : [];
+  for (const section of sections) await stat(section.path);
+  return { backup: resolve(parsed.backup), records: parsed.records ?? null, sections };
 }
 
 /**
@@ -125,7 +131,7 @@ async function copyPhotos() {
   return result;
 }
 
-async function copyBackup(backupPath) {
+async function copyBackup(backupPath, sections = []) {
   if (copyOptedOut) {
     process.stdout.write(
       `${JSON.stringify({ level: "info", message: "BACKUP_COPY=off: no off-machine copy; this backup exists only on this machine." })}\n`
@@ -141,6 +147,8 @@ async function copyBackup(backupPath) {
   }
   // A copy that silently truncated is worse than no copy, because it looks like protection, so it
   // is written to a .partial name, checked by sha256 and only then renamed (S8-10).
+  // Sections first: a JSON backup that names a section must never appear in the copy before the section does.
+  for (const section of sections) await copyVerified(section.path, copyDirectory);
   return copyVerified(backupPath, copyDirectory);
 }
 
@@ -154,8 +162,18 @@ async function copyBackup(backupPath) {
 async function prune(directory, keep) {
   const files = (await readdir(directory)).filter((name) => BACKUP_FILENAME.test(name)).sort();
   const doomed = files.slice(0, Math.max(0, files.length - keep));
-  for (const name of doomed) await rm(resolve(directory, name));
+  for (const name of doomed) {
+    // Delete the JSON first, so a backup name never survives without its sections, then its sections.
+    await rm(resolve(directory, name));
+    for (const companion of await sectionsOf(directory, name)) await rm(resolve(directory, companion), { force: true });
+  }
   return doomed.length;
+}
+
+/** The streamed section files that belong to a backup JSON: `<name without .json>.<table>.ndjson`, in the same directory. */
+async function sectionsOf(directory, name) {
+  const stem = `${name.replace(/\.json$/, "")}.`;
+  return (await readdir(directory)).filter((other) => other.startsWith(stem) && other.endsWith(".ndjson"));
 }
 
 // Windows needs a shell to run pnpm at all, and passing an args array through one is deprecated, so

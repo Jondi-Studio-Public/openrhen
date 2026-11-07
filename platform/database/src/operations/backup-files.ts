@@ -28,11 +28,12 @@ export async function writeFileAtomic(path: string, contents: string): Promise<v
 
 /**
  * The newest backup in `directory` that `load` accepts. A truncated or corrupt newest file is
- * skipped (and named in `skipped`) rather than failing a recovery that has an older good backup.
+ * skipped (and named in `skipped`) rather than failing a recovery that has an older good backup. `load` may be async and
+ * is told the file's path, so it can check files that sit beside the backup (its streamed sections).
  */
 export async function latestValidBackup<T>(
   directory: string,
-  load: (text: string) => T
+  load: (text: string, path: string) => T | Promise<T>
 ): Promise<{ path: string; backup: T; skipped: string[] }> {
   const names = (await readdir(directory))
     .filter((name) => BACKUP_FILENAME.test(name))
@@ -42,7 +43,7 @@ export async function latestValidBackup<T>(
   for (const name of names) {
     const path = resolve(directory, name);
     try {
-      return { path, backup: load(await readFile(path, "utf8")), skipped };
+      return { path, backup: await load(await readFile(path, "utf8"), path), skipped };
     } catch (error) {
       skipped.push(`${name}: ${error instanceof Error ? error.message : String(error)}`);
     }
