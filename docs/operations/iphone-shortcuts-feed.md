@@ -48,7 +48,7 @@ The server fills in the event id, so a retry of the same second is not double-co
 
 ## 3. Test it
 
-Run `Rhen Event` once by hand from a tiny test shortcut: **Dictionary** with `kind` = `app_open` and `name` = `Test`, then **Run Shortcut** `Rhen Event` with that Dictionary as input. Then open the portal's Review screen: the activity line lists a last event for `iphone-shortcuts`. (The summary route is owner-only, so a token cannot read it.) If **Get Contents of URL** shows an error body, it names the exact field to fix.
+Run `Rhen Event` once by hand from a tiny test shortcut: **Dictionary** with `kind` = `app_open` and `name` = `Test`, then **Run Shortcut** `Rhen Event` with that Dictionary as input. Then, in a browser tab signed in to the portal, open `https://<your portal host>/api/activity-events/summary`. It lists a last event for `iphone-shortcuts`. (The route is owner-only, so a token cannot read it; your signed-in session can.) If **Get Contents of URL** shows an error body, it names the exact field to fix.
 
 ## 4. The automations
 
