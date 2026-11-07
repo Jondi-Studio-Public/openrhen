@@ -169,6 +169,31 @@ describe("consequenceRefined in ordinary ranking", () => {
   });
 });
 
+describe("the ordinary tiebreak keeps order beyond the 1-5 clamp", () => {
+  const order = (stars: number, high: number, low: number) => {
+    const projects = [project("a", null, { consequence: stars }), project("b", null, { consequence: stars })];
+    const result = rank(projects, [
+      action("a-work", "a", 60, { consequence: stars, consequenceRefined: low }),
+      action("b-work", "b", 60, { consequence: stars, consequenceRefined: high })
+    ]);
+    const ordinary = result.candidates.filter((c) => c.criticalRank === ORDINARY_RANK);
+    expect(ordinary[0]!.scoreComponents.consequence).toBe(ordinary[1]!.scoreComponents.consequence);
+    expect(ordinary[0]!.totalScore).toBe(ordinary[1]!.totalScore);
+    return ordinary.map((c) => c.action.id);
+  };
+  it("orders 5.9 above 5.2 on 5-star items although the score term clamps", () => {
+    expect(order(5, 5.9, 5.2)).toEqual(["b-work", "a-work"]);
+  });
+  it("orders 0.8 above 0.3 on 1-star items", () => {
+    expect(order(1, 0.8, 0.3)).toEqual(["b-work", "a-work"]);
+  });
+  it("falls back to the identifier order when nothing is refined", () => {
+    const projects = [project("a", null), project("b", null)];
+    const result = rank(projects, [action("a-work", "a", 60), action("b-work", "b", 60)]);
+    expect(result.candidates.map((c) => c.action.id)).toEqual(["a-work", "b-work"]);
+  });
+});
+
 describe("deadline tiers and continuation ignore refined values", () => {
   const scenarios: Array<{ name: string; projects: Project[]; actions: Action[] }> = [
     {

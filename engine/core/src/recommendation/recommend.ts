@@ -6,7 +6,7 @@ import {
   CRITICAL_START_LOOKAHEAD_MS,
   ORDINARY_RANK,
   effectiveConsequence,
-  effectiveConsequenceRefined,
+  effectiveConsequenceRefinedUnclamped,
   effectiveDeadline,
   deadlineIsExternal,
   projectDeadlineIsExternal,
@@ -1463,7 +1463,7 @@ function consequenceFor(candidate: RecommendationCandidate, projects: Map<string
 }
 /** Refined when present: the ordinary-tier tiebreak only. */
 function consequenceRefinedFor(candidate: RecommendationCandidate, projects: Map<string, Project>) {
-  return effectiveConsequenceRefined(candidate.action, projects.get(candidate.action.projectId));
+  return effectiveConsequenceRefinedUnclamped(candidate.action, projects.get(candidate.action.projectId));
 }
 function deadlineFor(
   candidate: RecommendationCandidate,

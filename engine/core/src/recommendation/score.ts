@@ -149,9 +149,19 @@ export function effectiveConsequence(action: Action, project: Project | undefine
 }
 
 /**
+ * The same mix without the 1-5 clamp (each input only made finite and bounded to 0..6), so the ordinary
+ * tiebreak still orders items whose refined values lie beyond the stars scale. Tiebreak only; never scored.
+ */
+export function effectiveConsequenceRefinedUnclamped(action: Action, project: Project | undefined): number {
+  const bounded = (value: number) => (Number.isFinite(value) ? Math.min(6, Math.max(0, value)) : 0);
+  const p = bounded(project ? (project.consequenceRefined ?? project.consequence) : 1);
+  return 0.6 * p + 0.4 * bounded(action.consequenceRefined ?? action.consequence);
+}
+
+/**
  * Like `effectiveConsequence`, but each input is the comparison-refined value when present (else its
- * stars), clamped to 1-5 separately before the 0.6/0.4 mix. For the ordinary consequence score and the
- * ordinary-tier tiebreak only; deadline tiers and continuation stay on `effectiveConsequence`.
+ * stars), clamped to 1-5 separately before the 0.6/0.4 mix. For the ordinary consequence score only (the
+ * tiebreak uses the unclamped mix above); deadline tiers and continuation stay on `effectiveConsequence`.
  */
 export function effectiveConsequenceRefined(action: Action, project: Project | undefined): number {
   const clamp15 = (value: number) => Math.min(5, Math.max(1, value));
