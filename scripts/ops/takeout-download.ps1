@@ -184,7 +184,29 @@ function New-PrivateFile {
   return $path
 }
 
+function Get-LastResponse([string]$path) {
+  # The header dump holds one block per response (redirects first); the last one is the answer.
+  if (-not (Test-Path -LiteralPath $path)) { return $null }
+  $dump = Get-Content -Raw -LiteralPath $path -Encoding ASCII
+  if ([string]::IsNullOrWhiteSpace($dump)) { return $null }
+  $blocks = @($dump -split '(?:\r?\n){2,}' | Where-Object { $_.Trim() })
+  if ($blocks.Count -eq 0) { return $null }
+  return $blocks[$blocks.Count - 1]
+}
+function Test-ExpiredLogin([string]$path) {
+  # True when the dump shows a sign-in page, a sign-in redirect, or a 401/403: the cookies are dead.
+  if (-not (Test-Path -LiteralPath $path)) { return $false }
+  $dump = Get-Content -Raw -LiteralPath $path -Encoding ASCII
+  if ($dump -match '(?im)^location:\s*https?://accounts\.google\.com') { return $true }
+  $last = Get-LastResponse $path
+  if (-not $last) { return $false }
+  if ($last -match '(?m)^HTTP/\S+\s+(401|403)\b') { return $true }
+  if ($last -match '(?im)^content-type:\s*text/html') { return $true }
+  return $false
+}
+
 $failed = New-Object System.Collections.Generic.List[int]
+$stoppedForLogin = $false
 $fetched = 0
 [int64]$totalBytes = 0
 $configPath = $null
@@ -218,31 +240,42 @@ try {
       '--retry', '3', '--retry-delay', '5', '--continue-at', '-',
       '--dump-header', $headerDump, '--output', $partFile,
       '--write-out', '%{http_code}|%{content_type}|%{size_download}')
+    $sizeBefore = if (Test-Path -LiteralPath $partFile) { (Get-Item -LiteralPath $partFile).Length } else { 0 }
     $writeOut = & $curl.Source @curlArgs
     $exit = $LASTEXITCODE
+    if ($exit -ne 0 -and (Test-ExpiredLogin $headerDump)) {
+      # Dead cookies, not a broken download: keep every byte already saved and stop, because every
+      # further part would fail the same way.
+      Write-Warning ("part {0}: Google answered with a sign-in page, so the cookies have expired. Your partial download is kept ({1:N0} MB). Copy a fresh request into the request file and run the same command again; it carries on from there." -f $n, ($sizeBefore / 1MB))
+      $failed.Add($n); $stoppedForLogin = $true; break
+    }
     if ($exit -eq 33 -and (Test-Path -LiteralPath $partFile)) {
-      # The server would not resume: start this part again from the beginning, once.
+      # A real file came back but the server would not honour the range: start this part again once.
       Remove-Item -LiteralPath $partFile -Force
       $writeOut = & $curl.Source @curlArgs
       $exit = $LASTEXITCODE
+      if ($exit -ne 0 -and (Test-ExpiredLogin $headerDump)) {
+        Write-Warning ("part {0}: the cookies have expired. Copy a fresh request into the request file and run the same command again." -f $n)
+        $failed.Add($n); $stoppedForLogin = $true; break
+      }
     }
     if ($exit -ne 0) {
-      Write-Warning ("part {0} failed (curl exit {1}). The cookies may have expired: copy a fresh request into the request file and run the same command again; the part resumes." -f $n, $exit)
+      Write-Warning ("part {0} failed (curl exit {1}). Run the same command again; the part resumes. If it keeps failing, copy a fresh request into the request file first." -f $n, $exit)
       $failed.Add($n); continue
     }
 
     $wo = ($writeOut | Select-Object -Last 1) -split '\|'
     $contentType = if ($wo.Count -ge 2) { $wo[1] } else { '' }
     if ($contentType -match '(?i)text/html') {
-      Remove-Item -LiteralPath $partFile -Force -ErrorAction SilentlyContinue
-      Write-Warning ("part {0} came back as a web page (probably a sign-in page) and was deleted. Copy a fresh request and run again." -f $n)
-      $failed.Add($n); continue
+      # Only a file this run created from nothing is the sign-in page itself; never delete a partial download.
+      if ($sizeBefore -eq 0) { Remove-Item -LiteralPath $partFile -Force -ErrorAction SilentlyContinue }
+      Write-Warning ("part {0} came back as a web page (probably a sign-in page). Copy a fresh request into the request file and run the same command again." -f $n)
+      $failed.Add($n); $stoppedForLogin = $true; break
     }
 
     # Read the LAST response in the header dump (earlier blocks are redirects).
-    $dump = Get-Content -Raw -LiteralPath $headerDump -Encoding ASCII
-    $blocks = @($dump -split '(?:\r?\n){2,}' | Where-Object { $_.Trim() })
-    $last = if ($blocks.Count -gt 0) { $blocks[$blocks.Count - 1] } else { '' }
+    $last = Get-LastResponse $headerDump
+    if (-not $last) { $last = '' }
     $expected = $null
     $rangeMatch = [regex]::Match($last, '(?im)^content-range:\s*bytes\s+\d+-\d+/(\d+)')
     if ($rangeMatch.Success) { $expected = [int64]$rangeMatch.Groups[1].Value }
@@ -276,7 +309,7 @@ finally {
 Write-Host ''
 Write-Host ('Fetched {0} part(s), {1:N2} GB.' -f $fetched, ($totalBytes / 1GB))
 if ($failed.Count -gt 0) {
-  Write-Host ('Failed parts: ' + ($failed -join ',') + '. Refresh the request file if the cookies expired, then run the same command again.')
+  Write-Host ('Failed parts: ' + ($failed -join ',') + '. Refresh the request file if the cookies expired, then run the same command again (finished parts are skipped, partial ones resume). Leftover partN.headers files are harmless response headers and are replaced on the next run.')
   exit 1
 }
 Write-Host "Name map: $logPath"
