@@ -10,6 +10,7 @@ import type { CalendarFeedSeries } from "@openrhen/contracts/integrations/calend
 import { integrationDatabaseName, persistDerivedState } from "@openrhen/database";
 import { PostgresImportStore } from "../import-store";
 import { FEED_EXCEPTION_HORIZON_DAYS, addDays, insertFeedDate } from "./calendar-feed-dates";
+import { localDateIn } from "./source-match-records";
 import { feedEvent, feedSeries, preparedFeed } from "./calendar-feed-test-support";
 
 /**
@@ -18,8 +19,10 @@ import { feedEvent, feedSeries, preparedFeed } from "./calendar-feed-test-suppor
  * delete budget, everything else waits in one review batch, exception rows are written under the planner's own id, and
  * what the owner edited is never overwritten. Its own `_test` database, so it belongs to `corepack pnpm test:integration`.
  *
- * Dates are relative to the real clock (the sync reads from now forward): the series is a weekly Tuesday that starts on
- * the first Tuesday at least three days away.
+ * Dates are relative to a pinned clock (the sync reads from now forward): the series is a weekly Tuesday that starts on
+ * the first Tuesday at least three days away. The clock is pinned to an instant where the UTC date and the Sydney date
+ * differ (2026-11-07 14:00Z is already 2026-11-08 in Sydney), the day the horizon-edge test first failed on the real
+ * clock: the sync reads "today" in the owner's zone, so a fixture derived from the UTC date lands a day early.
  */
 
 config({ path: resolve(process.cwd(), "../.env"), quiet: true });
@@ -33,7 +36,9 @@ testUrl.pathname = `/${testDatabaseName}`;
 
 const ZONE = "Australia/Sydney";
 const STEM = "wk";
-const today = () => new Date().toISOString().slice(0, 10);
+const PINNED_NOW = new Date("2026-11-07T14:00:00Z");
+/** Today in the owner's zone, as the sync reads it (not the UTC date, which is a day behind here). */
+const today = () => localDateIn(PINNED_NOW, ZONE);
 function firstTuesdayFrom(date: string): string {
   let day = date;
   while (new Date(`${day}T00:00:00Z`).getUTCDay() !== 2) day = addDays(day, 1);
@@ -50,6 +55,7 @@ let runCalendarSync: typeof import("./../../../imports/calendar-sync").runCalend
 let calendarFeedAdapter: typeof import("./../../../imports/calendar-feed-adapter").calendarFeedAdapter;
 
 beforeAll(async () => {
+  vi.useFakeTimers({ toFake: ["Date"], now: PINNED_NOW });
   const admin = postgres(adminUrl, { max: 1, connect_timeout: 10 });
   try {
     const existing = await admin<{ exists: boolean }[]>`
@@ -83,6 +89,7 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
+  vi.useRealTimers();
   vi.unstubAllEnvs();
   await sql?.end();
 });
