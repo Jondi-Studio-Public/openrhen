@@ -1,22 +1,14 @@
 import { config } from "dotenv";
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
-import {
-  BACKUP_TABLES,
-  REFERENCES_CLEARED_ON_RESTORE,
-  databaseName,
-  isContentVerifiedFormat,
-  readAllTables,
-  restorableColumns,
-  tablesAbsentFrom,
-  tablesWithDifferentContent,
-  validateBackup
-} from "./backup-format.js";
+import { databaseName, validateBackup } from "./backup-format.js";
 import { loadMigrationSets, migratorOptions } from "./migration-sets.js";
-import { fillLegacyRows, upgradeLegacyBackup } from "./private/legacy-backups.js";
+import { upgradeLegacyBackup } from "./private/legacy-backups.js";
+import { restoreBackup } from "./restore-run.js";
+import { verifySection } from "./streamed-sections.js";
 import { latestValidBackup } from "./backup-files.js";
 import { missingBlobHashes, referencedBlobHashes } from "./photo-blobs.js";
 
@@ -32,13 +24,32 @@ if (!/^[A-Za-z][A-Za-z0-9_]*_restore_test$/.test(restoreDatabaseName)) {
 }
 
 const backupDirectory = resolve(process.cwd(), process.env.BACKUP_DIRECTORY ?? "../../var/backups");
-const loadBackup = (text: string) => validateBackup(JSON.parse(text) as unknown);
+// A backup is only usable if its streamed sections are beside it and intact, so loading checks them (rows, bytes and
+// sha256 against the manifest) before anything else happens. A broken section skips the file like a truncated JSON.
+const loadBackup = async (text: string, path: string) => {
+  const backup = validateBackup(JSON.parse(text) as unknown);
+  for (const section of Object.values(backup.streamed ?? {})) {
+    const sectionPath = resolve(dirname(path), section.file);
+    try {
+      await verifySection(sectionPath, section);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT")
+        throw new Error(`Backup section ${section.file} is missing from ${dirname(path)}`);
+      throw error;
+    }
+  }
+  return backup;
+};
 // With BACKUP_FILE the named file must validate or the run fails; without it, a truncated newest
 // file is skipped for the previous good one instead of failing a recovery (S8-10).
 const chosen = process.env.BACKUP_FILE
   ? (() => {
       const path = resolve(process.env.BACKUP_FILE);
-      return readFile(path, "utf8").then((text) => ({ path, backup: loadBackup(text), skipped: [] as string[] }));
+      return readFile(path, "utf8").then(async (text) => ({
+        path,
+        backup: await loadBackup(text, path),
+        skipped: [] as string[]
+      }));
     })()
   : latestValidBackup(backupDirectory, loadBackup);
 const { path: backupPath, backup: validated, skipped } = await chosen;
@@ -72,71 +83,11 @@ try {
 
 const restoreSql = postgres(restoreUrl.toString(), { max: 1, connect_timeout: 10, fetch_types: false });
 try {
-  const absent = tablesAbsentFrom(backup);
-  const present = BACKUP_TABLES.filter((table) => !absent.includes(table));
-
-  // What the migrations actually produced, rather than what the schema module believes.
-  const columnRows = await restoreSql<{ table_name: string; column_name: string }[]>`
-    SELECT table_name, column_name FROM information_schema.columns
-    WHERE table_schema = 'public' ORDER BY table_name, ordinal_position
-  `;
-  const columnsByTable = new Map<string, string[]>();
-  for (const row of columnRows) {
-    const columns = columnsByTable.get(row.table_name);
-    if (columns) columns.push(row.column_name);
-    else columnsByTable.set(row.table_name, [row.column_name]);
-  }
-
-  const reshaped: Record<string, { defaulted?: string[]; dropped?: string[] }> = {};
-  const inserted: Record<string, Record<string, unknown>[]> = {};
-
-  await restoreSql.begin(async (transaction) => {
-    const targets = BACKUP_TABLES.map((table) => `"${table}"`).join(", ");
-    await transaction.unsafe(`TRUNCATE TABLE ${targets} RESTART IDENTITY CASCADE`);
-    for (const table of present) {
-      const cleared = REFERENCES_CLEARED_ON_RESTORE[table] ?? [];
-      // Targets live in REGENERABLE_TABLES and are not restored, so the reference has to go before
-      // the insert — foreign keys are checked per statement, not at commit.
-      const clearedRows = cleared.length
-        ? (backup.tables[table] ?? []).map((row) => ({
-            ...row,
-            ...Object.fromEntries(cleared.map((column) => [column, null]))
-          }))
-        : (backup.tables[table] ?? []);
-      // A column renamed since the backup's own formatVersion is remapped to its current name before
-      // restorableColumns sees it, so the old key is matched against the live schema instead of reported as gone.
-      const rows = fillLegacyRows(table, backup.formatVersion, clearedRows);
-      inserted[table] = rows;
-      if (!rows.length) continue;
-      const { insert, defaulted, dropped } = restorableColumns(rows, columnsByTable.get(table) ?? []);
-      if (!insert.length) throw new Error(`Backup rows for ${table} name no column that still exists`);
-      if (defaulted.length || dropped.length) {
-        reshaped[table] = { ...(defaulted.length ? { defaulted } : {}), ...(dropped.length ? { dropped } : {}) };
-      }
-      // Naming the columns is what lets an absent one fall to its DEFAULT. `SELECT *` would insert an
-      // explicit NULL from the NULL base record and defeat the default — see `restorableColumns`.
-      const list = insert.map((column) => `"${column}"`).join(", ");
-      await transaction.unsafe(
-        `INSERT INTO "${table}" (${list}) SELECT ${list} FROM json_populate_recordset(NULL::"${table}", $1::text::json)`,
-        [JSON.stringify(rows)]
-      );
-    }
-  });
-
-  const restored = await readAllTables(restoreSql);
-  const mismatches = present.filter((table) => (restored[table] ?? []).length !== (backup.tables[table] ?? []).length);
-  if (mismatches.length) throw new Error(`Restore row-count mismatch: ${mismatches.join(", ")}`);
-  if (isContentVerifiedFormat(backup.formatVersion)) {
-    // A current-format backup must come back identical, not just the same length (S8-11): compare
-    // what was inserted against what was read back, and treat any reshaping as backup/schema drift.
-    const different = tablesWithDifferentContent(
-      Object.fromEntries(present.map((table) => [table, inserted[table] ?? []])),
-      restored
-    );
-    if (different.length) throw new Error(`Restore content mismatch: ${different.join(", ")}`);
-    if (Object.keys(reshaped).length)
-      throw new Error(`Current-format backup was reshaped on restore: ${JSON.stringify(reshaped)}`);
-  }
+  const { absent, present, reshaped, restored, streamedRows, records } = await restoreBackup(
+    restoreSql,
+    backup,
+    backupPath
+  );
   // Photos are files beside the database, so a restore is only whole if every photo it points at exists. The
   // backup copy (BACKUP_COPY_DIR/photos, what `backup:run` keeps add-only) is what protects them, so a hash
   // missing there fails the run; the live store is reported only, since a fresh machine may not hold it yet.
@@ -153,7 +104,6 @@ try {
         referenced
       )
     : [];
-  const records = present.reduce((total, table) => total + (restored[table] ?? []).length, 0);
   console.log(
     JSON.stringify({
       restoredFrom: backupPath,
@@ -161,6 +111,7 @@ try {
       formatVersion: backup.formatVersion,
       records,
       verifiedTables: present.length,
+      ...(Object.keys(streamedRows).length ? { streamedRows } : {}),
       ...(referenced.length
         ? {
             photoFiles: {

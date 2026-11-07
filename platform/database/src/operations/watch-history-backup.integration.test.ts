@@ -18,6 +18,11 @@ import {
   validateBackup
 } from "./backup-format.js";
 
+/** These suites hold no activity events, so the streamed section a current-format backup names is an empty one. */
+const NO_ACTIVITY_ROWS = {
+  activity_events: { file: "none.activity-events.ndjson", rows: 0, bytes: 0, sha256: "0".repeat(64) }
+};
+
 /**
  * Watch history is authored, so a backup carries imports and events and a restore brings them
  * back unchanged; the public video-length cache is regenerable and stays out. The restore step is the one `restore.ts` runs
@@ -99,7 +104,8 @@ describe("watch history in the backup", () => {
           createdAt: new Date().toISOString(),
           sourceDatabase: testDatabaseName,
           tables,
-          sha256: checksum(tables)
+          sha256: checksum(tables),
+          streamed: NO_ACTIVITY_ROWS
         })
       )
     );
@@ -150,7 +156,7 @@ describe("passwords and keys in the backup", () => {
     `;
     await sql`INSERT INTO youtube_quota_use (user_id, quota_date, units_spent) VALUES (${userId}, '2026-11-06', 3)`;
     // The statement restore.ts runs; the source check keeps this test from drifting away from it.
-    const source = readFileSync(resolve(process.cwd(), "src/operations/restore.ts"), "utf8");
+    const source = readFileSync(resolve(process.cwd(), "src/operations/restore-run.ts"), "utf8");
     expect(source).toContain("TRUNCATE TABLE ${targets} RESTART IDENTITY CASCADE");
     expect(BACKUP_TABLES).toContain("users");
     const targets = BACKUP_TABLES.map((table) => `"${table}"`).join(", ");

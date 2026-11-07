@@ -45,3 +45,22 @@ test("a missing POSTGRES_ADMIN_URL skips the restore check with a warning and re
   assert.match(verify, /return false/);
   assert.match(source, /restoreSkipped: true/);
 });
+
+// The activity events live in separate .ndjson sections beside the JSON backup (format 23). A JSON backup that names a
+// section must never reach the copy folder, or survive pruning, without it.
+test("streamed sections are sized into the target guard, copied before the JSON backup, and pruned with it", async () => {
+  const source = await readFile(new URL("./backup-and-copy.mjs", import.meta.url), "utf8");
+  assert.match(source, /created\.sections\.reduce\(/);
+  assert.match(source, /copyBackup\(created\.backup, created\.sections\)/);
+  const copyBackup = source.slice(
+    source.indexOf("async function copyBackup("),
+    source.indexOf("async function prune(")
+  );
+  assert.ok(
+    copyBackup.indexOf("copyVerified(section.path") > -1 &&
+      copyBackup.indexOf("copyVerified(section.path") < copyBackup.indexOf("return copyVerified(backupPath")
+  );
+  const prune = source.slice(source.indexOf("async function prune("), source.indexOf("// Windows needs a shell"));
+  assert.match(prune, /await sectionsOf\(directory, name\)/);
+  assert.match(prune, /endsWith\("\.ndjson"\)/);
+});

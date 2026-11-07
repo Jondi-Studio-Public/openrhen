@@ -18,6 +18,11 @@ import {
   validateBackup
 } from "./backup-format.js";
 
+/** These suites hold no activity events, so the streamed section a current-format backup names is an empty one. */
+const NO_ACTIVITY_ROWS = {
+  activity_events: { file: "none.activity-events.ndjson", rows: 0, bytes: 0, sha256: "0".repeat(64) }
+};
+
 /**
  * The Now offer log is authored history, so format 21 carries it and a restore brings it back unchanged; a format 20
  * backup has no such table and still restores, leaving it empty. The insert step is the one `restore.ts` runs.
@@ -115,7 +120,8 @@ describe("the offer log in the backup", () => {
           createdAt: new Date().toISOString(),
           sourceDatabase: testDatabaseName,
           tables,
-          sha256: checksum(tables)
+          sha256: checksum(tables),
+          streamed: NO_ACTIVITY_ROWS
         })
       )
     );
