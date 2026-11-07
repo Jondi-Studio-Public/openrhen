@@ -60,9 +60,16 @@ export async function* parseDiscordMessagesCsv(
   stats: Stats
 ): AsyncGenerator<ActivityEventDraft> {
   let columns: Map<string, number> | null = null;
-  for await (const record of csvRecords(source, (end) => {
-    if (end.truncated) stats.truncated = true;
-  })) {
+  for await (const record of csvRecords(
+    source,
+    (end) => {
+      if (end.truncated) stats.truncated = true;
+    },
+    () => {
+      stats.read += 1;
+      skip(stats, "a field is larger than 1 MB");
+    }
+  )) {
     if (!columns) {
       columns = headerIndex(record);
       if (!columns.has("id") || !columns.has("timestamp")) {

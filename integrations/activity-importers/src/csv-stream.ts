@@ -4,13 +4,22 @@ import type { ByteSource } from "./types.js";
 /**
  * Streams the records of an RFC 4180 CSV file: quoted fields may hold commas, doubled quotes and line breaks;
  * records end at CRLF, LF or CR. A blank line is not a record. `onEnd` says whether the file ended inside an open
- * quote (a cut-off file); the half-read record is dropped in that case.
+ * quote (a cut-off file); the half-read record is dropped in that case. A field over `MAX_FIELD_CHARS` makes its record skipped, reported to `onOversize`.
  */
+/** The longest field kept; a record with a longer one is skipped (a real field is far shorter). */
+export const MAX_FIELD_CHARS = 1_000_000;
+
 export async function* csvRecords(
   source: ByteSource,
-  onEnd: (info: { truncated: boolean }) => void = () => undefined
+  onEnd: (info: { truncated: boolean }) => void = () => undefined,
+  onOversize: () => void = () => undefined
 ): AsyncGenerator<string[]> {
   let field = "";
+  let oversize = false;
+  const append = (text: string) => {
+    if (field.length < MAX_FIELD_CHARS) field += text;
+    else oversize = true;
+  };
   let record: string[] = [];
   let inQuotes = false;
   let justClosedQuote = false;
@@ -27,18 +36,18 @@ export async function* csvRecords(
         if (ch === '"') {
           inQuotes = false;
           justClosedQuote = true;
-        } else field += ch;
+        } else append(ch);
         continue;
       }
       if (ch === '"') {
         if (justClosedQuote) {
-          field += '"'; // a doubled quote inside a quoted field
+          append('"'); // a doubled quote inside a quoted field
           inQuotes = true;
           justClosedQuote = false;
         } else if (!fieldStarted) {
           inQuotes = true;
           fieldStarted = true;
-        } else field += ch; // a stray quote inside an unquoted field is kept as text
+        } else append(ch); // a stray quote inside an unquoted field is kept as text
         continue;
       }
       justClosedQuote = false;
@@ -48,15 +57,17 @@ export async function* csvRecords(
         fieldStarted = false;
       } else if (ch === "\n" || ch === "\r") {
         if (ch === "\r") afterCr = true;
-        if (record.length > 0 || field !== "" || fieldStarted) {
+        if (oversize) onOversize();
+        else if (record.length > 0 || field !== "" || fieldStarted) {
           record.push(field);
           yield record;
         }
+        oversize = false;
         record = [];
         field = "";
         fieldStarted = false;
       } else {
-        field += ch;
+        append(ch);
         fieldStarted = true;
       }
     }
@@ -65,7 +76,8 @@ export async function* csvRecords(
     onEnd({ truncated: true });
     return;
   }
-  if (record.length > 0 || field !== "" || fieldStarted) {
+  if (oversize) onOversize();
+  else if (record.length > 0 || field !== "" || fieldStarted) {
     record.push(field);
     yield record;
   }

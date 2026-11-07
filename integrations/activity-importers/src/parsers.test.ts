@@ -105,6 +105,12 @@ describe("Google My Activity", () => {
     expect(events[3]!.id).not.toBe(events[4]!.id);
   });
 
+  it("reads a verb followed by a non-breaking space", async () => {
+    const one = JSON.stringify([{ title: "Searched\u00a0for\u00a0tea", time: "2026-02-03T04:05:06Z" }]);
+    const [event] = await collect(parseGoogleActivity(chunked(one), "Search", newStats()));
+    expect(event).toMatchObject({ kind: "search", content: "tea" });
+  });
+
   it("skips and counts titles with an unknown verb, an empty remainder or a time without a zone", async () => {
     const stats = newStats();
     await collect(parseGoogleActivity(chunked(file, 13), "Search", stats));
@@ -177,6 +183,21 @@ describe("Maps places", () => {
     expect(stats.reasons["place has no date, so it has no time to be placed at"]).toBe(1);
   });
 
+  it("reads a lowercase location object as a fallback", async () => {
+    const one = JSON.stringify({
+      features: [
+        {
+          properties: {
+            date: "2026-03-04T05:06:07Z",
+            location: { "Business Name": "Shop", "Geo Coordinates": { Latitude: "1.5", Longitude: "2.5" } }
+          }
+        }
+      ]
+    });
+    const [event] = await collect(parseMapsPlaces(chunked(one), "saved", newStats()));
+    expect(event!.attrs).toEqual({ name: "Shop", list: "saved", lat: 1.5, lng: 2.5 });
+  });
+
   it("counts a file that is not JSON or has no features as one skipped file", async () => {
     const bad = newStats();
     expect(await collect(parseMapsPlaces(chunked("not json"), "saved", bad))).toEqual([]);
@@ -236,6 +257,21 @@ describe("Fit daily metrics", () => {
       attrs: { steps: 8000, granularity: "day", date: "2026-01-02" }
     });
     expect(events[0]!.tzOffsetMin).toBeUndefined();
+    expect(stats.skipped).toBe(1);
+  });
+
+  it("ends an interval that runs to midnight on the next day", async () => {
+    const csv = "Start time,End time,Step count\n23:45:00.000+11:00,00:00:00.000+11:00,40\n";
+    const [event] = await collect(parseFitMetrics(chunked(csv), "2026-01-02.csv", newStats()));
+    expect(event).toMatchObject({ start: "2026-01-02T12:45:00.000Z", end: "2026-01-02T13:00:00.000Z" });
+    const stats = newStats();
+    await collect(
+      parseFitMetrics(
+        chunked("Start time,End time,Step count\n10:00:00.000+11:00,09:00:00.000+11:00,4\n"),
+        "2026-01-02.csv",
+        stats
+      )
+    );
     expect(stats.skipped).toBe(1);
   });
 
@@ -391,6 +427,23 @@ describe("Discord data package", () => {
     expect(stats.skipped).toBe(1);
   });
 
+  it("skips a record with an oversized field and keeps the next", async () => {
+    const stats = newStats();
+    const huge = "y".repeat(1_100_000);
+    const events = await collect(
+      parseDiscordMessagesCsv(
+        chunked(
+          `ID,Timestamp,Contents\n1100000000000000001,2026-01-02 03:04:05+00:00,${huge}\n1100000000000000002,2026-01-02 03:04:06+00:00,ok\n`,
+          200_000
+        ),
+        "2200000000000000001",
+        stats
+      )
+    );
+    expect(events.map((e) => e.content)).toEqual(["ok"]);
+    expect(stats.reasons).toEqual({ "a field is larger than 1 MB": 1 });
+  });
+
   it("skips a csv whose header lacks the id and timestamp columns", async () => {
     const stats = newStats();
     expect(await collect(parseDiscordMessagesCsv(chunked("a,b\n1,2\n"), "2200000000000000001", stats))).toEqual([]);
@@ -503,6 +556,18 @@ describe("Apple Health export.xml", () => {
     expect(parseAppleDate("2026-02-30 08:10:00 +1000")).toBeNull();
     expect(parseAppleDate("2026-05-06T08:10:00+1000")).toBeNull();
     expect(parseAppleDate(undefined)).toBeNull();
+  });
+
+  it("holds back the last hourly bucket per device when the file was cut off", async () => {
+    const cut = xml.slice(0, xml.indexOf("<Workout"));
+    const stats = newStats();
+    const events = await collect(
+      parseAppleHealth(chunked(cut + '<Record type="x" sourceName="a" startDate="2026', 50), stats)
+    );
+    expect(stats.truncated).toBe(true);
+    expect(events.filter((e) => e.kind === "steps").map((e) => [e.attrs.source_name, e.start])).toEqual([
+      ["Test Phone", "2026-05-05T22:00:00.000Z"]
+    ]);
   });
 
   it("flags a truncated file and still emits what it read", async () => {

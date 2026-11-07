@@ -1,5 +1,5 @@
 import { textChunks } from "./chunks.js";
-import type { ByteSource } from "./types.js";
+import { ImportReadError, type ByteSource } from "./types.js";
 
 export interface XmlTag {
   name: string;
@@ -48,7 +48,7 @@ export async function* xmlStartTags(
       if (end === -1) {
         position = open;
         if (buffer.length - open > MAX_TAG_CHARS)
-          throw new Error("This does not look like XML: a tag is never closed.");
+          throw new ImportReadError("This does not look like XML: a tag is never closed.");
         break;
       }
       const text = buffer.slice(open, end + 1);

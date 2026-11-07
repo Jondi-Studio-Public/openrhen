@@ -159,9 +159,21 @@ describe("rhen import <source> <path>", () => {
     const held = await run(["import", "spotify", file], fakePortal({ held: true }).routes);
     expect(held.exitCode).toBe(0);
     expect(held.calls.map((c) => c.method)).toEqual(["GET"]);
-    expect(held.stdout).toContain("already imported (42 events");
+    expect(held.stdout).toContain("already holds an import of this file (42 events");
+    expect(held.stdout).toContain("may have been interrupted");
+    expect(held.stdout).toContain("--yes to resume");
     const again = await run(["import", "spotify", file, "--yes"], fakePortal({ held: true }).routes);
     expect(again.calls.map((c) => c.method)).toEqual(["GET", "POST"]);
+  });
+
+  it("drops and counts a single event over 1 MB instead of sending it", async () => {
+    const rows = [play(1), play(2, { master_metadata_track_name: "x".repeat(2_000_000) }), play(3)];
+    const file = write(join(dir, "huge", "Streaming_History_Audio_2026_8.json"), JSON.stringify(rows));
+    const portal = fakePortal();
+    const result = await run(["import", "spotify", file], portal.routes);
+    expect(result.exitCode).toBe(0);
+    expect(portal.batches.flatMap((b) => b.events as unknown[])).toHaveLength(2);
+    expect(result.stdout).toContain("skipped 1: event is larger than 1 MB, so it was not sent");
   });
 
   it("--dry-run parses and counts without any request", async () => {
