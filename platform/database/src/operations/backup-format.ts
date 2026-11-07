@@ -120,14 +120,18 @@ const CORE_BACKUP_TABLES = [
   // Neither is a plan input and the engine never reads them.
   "watch_imports",
   "watch_events",
+  // The Now offer log (format 21): what Now offered and what happened next. Append-only history nothing regenerates
+  // (`plan-retention.ts` deletes the recommendations it describes after a week). References only `users`. A format 20
+  // backup has no such table and restores with it empty (`legacy-backups.ts`). The planner never reads it.
+  "offer_log",
   // The activity store (format 22): import records first, then the append-only events that reference them, then the
   // per-source settings (content gate, retention; the poller cursor rides along). All authored or irreplaceable
-  // (an export file cannot always be re-read), none a plan input, and the engine never reads them.
+  // (an export file cannot always be re-read), none a plan input, and the engine never reads them. A format 20 or 21
+  // backup has none of these tables and restores with them empty (`legacy-backups.ts`). Format 22 follows the offer
+  // log's 21: both were developed side by side, and format numbers go in merge order.
   "activity_imports",
   "activity_events",
   "activity_source_state"
-  // Format 22, not 21: 21 is taken by the offer-log change developed beside this one (backup format numbers are
-  // claimed in order of development, not merge). A format 20 backup is not restored by this build either way.
 ] as const;
 
 export const BACKUP_TABLES: readonly BackupTable[] = [...CORE_BACKUP_TABLES, ...groupBackupTables("current")];
@@ -355,7 +359,7 @@ export function validateBackup(value: unknown): OpenRhenBackup {
     throw new Error("Unsupported or incomplete OpenRhen backup");
   }
   const version = backup.formatVersion;
-  // An older format is read only where the private reader registers its table list; this build restores format 22 alone.
+  // An older format is read only where the legacy reader registers its table list (formats 20 and 21 are registered there).
   const required =
     version === CURRENT_BACKUP_FORMAT_VERSION
       ? BACKUP_TABLES
@@ -368,7 +372,11 @@ export function validateBackup(value: unknown): OpenRhenBackup {
       Number.isInteger(version) &&
       version >= 1 &&
       version < CURRENT_BACKUP_FORMAT_VERSION
-        ? `: this build restores format ${CURRENT_BACKUP_FORMAT_VERSION} backups only`
+        ? `: this build restores format ${CURRENT_BACKUP_FORMAT_VERSION} backups${
+            legacyRequiredTables(CURRENT_BACKUP_FORMAT_VERSION - 1)
+              ? ` and format ${CURRENT_BACKUP_FORMAT_VERSION - 1} ones`
+              : ""
+          } only`
         : "";
     throw new Error(`Unsupported backup formatVersion ${String(version)}${reason}`);
   }

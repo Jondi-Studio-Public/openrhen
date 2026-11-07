@@ -4,7 +4,7 @@ Status: implemented (ingest, store and owner routes); importers and live pollers
 
 Every non-plan data source (the desktop agent, browser history, plays, messages, sleep, weather, phone shortcuts) lands as rows in one table, so a later predictor reads one place. Nothing in the engine, scheduler or pulse reads these tables: a write queues no recalculation, and `portal/server/watch-history/engine-blind.test.ts` fails if any other source file names them. There are no MCP tools for it (the tool list is capped).
 
-## Tables (migration 0147)
+## Tables (migration 0148)
 
 - `activity_events`: `id`, `user_id`, `source`, `kind`, `event_key` (idempotency, unique with user and source), `device`, `ts_start`, `ts_end` (null for an instant), `tz_offset_min` (minutes east of UTC at the event, null when unknown), `approximate`, `attrs` (jsonb, at most 8 KB), `content` (text, at most 64 KB, only when the source's gate is on), `import_id`, `ingested_via` (the posting agent's name), `ingested_at`. A trigger refuses every `UPDATE`. `DELETE` and `TRUNCATE` stay possible: restore and the test harness truncate every backup table. Store code deletes only for undo-import, purge-by-source and the retention purge. A wrong interval is corrected by a new row of kind `correction` whose `attrs.corrects` names the event key; raw rows are never rewritten.
 - `activity_imports`: one row per file loaded in bulk (`source`, `filename`, `sha256`, `event_count`), unique per user and `sha256`, so concurrent first batches of one file resolve to a single row.
@@ -48,6 +48,6 @@ The content gate decides whether text is stored from then on; turning it off del
 
 ## Backups
 
-All three tables are in the JSON backup (format 22; 21 is claimed by the offer-log change developed beside this one). That backup is one JSON document with one checksum, built in memory. Measured with synthetic rows (a desktop-agent row with a small `attrs`): 1 million rows made a 453 MB file and about 2.4 GB of process memory; 2 million failed with `RangeError: Invalid string length` (V8's string limit), which fails the whole backup, plan included.
+All three tables are in the JSON backup (format 22, after the offer log at 21). That backup is one JSON document with one checksum, built in memory. Measured with synthetic rows (a desktop-agent row with a small `attrs`): 1 million rows made a 453 MB file and about 2.4 GB of process memory; 2 million failed with `RangeError: Invalid string length` (V8's string limit), which fails the whole backup, plan included.
 
 So above 500,000 `activity_events` rows (`ACTIVITY_BACKUP_MAX_ROWS`) the backup **skips `activity_events`**, loudly: `db:backup` prints a `WARNING` to stderr, the backup file records `skipped: [{table, rows, reason}]`, `db:restore:verify` reports it as `leftOutOfTheBackup`, and the file restores with that table empty. The import records and per-source settings still ride along. The pg_dump taken before a migration holds the events. A streamed backup section for the activity tables is the follow-up that removes the limit.

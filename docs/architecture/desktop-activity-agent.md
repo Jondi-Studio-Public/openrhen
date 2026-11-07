@@ -51,7 +51,7 @@ Under 1% of one core on average and under 50 MB working set for phase 1, measure
 
 ## Server half
 
-The server side is built and documented in [Activity store](activity-store.md): `POST /api/activity-events` (scope `write:activity-event`, preset `activity-capture`, header `X-OpenRhen-Token`), the append-only `activity_events` table (migration 0147), per-source content gate and retention, and the read-back route. It adds no MCP tools (the `tools/list` budget is capped), and `portal/server/watch-history/engine-blind.test.ts` keeps the engine, scheduler and pulse from reading the tables. The uploader in `rhen-watch` is not built yet. When it is, each local event posts as `source: "rhen-watch"` with the local kind as `kind`, the local `id` as the event key (so retries are idempotent), the device id, and `tzOffsetMin`. Titles and OCR text are `content`, stored only when the owner turns the gate on for `rhen-watch`.
+The server side is built and documented in [Activity store](activity-store.md): `POST /api/activity-events` (scope `write:activity-event`, preset `activity-capture`, header `X-OpenRhen-Token`), the append-only `activity_events` table (migration 0148), per-source content gate and retention, and the read-back route. It adds no MCP tools (the `tools/list` budget is capped), and `portal/server/watch-history/engine-blind.test.ts` keeps the engine, scheduler and pulse from reading the tables. The uploader in `rhen-watch` is not built yet. When it is, each local event posts as `source: "rhen-watch"` with the local kind as `kind`, the local `id` as the event key (so retries are idempotent), the device id, and `tzOffsetMin`. Titles and OCR text are `content`, stored only when the owner turns the gate on for `rhen-watch`.
 
 ## Tests
 

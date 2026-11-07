@@ -534,6 +534,17 @@ describe("explainActivityRefusal (routine step, sleep, deliverable)", () => {
     expect(refusal.nextCall?.tool).toBe("rhen_status");
   });
 
+  it("a target blocked by a protected commitment names the commitment and its end instead of a bare 'not present'", () => {
+    const holder = { id: "craig", title: "Craig Cooking", phase: "active", protectedEndAt: "2026-11-06T04:00:00.000Z" };
+    const refusal = explainActivityRefusal(baseResult(holder), "deliverable", "d-1", 30);
+    expect(refusal.message).toContain('"Craig Cooking" (id craig) holds this time until 2026-11-06T04:00:00.000Z');
+    expect(refusal.message).toContain("Do not retry");
+    expect(refusal.message).toContain("rhen_cancel");
+    expect(refusal.message).not.toContain("from Now");
+    expect(refusal.message).not.toContain("not present in the current Plan");
+    expect(refusal.nextCall?.tool).toBe("rhen_status");
+  });
+
   it("a mismatch also carries rhen_status as the next call, to see the plan's minutes", () => {
     expect(explainActivityRefusal(withStep(15), "routine_step", "step-1", 30).nextCall?.tool).toBe("rhen_status");
   });
@@ -543,6 +554,7 @@ describe("explainContinuationRefusal", () => {
   it("a safe continuation for other minutes names the figure and the exact call to repeat", () => {
     const refusal = explainContinuationRefusal({ safe: true, recommendedMinutes: 30, reason: "30 minutes fit." }, 45);
     expect(refusal.message).toContain("exactly 30 minutes, not 45");
+    expect(refusal.message).toContain("Why: 30 minutes fit.");
     expect(refusal.message).toContain("minutes 30");
     expect(refusal.nextCall).toEqual({
       tool: "rhen_session",

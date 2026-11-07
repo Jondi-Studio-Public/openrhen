@@ -62,7 +62,14 @@
       "idx": 147,
       "version": "7",
       "when": 1794192509480,
-      "tag": "0147_activity_store",
+      "tag": "0147_offer_log",
+      "breakpoints": true
+    },
+    {
+      "idx": 148,
+      "version": "7",
+      "when": 1794278909480,
+      "tag": "0148_activity_store",
       "breakpoints": true
     }
   ]

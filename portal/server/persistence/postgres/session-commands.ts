@@ -12,6 +12,7 @@ import {
   versionConflict,
   wrongSessionState
 } from "./command-errors";
+import { noOpenSession } from "./missing-session";
 import { stableUuid } from "./command-values";
 import { ensureUser } from "./ensure-user";
 import { claimCommandReceipt, commandRequestHash, hasCommandReceipt } from "./command-receipt";
@@ -27,6 +28,7 @@ import { readStateAfterCommit } from "./read-after-commit";
 import { replaceCheckpointEnd, resolveRetroactiveEnd } from "./retroactive-end";
 import { sessionClock } from "./session-clock";
 import type { PoolSql, TxSql } from "./sql-pool";
+import { logOfferOutcome } from "./offer-log-writer";
 import { WriteSnapshot } from "./write-snapshot";
 
 /** The call that ends a session on anything but an action; the tool and its arguments are in the manifest. */
@@ -125,9 +127,15 @@ export async function applySessionCommand(
     )
       throw new InvalidCommandError("This recurring occurrence is not currently available.");
     const action = await tx<
-      { version: number; remaining_minutes: number; status: StoredAction["status"]; scheduling_mode: string }[]
+      {
+        version: number;
+        remaining_minutes: number;
+        status: StoredAction["status"];
+        scheduling_mode: string;
+        title: string;
+      }[]
     >`
-        SELECT ac.version, ac.remaining_minutes, ac.status, ac.scheduling_mode FROM actions ac JOIN projects p ON p.id=ac.project_id JOIN outcomes o ON o.id=p.outcome_id JOIN areas a ON a.id=o.area_id WHERE ac.id=${actionId} AND a.user_id=${userId} FOR UPDATE OF ac
+        SELECT ac.version, ac.remaining_minutes, ac.status, ac.scheduling_mode, ac.title FROM actions ac JOIN projects p ON p.id=ac.project_id JOIN outcomes o ON o.id=p.outcome_id JOIN areas a ON a.id=o.area_id WHERE ac.id=${actionId} AND a.user_id=${userId} FOR UPDATE OF ac
       `;
     if (!action[0]) throw notFound("action", command.actionId);
     assertStartableTarget(action[0].scheduling_mode, occurrence[0] !== undefined);
@@ -196,6 +204,23 @@ export async function applySessionCommand(
     const sanctionUntil = sanction === "free" || sanction === null ? null : plannedEnd;
     await tx`INSERT INTO sessions (id, user_id, action_id, occurrence_id, status, planned_started_at, planned_end_at, started_at, started_recorded_at, planned_minutes, remaining_before_minutes, recommendation_id, override_reason, result_note, plan_sanction, sanction_until, started_by) VALUES (${command.commandId}, ${userId}, ${actionId}, ${occurrence[0]?.id ?? null}, 'running', ${startTime}, ${plannedEnd}, ${startTime}, ${backfilled ? at : null}, ${command.plannedMinutes}, ${action[0].remaining_minutes}, ${recommendationId}, ${overrideReason}, ${resultNote}, ${sanction}, ${sanctionUntil}, ${requestAgent()})`;
     snap?.inserted("sessions", [command.commandId]);
+    // The offer log's `started` row: what was started, and where it ranked in the last thing Now offered.
+    await logOfferOutcome(tx, userId, {
+      event: "started",
+      commandId: command.commandId,
+      targetType: "action",
+      targetId: actionId,
+      recommendationId,
+      resolutionKind: recommendationId ? "recommended" : null,
+      label: action[0].title,
+      detail: {
+        command: command.type,
+        plannedMinutes: command.plannedMinutes,
+        ...(occurrence[0] ? { occurrenceId: occurrence[0].id } : {}),
+        ...(overrideReason ? { overrideReason } : {}),
+        ...(backfilled ? { started_at: startTime.toISOString() } : {})
+      }
+    });
     const firstSegment = await tx<
       { id: string }[]
     >`INSERT INTO session_segments (session_id, started_at) VALUES (${command.commandId}, ${startTime}) RETURNING id`;
@@ -227,7 +252,7 @@ export async function applySessionCommand(
     >`
         SELECT id, action_id, occurrence_id, target_type, target_step_id, status, version, planned_end_at, paused_remaining_seconds, remaining_before_minutes, started_at FROM sessions WHERE id=${command.sessionId} AND user_id=${userId} AND ended_at IS NULL FOR UPDATE
       `;
-    if (!session[0]) throw notFound("session", command.sessionId);
+    if (!session[0]) throw await noOpenSession(tx, userId, command.sessionId);
     if (command.expectedVersion !== session[0].version)
       throw versionConflict("session", command.sessionId, command.expectedVersion, session[0].version);
     // Every command below that gets this far changes the session row.
@@ -393,6 +418,23 @@ export async function applySessionCommand(
       } else {
         terminal = "did_not_start";
         actionStatus = "active";
+      }
+      // The offer log's outcome for a session that did not go ahead; finishing one is not an offer outcome.
+      if (command.type === "block" || command.type === "did_not_start") {
+        const titled = await tx<{ title: string }[]>`SELECT title FROM actions WHERE id=${actionId}`;
+        await logOfferOutcome(tx, userId, {
+          event: command.type === "block" ? "blocked" : "did_not_start",
+          commandId: command.commandId,
+          targetType: "action",
+          targetId: actionId,
+          label: titled[0]?.title ?? null,
+          detail: {
+            command: command.type,
+            sessionId: session[0].id,
+            ...(blockingReason ? { reason: blockingReason } : {}),
+            ...(command.type === "block" ? { actionStatus: command.actionStatus } : {})
+          }
+        });
       }
       await tx`UPDATE sessions SET status=${terminal}, ended_at=${endTime}, ended_recorded_at=${command.type === "finish" && command.endedAt ? at : null}, active_minutes=${activeMinutes}, remaining_after_minutes=${remainingAfter}, blocking_reason=${blockingReason}, result_note=COALESCE(${note}, result_note), paused_remaining_seconds=NULL, version=version+1, updated_at=${at} WHERE id=${session[0].id}`;
       const mode = await tx<
