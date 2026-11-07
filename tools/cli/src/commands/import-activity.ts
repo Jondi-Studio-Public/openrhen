@@ -1,0 +1,295 @@
+import { basename } from "node:path";
+import {
+  IMPORT_SOURCES,
+  ImportReadError,
+  isImportSource,
+  planImport,
+  type ActivityEventDraft,
+  type EventJob,
+  type ImportPlan,
+  type ImportSourceName,
+  type YoutubeJob
+} from "@openrhen/activity-importers";
+import {
+  ACTIVITY_FILENAME_MAX_CHARS,
+  ACTIVITY_MAX_BATCH,
+  WATCH_IMPORT_MAX_FILE_BYTES,
+  type WatchImportResult
+} from "@openrhen/contracts";
+import { booleanOption, type CommandContext, type ParsedArgs } from "../command.js";
+import { CliError, EXIT } from "../errors.js";
+import { toJson } from "../output.js";
+
+/**
+ * `rhen import <source> <path>`: reads an export on this machine, parses it with the streaming importers, and posts
+ * the events in batches to `POST /api/activity-events`, the one write path every activity source shares. The
+ * file never goes to the portal as a whole: only parsed events do, so a multi-gigabyte Takeout or Apple Health
+ * export is fine. YouTube history is the one exception, sent to the existing watch-history route.
+ */
+
+/** A batch is held under the route's 2 MB body limit with room for the envelope. */
+const BATCH_BYTES = 1_500_000;
+const REASON_GROUPS_SHOWN = 15;
+
+interface BatchResponse {
+  added: number;
+  alreadyHeld: number;
+  contentDropped: number;
+  rejected: { index: number; reason: string }[];
+  importId: string | null;
+  message?: string;
+}
+
+interface HeldResponse {
+  held: boolean;
+  importId?: string;
+  eventCount?: number;
+}
+
+interface RejectionGroup {
+  reason: string;
+  count: number;
+  firstEvent: number;
+}
+
+export interface SourceSummary {
+  source: string;
+  files: string[];
+  status: "imported" | "already-held" | "dry-run";
+  read: number;
+  sent: number;
+  added: number;
+  alreadyHeld: number;
+  contentDropped: number;
+  rejected: number;
+  rejections: RejectionGroup[];
+  skipped: number;
+  ignored: number;
+  skippedReasons: Record<string, number>;
+  truncated: boolean;
+  importId: string | null;
+}
+
+export const SOURCE_NAMES_TEXT = IMPORT_SOURCES.join(", ");
+
+export function isActivityImportSource(value: string): value is ImportSourceName {
+  return isImportSource(value);
+}
+
+export async function runActivityImport(context: CommandContext, args: ParsedArgs): Promise<void> {
+  if (context.mcp || context.remote)
+    throw new CliError(
+      "Importing an export reads a file on this machine, so it runs only from the command line (rhen import <source> <path>), not over MCP.",
+      EXIT.usage
+    );
+  const source = args.positionals[0] as ImportSourceName;
+  const path = args.positionals[1];
+  if (!path)
+    throw new CliError(
+      `Missing <path>. Usage: rhen import ${source} <path to the export file, zip or folder>. Sources: ${SOURCE_NAMES_TEXT}.`,
+      EXIT.usage
+    );
+  const dryRun = booleanOption(args.values, "dry-run");
+  const again = booleanOption(args.values, "yes");
+  let plan: ImportPlan;
+  try {
+    plan = await planImport(source, path);
+  } catch (error) {
+    if (error instanceof ImportReadError) throw new CliError(error.message, EXIT.usage);
+    throw error;
+  }
+  for (const note of plan.notes) context.stderr(`rhen: ${note}`);
+
+  const summaries: SourceSummary[] = [];
+  const youtube: { file: string; result: WatchImportResult | null; dryRun: boolean }[] = [];
+  try {
+    for (const job of plan.jobs) {
+      if (job.kind === "youtube") youtube.push(await runYoutube(context, job, path, dryRun));
+      else summaries.push(await runEvents(context, plan, job, path, { dryRun, again }));
+    }
+  } catch (error) {
+    if (error instanceof ImportReadError) throw new CliError(error.message, EXIT.usage);
+    throw error;
+  }
+
+  if (context.mode !== "table") {
+    context.stdout(toJson({ sources: summaries, youtube }, true));
+    return;
+  }
+  for (const summary of summaries) context.stdout(renderSummary(summary));
+  for (const item of youtube) context.stdout(renderYoutube(item));
+}
+
+async function runEvents(
+  context: CommandContext,
+  plan: ImportPlan,
+  job: EventJob,
+  path: string,
+  options: { dryRun: boolean; again: boolean }
+): Promise<SourceSummary> {
+  const summary: SourceSummary = {
+    source: job.source,
+    files: job.files,
+    status: options.dryRun ? "dry-run" : "imported",
+    read: 0,
+    sent: 0,
+    added: 0,
+    alreadyHeld: 0,
+    contentDropped: 0,
+    rejected: 0,
+    rejections: [],
+    skipped: 0,
+    ignored: 0,
+    skippedReasons: {},
+    truncated: false,
+    importId: null
+  };
+  let sha256 = "";
+  let filename = "";
+  if (!options.dryRun) {
+    sha256 = await plan.sha256For(job);
+    filename = (plan.archive.kind === "file" ? basename(path) : `${basename(path)} (${job.source})`).slice(
+      0,
+      ACTIVITY_FILENAME_MAX_CHARS
+    );
+    const held = await context.client.get<HeldResponse>(`/api/activity-imports?sha256=${sha256}`);
+    if (held.held && !options.again) {
+      summary.status = "already-held";
+      summary.importId = held.importId ?? null;
+      summary.added = 0;
+      summary.alreadyHeld = held.eventCount ?? 0;
+      return summary;
+    }
+  }
+
+  const groups = new Map<string, RejectionGroup>();
+  let importId: string | null = null;
+  let batch: ActivityEventDraft[] = [];
+  let batchBytes = 0;
+  let batchStart = 0;
+  let sent = 0;
+  let batches = 0;
+  const flush = async () => {
+    if (batch.length === 0) return;
+    const body: Record<string, unknown> = { schema: 1, events: batch };
+    if (importId) body.importId = importId;
+    else body.import = { sha256, filename, source: job.source };
+    let response: BatchResponse;
+    try {
+      response = await context.client.post<BatchResponse>("/api/activity-events", body);
+    } catch (error) {
+      if (error instanceof CliError)
+        throw new CliError(
+          `${error.message} (stopped after ${sent} of this file's events were accepted; run the same command again with --yes to continue: events already held are never duplicated.)`,
+          error.exitCode,
+          error.details,
+          error.agent
+        );
+      throw error;
+    }
+    importId = response.importId ?? importId;
+    summary.added += response.added;
+    summary.alreadyHeld += response.alreadyHeld;
+    summary.contentDropped += response.contentDropped;
+    for (const rejection of response.rejected ?? []) {
+      summary.rejected += 1;
+      // Reasons quote the offending value, so group by the reason with times blanked and show the first as sent.
+      const groupKey = rejection.reason.replace(/\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:\d{2})?/g, "<time>");
+      const group = groups.get(groupKey);
+      if (group) group.count += 1;
+      else groups.set(groupKey, { reason: rejection.reason, count: 1, firstEvent: batchStart + rejection.index + 1 });
+    }
+    sent += batch.length;
+    summary.sent = sent;
+    batchStart += batch.length;
+    batches += 1;
+    if (batches % 20 === 0) context.stderr(`rhen: ${job.source}: ${sent} events sent...`);
+    batch = [];
+    batchBytes = 0;
+  };
+
+  for await (const event of job.events()) {
+    if (options.dryRun) {
+      summary.sent += 1;
+      continue;
+    }
+    const size = Buffer.byteLength(JSON.stringify(event)) + 1;
+    if (batch.length >= ACTIVITY_MAX_BATCH || (batch.length > 0 && batchBytes + size > BATCH_BYTES)) await flush();
+    batch.push(event);
+    batchBytes += size;
+  }
+  if (!options.dryRun) await flush();
+
+  const stats = job.stats;
+  summary.read = stats.read;
+  summary.skipped = stats.skipped;
+  summary.ignored = stats.ignored;
+  summary.skippedReasons = stats.reasons;
+  summary.truncated = stats.truncated;
+  summary.importId = importId;
+  summary.rejections = [...groups.values()].sort((a, b) => b.count - a.count);
+  return summary;
+}
+
+async function runYoutube(
+  context: CommandContext,
+  job: YoutubeJob,
+  path: string,
+  dryRun: boolean
+): Promise<{ file: string; result: WatchImportResult | null; dryRun: boolean }> {
+  if (job.size > WATCH_IMPORT_MAX_FILE_BYTES)
+    throw new CliError(
+      `${job.file} is ${Math.round(job.size / 1048576)} MB; the watch-history route reads at most ${Math.round(WATCH_IMPORT_MAX_FILE_BYTES / 1048576)} MB. Export a shorter date range from takeout.google.com (YouTube, History, JSON) and import that.`,
+      EXIT.usage
+    );
+  if (dryRun) return { file: job.file, result: null, dryRun: true };
+  const bytes = await job.read();
+  // Only the history entry is read; the old parser is the route's own. Base64 keeps the body under its 70 MB cap.
+  const result = await context.client.post<WatchImportResult>("/api/imports/watch-history", {
+    filename: basename(job.file) || basename(path),
+    encoding: "base64",
+    data: Buffer.from(bytes).toString("base64")
+  });
+  return { file: job.file, result, dryRun: false };
+}
+
+function renderSummary(summary: SourceSummary): string {
+  const lines: string[] = [];
+  const files = summary.files.length === 1 ? basename(summary.files[0]!) : `${summary.files.length} files`;
+  if (summary.status === "already-held") {
+    lines.push(
+      `${summary.source} (${files}): already imported (${summary.alreadyHeld} events, import ${summary.importId ?? "unknown"}). Nothing sent. Add --yes to send it again; events already held are never duplicated.`
+    );
+    return lines.join("\n");
+  }
+  const head =
+    summary.status === "dry-run"
+      ? `${summary.source} (${files}): dry run, nothing sent. Read ${summary.read} rows; ${summary.sent} would be sent`
+      : `${summary.source} (${files}): read ${summary.read} rows; sent ${summary.sent}: added ${summary.added}, already held ${summary.alreadyHeld}, rejected ${summary.rejected}`;
+  lines.push(`${head}; skipped ${summary.skipped} unreadable, ignored ${summary.ignored}.`);
+  if (summary.contentDropped > 0)
+    lines.push(
+      `  ${summary.contentDropped} events had their content dropped because this source's content gate is off. Turn it on in the portal settings first if you want the text kept.`
+    );
+  if (summary.truncated)
+    lines.push(
+      "  The file ends in the middle of a record, so it looks cut off. What was read before that is included; download the export again."
+    );
+  for (const [reason, count] of Object.entries(summary.skippedReasons)) lines.push(`  skipped ${count}: ${reason}`);
+  for (const group of summary.rejections.slice(0, REASON_GROUPS_SHOWN))
+    lines.push(`  rejected ${group.count}: ${group.reason} (first at event ${group.firstEvent})`);
+  if (summary.rejections.length > REASON_GROUPS_SHOWN)
+    lines.push(`  ...and ${summary.rejections.length - REASON_GROUPS_SHOWN} more reasons (use --json for all).`);
+  if (summary.importId)
+    lines.push(
+      `  import id ${summary.importId} (undo: DELETE /api/activity-imports/${summary.importId} as the owner).`
+    );
+  return lines.join("\n");
+}
+
+function renderYoutube(item: { file: string; result: WatchImportResult | null; dryRun: boolean }): string {
+  if (item.dryRun || !item.result)
+    return `youtube (${item.file}): dry run, nothing sent; the history would go to the watch-history route.`;
+  const r = item.result;
+  return `youtube (${item.file}): watch-history route read ${r.read}; added ${r.added}, already held ${r.alreadyHeld}, skipped ${r.skipped}${r.importId ? `; import id ${r.importId}` : ""}.`;
+}
