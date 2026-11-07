@@ -26,6 +26,7 @@ const expectedPackages = new Map([
   ["engine/worker/package.json", "@openrhen/engine-worker"],
   ["platform/contracts/package.json", "@openrhen/contracts"],
   ["platform/database/package.json", "@openrhen/database"],
+  ["integrations/activity-importers/package.json", "@openrhen/activity-importers"],
   ["integrations/outbound-proxy/package.json", "@openrhen/outbound-proxy"],
   ["integrations/openclaw-plugin/package.json", "@openrhen/openclaw-plugin"],
   ["tools/cli/package.json", "@openrhen/cli"]
@@ -187,8 +188,15 @@ for (const absolute of maintainedFiles) {
       if (dependency !== "@openrhen/contracts")
         errors.push(`${source} imports forbidden workspace package ${dependency}`);
   }
+  // The activity importers are pure streaming parsers: bytes in, event drafts out. They import no other workspace
+  // package (not even the contracts), so the CLI is the only place that knows both the file formats and the wire.
+  if (source.startsWith("integrations/activity-importers/")) {
+    for (const dependency of workspaceImports)
+      errors.push(`${source} imports forbidden workspace package ${dependency}`);
+  }
   // The CLI is a LAN client of the portal, in the same trust position as the handheld: it reads and
-  // writes only over the portal's HTTP routes, so it may share the wire contracts and nothing else.
+  // writes only over the portal's HTTP routes, so it may share the wire contracts and nothing else; the one
+  // other package it reads is the activity importers, which parse export files on the user's machine.
   // The one exception is a command-module drop-in (tools/cli/extensions/<name>/), which may also read its own
   // provider's contracts package: the core CLI loads none of them (the design notes, the seam rule).
   if (source.startsWith("tools/cli/")) {
@@ -196,6 +204,7 @@ for (const absolute of maintainedFiles) {
     for (const dependency of workspaceImports)
       if (
         dependency !== "@openrhen/contracts" &&
+        dependency !== "@openrhen/activity-importers" &&
         !(dropIn !== undefined && dependency === `@openrhen/${dropIn}-contracts`)
       )
         errors.push(`${source} imports forbidden workspace package ${dependency}`);
