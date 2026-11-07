@@ -327,6 +327,28 @@ jobs:
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked
       - run: cargo build --locked --release
+      # The real Windows binaries on a real runner (a throwaway VM): install, run, stop and remove them, and
+      # check the files and the start-at-logon entry appear and disappear. Observation only.
+      - name: Install and uninstall smoke
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dest = Join-Path $env:LOCALAPPDATA 'Programs\rhen-watch'
+          .\target\release\rhen-watch.exe install
+          if (-not (Test-Path "$dest\rhen-watchw.exe")) { throw 'program not installed' }
+          if (-not (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'rhen-watch' -ErrorAction SilentlyContinue)) { throw 'no start-at-logon entry' }
+          Start-Sleep -Seconds 5
+          $status = (& "$dest\rhen-watch.exe" status) -join "`n"
+          Write-Host $status
+          if ($status -notmatch 'agent: running') { throw 'the installed agent is not running' }
+          & "$dest\rhen-watch.exe" report
+          & "$dest\rhen-watch.exe" stop
+          Start-Sleep -Seconds 3
+          if ((& "$dest\rhen-watch.exe" status) -match 'agent: running') { throw 'the agent did not stop' }
+          & "$dest\rhen-watch.exe" uninstall --purge
+          if (Test-Path "$dest\rhen-watchw.exe") { throw 'program still installed' }
+          if (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'rhen-watch' -ErrorAction SilentlyContinue) { throw 'start-at-logon entry still set' }
       # The agent records locally and must stay that way: no network crate in its dependency tree.
       - name: No network code
         shell: bash
