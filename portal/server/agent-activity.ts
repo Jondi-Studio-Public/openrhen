@@ -4,7 +4,12 @@
  */
 
 /** Routes that say nothing about an agent working: probes, the CLI's version check, and agent time itself. */
-const UNCOUNTED = [/^\/api\/health(\/|$)/, /^\/api\/cli(\/|$)/, /^\/api\/agent-sessions$/];
+const UNCOUNTED = [
+  /^\/api\/health(\/|$)/,
+  /^\/api\/cli(\/|$)/,
+  /^\/api\/agent-sessions$/,
+  /^\/api\/activity-(events|imports)(\/|$)/
+];
 
 export const countsAsAgentWork = (route: string): boolean => !UNCOUNTED.some((pattern) => pattern.test(route));
 

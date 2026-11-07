@@ -171,6 +171,7 @@ try {
           }
         : {}),
       ...(absent.length ? { emptyBecauseAbsentFromBackup: absent } : {}),
+      ...(backup.skipped?.length ? { leftOutOfTheBackup: backup.skipped } : {}),
       ...(Object.keys(reshaped).length ? { columnsReshaped: reshaped } : {})
     })
   );

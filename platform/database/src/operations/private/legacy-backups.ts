@@ -1,11 +1,12 @@
-// This export reads the current backup format, and format 20 (the one before the Now offer log).
+// This export reads the current backup format, and formats 20 and 21 (the ones before the Now offer log and the activity store).
 import type { BackupTable, OpenRhenBackup } from "../backup-format.js";
 import { groupBackupTables } from "../../schema/table-groups.js";
 
 /**
- * Format 20's table list, frozen: format 21 added the offer-log table to `BACKUP_TABLES`, and nothing else changed. A format 20
- * backup has no key for that table, so restore leaves it empty (`tablesAbsentFrom`). Registered table groups
- * added the same tables to both formats, so they are read from the live "current" list.
+ * Format 20's table list, frozen: format 21 added the offer-log table to `BACKUP_TABLES`, and format 22 added the three
+ * activity tables. A backup of an older format has no key for the tables added since, so restore leaves them empty
+ * (`tablesAbsentFrom`). Registered table groups added the same tables to every format, so they are read from the live
+ * "current" list. Format 21 is format 20 plus `offer_log`.
  */
 const FORMAT_20_CORE_TABLES = [
   "portal_state",
@@ -78,8 +79,12 @@ const FORMAT_20_CORE_TABLES = [
   "watch_events"
 ] as const;
 
+const FORMAT_21_CORE_TABLES = [...FORMAT_20_CORE_TABLES, "offer_log"] as const;
+
 export function legacyRequiredTables(formatVersion: number): readonly BackupTable[] | undefined {
-  return formatVersion === 20 ? [...FORMAT_20_CORE_TABLES, ...groupBackupTables("current")] : undefined;
+  if (formatVersion === 20) return [...FORMAT_20_CORE_TABLES, ...groupBackupTables("current")];
+  if (formatVersion === 21) return [...FORMAT_21_CORE_TABLES, ...groupBackupTables("current")];
+  return undefined;
 }
 
 export function upgradeLegacyBackup(backup: OpenRhenBackup): OpenRhenBackup {

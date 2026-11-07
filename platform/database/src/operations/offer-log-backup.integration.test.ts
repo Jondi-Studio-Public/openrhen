@@ -99,7 +99,7 @@ describe("the offer log in the backup", () => {
     expect(BACKUP_TABLES).toContain("offer_log");
     expect(BACKUP_TABLES.indexOf("users")).toBeLessThan(BACKUP_TABLES.indexOf("offer_log"));
     expect(REGENERABLE_TABLES).not.toContain("offer_log");
-    expect(CURRENT_BACKUP_FORMAT_VERSION).toBe(21);
+    expect(CURRENT_BACKUP_FORMAT_VERSION).toBeGreaterThanOrEqual(21);
     await expect(assertBackupCoverage(sql)).resolves.toBeUndefined();
   });
 

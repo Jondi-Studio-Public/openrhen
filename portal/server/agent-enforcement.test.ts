@@ -867,6 +867,38 @@ describe("the proposal summary", () => {
   });
 });
 
+describe("activity store", () => {
+  const events = { schema: 1, events: [] };
+  const everyActivityScope = principal(["read:plan", "write:activity-event", "read:activity-event"]);
+
+  it("lets a capture token post events and check an import, and nothing else it holds helps", async () => {
+    expect(await call("POST", "/api/activity-events", principal(["write:activity-event"]), events)).toBeNull();
+    expect(await call("GET", "/api/activity-imports", principal(["write:activity-event"]))).toBeNull();
+    const refused = await call("POST", "/api/activity-events", principal(["read:plan", "read:activity-event"]), events);
+    expect(refused?.status).toBe(403);
+    expect(await refused?.json()).toMatchObject({ missingScopes: ["write:activity-event"] });
+  });
+
+  it("keeps the read-back (which returns content) behind read:activity-event, which capture does not hold", async () => {
+    expect(await call("GET", "/api/activity-events", principal(["read:activity-event"]))).toBeNull();
+    const refused = await call("GET", "/api/activity-events", principal(["write:activity-event"]));
+    expect(refused?.status).toBe(403);
+    expect(await refused?.json()).toMatchObject({ missingScopes: ["read:activity-event"] });
+  });
+
+  it("refuses a token the owner-only activity routes, whatever activity scopes it holds", async () => {
+    for (const [method, route] of [
+      ["DELETE", "/api/activity-imports/[id]"],
+      ["PUT", "/api/activity-sources/[source]"],
+      ["DELETE", "/api/activity-sources/[source]/events"],
+      ["GET", "/api/activity-events/summary"]
+    ] as const) {
+      const refused = await call(method, route, everyActivityScope, method === "GET" ? undefined : {});
+      expect(refused?.status, `${method} ${route}`).toBe(403);
+    }
+  });
+});
+
 describe("agent time ingest", () => {
   const body = { schemaVersion: 1, sessions: [] };
 
