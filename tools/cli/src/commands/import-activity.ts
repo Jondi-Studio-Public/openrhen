@@ -71,6 +71,8 @@ export interface SourceSummary {
   /** The commonest first words of skipped titles (My Activity), most frequent first. */
   skippedVerbs: Record<string, number>;
   truncated: boolean;
+  /** Set when the run looks like a failure that exit code 0 would hide: no events, or most rows skipped. */
+  warning?: string;
   importId: string | null;
 }
 
@@ -257,7 +259,24 @@ async function runEvents(
   summary.truncated = stats.truncated;
   summary.importId = importId;
   summary.rejections = [...groups.values()].sort((a, b) => b.count - a.count);
+  const warning = suspiciousRun(summary, stats.emitted, job);
+  if (warning) summary.warning = warning;
   return summary;
+}
+
+/** A matched file that gave no events, or mostly skipped rows, must not look like a success. */
+function suspiciousRun(summary: SourceSummary, emitted: number, job: EventJob): string | undefined {
+  const top = Object.entries(summary.skippedReasons).sort((a, b) => b[1] - a[1])[0];
+  const nothing = emitted === 0;
+  const mostly = summary.read > 0 && summary.skipped * 2 > summary.read;
+  if (!nothing && !mostly) return undefined;
+  const file = job.files[0] ? basename(job.files[0]) : "the file";
+  const what = nothing
+    ? summary.read === 0
+      ? `read no rows and produced no events from ${file}`
+      : `read ${summary.read} rows but produced no events from ${file}`
+    : `skipped ${summary.skipped} of ${summary.read} rows from ${file}`;
+  return `WARNING ${summary.source}: ${what}.${top ? ` The commonest reason: "${top[0]}" (${top[1]} rows).` : ""} If you expected events, the format may not match this importer. Report it with: the source name (${summary.source}), the file name (${file}) and the skipped reasons listed here. Do not send the file's contents or any personal data.`;
 }
 
 async function runYoutube(
@@ -305,6 +324,7 @@ function renderSummary(summary: SourceSummary): string {
       "  The file ends in the middle of a record, so it looks cut off. What was read before that is included; download the export again."
     );
   for (const [reason, count] of Object.entries(summary.skippedReasons)) lines.push(`  skipped ${count}: ${reason}`);
+  if (summary.warning) lines.push(`  ${summary.warning}`);
   const verbs = Object.entries(summary.skippedVerbs);
   if (verbs.length > 0)
     lines.push(`  commonest skipped title verbs: ${verbs.map(([verb, count]) => `${verb} (${count})`).join(", ")}`);

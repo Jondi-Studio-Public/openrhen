@@ -149,7 +149,11 @@ test("a token without a portal address registers no hooks and says so", () => {
 
 test("with a token it uses only metadata hooks, none that need conversation access", () => {
   const hooks = [];
-  plugin.register({ pluginConfig: { agentTimeToken: "pri_test", portalUrl: "https://openrhen.example.com" }, logger: {}, on: (name) => hooks.push(name) });
+  plugin.register({
+    pluginConfig: { agentTimeToken: "pri_test", portalUrl: "https://openrhen.example.com" },
+    logger: {},
+    on: (name) => hooks.push(name)
+  });
   assert.deepEqual(hooks, ["model_call_ended", "session_end", "gateway_stop"]);
 });
 

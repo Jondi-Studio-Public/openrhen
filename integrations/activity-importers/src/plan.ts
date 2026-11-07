@@ -69,6 +69,9 @@ export interface ImportPlan {
   sha256For(job: EventJob): Promise<string>;
 }
 
+/** Importers written from documented formats and never run on a real export. Each run says so. */
+const UNVERIFIED_SOURCES = new Set(["timeline", "google-chat", "google-access-log", "google-photos"]);
+
 const basenameOf = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 const parentOf = (path: string) => {
   const parts = path.split("/");
@@ -86,6 +89,17 @@ async function readAll(chunks: AsyncIterable<Uint8Array | string>, declaredSize:
     parts.push(part);
   }
   return Buffer.concat(parts);
+}
+
+/** Adds the file's name to an `ImportReadError` from its parser, so the message says which file. */
+async function* inFile<T>(file: string, rows: AsyncGenerator<T>): AsyncGenerator<T> {
+  try {
+    yield* rows;
+  } catch (error) {
+    if (error instanceof ImportReadError && !error.message.startsWith(`${file}:`))
+      throw new ImportReadError(`${file}: ${error.message}`);
+    throw error;
+  }
 }
 
 function eventJob(
@@ -169,7 +183,7 @@ function timelineJob(archive: Archive): EventJob | null {
   );
   if (files.length === 0) return null;
   return eventJob("timeline", files, async function* (stats) {
-    for (const file of files) yield* parseTimeline(archive.open(file), stats);
+    for (const file of files) yield* inFile(file, parseTimeline(archive.open(file), stats));
   });
 }
 
@@ -198,7 +212,7 @@ function googleChatJob(archive: Archive): EventJob | null {
         skip(stats, "space folder name is empty");
         continue;
       }
-      yield* parseGoogleChatMessages(archive.open(file), space, owner, stats);
+      yield* inFile(file, parseGoogleChatMessages(archive.open(file), space, owner, stats));
     }
   });
 }
@@ -213,9 +227,12 @@ function accessLogJob(archive: Archive): EventJob | null {
   if (files.length === 0) return null;
   return eventJob("google-access-log", files, async function* (stats) {
     for (const file of files)
-      yield* file.toLowerCase().endsWith(".json")
-        ? parseAccessLogJson(archive.open(file), stats)
-        : parseAccessLogCsv(archive.open(file), stats);
+      yield* inFile(
+        file,
+        file.toLowerCase().endsWith(".json")
+          ? parseAccessLogJson(archive.open(file), stats)
+          : parseAccessLogCsv(archive.open(file), stats)
+      );
   });
 }
 
@@ -357,6 +374,11 @@ export async function planImport(source: ImportSourceName, path: string): Promis
         ? `Nothing this importer reads was found in ${path}. Expected a Takeout with Chrome, My Activity, Maps, Fit, Timeline, Google Chat, Access Log Activity, Google Photos or YouTube history. Export those products from takeout.google.com in JSON format.`
         : `No ${EXPECTED[source]} found in ${path}. Check that you chose the right source and the right export.`
     );
+  for (const job of jobs)
+    if (job.kind === "events" && UNVERIFIED_SOURCES.has(job.source))
+      notes.push(
+        `${job.source}: format not yet checked against a real Takeout; read the skipped reasons below and report a file that does not parse.`
+      );
   if (archive.duplicates.length > 0)
     notes.push(
       `${archive.duplicates.length} path(s) appear in more than one zip part (for example ${archive.duplicates[0]}); only the first copy was read.`
