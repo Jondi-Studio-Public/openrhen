@@ -176,6 +176,50 @@ describe("rhen import <source> <path>", () => {
     expect(result.stdout).toContain("skipped 1: event is larger than 1 MB, so it was not sent");
   });
 
+  it("names the commonest title verbs it skipped in My Activity", async () => {
+    const rows = [
+      { title: "Searched for a", time: "2026-02-03T04:05:06Z" },
+      { title: "Used Maps", time: "2026-02-03T04:05:07Z" },
+      { title: "Used Search", time: "2026-02-03T04:05:08Z" },
+      { title: "Listened to x", time: "2026-02-03T04:05:09Z" }
+    ];
+    const file = write(join(dir, "Search", "MyActivity.json"), JSON.stringify(rows));
+    const result = await run(["import", "google-activity", file, "--dry-run"], {});
+    expect(result.stdout).toContain("commonest skipped title verbs: Used (2), Listened (1)");
+  });
+
+  it("says which import to undo when a zip entry fails its checksum after events were sent", async () => {
+    const body = Buffer.from(JSON.stringify(Array.from({ length: 1500 }, (_, i) => play(i))));
+    const name = Buffer.from("Streaming_History_Audio_2026_9.json");
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt32LE(0xdeadbeef, 14); // a checksum that is wrong
+    local.writeUInt32LE(body.length, 18);
+    local.writeUInt32LE(body.length, 22);
+    local.writeUInt16LE(name.length, 26);
+    const entry = Buffer.alloc(46);
+    entry.writeUInt32LE(0x02014b50, 0);
+    entry.writeUInt32LE(0xdeadbeef, 16);
+    entry.writeUInt32LE(body.length, 20);
+    entry.writeUInt32LE(body.length, 24);
+    entry.writeUInt16LE(name.length, 28);
+    const directoryOffset = local.length + name.length + body.length;
+    const end = Buffer.alloc(22);
+    end.writeUInt32LE(0x06054b50, 0);
+    end.writeUInt16LE(1, 8);
+    end.writeUInt16LE(1, 10);
+    end.writeUInt32LE(entry.length + name.length, 12);
+    end.writeUInt32LE(directoryOffset, 16);
+    const path = join(dir, "badcrc.zip");
+    writeFileSync(path, Buffer.concat([local, name, body, entry, name, end]));
+    const result = await run(["import", "spotify", path], fakePortal().routes);
+    expect(result.exitCode).toBe(EXIT.usage);
+    expect(result.stderr).toContain("fails its checksum");
+    expect(result.stderr).toContain("stopped after 1000 events were sent");
+    expect(result.stderr).toContain("DELETE /api/activity-imports/22222222-2222-4222-8222-222222222222");
+  });
+
   it("--dry-run parses and counts without any request", async () => {
     const file = write(join(dir, "dry", "Streaming_History_Audio_2026_5.json"), JSON.stringify([play(1), play(2)]));
     const result = await run(["import", "spotify", file, "--dry-run"], {});

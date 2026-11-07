@@ -1,7 +1,7 @@
 import { eventKey, DupCounter } from "../keys.js";
 import { jsonArrayObjects } from "../json-stream.js";
 import { parseTimestamp } from "../time.js";
-import { skip, type ActivityEventDraft, type ByteSource, type Stats } from "../types.js";
+import { noteVerb, skip, type ActivityEventDraft, type ByteSource, type Stats } from "../types.js";
 
 /**
  * Google My Activity from Takeout: `My Activity/<product>/MyActivity.json`, a top-level array of
@@ -50,6 +50,7 @@ export async function* parseGoogleActivity(
     const match = PREFIXES.find(([prefix]) => title.startsWith(prefix));
     if (!match) {
       skip(stats, "title starts with a verb this importer does not know");
+      noteVerb(stats, title);
       continue;
     }
     const text = title.slice(match[0].length).replace(/\s+/g, " ").trim();

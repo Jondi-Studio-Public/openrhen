@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { archiveSha256, openArchive, sha256File, sourceSha256 } from "./archive.js";
+import { archiveHasher, archiveSha256, openArchive, sha256File, sourceSha256, type Archive } from "./archive.js";
 import { collect, makeZip } from "./fixtures.js";
 import { ImportReadError } from "./types.js";
 import { listZip, readZipEntry } from "./zip.js";
@@ -77,6 +77,54 @@ describe("the streaming zip reader", () => {
     const [entry] = await listZip(path);
     await expect(collect(readZipEntry(path, { ...entry!, method: 12 }))).rejects.toThrow(/compression method 12/);
     await expect(collect(readZipEntry(path, { ...entry!, flags: 1 }))).rejects.toThrow(/password-protected/);
+  });
+});
+
+describe("archiveHasher", () => {
+  it("hashes each folder entry once however many sources ask, and a zip once", async () => {
+    const opened: string[] = [];
+    const fake: Archive = {
+      kind: "folder",
+      label: "x",
+      root: "x",
+      duplicates: [],
+      entries: [
+        { path: "a.json", size: 1 },
+        { path: "b.json", size: 1 }
+      ],
+      open: (path) => {
+        opened.push(path);
+        return (async function* () {
+          yield Buffer.from(path);
+        })();
+      }
+    };
+    const hash = archiveHasher(fake);
+    const first = await hash(["a.json", "b.json"]);
+    expect(await hash(["a.json"])).not.toBe(first);
+    await hash(["b.json", "a.json"]);
+    expect(opened.sort()).toEqual(["a.json", "b.json"]);
+    const zipPath = join(dir, "memo.zip");
+    writeFileSync(zipPath, makeZip([{ name: "a.json", data: "[]" }]));
+    const zip = await openArchive(zipPath);
+    const zipHash = archiveHasher(zip);
+    expect(zipHash(["a.json"])).toBe(zipHash(["a.json"]));
+  });
+
+  it("lists paths that two zip parts both carry, keeping the first", async () => {
+    const folder = join(dir, "dups");
+    mkdirSync(folder);
+    writeFileSync(
+      join(folder, "p1.zip"),
+      makeZip([
+        { name: "T/a.json", data: "[1]" },
+        { name: "T/b.json", data: "[]" }
+      ])
+    );
+    writeFileSync(join(folder, "p2.zip"), makeZip([{ name: "T/a.json", data: "[2]" }]));
+    const archive = await openArchive(folder);
+    expect(archive.duplicates).toEqual(["T/a.json"]);
+    expect(archive.entries).toHaveLength(2);
   });
 });
 

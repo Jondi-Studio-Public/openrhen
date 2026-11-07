@@ -20,6 +20,8 @@ export interface Archive {
   /** What the user named, for messages. */
   label: string;
   entries: ArchiveEntry[];
+  /** Paths that more than one zip part carried; the first copy was kept and the others ignored. */
+  duplicates: string[];
   open(path: string): ByteSource;
   /** The path the user named (a file, or the folder). */
   readonly root: string;
@@ -56,6 +58,7 @@ export async function openArchive(path: string): Promise<Archive> {
   }
   const readers = new Map<string, () => ByteSource>();
   const entries: ArchiveEntry[] = [];
+  const duplicates: string[] = [];
   const addZip = async (zipPath: string, prefix: string) => {
     const zipEntries = await listZip(zipPath);
     for (const entry of zipEntries) addZipEntry(zipPath, entry, prefix);
@@ -63,7 +66,10 @@ export async function openArchive(path: string): Promise<Archive> {
   const addZipEntry = (zipPath: string, entry: ZipEntry, prefix: string) => {
     const full = prefix + entry.path;
     // Two parts of one Takeout can carry the same path; the first wins and the duplicate is ignored.
-    if (readers.has(full)) return;
+    if (readers.has(full)) {
+      if (!duplicates.includes(full)) duplicates.push(full);
+      return;
+    }
     readers.set(full, () => readZipEntry(zipPath, entry));
     entries.push({ path: full, size: entry.size });
   };
@@ -78,17 +84,17 @@ export async function openArchive(path: string): Promise<Archive> {
       readers.set(rel, () => createReadStream(file));
       entries.push({ path: rel, size });
     }
-    return { kind: "folder", label: path, entries, open: (p) => openEntry(readers, p, path), root: path };
+    return { kind: "folder", label: path, entries, duplicates, open: (p) => openEntry(readers, p, path), root: path };
   }
   if (await looksLikeZip(path)) {
     await addZip(path, "");
-    return { kind: "zip", label: path, entries, open: (p) => openEntry(readers, p, path), root: path };
+    return { kind: "zip", label: path, entries, duplicates, open: (p) => openEntry(readers, p, path), root: path };
   }
   // A bare file keeps its folder name, because a My Activity file's product is the folder it sits in.
   const entryPath = `${basename(dirname(path))}/${basename(path)}`;
   readers.set(entryPath, () => createReadStream(path));
   entries.push({ path: entryPath, size: info.size });
-  return { kind: "file", label: path, entries, open: (p) => openEntry(readers, p, path), root: path };
+  return { kind: "file", label: path, entries, duplicates, open: (p) => openEntry(readers, p, path), root: path };
 }
 
 async function* openEntry(readers: Map<string, () => ByteSource>, path: string, label: string): ByteSource {
@@ -105,22 +111,42 @@ export async function sha256File(path: string): Promise<string> {
 }
 
 /**
- * The hash an import is recorded under. A bare file or a single zip is the file's own SHA-256. A folder has no
- * single file to hash, so it is the hash of the listing of the entries the import reads (`paths`): each entry's
- * path, size and content hash, in path order. A folder of zip parts is hashed that way too.
+ * The hash an import is recorded under, memoised for one plan so a zip is read once however many sources it feeds.
+ * A bare file or a single zip is the file's own SHA-256. A folder has no single file to hash, so it is the hash of
+ * the listing of the entries the import reads (`paths`): each entry's path, size and content hash, in code-unit
+ * path order; each entry is hashed once. A folder of zip parts is hashed that way too.
  */
-export async function archiveSha256(archive: Archive, paths: readonly string[]): Promise<string> {
-  if (archive.kind !== "folder") return sha256File(archive.root);
-  const hash = createHash("sha256");
-  const wanted = new Set(paths);
-  for (const entry of archive.entries
-    .filter((candidate) => wanted.has(candidate.path))
-    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))) {
-    const part = createHash("sha256");
-    for await (const chunk of archive.open(entry.path)) part.update(chunk);
-    hash.update(`${entry.path}\0${entry.size}\0${part.digest("hex")}\n`);
-  }
-  return hash.digest("hex");
+export function archiveHasher(archive: Archive): (paths: readonly string[]) => Promise<string> {
+  let whole: Promise<string> | undefined;
+  const parts = new Map<string, Promise<string>>();
+  const entryHash = (path: string) => {
+    let held = parts.get(path);
+    if (!held) {
+      held = (async () => {
+        const part = createHash("sha256");
+        for await (const chunk of archive.open(path)) part.update(chunk);
+        return part.digest("hex");
+      })();
+      parts.set(path, held);
+    }
+    return held;
+  };
+  return (paths) => {
+    if (archive.kind !== "folder") return (whole ??= sha256File(archive.root));
+    return (async () => {
+      const hash = createHash("sha256");
+      const wanted = new Set(paths);
+      for (const entry of archive.entries
+        .filter((candidate) => wanted.has(candidate.path))
+        .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)))
+        hash.update(`${entry.path}\0${entry.size}\0${await entryHash(entry.path)}\n`);
+      return hash.digest("hex");
+    })();
+  };
+}
+
+export function archiveSha256(archive: Archive, paths: readonly string[]): Promise<string> {
+  return archiveHasher(archive)(paths);
 }
 
 /** A hash for one source taken out of a container: the container's hash and the source name, so two sources of one zip are two imports. */

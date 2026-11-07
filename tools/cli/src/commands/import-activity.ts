@@ -68,6 +68,8 @@ export interface SourceSummary {
   skipped: number;
   ignored: number;
   skippedReasons: Record<string, number>;
+  /** The commonest first words of skipped titles (My Activity), most frequent first. */
+  skippedVerbs: Record<string, number>;
   truncated: boolean;
   importId: string | null;
 }
@@ -143,6 +145,7 @@ async function runEvents(
     skipped: 0,
     ignored: 0,
     skippedReasons: {},
+    skippedVerbs: {},
     truncated: false,
     importId: null
   };
@@ -211,28 +214,42 @@ async function runEvents(
     batchBytes = 0;
   };
 
-  for await (const event of job.events()) {
-    if (options.dryRun) {
-      if (Buffer.byteLength(JSON.stringify(event)) + 1 > MAX_EVENT_BYTES) oversized += 1;
-      else summary.sent += 1;
-      continue;
+  try {
+    for await (const event of job.events()) {
+      if (options.dryRun) {
+        if (Buffer.byteLength(JSON.stringify(event)) + 1 > MAX_EVENT_BYTES) oversized += 1;
+        else summary.sent += 1;
+        continue;
+      }
+      const size = Buffer.byteLength(JSON.stringify(event)) + 1;
+      if (size > MAX_EVENT_BYTES) {
+        oversized += 1;
+        continue;
+      }
+      if (batch.length >= ACTIVITY_MAX_BATCH || (batch.length > 0 && batchBytes + size > BATCH_BYTES)) await flush();
+      batch.push(event);
+      batchBytes += size;
     }
-    const size = Buffer.byteLength(JSON.stringify(event)) + 1;
-    if (size > MAX_EVENT_BYTES) {
-      oversized += 1;
-      continue;
-    }
-    if (batch.length >= ACTIVITY_MAX_BATCH || (batch.length > 0 && batchBytes + size > BATCH_BYTES)) await flush();
-    batch.push(event);
-    batchBytes += size;
+    if (!options.dryRun) await flush();
+  } catch (error) {
+    // A damaged zip entry is found only when its last bytes are read, after earlier events may have been posted.
+    if (error instanceof ImportReadError && importId)
+      context.stderr(
+        `rhen: ${job.source}: stopped after ${sent} events were sent. They are stored under import ${importId}; the owner can undo that import by id (DELETE /api/activity-imports/${importId}), or run this command again with --yes once the export is fixed.`
+      );
+    throw error;
   }
-  if (!options.dryRun) await flush();
 
   const stats = job.stats;
   summary.read = stats.read;
   summary.skipped = stats.skipped;
   summary.ignored = stats.ignored;
   summary.skippedReasons = { ...stats.reasons };
+  summary.skippedVerbs = Object.fromEntries(
+    Object.entries(stats.verbs)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+  );
   if (oversized > 0) {
     summary.skipped += oversized;
     summary.skippedReasons["event is larger than 1 MB, so it was not sent"] = oversized;
@@ -288,6 +305,9 @@ function renderSummary(summary: SourceSummary): string {
       "  The file ends in the middle of a record, so it looks cut off. What was read before that is included; download the export again."
     );
   for (const [reason, count] of Object.entries(summary.skippedReasons)) lines.push(`  skipped ${count}: ${reason}`);
+  const verbs = Object.entries(summary.skippedVerbs);
+  if (verbs.length > 0)
+    lines.push(`  commonest skipped title verbs: ${verbs.map(([verb, count]) => `${verb} (${count})`).join(", ")}`);
   for (const group of summary.rejections.slice(0, REASON_GROUPS_SHOWN))
     lines.push(`  rejected ${group.count}: ${group.reason} (first at event ${group.firstEvent})`);
   if (summary.rejections.length > REASON_GROUPS_SHOWN)

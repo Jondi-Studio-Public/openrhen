@@ -111,6 +111,12 @@ describe("Google My Activity", () => {
     expect(event).toMatchObject({ kind: "search", content: "tea" });
   });
 
+  it("tallies the first word of titles it skips, so the summary can name the commonest", async () => {
+    const stats = newStats();
+    await collect(parseGoogleActivity(chunked(file, 13), "Search", stats));
+    expect(stats.verbs).toEqual({ Used: 1 });
+  });
+
   it("skips and counts titles with an unknown verb, an empty remainder or a time without a zone", async () => {
     const stats = newStats();
     await collect(parseGoogleActivity(chunked(file, 13), "Search", stats));
@@ -488,13 +494,12 @@ describe("Apple Health export.xml", () => {
     const stats = newStats();
     const events = await collect(parseAppleHealth(chunked(xml, 41), stats));
     const steps = events.filter((e) => e.kind === "steps");
+    // The newest bucket of each device (Phone 23:00, Watch 22:00) may be partial in a mid-hour export, so it is held back.
     expect(steps.map((e) => [e.attrs.source_name, e.start, e.attrs.steps])).toEqual([
-      ["Test Phone", "2026-05-05T22:00:00.000Z", 150],
-      ["Test Watch", "2026-05-05T22:00:00.000Z", 20],
-      ["Test Phone", "2026-05-05T23:00:00.000Z", 7]
+      ["Test Phone", "2026-05-05T22:00:00.000Z", 150]
     ]);
     expect(steps[0]).toMatchObject({ end: "2026-05-05T23:00:00.000Z", tzOffsetMin: 600, attrs: { records: 2 } });
-    expect(new Set(steps.map((e) => e.id)).size).toBe(3);
+    expect(stats.ignored).toBeGreaterThanOrEqual(2);
   });
 
   it("emits sleep stages per device and workouts with their facts, and ignores other record types", async () => {
@@ -524,7 +529,7 @@ describe("Apple Health export.xml", () => {
         source_name: "Test Watch"
       }
     });
-    expect(stats.ignored).toBe(1);
+    expect(stats.ignored).toBe(3); // the heart-rate record and the two held-back newest step buckets
   });
 
   it("skips and counts unreadable dates, negative steps, unknown sleep stages and reversed workouts", async () => {
@@ -543,10 +548,19 @@ describe("Apple Health export.xml", () => {
       (await collect(parseAppleHealth(chunked(xml, size), newStats()))).map((e) => e.id);
     expect(await keys(5)).toEqual(await keys(5000));
     expect(new Set(await keys(5)).size).toBe((await keys(5)).length);
+    // The held-back bucket is emitted by a later export that goes past it, under the same key a full run would give.
+    const later = xml.replace(
+      "</HealthData>",
+      `${rec(STEP, "Test Phone", "2026-05-06 12:00:00 +1000", "2026-05-06 12:05:00 +1000", "9")}</HealthData>`
+    );
+    const phone2300 = (await collect(parseAppleHealth(chunked(later, 99), newStats()))).find(
+      (e) => e.start === "2026-05-05T23:00:00.000Z"
+    );
+    expect(phone2300?.attrs.steps).toBe(7);
   });
 
   it("buckets by the local wall-clock hour even for a half-hour offset", async () => {
-    const half = `<HealthData>${rec(STEP, "Test Phone", "2026-05-06 10:20:00 +0530", "2026-05-06 10:25:00 +0530", "9")}</HealthData>`;
+    const half = `<HealthData>${rec(STEP, "Test Phone", "2026-05-06 10:20:00 +0530", "2026-05-06 10:25:00 +0530", "9")}${rec(STEP, "Test Phone", "2026-05-06 12:20:00 +0530", "2026-05-06 12:25:00 +0530", "1")}</HealthData>`;
     const [bucket] = await collect(parseAppleHealth(chunked(half), newStats()));
     expect(bucket).toMatchObject({ start: "2026-05-06T04:30:00.000Z", tzOffsetMin: 330 });
   });
