@@ -12,3 +12,6 @@ coverage/
 
 # Rust build output
 target/
+
+# Local request files for scripts/ops/takeout-download.ps1 hold login cookies
+request*.txt

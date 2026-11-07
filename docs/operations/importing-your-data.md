@@ -73,7 +73,7 @@ Google gives no download API, so `scripts/ops/takeout-download.ps1` replays one 
 .\scripts\ops\takeout-download.ps1 -RequestFile C:\Users\you\Documents\data-exports\request.txt -OutDir C:\Users\you\Documents\data-exports\takeout -From 0 -To 35
 ```
 
-The file holds your login cookies, so delete it afterwards. Cookies lapse after about an hour; copy a fresh request and rerun with `-Only` for the parts that failed. Finished parts are skipped, and `download-log.txt` in the folder maps each part number to its file name. The script's header has the full steps.
+Keep the request file outside the repository (the script refuses one inside a git working tree) and delete it afterwards: it holds your login cookies, which the script hands to curl through a private temporary file, never the command line. A full export has dozens of parts and the cookies last about an hour, so expect to copy a fresh request over the same file part-way through and run the same command again. A half-downloaded part resumes from the byte it reached, finished parts are skipped, and the script checks free disk space (`-MinFreeGB`, default 120) and each part's size. `download-log.txt` in the folder maps each part number to its file name. The script's header has the full steps.
 
 Notes on what Takeout gives and what this reads:
 
