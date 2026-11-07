@@ -235,78 +235,170 @@ export function offsetMinutesOf(value: string): number | null {
 
 const byteLength = (text: string) => new TextEncoder().encode(text).length;
 
-function issueText(error: z.ZodError): string {
-  return error.issues
-    .map((issue) => {
-      const field = issue.path.join(".") || "event";
-      return `${field}: ${issue.message}`;
-    })
-    .join("; ");
+const TIME_EXAMPLE = '"2026-11-07T14:02:11Z" or "2026-11-07T14:02:11+11:00"';
+const RFC3339 = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|([+-])(\d{2}):(\d{2}))$/;
+const MIN_YEAR = 1970;
+const MAX_YEAR = 2200;
+const MAX_OFFSET_MINUTES = 840;
+const MAX_ATTRS_DEPTH = 20;
+const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+
+/**
+ * Why a time is unusable, in words that say what to send, or null when it is a real RFC 3339 time. Checks what the
+ * database would otherwise throw on: an offset outside -14:00..+14:00, a date that does not exist, a year it cannot hold.
+ * `field` is the field's name in the message. Never throws.
+ */
+export function describeTimeProblem(field: string, value: unknown): string | null {
+  if (value === undefined || value === null)
+    return `${field} is missing. Send an RFC 3339 time such as ${TIME_EXAMPLE}.`;
+  if (typeof value !== "string") return `${field} must be a time as text, such as ${TIME_EXAMPLE}.`;
+  const match = RFC3339.exec(value);
+  const [month, day, hour, minute, second] = [2, 3, 4, 5, 6].map((i) => Number(match?.[i]));
+  const offsetMinutes = match?.[8] === undefined ? 0 : Number(match[8]) * 60 + Number(match[9]);
+  const daysInMonth = match ? new Date(Date.UTC(Number(match[1]), month!, 0)).getUTCDate() : 0;
+  const real =
+    match !== null &&
+    month! >= 1 &&
+    month! <= 12 &&
+    day! >= 1 &&
+    day! <= daysInMonth &&
+    hour! <= 23 &&
+    minute! <= 59 &&
+    second! <= 59 &&
+    (match[9] === undefined || Number(match[9]) < 60) &&
+    offsetMinutes <= MAX_OFFSET_MINUTES &&
+    !Number.isNaN(new Date(value).getTime());
+  if (!real)
+    return `${field} "${value.slice(0, 60)}" is not a real time. Send an RFC 3339 time such as ${TIME_EXAMPLE} (an offset runs from -14:00 to +14:00).`;
+  const year = new Date(value).getUTCFullYear();
+  if (year < MIN_YEAR || year > MAX_YEAR)
+    return `${field} "${value}" is outside the years ${MIN_YEAR} to ${MAX_YEAR}. Check the device clock.`;
+  return null;
 }
 
 /**
- * Judges one event on its own. The reasons say what is wrong and the exact fix, because the poster is often an
- * automation (a phone shortcut shows the response body as is) and must not have to guess.
+ * Why text cannot be stored: a NUL or a lone surrogate, which Postgres refuses (so one such event would otherwise
+ * fail the whole batch and a retrying uploader would never stop). Null when the text is fine. Never throws.
+ */
+export function describeUnstorableText(field: string, text: string): string | null {
+  if (text.includes("\u0000"))
+    return `${field} contains a NUL character (\\u0000), which cannot be stored. Remove or replace it.`;
+  if (LONE_SURROGATE.test(text))
+    return `${field} contains a lone surrogate (half of an emoji or other character), which cannot be stored. Remove or replace it.`;
+  return null;
+}
+
+function describeUnstorableAttrs(value: unknown, depth = 0): string | null {
+  if (depth > MAX_ATTRS_DEPTH)
+    return `attrs nests deeper than ${MAX_ATTRS_DEPTH} levels. Keep attrs flat: small facts, not documents.`;
+  if (typeof value === "string") return describeUnstorableText("attrs", value);
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const problem = describeUnstorableAttrs(item, depth + 1);
+      if (problem) return problem;
+    }
+  } else if (value !== null && typeof value === "object") {
+    for (const [key, item] of Object.entries(value)) {
+      const problem = describeUnstorableText("attrs", key) ?? describeUnstorableAttrs(item, depth + 1);
+      if (problem) return problem;
+    }
+  }
+  return null;
+}
+
+const reject = (reason: string): ActivityEventVerdict => ({ ok: false, reason });
+
+/**
+ * Judges one event on its own. The reasons say what is wrong and the exact fix, in plain words, because the poster is
+ * often an automation (a phone shortcut shows the response body as is) and must not have to guess. Never throws.
  */
 export function validateActivityEvent(raw: unknown, now: Date): ActivityEventVerdict {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw))
-    return {
-      ok: false,
-      reason:
-        'Each event must be an object like {"id": "...", "source": "...", "kind": "...", "start": "2026-11-07T14:02:11Z"}.'
-    };
+    return reject(
+      'Each event must be an object like {"id": "...", "source": "...", "kind": "...", "start": "2026-11-07T14:02:11Z"}.'
+    );
   const record = raw as Record<string, unknown>;
   const source = record.source;
   if (typeof source !== "string" || !isKnownActivitySource(source))
-    return {
-      ok: false,
-      reason: `source ${typeof source === "string" ? `"${source}" is not known` : "is missing"}. Use one of: ${ACTIVITY_SOURCE_NAMES.join(", ")}.`
-    };
+    return reject(
+      `source ${typeof source === "string" ? `"${source.slice(0, 60)}" is not known` : "is missing"}. Use one of: ${ACTIVITY_SOURCE_NAMES.join(", ")}.`
+    );
   const kinds = activityKindsOf(source);
   const kind = record.kind;
   if (typeof kind !== "string" || !kinds.includes(kind))
-    return {
-      ok: false,
-      reason: `kind ${typeof kind === "string" ? `"${kind}" is not known` : "is missing"} for source "${source}". Use one of: ${kinds.join(", ")}.`
-    };
-  const parsed = activityEventSchema.safeParse(raw);
-  if (!parsed.success) return { ok: false, reason: issueText(parsed.error) };
-  const event = parsed.data;
-  const tsStart = new Date(event.start);
-  const tsEnd = event.end == null ? null : new Date(event.end);
+    return reject(
+      `kind ${typeof kind === "string" ? `"${kind.slice(0, 60)}" is not known` : "is missing"} for source "${source}". Use one of: ${kinds.join(", ")}.`
+    );
+  const id = record.id;
+  if (typeof id !== "string" || id.length === 0)
+    return reject(
+      `id is missing. Send a text key of 1 to ${ACTIVITY_KEY_MAX_CHARS} characters that is the same each time you send this event, such as "phone-2026-11-07T14:02:11".`
+    );
+  if (id.length > ACTIVITY_KEY_MAX_CHARS)
+    return reject(`id is ${id.length} characters long; the limit is ${ACTIVITY_KEY_MAX_CHARS}. Send a shorter key.`);
+  const idProblem = describeUnstorableText("id", id);
+  if (idProblem) return reject(idProblem);
+  const startProblem = describeTimeProblem("start", record.start);
+  if (startProblem) return reject(startProblem);
+  const start = record.start as string;
+  const end = record.end ?? null;
+  if (end !== null) {
+    const endProblem = describeTimeProblem("end", end);
+    if (endProblem) return reject(endProblem);
+  }
+  const tzOffsetMin = record.tzOffsetMin ?? null;
+  if (
+    tzOffsetMin !== null &&
+    (typeof tzOffsetMin !== "number" || !Number.isInteger(tzOffsetMin) || Math.abs(tzOffsetMin) > MAX_OFFSET_MINUTES)
+  )
+    return reject(
+      `tzOffsetMin must be a whole number of minutes east of UTC between -${MAX_OFFSET_MINUTES} and ${MAX_OFFSET_MINUTES} (Sydney in summer is 660), or left out.`
+    );
+  if (record.approximate !== undefined && typeof record.approximate !== "boolean")
+    return reject("approximate must be true or false, or left out.");
+  const rawAttrs = record.attrs ?? {};
+  if (rawAttrs === null || typeof rawAttrs !== "object" || Array.isArray(rawAttrs))
+    return reject('attrs must be an object of small facts such as {"app": "Maps"}, or left out.');
+  const rawContent = record.content ?? null;
+  if (rawContent !== null && typeof rawContent !== "string") return reject("content must be text, or left out.");
+
+  const tsStart = new Date(start);
+  const tsEnd = end === null ? null : new Date(end as string);
   if (tsEnd !== null && tsEnd.getTime() < tsStart.getTime())
-    return {
-      ok: false,
-      reason: `end (${event.end}) is before start (${event.start}). Swap them, or leave end out for an instant event.`
-    };
+    return reject(
+      `end (${end as string}) is before start (${start}). Swap them, or leave end out for an instant event.`
+    );
   if (tsStart.getTime() > now.getTime() + ACTIVITY_FUTURE_SLACK_HOURS * 3_600_000)
-    return {
-      ok: false,
-      reason: `start (${event.start}) is more than ${ACTIVITY_FUTURE_SLACK_HOURS} hours in the future. Check the device clock and time zone.`
-    };
-  const attrs = event.attrs ?? {};
+    return reject(
+      `start (${start}) is more than ${ACTIVITY_FUTURE_SLACK_HOURS} hours in the future. Check the device clock and time zone.`
+    );
+  const attrs = rawAttrs as Record<string, unknown>;
+  const attrsProblem = describeUnstorableAttrs(attrs);
+  if (attrsProblem) return reject(attrsProblem);
   const attrsBytes = byteLength(JSON.stringify(attrs));
   if (attrsBytes > ACTIVITY_ATTRS_MAX_BYTES)
-    return {
-      ok: false,
-      reason: `attrs is ${attrsBytes} bytes; the limit is ${ACTIVITY_ATTRS_MAX_BYTES}. Keep small facts in attrs and put text in content.`
-    };
-  const content = event.content ?? null;
-  if (content !== null && byteLength(content) > ACTIVITY_CONTENT_MAX_BYTES)
-    return {
-      ok: false,
-      reason: `content is ${byteLength(content)} bytes; the limit is ${ACTIVITY_CONTENT_MAX_BYTES}. Shorten it or split it into several events.`
-    };
+    return reject(
+      `attrs is ${attrsBytes} bytes; the limit is ${ACTIVITY_ATTRS_MAX_BYTES}. Keep small facts in attrs and put text in content.`
+    );
+  const content = rawContent as string | null;
+  if (content !== null) {
+    const contentProblem = describeUnstorableText("content", content);
+    if (contentProblem) return reject(contentProblem);
+    if (byteLength(content) > ACTIVITY_CONTENT_MAX_BYTES)
+      return reject(
+        `content is ${byteLength(content)} bytes; the limit is ${ACTIVITY_CONTENT_MAX_BYTES}. Shorten it or split it into several events.`
+      );
+  }
   return {
     ok: true,
     event: {
-      key: event.id,
+      key: id,
       source,
       kind,
       tsStart,
       tsEnd,
-      tzOffsetMin: event.tzOffsetMin ?? offsetMinutesOf(event.start),
-      approximate: event.approximate ?? false,
+      tzOffsetMin: (tzOffsetMin as number | null) ?? offsetMinutesOf(start),
+      approximate: record.approximate === true,
       attrs,
       content
     }
@@ -330,6 +422,8 @@ export interface ActivitySourceSummary {
   lastIngestedAt: string | null;
   contentEnabled: boolean;
   retentionDays: number | null;
+  /** `not_running` while a retention is set: the setting is saved but nothing runs the purge yet. */
+  retentionPurge: "not_set" | "not_running";
 }
 
 export interface ActivitySummary {
@@ -370,6 +464,8 @@ export function activityEventsJsonSchema(): Record<string, unknown> {
     $schema: "https://json-schema.org/draft/2020-12/schema",
     $id: "https://openrhen.example/schemas/activity-events.v1.json",
     title: "OpenRhen activity events, version 1",
+    description:
+      "The batch body of POST /api/activity-events. It does not describe the single-event shorthand body ({source, kind, start, id?, device?, end?, attrs?, content?}) or the rules that compare fields (end not before start, start not more than 24 hours ahead, attrs under 8 KB, content under 64 KB, offsets within -14:00 to +14:00, no NUL or lone surrogate in text, one source per import); the server states each of those in the rejection text. A time with an offset sets tz_offset_min to that offset (so +00:00 gives 0; Z leaves it unknown).",
     ...(withoutDatePatterns(
       z.toJSONSchema(ingestActivityEventsSchema, { io: "input", unrepresentable: "any" })
     ) as Record<string, unknown>),

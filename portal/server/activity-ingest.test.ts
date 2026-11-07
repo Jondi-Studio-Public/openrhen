@@ -96,3 +96,58 @@ describe("stableJson", () => {
     expect(shorthandKey({ source: "s", kind: "k", start: "2026-01-01T00:00:00Z" })).toMatch(/^h:/);
   });
 });
+
+describe("parseActivityBody: bad input that must never throw or reach Postgres", () => {
+  it("refuses a shorthand with an impossible offset in plain words instead of throwing", () => {
+    for (const start of ["2026-11-07T10:00:00+99:99", "2026-11-07T10:00:00+24:00", "2026-02-30T10:00:00Z"]) {
+      expect(() => parseActivityBody(shortcut({ start }))).not.toThrow();
+      const parsed = parseActivityBody(shortcut({ start }));
+      expect(parsed.ok).toBe(false);
+      if (!parsed.ok)
+        expect(parsed.error.startsWith(`start "${start}" is not a real time. Send an RFC 3339 time`)).toBe(true);
+    }
+  });
+
+  it("keeps a batch with a bad time inside one event: the batch is accepted and the store rejects that event", () => {
+    const parsed = parseActivityBody({
+      schema: 1,
+      events: [{ id: "a", source: "x", kind: "y", start: "2026-11-07T10:00:00+99:99" }]
+    });
+    expect(parsed.ok).toBe(true);
+  });
+
+  it("refuses a device with a NUL or a lone surrogate, or one that is not text", () => {
+    for (const device of ["a\u0000b", "a\ud800b", 5, ""]) {
+      expect(parseActivityBody(shortcut({ device })).ok, String(device)).toBe(false);
+      expect(parseActivityBody({ schema: 1, device, events: [{}] }).ok, String(device)).toBe(false);
+    }
+    const parsed = parseActivityBody(shortcut({ device: "a\u0000b" }));
+    if (!parsed.ok) expect(parsed.error).toMatch(/^device contains a NUL character/);
+  });
+
+  it("answers every envelope problem in plain words, with no validator text", () => {
+    const bodies: [unknown, RegExp][] = [
+      [{ schema: 1, events: [] }, /^events must hold 1 to 1000 events/],
+      [{ schema: 1 }, /^events must hold 1 to 1000 events/],
+      [{ schema: 1, events: "x" }, /^events must hold 1 to 1000 events/],
+      [
+        { schema: 1, events: Array.from({ length: 1001 }, () => ({})) },
+        /^events must hold 1 to 1000 events; this has 1001/
+      ],
+      [
+        { schema: 1, events: [{}], import: { sha256: "short", filename: "x" } },
+        /^import\.sha256 must be 64 lowercase hex/
+      ],
+      [{ schema: 1, events: [{}], import: { sha256: "a".repeat(64) } }, /^import\.filename is missing/],
+      [{ schema: 1, events: [{}], importId: "nope" }, /^importId must be the id/]
+    ];
+    for (const [body, expected] of bodies) {
+      const parsed = parseActivityBody(body);
+      expect(parsed.ok).toBe(false);
+      if (!parsed.ok) {
+        expect(parsed.error).toMatch(expected);
+        expect(parsed.error).not.toMatch(/Invalid|expected|received|Too small|Too big/);
+      }
+    }
+  });
+});

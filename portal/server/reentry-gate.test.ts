@@ -106,10 +106,26 @@ describe("the agent gate while the pulse is lapsed", () => {
     ["the same read under the re-entry scope", "GET", "/api/commands/reenter"],
     ["the read that says what re-entry needs", "GET", "/api/pulse/reentry"],
     ["the CLI's version check", "GET", "/api/cli/version"],
-    ["agent time ingest", "POST", "/api/agent-sessions"]
+    ["agent time ingest", "POST", "/api/agent-sessions"],
+    ["activity capture (a passive recorder posts while the owner is away)", "POST", "/api/activity-events"],
+    ["the capture token's check for an import file already held", "GET", "/api/activity-imports"]
   ])("lets %s through", async (_name, method, route) => {
     expect((await call(method, route)).status).toBe(200);
     expect(handler).toHaveBeenCalledOnce();
+  });
+
+  it("still holds the activity reads and every other activity route, which return stored content or change data", async () => {
+    for (const [method, route] of [
+      ["GET", "/api/activity-events"],
+      ["GET", "/api/activity-events/summary"],
+      ["DELETE", "/api/activity-imports/[id]"],
+      ["PUT", "/api/activity-sources/[source]"],
+      ["DELETE", "/api/activity-sources/[source]/events"],
+      ["POST", "/api/activity-imports"]
+    ] as const) {
+      expect((await call(method, route)).status, `${method} ${route}`).toBe(428);
+    }
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it("holds a header-only agent as well as a token's", async () => {

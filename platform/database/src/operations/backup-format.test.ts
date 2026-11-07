@@ -166,7 +166,9 @@ describe("readAllTables snapshot (S8-04)", () => {
     const tables = await readAllTables(sql as never);
     expect(events[0]).toBe("begin isolation level repeatable read read only");
     expect(events.at(-1)).toBe("commit");
-    expect(events).toHaveLength(BACKUP_TABLES.length + 2);
+    // One read per table, the activity size check, and the begin and commit around them.
+    expect(events).toHaveLength(BACKUP_TABLES.length + 3);
+    expect(events.filter((event) => event.startsWith("SELECT count(*)"))).toHaveLength(1);
     expect(Object.keys(tables)).toEqual([...BACKUP_TABLES]);
   });
 });

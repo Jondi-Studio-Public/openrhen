@@ -1,8 +1,12 @@
 import { createHash } from "node:crypto";
 import {
+  ACTIVITY_DEVICE_MAX_CHARS,
+  ACTIVITY_FILENAME_MAX_CHARS,
+  ACTIVITY_KEY_MAX_CHARS,
+  ACTIVITY_MAX_BATCH,
   ACTIVITY_SCHEMA_VERSION,
-  activityEnvelopeSchema,
-  activityShorthandSchema,
+  describeTimeProblem,
+  describeUnstorableText,
   isActivityShorthand
 } from "@openrhen/contracts";
 import type { ActivityBatch } from "@/server/persistence/postgres/activity-store";
@@ -36,38 +40,96 @@ export type ParsedBody =
   | { ok: true; batch: ActivityBatch; shorthand: boolean }
   | { ok: false; error: string; issues?: { path: string; message: string }[] };
 
+const fail = (error: string, path = ""): ParsedBody => ({ ok: false, error, issues: [{ path, message: error }] });
+
+const SHAPE = `The body must be {"schema": ${ACTIVITY_SCHEMA_VERSION}, "events": [...]}, or one event with "source", "kind" and "start".`;
+const SHA256 = /^[0-9a-f]{64}$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The device name, or the plain reason it cannot be used. Absent is fine. */
+function deviceOf(value: unknown): { device: string | undefined } | { problem: string } {
+  if (value === undefined || value === null) return { device: undefined };
+  if (typeof value !== "string" || value.length < 1 || value.length > ACTIVITY_DEVICE_MAX_CHARS)
+    return {
+      problem: `device must be text of 1 to ${ACTIVITY_DEVICE_MAX_CHARS} characters, such as "jondipc-ab12", or left out.`
+    };
+  const unstorable = describeUnstorableText("device", value);
+  return unstorable ? { problem: unstorable } : { device: value };
+}
+
 /** Reads a request body as a batch, or as the single-event shorthand a phone shortcut posts. Never throws. */
 export function parseActivityBody(body: unknown): ParsedBody {
   if (isActivityShorthand(body)) {
-    const parsed = activityShorthandSchema.safeParse(body);
-    if (!parsed.success)
-      return {
-        ok: false,
-        error: `That event is not valid: ${parsed.error.issues.map((issue) => `${issue.path.join(".") || "event"}: ${issue.message}`).join("; ")}`,
-        issues: parsed.error.issues.map((issue) => ({ path: issue.path.join("."), message: issue.message }))
-      };
-    const { id, device, ...event } = parsed.data;
-    return {
-      ok: true,
-      shorthand: true,
-      batch: {
-        device,
-        events: [{ id: id ?? shorthandKey({ ...event, device: device ?? undefined } as never), ...event }]
-      }
-    };
+    const device = deviceOf(body.device);
+    if ("problem" in device) return fail(device.problem, "device");
+    const startProblem = describeTimeProblem("start", body.start);
+    if (startProblem) return fail(startProblem, "start");
+    const { id, device: _device, ...event } = body;
+    if (id !== undefined && id !== null && typeof id !== "string")
+      return fail(`id must be text of 1 to ${ACTIVITY_KEY_MAX_CHARS} characters, or left out.`, "id");
+    let key: string;
+    try {
+      key =
+        typeof id === "string" && id.length > 0
+          ? id
+          : shorthandKey({
+              source: String(event.source),
+              kind: String(event.kind),
+              start: event.start as string,
+              device: device.device,
+              attrs:
+                event.attrs !== null && typeof event.attrs === "object" && !Array.isArray(event.attrs)
+                  ? (event.attrs as Record<string, unknown>)
+                  : undefined
+            });
+    } catch {
+      return fail("attrs nests too deeply to read. Keep attrs flat: small facts, not documents.", "attrs");
+    }
+    return { ok: true, shorthand: true, batch: { device: device.device, events: [{ ...event, id: key }] } };
   }
-  const parsed = activityEnvelopeSchema.safeParse(body);
-  if (!parsed.success) {
-    const schemaIssue =
-      body === null || typeof body !== "object" || (body as { schema?: unknown }).schema !== ACTIVITY_SCHEMA_VERSION;
-    return {
-      ok: false,
-      error: schemaIssue
-        ? `The body must have "schema": ${ACTIVITY_SCHEMA_VERSION} and an "events" list, or be one event with "source", "kind" and "start".`
-        : `The batch is not valid: ${parsed.error.issues.map((issue) => `${issue.path.join(".") || "body"}: ${issue.message}`).join("; ")}`,
-      issues: parsed.error.issues.map((issue) => ({ path: issue.path.join("."), message: issue.message }))
-    };
+  if (body === null || typeof body !== "object" || Array.isArray(body)) return fail(SHAPE);
+  const envelope = body as Record<string, unknown>;
+  if (envelope.schema !== ACTIVITY_SCHEMA_VERSION) return fail(SHAPE, "schema");
+  const events = envelope.events;
+  if (!Array.isArray(events) || events.length < 1 || events.length > ACTIVITY_MAX_BATCH)
+    return fail(
+      `events must hold 1 to ${ACTIVITY_MAX_BATCH} events${Array.isArray(events) ? `; this has ${events.length}` : ""}. Send a list of events, split into batches of at most ${ACTIVITY_MAX_BATCH}.`,
+      "events"
+    );
+  const device = deviceOf(envelope.device);
+  if ("problem" in device) return fail(device.problem, "device");
+  let importRef: ActivityBatch["import"];
+  const rawImport = envelope.import;
+  if (rawImport !== undefined && rawImport !== null) {
+    const ref = (typeof rawImport === "object" ? rawImport : {}) as Record<string, unknown>;
+    if (typeof ref.sha256 !== "string" || !SHA256.test(ref.sha256))
+      return fail("import.sha256 must be 64 lowercase hex characters: the SHA-256 of the whole file.", "import.sha256");
+    if (
+      typeof ref.filename !== "string" ||
+      ref.filename.length < 1 ||
+      ref.filename.length > ACTIVITY_FILENAME_MAX_CHARS
+    )
+      return fail(
+        `import.filename is missing or too long. Send the file's name as text of 1 to ${ACTIVITY_FILENAME_MAX_CHARS} characters.`,
+        "import.filename"
+      );
+    const unstorable = describeUnstorableText("import.filename", ref.filename);
+    if (unstorable) return fail(unstorable, "import.filename");
+    if (ref.source !== undefined && typeof ref.source !== "string")
+      return fail("import.source must be the source name as text, or left out.", "import.source");
+    importRef = { sha256: ref.sha256, filename: ref.filename, source: ref.source };
   }
-  const { device, import: importRef, importId, events } = parsed.data;
-  return { ok: true, shorthand: false, batch: { device, import: importRef, importId, events } };
+  const rawImportId = envelope.importId;
+  if (rawImportId !== undefined && rawImportId !== null && (typeof rawImportId !== "string" || !UUID.test(rawImportId)))
+    return fail("importId must be the id a first batch returned (a UUID), or left out.", "importId");
+  return {
+    ok: true,
+    shorthand: false,
+    batch: {
+      device: device.device,
+      import: importRef,
+      importId: typeof rawImportId === "string" ? rawImportId : undefined,
+      events
+    }
+  };
 }

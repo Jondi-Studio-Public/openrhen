@@ -62,38 +62,33 @@ export async function ingestActivityEvents(
   now: Date = new Date()
 ): Promise<ActivityIngestResult> {
   const rejected: ActivityRejection[] = [];
-  const valid: ValidActivityEvent[] = [];
-  const seen = new Set<string>();
-  let duplicatesInBatch = 0;
+  const judged: { index: number; event: ValidActivityEvent }[] = [];
   batch.events.forEach((raw, index) => {
     const verdict = validateActivityEvent(raw, now);
-    if (!verdict.ok) {
-      rejected.push({ index, reason: verdict.reason });
-      return;
-    }
-    const id = `${verdict.event.source}\u0000${verdict.event.key}`;
-    if (seen.has(id)) {
-      duplicatesInBatch += 1;
-      return;
-    }
-    seen.add(id);
-    valid.push(verdict.event);
+    if (verdict.ok) judged.push({ index, event: verdict.event });
+    else rejected.push({ index, reason: verdict.reason });
   });
 
   const userId = await ensureUser(sql);
   return sql.begin(async (tx) => {
     let importId: string | null = null;
+    let importSource: string | null = null;
     if (batch.importId !== undefined) {
-      const [owned] = await tx<{ id: string }[]>`
-        SELECT id FROM activity_imports WHERE id = ${batch.importId} AND user_id = ${userId}`;
+      const [owned] = await tx<{ id: string; source: string }[]>`
+        SELECT id, source FROM activity_imports WHERE id = ${batch.importId} AND user_id = ${userId}`;
       if (!owned)
         throw new ActivityInputError(
           `importId ${batch.importId} is not an import you hold. Send the first batch of the file with "import": {"sha256", "filename"} and use the importId it returns.`,
           404
         );
       importId = owned.id;
+      importSource = owned.source;
     } else if (batch.import) {
-      const source = batch.import.source ?? valid[0]?.source ?? "unknown";
+      const source = batch.import.source ?? judged[0]?.event.source;
+      if (source === undefined)
+        throw new ActivityInputError(
+          'import.source is needed because every event in this batch was rejected, so there is no event to take it from. Send "import": {"sha256", "filename", "source": "<source>"} and fix the events listed in `rejected`.'
+        );
       if (!isKnownActivitySource(source))
         throw new ActivityInputError(
           `import.source "${source}" is not known. Use one of: ${ACTIVITY_SOURCE_NAMES.join(", ")}.`
@@ -103,14 +98,39 @@ export async function ingestActivityEvents(
         VALUES (${userId}, ${source}, ${batch.import.filename}, ${batch.import.sha256})
         ON CONFLICT (user_id, sha256) DO NOTHING
         RETURNING id`;
-      if (created) importId = created.id;
-      else {
-        // A concurrent or earlier first batch of the same file: join it.
-        const [existing] = await tx<{ id: string }[]>`
-          SELECT id FROM activity_imports WHERE user_id = ${userId} AND sha256 = ${batch.import.sha256}`;
+      if (created) {
+        importId = created.id;
+        importSource = source;
+      } else {
+        // A concurrent or earlier first batch of the same file: join it, under the source it was started with.
+        const [existing] = await tx<{ id: string; source: string }[]>`
+          SELECT id, source FROM activity_imports WHERE user_id = ${userId} AND sha256 = ${batch.import.sha256}`;
         importId = existing!.id;
+        importSource = existing!.source;
       }
     }
+
+    // An import is one source: undoing it or purging that source must never reach another source's events.
+    const valid: ValidActivityEvent[] = [];
+    const seen = new Set<string>();
+    let duplicatesInBatch = 0;
+    for (const { index, event } of judged) {
+      if (importSource !== null && event.source !== importSource) {
+        rejected.push({
+          index,
+          reason: `source "${event.source}" does not match this import's source "${importSource}". Send one import per source.`
+        });
+        continue;
+      }
+      const id = `${event.source}\u0000${event.key}`;
+      if (seen.has(id)) {
+        duplicatesInBatch += 1;
+        continue;
+      }
+      seen.add(id);
+      valid.push(event);
+    }
+    rejected.sort((x, y) => x.index - y.index);
 
     const sources = [...new Set(valid.map((event) => event.source))];
     const states =
@@ -225,10 +245,22 @@ export async function readActivitySummary(sql: Sql): Promise<ActivitySummary> {
       lastEventAt: count?.last_start?.toISOString() ?? null,
       lastIngestedAt: count?.last_ingested?.toISOString() ?? null,
       contentEnabled: state?.content_enabled ?? false,
-      retentionDays: state?.retention_days ?? null
+      retentionDays: state?.retention_days ?? null,
+      retentionPurge: state?.retention_days == null ? ("not_set" as const) : ("not_running" as const)
     };
   });
   return { sources, imports: await importsList(sql, userId, 20) };
+}
+
+/**
+ * Nothing runs `purgeExpiredActivity` yet (the worker tick that would is a later change), so a retention setting is
+ * recorded but deletes nothing. Said in the response and the summary so a stored setting is never mistaken for a purge.
+ */
+export const RETENTION_NOT_RUNNING_NOTE =
+  "Retention is saved, but the automatic purge does not run yet, so nothing is deleted automatically. Use DELETE /api/activity-sources/<source>/events to delete a source's events now.";
+
+function retentionStatus(retentionDays: number | null) {
+  return { retentionRuns: false as const, note: retentionDays === null ? null : RETENTION_NOT_RUNNING_NOTE };
 }
 
 /** Sets a source's content gate and/or retention. A field left out keeps its value; `retentionDays: null` means permanent. */
@@ -251,7 +283,7 @@ export async function setActivitySourceSettings(sql: PoolSql, source: string, se
       VALUES (${userId}, ${source}, ${contentEnabled}, ${retentionDays})
       ON CONFLICT (user_id, source) DO UPDATE
       SET content_enabled = EXCLUDED.content_enabled, retention_days = EXCLUDED.retention_days`;
-    return { source, contentEnabled, retentionDays };
+    return { source, contentEnabled, retentionDays, ...retentionStatus(retentionDays) };
   });
 }
 
@@ -281,13 +313,15 @@ export interface ActivityReadQuery {
   limit?: number | undefined;
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const encodeCursor = (row: { ts_start: Date; id: string }) =>
   Buffer.from(`${row.ts_start.toISOString()}|${row.id}`).toString("base64url");
 
 function decodeCursor(cursor: string): { at: Date; id: string } {
   const [iso, id] = Buffer.from(cursor, "base64url").toString("utf8").split("|");
   const at = new Date(iso ?? "");
-  if (!id || Number.isNaN(at.getTime()))
+  if (!id || !UUID.test(id) || Number.isNaN(at.getTime()))
     throw new ActivityInputError(
       "after is not a cursor this API returned. Use the `next` value of the previous page unchanged."
     );
@@ -400,7 +434,7 @@ export async function purgeExpiredActivity(
       const gone = await sql`
         DELETE FROM activity_events WHERE id IN (
           SELECT id FROM activity_events
-          WHERE user_id = ${state.user_id} AND source = ${state.source} AND COALESCE(ts_end, ts_start) < ${cutoff}
+          WHERE user_id = ${state.user_id} AND source = ${state.source} AND ts_start < ${cutoff} AND COALESCE(ts_end, ts_start) < ${cutoff}
           LIMIT ${ACTIVITY_PURGE_BATCH}
         ) RETURNING 1`;
       return gone.length;

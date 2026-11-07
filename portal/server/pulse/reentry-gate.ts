@@ -23,6 +23,11 @@ const EXEMPT_ROUTES = new Set([
   "/api/agent-sessions"
 ]);
 
+/** Exempt by method as well: a passive recorder (rhen-watch, a phone shortcut with no retry) posts exactly while the
+    owner is away, so its events would be lost. Only the post, and the check for an import file already held, which
+    returns file names and counts; reading events back returns stored content and stays held. */
+const EXEMPT_CALLS = new Set(["POST /api/activity-events", "GET /api/activity-imports"]);
+
 export const REENTRY_REQUIRED_STATUS = 428;
 
 /** The 428 the gate answers with for a lapsed pulse; a route that finds the lapse after the gate answers with the same body. */
@@ -40,8 +45,17 @@ export async function reentryRefusal(
   );
 }
 
-export async function reentryGate(route: string, now: Date = new Date()): Promise<Response | null> {
-  if (EXEMPT_ROUTES.has(route) || route.startsWith("/api/health/")) return null;
+export async function reentryGate(
+  route: string,
+  now: Date = new Date(),
+  method: string = "GET"
+): Promise<Response | null> {
+  if (
+    EXEMPT_ROUTES.has(route) ||
+    EXEMPT_CALLS.has(`${method.toUpperCase()} ${route}`) ||
+    route.startsWith("/api/health/")
+  )
+    return null;
   const url = databaseUrl();
   if (!url) return null;
   try {

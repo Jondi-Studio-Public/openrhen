@@ -1227,6 +1227,8 @@ export {
   activityImportRefSchema,
   activityKindsOf,
   activityShorthandSchema,
+  describeTimeProblem,
+  describeUnstorableText,
   activitySourceNameSchema,
   activitySourceSettingsSchema,
   ingestActivityEventsSchema,

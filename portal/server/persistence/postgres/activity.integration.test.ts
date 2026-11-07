@@ -255,6 +255,60 @@ describe("imports", () => {
   });
 });
 
+describe("import batches are one source", () => {
+  const visit = (id: string, extra: Record<string, unknown> = {}) =>
+    event(id, { source: "chrome-takeout", kind: "visit", ...extra });
+
+  it("rejects an event from another source in a first batch, so undoing or purging cannot reach it", async () => {
+    const result = await ingest([visit("a"), event("b"), visit("c")], {
+      import: { sha256: sha("1"), filename: "x.json" }
+    });
+    expect(result).toMatchObject({ added: 2 });
+    expect(result.rejected).toEqual([
+      {
+        index: 1,
+        reason: 'source "rhen-watch" does not match this import\'s source "chrome-takeout". Send one import per source.'
+      }
+    ]);
+    expect((await sql<{ source: string }[]>`SELECT DISTINCT source FROM activity_events`).map((r) => r.source)).toEqual(
+      ["chrome-takeout"]
+    );
+  });
+
+  it("holds later batches to the import's source too", async () => {
+    const first = await ingest([visit("a")], { import: { sha256: sha("2"), filename: "x.json" } });
+    const second = await ingest([visit("b"), event("c")], { importId: first.importId! });
+    expect(second).toMatchObject({ added: 1 });
+    expect(second.rejected.map((r) => r.index)).toEqual([1]);
+  });
+
+  it("takes the source from import.source when given, and asks for it when every event was rejected", async () => {
+    const named = await ingest([visit("a")], {
+      import: { sha256: sha("3"), filename: "x.json", source: "chrome-takeout" }
+    });
+    expect(named.added).toBe(1);
+    await expect(
+      ingest([event("z", { source: "nope" })], { import: { sha256: sha("4"), filename: "x.json" } })
+    ).rejects.toThrow(/import\.source is needed because every event in this batch was rejected/);
+    expect(await count("activity_imports")).toBe(1);
+  });
+});
+
+describe("text and times Postgres would refuse", () => {
+  it("rejects those events alone and stores the rest of the batch", async () => {
+    const result = await ingest([
+      event("ok"),
+      event("nul", { content: "a\u0000b" }),
+      event("lone", { attrs: { x: "a\ud800b" } }),
+      event("offset", { start: "2026-11-07T10:00:00+99:99", end: null }),
+      event("a\u0000b")
+    ]);
+    expect(result.added).toBe(1);
+    expect(result.rejected.map((r) => r.index)).toEqual([1, 2, 3, 4]);
+    expect(await count()).toBe(1);
+  });
+});
+
 describe("purging", () => {
   it("purges one source's events and import records, leaving other sources", async () => {
     await ingest([event("a", { source: "spotify", kind: "play" })], {
@@ -304,10 +358,16 @@ describe("purging", () => {
 describe("settings, summary and reads", () => {
   it("merges settings: a field left out keeps its value, and an unknown source is refused", async () => {
     await setActivitySourceSettings(sql, "spotify", { contentEnabled: true });
-    expect(await setActivitySourceSettings(sql, "spotify", { retentionDays: 90 })).toEqual({
+    expect(await setActivitySourceSettings(sql, "spotify", { retentionDays: 90 })).toMatchObject({
       source: "spotify",
       contentEnabled: true,
-      retentionDays: 90
+      retentionDays: 90,
+      retentionRuns: false,
+      note: expect.stringMatching(/does not run yet.*nothing is deleted automatically/s)
+    });
+    expect(await setActivitySourceSettings(sql, "spotify", { retentionDays: null })).toMatchObject({
+      retentionRuns: false,
+      note: null
     });
     await expect(setActivitySourceSettings(sql, "myspace", {})).rejects.toBeInstanceOf(ActivityInputError);
   });
@@ -325,6 +385,9 @@ describe("settings, summary and reads", () => {
       schemaVersion: 1
     });
     expect(summary.sources.find((s) => s.source === "iphone-health")).toMatchObject({ events: 0, lastEventAt: null });
+    // Nothing runs the retention purge yet, and the summary says so wherever a retention is set.
+    expect(watch.retentionPurge).toBe("not_running");
+    expect(summary.sources.find((s) => s.source === "spotify")!.retentionPurge).toBe("not_set");
   });
 
   it("pages events in time order with filters and a cursor", async () => {
@@ -348,6 +411,10 @@ describe("settings, summary and reads", () => {
     expect(ranged.events.map((e) => e.key)).toEqual(["k1", "k2", "s"]);
     expect(ranged.events[0]).toMatchObject({ ingestedVia: "agent-a", content: null, tzOffsetMin: null });
     await expect(readActivityEvents(sql, { after: "garbage" })).rejects.toBeInstanceOf(ActivityInputError);
+    // A cursor with a real time but an id that is not a UUID would be a Postgres error, not a 400.
+    const badId = Buffer.from("2026-11-07T01:00:00.000Z|not-a-uuid").toString("base64url");
+    await expect(readActivityEvents(sql, { after: badId })).rejects.toThrow(/not a cursor this API returned/);
+    await expect(readActivityEvents(sql, { after: badId })).rejects.toBeInstanceOf(ActivityInputError);
   });
 
   it("is isolated per user: another user's events and import records are never seen or deleted", async () => {

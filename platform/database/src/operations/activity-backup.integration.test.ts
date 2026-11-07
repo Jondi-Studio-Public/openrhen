@@ -11,6 +11,7 @@ import {
   checksum,
   CURRENT_BACKUP_FORMAT_VERSION,
   readAllTables,
+  type SkippedBackupTable,
   restorableColumns,
   tablesWithDifferentContent,
   validateBackup
@@ -126,5 +127,48 @@ describe("the activity store in the backup", () => {
       )
     ).toEqual([]);
     expect(restored.activity_events).toEqual(tables.activity_events);
+  });
+});
+
+describe("the size guard", () => {
+  const seed = async (rows: number) =>
+    sql`INSERT INTO activity_events (user_id, source, kind, event_key, ts_start)
+        SELECT ${userId}, 'weather', 'observation', 'k' || g, '2026-01-01T00:00:00Z'::timestamptz + g * interval '1 second'
+        FROM generate_series(1, ${rows}::int) g`;
+
+  it("backs the events up in full while the table is under the limit, recording no skip", async () => {
+    await seed(3);
+    const skipped: SkippedBackupTable[] = [];
+    const tables = await readAllTables(sql, skipped, { maxActivityRows: 3 });
+    expect(tables.activity_events).toHaveLength(3);
+    expect(skipped).toEqual([]);
+  });
+
+  it("skips activity_events loudly above the limit instead of failing the whole backup, and keeps everything else", async () => {
+    await seed(4);
+    await sql`INSERT INTO activity_source_state (user_id, source, content_enabled) VALUES (${userId}, 'weather', true)`;
+    const skipped: SkippedBackupTable[] = [];
+    const tables = await readAllTables(sql, skipped, { maxActivityRows: 3 });
+    expect(tables.activity_events).toEqual([]);
+    expect(tables.activity_source_state).toHaveLength(1);
+    expect(tables.users).toHaveLength(1);
+    expect(skipped).toEqual([
+      {
+        table: "activity_events",
+        rows: 4,
+        reason: expect.stringMatching(/4 rows is over the 3 the JSON backup holds.*NOT in this backup.*pg_dump/s)
+      }
+    ]);
+    // The skipped table is still an array, so the backup validates and restores (empty).
+    expect(() =>
+      validateBackup({
+        format: "priorities-postgresql-logical-backup",
+        formatVersion: CURRENT_BACKUP_FORMAT_VERSION,
+        createdAt: new Date().toISOString(),
+        sourceDatabase: testDatabaseName,
+        tables,
+        sha256: checksum(tables)
+      })
+    ).not.toThrow();
   });
 });

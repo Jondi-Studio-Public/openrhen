@@ -140,6 +140,17 @@ describe("GET /api/activity-events", () => {
     });
   });
 
+  it("answers a cursor the store refuses with a 400 that says what to send, never a 500", async () => {
+    store.readActivityEvents.mockRejectedValue(
+      new store.ActivityInputError(
+        "after is not a cursor this API returned. Use the `next` value of the previous page unchanged."
+      )
+    );
+    const response = await get("?after=bm9wZQ");
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toMatch(/not a cursor this API returned/);
+  });
+
   it("answers a bad time or limit with a 400 that says what to send", async () => {
     expect((await get("?from=yesterday")).status).toBe(400);
     const limit = await get("?limit=5000");

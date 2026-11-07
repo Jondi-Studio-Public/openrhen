@@ -126,6 +126,8 @@ const CORE_BACKUP_TABLES = [
   "activity_imports",
   "activity_events",
   "activity_source_state"
+  // Format 22, not 21: 21 is taken by the offer-log change developed beside this one (backup format numbers are
+  // claimed in order of development, not merge). A format 20 backup is not restored by this build either way.
 ] as const;
 
 export const BACKUP_TABLES: readonly BackupTable[] = [...CORE_BACKUP_TABLES, ...groupBackupTables("current")];
@@ -237,12 +239,29 @@ export const BACKUP_FORMAT = "priorities-postgresql-logical-backup" as const;
  */
 export const ACCEPTED_BACKUP_FORMATS = [BACKUP_FORMAT, "openrhen-postgresql-logical-backup"] as const;
 
+/**
+ * The most `activity_events` rows the single-JSON backup carries. The backup is one string with one checksum built in
+ * memory: measured, 1,000,000 synthetic rows made a 453 MB file and about 2.4 GB of process memory, and 2,000,000 threw
+ * `Invalid string length` (V8's limit), failing the whole backup including the plan. Above this the events are skipped,
+ * loudly and on record, until the activity tables get a streamed section of their own.
+ */
+export const ACTIVITY_BACKUP_MAX_ROWS = 500_000;
+
+/** A table the backup left out on purpose, and why. Written into the backup file as `skipped` and printed by the backup command. */
+export interface SkippedBackupTable {
+  table: string;
+  rows: number;
+  reason: string;
+}
+
 export interface OpenRhenBackup {
   format: (typeof ACCEPTED_BACKUP_FORMATS)[number];
   formatVersion: number;
   createdAt: string;
   sourceDatabase: string;
   tables: BackupTables;
+  /** Tables left out because they were too large for this format; absent when nothing was. Not covered by the checksum. */
+  skipped?: SkippedBackupTable[];
   sha256: string;
 }
 
@@ -260,10 +279,27 @@ export function databaseName(connectionString: string): string {
  * the portal or a worker cannot land in the backup as an orphan or as skew between tables (S8-04).
  * The reads are sequential on that transaction's one connection.
  */
-export async function readAllTables(sql: postgres.Sql): Promise<BackupTables> {
+export async function readAllTables(
+  sql: postgres.Sql,
+  skipped?: SkippedBackupTable[],
+  options: { maxActivityRows?: number } = {}
+): Promise<BackupTables> {
+  const maxActivityRows = options.maxActivityRows ?? ACTIVITY_BACKUP_MAX_ROWS;
   return (await sql.begin("isolation level repeatable read read only", async (transaction) => {
     const entries: (readonly [string, Record<string, unknown>[]])[] = [];
     for (const table of BACKUP_TABLES) {
+      if (table === "activity_events") {
+        const [held] = await transaction.unsafe<{ n: number }[]>(`SELECT count(*)::int AS n FROM "activity_events"`);
+        if (held!.n > maxActivityRows) {
+          skipped?.push({
+            table,
+            rows: held!.n,
+            reason: `${held!.n} rows is over the ${maxActivityRows} the JSON backup holds, and a larger one would fail the whole backup. The activity events are NOT in this backup; the pg_dump taken before a migration does hold them.`
+          });
+          entries.push([table, []] as const);
+          continue;
+        }
+      }
       const rows = await transaction.unsafe<Record<string, unknown>[]>(`SELECT * FROM "${table}" ORDER BY 1`);
       entries.push([table, [...rows]] as const);
     }
