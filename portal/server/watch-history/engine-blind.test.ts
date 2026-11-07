@@ -51,6 +51,8 @@ const MAY_NAME_BLIND_TABLES = new Set([
   "portal/server/persistence/postgres/app-secrets-store.ts",
   "portal/server/secrets/read-secret.ts",
   "platform/database/src/schema/core.ts",
+  "platform/database/src/operations/backup-run.ts",
+  "platform/database/src/operations/restore-run.ts",
   "platform/database/src/operations/backup-format.ts",
   "platform/database/src/operations/private/legacy-backups.ts",
   "platform/database/src/offer-log/offer-log.ts"

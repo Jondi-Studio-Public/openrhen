@@ -22,6 +22,11 @@ import {
 const backupOf = (formatVersion: number, list: readonly string[], format: string = BACKUP_FORMAT) => {
   const tables = Object.fromEntries(list.map((table) => [table, []])) as Record<string, unknown[]>;
   return {
+    ...(formatVersion === CURRENT_BACKUP_FORMAT_VERSION
+      ? {
+          streamed: { activity_events: { file: "x.activity-events.ndjson", rows: 0, bytes: 0, sha256: "0".repeat(64) } }
+        }
+      : {}),
     format,
     formatVersion,
     createdAt: new Date().toISOString(),
@@ -166,9 +171,55 @@ describe("readAllTables snapshot (S8-04)", () => {
     const tables = await readAllTables(sql as never);
     expect(events[0]).toBe("begin isolation level repeatable read read only");
     expect(events.at(-1)).toBe("commit");
-    expect(events).toHaveLength(BACKUP_TABLES.length + 3);
-    expect(events.filter((event) => event.startsWith("SELECT count(*)"))).toHaveLength(1);
+    expect(events).toHaveLength(BACKUP_TABLES.length + 2);
     expect(Object.keys(tables)).toEqual([...BACKUP_TABLES]);
+  });
+
+  it("hands a streamed table to the writer as a cursor inside the same transaction, and never reads it whole", async () => {
+    const events: string[] = [];
+    const cursorBatches = [[{ id: "a" }, { id: "b" }], [{ id: "c" }]];
+    const transaction = {
+      unsafe: (query: string) =>
+        Object.assign(Promise.resolve([{ id: "x" }]), {
+          cursor: (n: number) => {
+            events.push(`cursor ${n} ${query}`);
+            return (async function* () {
+              for (const batch of cursorBatches) yield batch;
+            })();
+          }
+        })
+    };
+    const sql = {
+      begin: async (_options: string, run: (tx: typeof transaction) => Promise<unknown>) => run(transaction)
+    };
+    const received: unknown[][] = [];
+    const tables = await readAllTables(sql as never, {
+      batchRows: 7,
+      streamTo: async (table, batches) => {
+        expect(table).toBe("activity_events");
+        for await (const batch of batches) received.push([...batch]);
+        return { file: "f.ndjson", rows: 3, bytes: 1, sha256: "s" };
+      }
+    });
+    expect(received).toEqual(cursorBatches);
+    // The table's slot holds nothing, though the mock would have returned a row had it been read whole.
+    expect(tables.activity_events).toEqual([]);
+    expect(events).toContain('cursor 7 SELECT * FROM "activity_events" ORDER BY 1');
+    expect(tables.users).toEqual([{ id: "x" }]);
+  });
+
+  it("leaves a streamed table out entirely with omitStreamed", async () => {
+    const queries: string[] = [];
+    const transaction = {
+      unsafe: async (query: string) => {
+        queries.push(query);
+        return [];
+      }
+    };
+    const sql = { begin: async (_o: string, run: (tx: typeof transaction) => Promise<unknown>) => run(transaction) };
+    const tables = await readAllTables(sql as never, { omitStreamed: true });
+    expect(tables.activity_events).toEqual([]);
+    expect(queries.some((query) => query.includes('"activity_events"'))).toBe(false);
   });
 });
 
@@ -197,7 +248,7 @@ describe("backup table count", () => {
   });
 });
 
-describe("backup format 22", () => {
+describe("backup format 23", () => {
   it("pins the format strings: the one written, and the one the reader also accepts", () => {
     expect(BACKUP_FORMAT).toBe("priorities-postgresql-logical-backup");
     expect(ACCEPTED_BACKUP_FORMATS).toContain("openrhen-postgresql-logical-backup");
@@ -216,9 +267,29 @@ describe("backup format 22", () => {
     );
   });
 
+  it("requires the manifest to say where the streamed activity_events rows are, and not to duplicate them", () => {
+    const { streamed: _streamed, ...bare } = backupOf(CURRENT_BACKUP_FORMAT_VERSION, BACKUP_TABLES);
+    expect(() => validateBackup(bare)).toThrow(/streamed section is missing from the manifest/);
+    const good = backupOf(CURRENT_BACKUP_FORMAT_VERSION, BACKUP_TABLES);
+    expect(() =>
+      validateBackup({
+        ...good,
+        streamed: { activity_events: { ...good.streamed!.activity_events, file: "../x.ndjson" } }
+      })
+    ).toThrow(/unusable section file/);
+    const tables = { ...good.tables, activity_events: [{ id: "1" }] };
+    expect(() =>
+      validateBackup({
+        ...good,
+        tables,
+        sha256: createHash("sha256").update(JSON.stringify(tables)).digest("hex")
+      })
+    ).toThrow(/as well as in its streamed section/);
+  });
+
   it("rejects a format newer than this build reads", () => {
     expect(() => validateBackup(backupOf(CURRENT_BACKUP_FORMAT_VERSION + 1, BACKUP_TABLES))).toThrow(
-      /^Unsupported backup formatVersion 23$/
+      /^Unsupported backup formatVersion 24$/
     );
   });
 });
@@ -236,15 +307,30 @@ describe("older backup formats", () => {
     return import("./backup-format.js");
   };
 
-  it("refuses an older format, saying this build restores format 22 only, when no reader recognises it", async () => {
+  it("refuses an older format, saying this build restores format 23 only, when no reader recognises it", async () => {
     const { validateBackup: validate, BACKUP_TABLES: tables } = await withSeam(() => undefined);
-    for (const version of [1, 5, 19, 20, 21]) {
+    for (const version of [1, 5, 19, 20, 21, 22]) {
       expect(() => validate(backupOf(version, tables))).toThrow(
-        `Unsupported backup formatVersion ${version}: this build restores format 22 backups only`
+        `Unsupported backup formatVersion ${version}: this build restores format 23 backups only`
       );
     }
     expect(() => validate(backupOf(0, tables))).toThrow(/^Unsupported backup formatVersion 0$/);
-    expect(() => validate(backupOf(22, tables))).not.toThrow();
+    expect(() => validate(backupOf(23, tables))).not.toThrow();
+  });
+
+  it("restores a format 22 backup through the shipped reader, with its rows in the JSON, with or without a skip marker", async () => {
+    const { validateBackup: validate, BACKUP_TABLES: tables, tablesAbsentFrom } = await import("./backup-format.js");
+    const { legacyRequiredTables } = await import("./private/legacy-backups.js");
+    const format22 = legacyRequiredTables(22);
+    expect(format22).toBeDefined();
+    // Format 23 changed where activity_events rows live, not which tables exist.
+    expect([...tables].filter((table) => !format22!.includes(table))).toEqual([]);
+    expect(format22!.filter((table) => !tables.includes(table))).toEqual([]);
+    const plain = validate(backupOf(22, format22!));
+    expect(tablesAbsentFrom(plain)).toEqual([]);
+    expect(plain.streamed).toBeUndefined();
+    const skipped = [{ table: "activity_events", rows: 600000, reason: "over the guard" }];
+    expect(validate({ ...backupOf(22, format22!), skipped }).skipped).toEqual(skipped);
   });
 
   it("restores a format 21 backup, which has no activity tables, through the shipped reader", async () => {
@@ -288,7 +374,7 @@ describe("older backup formats", () => {
     expect(() => validate(backupOf(20, tables))).not.toThrow();
     expect(() => validate(backupOf(20, format20!.slice(1)))).toThrow(/missing table/);
     expect(() => validate(backupOf(19, format20!))).toThrow(
-      "Unsupported backup formatVersion 19: this build restores format 22 backups and format 21 ones only"
+      "Unsupported backup formatVersion 19: this build restores format 23 backups and format 22 ones only"
     );
   });
 
@@ -300,8 +386,8 @@ describe("older backup formats", () => {
     });
     expect(() => validate(backupOf(7, ["portal_state", "users"]))).not.toThrow();
     expect(() => validate(backupOf(7, ["portal_state"]))).toThrow("Backup is missing table users");
-    expect(() => validate(backupOf(6, ["portal_state", "users"]))).toThrow(/format 22 backups only/);
-    expect(asked).toEqual([7, 7, 6, 21]);
+    expect(() => validate(backupOf(6, ["portal_state", "users"]))).toThrow(/format 23 backups only/);
+    expect(asked).toEqual([7, 7, 6, 22]);
   });
 
   it("does not ask the reader about a current-format backup", async () => {
@@ -310,7 +396,7 @@ describe("older backup formats", () => {
       asked.push(version);
       return undefined;
     });
-    validate(backupOf(22, tables));
+    validate(backupOf(23, tables));
     expect(asked).toEqual([]);
   });
 });

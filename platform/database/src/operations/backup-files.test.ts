@@ -50,11 +50,30 @@ describe("latestValidBackup", () => {
   });
 });
 
+describe("latestValidBackup with an async loader that checks files beside the backup", () => {
+  it("skips a newest backup whose section is missing and falls back to the previous complete one", async () => {
+    await writeFile(join(dir, "priorities-2026-01-01.json"), "{}");
+    await writeFile(join(dir, "priorities-2026-01-01.activity-events.ndjson"), "");
+    await writeFile(join(dir, "priorities-2026-01-02.json"), "{}");
+    const load = async (_text: string, path: string) => {
+      const section = path.replace(/\.json$/, ".activity-events.ndjson");
+      await readdir(dir).then((names) => {
+        if (!names.includes(section.split("/").at(-1)!)) throw new Error("section missing");
+      });
+      return path;
+    };
+    const found = await latestValidBackup(dir, load);
+    expect(found.path.endsWith("priorities-2026-01-01.json")).toBe(true);
+    expect(found.skipped[0]).toContain("priorities-2026-01-02.json: section missing");
+  });
+});
+
 describe("BACKUP_FILENAME", () => {
   it("matches both the OpenRhen and the OpenRhen prefix, and never a partial file", () => {
     expect(BACKUP_FILENAME.test("priorities-2026-01-01T00-00-00-000Z.json")).toBe(true);
     expect(BACKUP_FILENAME.test("openrhen-2026-01-01T00-00-00-000Z.json")).toBe(true);
     expect(BACKUP_FILENAME.test("openrhen-2026-01-01.json.partial")).toBe(false);
     expect(BACKUP_FILENAME.test("other-2026-01-01.json")).toBe(false);
+    expect(BACKUP_FILENAME.test("priorities-2026-01-01.activity-events.ndjson")).toBe(false);
   });
 });

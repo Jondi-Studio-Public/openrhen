@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { basename } from "node:path";
 import type postgres from "postgres";
 import "../schema/private/index.js";
 import { groupBackupTables } from "../schema/table-groups.js";
@@ -127,8 +128,9 @@ const CORE_BACKUP_TABLES = [
   // The activity store (format 22): import records first, then the append-only events that reference them, then the
   // per-source settings (content gate, retention; the poller cursor rides along). All authored or irreplaceable
   // (an export file cannot always be re-read), none a plan input, and the engine never reads them. A format 20 or 21
-  // backup has none of these tables and restores with them empty (`legacy-backups.ts`). Format 22 follows the offer
-  // log's 21: both were developed side by side, and format numbers go in merge order.
+  // backup has none of these tables and restores with them empty (`legacy-backups.ts`). `activity_events` is the one
+  // table that can be too large for the JSON file, so from format 23 its rows live in a streamed NDJSON section beside it
+  // (`STREAMED_BACKUP_TABLES`); its position here still fixes the restore order: users, imports, events, settings.
   "activity_imports",
   "activity_events",
   "activity_source_state"
@@ -227,11 +229,16 @@ export type BackupTables = Record<CoreBackupTable, Record<string, unknown>[]> &
   Record<string, Record<string, unknown>[]>;
 
 /** The format a new backup is written in. A format bump changes this one constant and nothing else. */
-export const CURRENT_BACKUP_FORMAT_VERSION = 22 as const;
+export const CURRENT_BACKUP_FORMAT_VERSION = 23 as const;
 
 /** Only a current-format backup is held to a row-for-row content check on restore (S8-11). */
 export function isContentVerifiedFormat(formatVersion: number): boolean {
   return formatVersion === CURRENT_BACKUP_FORMAT_VERSION;
+}
+
+/** Whether this backup keeps `table`'s rows in a streamed section file rather than in its JSON. */
+export function isStreamedIn(backup: OpenRhenBackup, table: string): boolean {
+  return backup.streamed?.[table] !== undefined;
 }
 
 /** What this repository writes. Backups already on disk carry it, so the writer keeps it. */
@@ -244,14 +251,17 @@ export const BACKUP_FORMAT = "priorities-postgresql-logical-backup" as const;
 export const ACCEPTED_BACKUP_FORMATS = [BACKUP_FORMAT, "openrhen-postgresql-logical-backup"] as const;
 
 /**
- * The most `activity_events` rows the single-JSON backup carries. The backup is one string with one checksum built in
- * memory: measured, 1,000,000 synthetic rows made a 453 MB file and about 2.4 GB of process memory, and 2,000,000 threw
- * `Invalid string length` (V8's limit), failing the whole backup including the plan. Above this the events are skipped,
- * loudly and on record, until the activity tables get a streamed section of their own.
+ * Tables whose rows go to a streamed NDJSON section beside the JSON backup (format 23 onward) instead of into its
+ * `tables`: the JSON backup is one string with one checksum built in memory, and measured, 1,000,000 synthetic activity
+ * rows made a 453 MB file and about 2.4 GB of process memory while 2,000,000 threw `Invalid string length` (V8's limit).
+ * In the JSON, such a table is an empty array and the manifest's `streamed` entry says where its rows are.
  */
-export const ACTIVITY_BACKUP_MAX_ROWS = 500_000;
+export const STREAMED_BACKUP_TABLES: readonly BackupTable[] = ["activity_events"];
 
-/** A table the backup left out on purpose, and why. Written into the backup file as `skipped` and printed by the backup command. */
+/**
+ * A table a format 22 backup left out on purpose, and why (the 500,000-row guard that format 23 replaced). Old files still
+ * carry it as `skipped`; restore reports it as `leftOutOfTheBackup`, and nothing writes it any more.
+ */
 export interface SkippedBackupTable {
   table: string;
   rows: number;
@@ -264,10 +274,14 @@ export interface OpenRhenBackup {
   createdAt: string;
   sourceDatabase: string;
   tables: BackupTables;
-  /** Tables left out because they were too large for this format; absent when nothing was. Not covered by the checksum. */
+  /** Format 22 only: tables its writer left out as too large; absent otherwise. Not covered by the checksum. */
   skipped?: SkippedBackupTable[];
+  /** Format 23 onward: tables whose rows are in a section file beside this one, keyed by table. Not covered by `sha256`; each section carries its own. */
+  streamed?: Record<string, StreamedSection>;
   sha256: string;
 }
+
+import type { StreamedSection } from "./streamed-sections.js";
 
 export function checksum(tables: Record<string, Record<string, unknown>[]>): string {
   return createHash("sha256").update(JSON.stringify(tables)).digest("hex");
@@ -277,38 +291,57 @@ export function databaseName(connectionString: string): string {
   return decodeURIComponent(new URL(connectionString).pathname.replace(/^\//, ""));
 }
 
+/** Receives a streamed table's rows in batches, inside the backup's snapshot, and returns where it put them. */
+export type StreamedTableWriter = (
+  table: string,
+  batches: AsyncIterable<readonly Record<string, unknown>[]>
+) => Promise<StreamedSection>;
+
 /**
  * Reads every backed-up table from ONE snapshot. The reads run inside a single
  * `REPEATABLE READ, READ ONLY` transaction, so a parent and child written between two SELECTs by
  * the portal or a worker cannot land in the backup as an orphan or as skew between tables (S8-04).
  * The reads are sequential on that transaction's one connection.
+ *
+ * A streamed table (`STREAMED_BACKUP_TABLES`) is handed to `streamTo` as a cursor-fed async iterable of row batches
+ * inside that same transaction, so it is part of the same snapshot and never held whole in memory; its entry in the
+ * result is `[]`. With `omitStreamed` it is skipped the same way (a restore reads the table back separately). With
+ * neither, it is read into memory like any other table: only for small databases and tests.
  */
 export async function readAllTables(
   sql: postgres.Sql,
-  skipped?: SkippedBackupTable[],
-  options: { maxActivityRows?: number } = {}
+  options: { streamTo?: StreamedTableWriter; omitStreamed?: boolean; batchRows?: number } = {}
 ): Promise<BackupTables> {
-  const maxActivityRows = options.maxActivityRows ?? ACTIVITY_BACKUP_MAX_ROWS;
+  const batchRows = options.batchRows ?? 2000;
   return (await sql.begin("isolation level repeatable read read only", async (transaction) => {
     const entries: (readonly [string, Record<string, unknown>[]])[] = [];
     for (const table of BACKUP_TABLES) {
-      if (table === "activity_events") {
-        const [held] = await transaction.unsafe<{ n: number }[]>(`SELECT count(*)::int AS n FROM "activity_events"`);
-        if (held!.n > maxActivityRows) {
-          skipped?.push({
-            table,
-            rows: held!.n,
-            reason: `${held!.n} rows is over the ${maxActivityRows} the JSON backup holds, and a larger one would fail the whole backup. The activity events are NOT in this backup; the pg_dump taken before a migration does hold them.`
-          });
-          entries.push([table, []] as const);
-          continue;
+      if (STREAMED_BACKUP_TABLES.includes(table) && (options.streamTo || options.omitStreamed)) {
+        if (options.streamTo) {
+          const cursor = transaction
+            .unsafe<Record<string, unknown>[]>(`SELECT * FROM "${table}" ORDER BY 1`)
+            .cursor(batchRows);
+          await options.streamTo(table, cursor);
         }
+        entries.push([table, []] as const);
+        continue;
       }
       const rows = await transaction.unsafe<Record<string, unknown>[]>(`SELECT * FROM "${table}" ORDER BY 1`);
       entries.push([table, [...rows]] as const);
     }
     return Object.fromEntries(entries) as BackupTables;
   })) as BackupTables;
+}
+
+/** The streamed table's rows, in the order and serialisation the backup wrote them, in batches from a cursor. */
+export function streamTableRows(
+  sql: postgres.Sql | postgres.TransactionSql,
+  table: string,
+  batchRows = 2000
+): AsyncIterable<Record<string, unknown>[]> {
+  return sql
+    .unsafe<Record<string, unknown>[]>(`SELECT * FROM "${table}" ORDER BY 1`)
+    .cursor(batchRows) as AsyncIterable<Record<string, unknown>[]>;
 }
 
 /**
@@ -385,6 +418,20 @@ export function validateBackup(value: unknown): OpenRhenBackup {
       throw new Error(`Backup is missing table ${table}`);
   }
   if (checksum(backup.tables) !== backup.sha256) throw new Error("Backup checksum does not match its contents");
+  if (version === CURRENT_BACKUP_FORMAT_VERSION) {
+    for (const table of STREAMED_BACKUP_TABLES) {
+      const section = backup.streamed?.[table];
+      const rows = (backup.tables as Record<string, unknown[]>)[table];
+      if (!section || typeof section.file !== "string" || !Number.isInteger(section.rows) || !section.sha256)
+        throw new Error(
+          `Backup does not record where its ${table} rows are (the streamed section is missing from the manifest)`
+        );
+      if (section.file !== basename(section.file) || !section.file.endsWith(".ndjson"))
+        throw new Error(`Backup names an unusable section file for ${table}: ${section.file}`);
+      if (rows!.length !== 0)
+        throw new Error(`Backup holds ${table} rows in the JSON as well as in its streamed section`);
+    }
+  }
   return backup as OpenRhenBackup;
 }
 
