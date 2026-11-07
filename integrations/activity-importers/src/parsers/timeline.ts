@@ -1,7 +1,7 @@
 import { eventKey, DupCounter } from "../keys.js";
 import { jsonArrayObjects } from "../json-stream.js";
 import { fromEpochMillis, parseTimestamp, plausible } from "../time.js";
-import { skip, type ActivityEventDraft, type ByteSource, type Stats } from "../types.js";
+import { noRowsError, skip, type ActivityEventDraft, type ByteSource, type Stats } from "../types.js";
 
 /**
  * Google Takeout "Timeline" (location history), UNVERIFIED against a real export. One parser reads every shape,
@@ -206,6 +206,12 @@ export async function* parseTimeline(
 
   for await (const element of jsonArrayObjects(source, (end) => {
     if (end.truncated) stats.truncated = true;
+    if (!end.sawArray)
+      throw noRowsError(
+        "Timeline",
+        end.topKeys,
+        'a "locations", "timelineObjects" or "semanticSegments" list at the top of the file (or a top-level list)'
+      );
   })) {
     const row = element.ok && isObj(element.value) ? element.value : null;
     if (!row) {

@@ -92,6 +92,8 @@ export async function* parseGooglePhotosSidecar(
   const created = fromEpochSeconds(stamp(record.creationTime), now);
   const title = typeof record.title === "string" ? record.title.replace(/\s+/g, " ").trim() : "";
   const description = typeof record.description === "string" ? record.description.trim() : "";
+  // The item's own link tells two files that share a name and times apart, and is the same for its album and year copies.
+  const url = typeof record.url === "string" && record.url.length <= 500 ? record.url.trim() : "";
   const geo = position(record.geoData) ?? position(record.geoDataExif);
   const attrs: Record<string, unknown> = {};
   if (geo) {
@@ -107,7 +109,8 @@ export async function* parseGooglePhotosSidecar(
       kind,
       stamp(record.photoTakenTime) as string | number,
       title,
-      created ? created.getTime() : ""
+      created ? created.getTime() : "",
+      ...(url ? [url] : [])
     ),
     source: "google-photos",
     kind,

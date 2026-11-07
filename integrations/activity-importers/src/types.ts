@@ -69,3 +69,18 @@ export function mergeStats(into: Stats, from: Stats): void {
 
 /** Thrown for a file that cannot be read at all (not a zip, unsupported compression), as opposed to a bad row. */
 export class ImportReadError extends Error {}
+
+/**
+ * The error for a document that has no array of rows where the format puts one: a wrapper this importer was not
+ * written for, or not the file it was told it is. It names what was found so the cause can be seen without opening
+ * the (possibly private) file.
+ */
+export function noRowsError(what: string, topKeys: readonly string[], expected: string): ImportReadError {
+  const found =
+    topKeys.length > 0
+      ? `its top-level keys are ${topKeys.map((key) => `"${key}"`).join(", ")}`
+      : "it is not a JSON object with keys";
+  return new ImportReadError(
+    `No array of rows was found at the top of this ${what} file: ${found}. Expected ${expected}. The format may have changed or the file is a different export; nothing was read from it and nothing was guessed. Run with --dry-run and send the source name and these key names (no file contents) to have it added.`
+  );
+}

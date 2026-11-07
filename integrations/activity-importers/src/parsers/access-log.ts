@@ -2,7 +2,7 @@ import { csvRecords, headerIndex } from "../csv-stream.js";
 import { jsonArrayObjects } from "../json-stream.js";
 import { eventKey, DupCounter } from "../keys.js";
 import { parseTimestamp, plausible } from "../time.js";
-import { skip, type ActivityEventDraft, type ByteSource, type Stats } from "../types.js";
+import { ImportReadError, noRowsError, skip, type ActivityEventDraft, type ByteSource, type Stats } from "../types.js";
 
 /**
  * Google "Access Log Activity" from Takeout, UNVERIFIED against a real export: the activity log of account
@@ -13,7 +13,8 @@ import { skip, type ActivityEventDraft, type ByteSource, type Stats } from "../t
  * extra or reordered columns do not matter.
  */
 const UTC_TEXT = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s*UTC$/i;
-const LABEL = /^[\p{L}\p{N} ._:/()&+-]{1,80}$/u;
+/** Printable text (any language, punctuation and quotes), at most 80 characters, no control characters. */
+const LABEL = /^[^\p{C}]{1,80}$/u;
 
 function accessTime(value: unknown, now: Date): Date | null {
   if (typeof value !== "string") return null;
@@ -34,10 +35,21 @@ function toEvent(
     skip(stats, "timestamp is missing, or not ISO text with a time zone or text ending in UTC");
     return null;
   }
-  const label = (value: unknown) =>
-    typeof value === "string" && LABEL.test(value.replace(/\s+/g, " ").trim()) ? value.replace(/\s+/g, " ").trim() : "";
+  const label = (value: unknown): string => {
+    if (typeof value !== "string") return "";
+    const text = value.replace(/\s+/g, " ").trim();
+    if (text === "") return "";
+    if (LABEL.test(text)) return text;
+    rejected = true;
+    return "";
+  };
+  let rejected = false;
   const product = label(row.product);
   const activity = label(row.activity);
+  if (rejected) {
+    skip(stats, "product or activity type contains characters this importer does not keep, or is over 80 characters");
+    return null;
+  }
   if (!product && !activity) {
     skip(stats, "row has neither a product nor an activity type");
     return null;
@@ -91,11 +103,14 @@ export async function* parseAccessLogCsv(
         product: firstOf(columns, PRODUCT_NAMES),
         activity: firstOf(columns, ACTIVITY_NAMES)
       };
-      if (positions.time < 0) {
-        stats.read += 1;
-        skip(stats, "header has no timestamp column");
-        return;
-      }
+      if (positions.time < 0)
+        throw new ImportReadError(
+          `Access log header was [${record.map((name) => `"${name.slice(0, 40)}"`).join(", ")}]; expected one of: ${TIME_NAMES.join(", ")}. Nothing was read from it and nothing was guessed. Send the source name and these column names (no rows) to have it added.`
+        );
+      if (positions.product < 0 && positions.activity < 0)
+        throw new ImportReadError(
+          `Access log header was [${record.map((name) => `"${name.slice(0, 40)}"`).join(", ")}]: it has a timestamp column but no product (expected one of: ${PRODUCT_NAMES.join(", ")}) and no activity type (expected one of: ${ACTIVITY_NAMES.join(", ")}). Nothing was read from it. Send the source name and these column names (no rows) to have it added.`
+        );
       continue;
     }
     stats.read += 1;
@@ -118,6 +133,7 @@ export async function* parseAccessLogJson(
   const dups = new DupCounter();
   for await (const element of jsonArrayObjects(source, (end) => {
     if (end.truncated) stats.truncated = true;
+    if (!end.sawArray) throw noRowsError("Access Log Activity", end.topKeys, "a list of rows at the top of the file");
   })) {
     stats.read += 1;
     const row = element.ok ? (element.value as Record<string, unknown>) : null;

@@ -176,6 +176,40 @@ describe("rhen import <source> <path>", () => {
     expect(result.stdout).toContain("skipped 1: event is larger than 1 MB, so it was not sent");
   });
 
+  it("warns, with the top skipped reason, when a matched file gives no events or mostly skipped rows, and notes unverified sources", async () => {
+    const rows = [
+      { title: "Used Maps", time: "2026-02-03T04:05:07Z" },
+      { title: "Used Search", time: "2026-02-03T04:05:08Z" }
+    ];
+    const file = write(join(dir, "Search2", "MyActivity.json"), JSON.stringify(rows));
+    const result = await run(["import", "google-activity", file, "--dry-run"], {});
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("WARNING google-activity: read 2 rows but produced no events from MyActivity.json");
+    expect(result.stdout).toContain(
+      'The commonest reason: "title starts with a verb this importer does not know" (2 rows)'
+    );
+    expect(result.stdout).toContain("Do not send the file's contents");
+    const photo = write(
+      join(dir, "Takeout", "Google Photos", "Trip", "a.jpg.json"),
+      JSON.stringify({ title: "a.jpg" })
+    );
+    const unverified = await run(["import", "google-photos", photo, "--dry-run"], {});
+    expect(unverified.stdout).toContain("WARNING google-photos:");
+    expect(unverified.stderr).toContain("google-photos: format not yet checked against a real Takeout");
+    const fine = write(
+      join(dir, "Search3", "MyActivity.json"),
+      JSON.stringify([{ title: "Searched for a", time: "2026-02-03T04:05:07Z" }])
+    );
+    expect((await run(["import", "google-activity", fine, "--dry-run"], {})).stdout).not.toContain("WARNING");
+  });
+
+  it("fails with the keys seen when a Timeline file is wrapped in an unknown object", async () => {
+    const file = write(join(dir, "wrapped", "Records.json"), JSON.stringify({ data: { locations: [] } }));
+    const result = await run(["import", "timeline", file, "--dry-run"], {});
+    expect(result.exitCode).toBe(EXIT.usage);
+    expect(result.stderr).toContain('top-level keys are "data"');
+  });
+
   it("names the commonest title verbs it skipped in My Activity", async () => {
     const rows = [
       { title: "Searched for a", time: "2026-02-03T04:05:06Z" },

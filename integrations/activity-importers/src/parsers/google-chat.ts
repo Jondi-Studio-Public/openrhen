@@ -2,7 +2,7 @@ import { eventKey } from "../keys.js";
 import { jsonArrayObjects } from "../json-stream.js";
 import { readText } from "../chunks.js";
 import { plausible } from "../time.js";
-import { skip, type ActivityEventDraft, type ByteSource, type Stats } from "../types.js";
+import { noRowsError, skip, type ActivityEventDraft, type ByteSource, type Stats } from "../types.js";
 
 /**
  * Google Chat from Takeout, UNVERIFIED against a real export: `Google Chat/Groups/<space folder>/messages.json`,
@@ -90,6 +90,8 @@ export async function* parseGoogleChatMessages(
 ): AsyncGenerator<ActivityEventDraft> {
   for await (const element of jsonArrayObjects(source, (end) => {
     if (end.truncated) stats.truncated = true;
+    if (!end.sawArray)
+      throw noRowsError("Google Chat messages", end.topKeys, 'a "messages" list at the top of the file');
   })) {
     stats.read += 1;
     const row =

@@ -4,7 +4,7 @@ import { parseAccessLogCsv, parseAccessLogJson } from "./parsers/access-log.js";
 import { chatSpaceId, parseChatDate, parseChatOwner, parseGoogleChatMessages } from "./parsers/google-chat.js";
 import { isPhotoSidecarName, parseGooglePhotosSidecar } from "./parsers/google-photos.js";
 import { parseTimeline } from "./parsers/timeline.js";
-import { newStats } from "./types.js";
+import { ImportReadError, newStats } from "./types.js";
 
 const now = new Date("2026-11-07T00:00:00Z");
 
@@ -295,9 +295,14 @@ describe("Access Log Activity", () => {
     const events = await collect(parseAccessLogJson(chunked(json), stats, now));
     expect(events[0]!.attrs).toEqual({ product: "Maps" });
     expect(JSON.stringify(events)).not.toContain("1.2.3.4");
-    const bad = newStats();
-    expect(await collect(parseAccessLogCsv(chunked("a,b\n1,2\n"), bad, now))).toHaveLength(0);
-    expect(bad.reasons).toEqual({ "header has no timestamp column": 1 });
+    const bad = collect(parseAccessLogCsv(chunked("a,b\n1,2\n"), newStats(), now));
+    await expect(bad).rejects.toThrow(ImportReadError);
+    await expect(bad).rejects.toThrow(
+      'Access log header was ["a", "b"]; expected one of: activity timestamp, timestamp, time, date, activity time'
+    );
+    await expect(
+      collect(parseAccessLogCsv(chunked("Timestamp,IP Address\n2026-01-02 03:04:05 UTC,1.2.3.4\n"), newStats(), now))
+    ).rejects.toThrow(/no product .* and no activity type/);
   });
 });
 
@@ -368,5 +373,64 @@ describe("Google Photos sidecars", () => {
       "a.txt.json"
     ])
       expect(isPhotoSidecarName(name), name).toBe(false);
+  });
+});
+
+describe("documents with an unknown wrapper", () => {
+  it("throws, naming the top-level keys, instead of reading nothing", async () => {
+    const wrapped = JSON.stringify({
+      data: { locations: [{ timestampMs: "1767323045123", latitudeE7: 1, longitudeE7: 2 }] },
+      version: 2
+    });
+    for (const run of [
+      () => collect(parseTimeline(chunked(wrapped, 5), newStats(), now)),
+      () =>
+        collect(
+          parseGoogleChatMessages(chunked(JSON.stringify({ data: { messages: [] } }), 5), "A", null, newStats(), now)
+        ),
+      () => collect(parseAccessLogJson(chunked(JSON.stringify({ data: { rows: [] } }), 5), newStats(), now))
+    ]) {
+      const failure = run();
+      await expect(failure).rejects.toThrow(ImportReadError);
+      await expect(failure).rejects.toThrow(/top-level keys are "data"/);
+    }
+    await expect(collect(parseTimeline(chunked(wrapped), newStats(), now))).rejects.toThrow('"data", "version"');
+    await expect(collect(parseTimeline(chunked(""), newStats(), now))).rejects.toThrow(/not a JSON object with keys/);
+  });
+});
+
+describe("Access Log labels and Photos keys", () => {
+  it("keeps values with punctuation and counts, never blanks, a value it rejects", async () => {
+    const csv = [
+      "Timestamp,Product Name,Activity Type",
+      '2026-01-02 03:04:05 UTC,"Jo\'s #1 \u201cDrive\u201d, mail@x",Login',
+      `2026-01-02 03:04:06 UTC,${"x".repeat(81)},Login`
+    ].join("\n");
+    const stats = newStats();
+    const events = await collect(parseAccessLogCsv(chunked(csv), stats, now));
+    expect(events).toHaveLength(1);
+    expect(events[0]!.attrs.product).toBe("Jo's #1 \u201cDrive\u201d, mail@x");
+    expect(stats.reasons).toEqual({
+      "product or activity type contains characters this importer does not keep, or is over 80 characters": 1
+    });
+  });
+
+  it("gives an item's album copy and year copy one id by its url, and different urls two", async () => {
+    const side = (url?: string) =>
+      JSON.stringify({
+        title: "IMG_1.jpg",
+        photoTakenTime: { timestamp: "1767323045" },
+        creationTime: { timestamp: "1767400000" },
+        ...(url ? { url } : {})
+      });
+    const idOf = async (text: string) =>
+      (await collect(parseGooglePhotosSidecar(chunked(text), "IMG_1.jpg.json", newStats(), now)))[0]!.id;
+    expect(await idOf(side("https://photos.google.com/photo/A"))).toBe(
+      await idOf(side("https://photos.google.com/photo/A"))
+    );
+    expect(await idOf(side("https://photos.google.com/photo/A"))).not.toBe(
+      await idOf(side("https://photos.google.com/photo/B"))
+    );
+    expect(await idOf(side())).toBe(await idOf(side()));
   });
 });
