@@ -339,9 +339,13 @@ jobs:
           if (-not (Test-Path "$dest\rhen-watchw.exe")) { throw 'program not installed' }
           if (-not (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'rhen-watch' -ErrorAction SilentlyContinue)) { throw 'no start-at-logon entry' }
           Start-Sleep -Seconds 5
-          & "$dest\rhen-watch.exe" status
+          $status = (& "$dest\rhen-watch.exe" status) -join "`n"
+          Write-Host $status
+          if ($status -notmatch 'agent: running') { throw 'the installed agent is not running' }
           & "$dest\rhen-watch.exe" report
           & "$dest\rhen-watch.exe" stop
+          Start-Sleep -Seconds 3
+          if ((& "$dest\rhen-watch.exe" status) -match 'agent: running') { throw 'the agent did not stop' }
           & "$dest\rhen-watch.exe" uninstall --purge
           if (Test-Path "$dest\rhen-watchw.exe") { throw 'program still installed' }
           if (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'rhen-watch' -ErrorAction SilentlyContinue) { throw 'start-at-logon entry still set' }
