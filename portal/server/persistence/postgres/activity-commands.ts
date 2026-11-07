@@ -32,6 +32,7 @@ import { resolveBackfilledStart } from "./backfilled-start";
 import { closeOpenSession, resolveRetroactiveEnd } from "./retroactive-end";
 import { completeSleepPlan } from "./sleep-wake";
 import { readStateAfterCommit } from "./read-after-commit";
+import { logOfferOutcome } from "./offer-log-writer";
 import { sessionClock } from "./session-clock";
 import { completeStepActionOccurrence } from "./routine-step-window";
 import { watchActivityWrite } from "./entity-snapshot";
@@ -274,6 +275,32 @@ export async function applyActivityCommand(
     const sanctionUntil = sanction === "free" || sanction === null ? null : plannedEnd;
     await tx`INSERT INTO sessions (id,user_id,action_id,target_type,target_id,target_step_id,target_title,status,planned_started_at,planned_end_at,started_at,started_recorded_at,planned_minutes,remaining_before_minutes,plan_sanction,sanction_until,started_by) VALUES (${command.commandId},${userId},NULL,${command.targetType},${targetId},${command.targetType === "deliverable" ? (command.stepId ?? null) : null},${title},'running',${startTime},${plannedEnd},${startTime},${backfilled ? at : null},${command.plannedMinutes},0,${sanction},${sanctionUntil},${requestAgent()})`;
     await tx`INSERT INTO session_segments (session_id,started_at,step_id) VALUES (${command.commandId},${startTime},${command.targetType === "deliverable" ? (command.stepId ?? null) : null})`;
+    // The offer log's `started` row. A routine step, commitment or sleep is rarely in the offered top five, so its rank
+    // is usually null with `off_plan` set; that is the honest reading, not an error.
+    await logOfferOutcome(tx, userId, {
+      event: "started",
+      commandId: command.commandId,
+      targetType: command.targetType,
+      targetId,
+      resolutionKind:
+        command.targetType === "routine_step"
+          ? "routine_step"
+          : command.targetType === "sleep"
+            ? "sleep"
+            : command.targetType === "fixed_commitment"
+              ? command.phase === "travel" || command.phase === "return"
+                ? "travel"
+                : "commitment"
+              : null,
+      label: title,
+      detail: {
+        command: command.type,
+        plannedMinutes: command.plannedMinutes,
+        ...(command.phase ? { phase: command.phase } : {}),
+        ...(command.targetType === "deliverable" && command.stepId ? { stepId: command.stepId } : {}),
+        ...(backfilled ? { started_at: startTime.toISOString() } : {})
+      }
+    });
   } else if (command.type === "skip_routine_step") {
     // Names the `routine_steps` row directly, for either anchor — no instance id, since a
     // sleep-anchored step is skipped exactly like a commitment's own preparation step now.
@@ -292,8 +319,14 @@ export async function applyActivityCommand(
         }
       );
     const target = await tx<
-      { status: string; version: number; commitment_id: string | null; cadence_action_id: string | null }[]
-    >`SELECT status,version,commitment_id,cadence_action_id FROM routine_steps WHERE id=${command.stepId} AND user_id=${userId} FOR UPDATE`;
+      {
+        status: string;
+        version: number;
+        commitment_id: string | null;
+        cadence_action_id: string | null;
+        title: string;
+      }[]
+    >`SELECT status,version,commitment_id,cadence_action_id,title FROM routine_steps WHERE id=${command.stepId} AND user_id=${userId} FOR UPDATE`;
     if (!target[0]) throw notFound("routine step", command.stepId);
     if (command.expectedVersion !== target[0].version)
       throw versionConflict("routine step", command.stepId, command.expectedVersion, target[0].version);
@@ -314,6 +347,15 @@ export async function applyActivityCommand(
         `Complete ${blocked.map((item) => `“${item.title}”`).join(", ")} before skipping this step.`
       );
     await tx`UPDATE routine_steps SET status='skipped',version=version+1,updated_at=${at} WHERE id=${command.stepId}`;
+    await logOfferOutcome(tx, userId, {
+      event: "skipped",
+      commandId: command.commandId,
+      targetType: "routine_step",
+      targetId: command.stepId,
+      resolutionKind: "routine_step",
+      label: target[0].title,
+      detail: { command: command.type }
+    });
     // A skipped step no longer claims a place in its chain, so whatever follows it can move earlier
     // — the engine's placer picks that up on the recalculation the one-write-path enqueues, the same
     // as a completion does below; nothing here reschedules synchronously any more.
@@ -335,6 +377,7 @@ export async function applyActivityCommand(
         id: string;
         target_id: string;
         target_step_id: string | null;
+        target_title: string | null;
         // `action` for an action session, which these commands never touch (see the guard below).
         target_type: "routine_step" | "sleep" | "fixed_commitment" | "deliverable" | "action";
         status: string;
@@ -343,7 +386,7 @@ export async function applyActivityCommand(
         paused_remaining_seconds: number | null;
         started_at: Date;
       }[]
-    >`SELECT id,target_id,target_step_id,target_type,status,version,planned_end_at,paused_remaining_seconds,started_at FROM sessions WHERE id=${command.sessionId} AND user_id=${userId} AND ended_at IS NULL FOR UPDATE`;
+    >`SELECT id,target_id,target_step_id,target_title,target_type,status,version,planned_end_at,paused_remaining_seconds,started_at FROM sessions WHERE id=${command.sessionId} AND user_id=${userId} AND ended_at IS NULL FOR UPDATE`;
     if (!session[0]) throw await noOpenSession(tx, userId, command.sessionId, "The open activity session");
     if (command.expectedVersion !== session[0].version)
       throw versionConflict("session", command.sessionId, command.expectedVersion, session[0].version);
@@ -438,6 +481,26 @@ export async function applyActivityCommand(
                 : "did_not_start";
       // A running session's open segment closes at the end; one awaiting feedback closed its last segment
       // at the checkpoint, and a given end replaces that.
+      // The offer log's outcome for an activity that did not go ahead; completing or stopping one is not an offer outcome.
+      if (command.outcome === "blocked" || command.outcome === "did_not_start" || command.outcome === "skipped") {
+        await logOfferOutcome(tx, userId, {
+          event:
+            command.outcome === "blocked" ? "blocked" : command.outcome === "skipped" ? "skipped" : "did_not_start",
+          commandId: command.commandId,
+          targetType: session[0].target_type,
+          targetId: session[0].target_id,
+          resolutionKind:
+            session[0].target_type === "routine_step"
+              ? "routine_step"
+              : session[0].target_type === "sleep"
+                ? "sleep"
+                : session[0].target_type === "fixed_commitment"
+                  ? "commitment"
+                  : null,
+          label: session[0].target_title,
+          detail: { command: command.type, sessionId: session[0].id }
+        });
+      }
       const minutes = await closeOpenSession(tx, session[0], {
         endTime,
         retroactive: Boolean(command.endedAt),

@@ -6,6 +6,7 @@ import type { PortalState } from "@/state/portal-state";
 import { claimCommandReceipt, commandRequestHash, hasCommandReceipt } from "./command-receipt";
 import { alreadyClosed, InvalidCommandError, notFound, versionConflict } from "./command-errors";
 import { ensureUser } from "./ensure-user";
+import { logOfferOutcome } from "./offer-log-writer";
 import { readStateAfterCommit } from "./read-after-commit";
 import type { PoolSql, TxSql } from "./sql-pool";
 import { WriteSnapshot } from "./write-snapshot";
@@ -55,8 +56,8 @@ async function answerCheckIn(
   snap: WriteSnapshot | null
 ): Promise<void> {
   const rows = await tx<
-    { version: number; status: string; answered_at: Date | null }[]
-  >`SELECT version,status,answered_at FROM check_in WHERE id=${command.checkInId} AND user_id=${userId} FOR UPDATE`;
+    { version: number; status: string; answered_at: Date | null; directive_title: string | null }[]
+  >`SELECT version,status,answered_at,directive_title FROM check_in WHERE id=${command.checkInId} AND user_id=${userId} FOR UPDATE`;
   if (!rows[0]) throw notFound("check-in", command.checkInId);
   if (command.expectedVersion !== null && command.expectedVersion !== rows[0].version)
     throw versionConflict("check-in", command.checkInId, command.expectedVersion, rows[0].version);
@@ -91,6 +92,21 @@ async function answerCheckIn(
       updated_at=${at}
     WHERE id=${command.checkInId}
   `;
+  // The offer log's `checked_in` row: what he said he was doing, so "what did he do instead" has an answer.
+  await logOfferOutcome(tx, userId, {
+    event: "checked_in",
+    commandId: command.commandId,
+    targetType: "check_in",
+    targetId: command.checkInId,
+    label: rows[0].directive_title,
+    detail: {
+      command: command.type,
+      status: command.status,
+      answerSource: command.answerSource,
+      ...(command.deviationCategory ? { deviationCategory: command.deviationCategory } : {}),
+      ...(command.deviationTargetId ? { deviationTargetId: command.deviationTargetId } : {})
+    }
+  });
 }
 
 /**
@@ -115,8 +131,8 @@ async function answerCheckInsBatch(
   const at = new Date();
   for (const checkInId of command.checkInIds) {
     const rows = await tx<
-      { slot_at: Date; status: string; answered_at: Date | null }[]
-    >`SELECT slot_at,status,answered_at FROM check_in WHERE id=${checkInId} AND user_id=${userId} FOR UPDATE`;
+      { slot_at: Date; status: string; answered_at: Date | null; directive_title: string | null }[]
+    >`SELECT slot_at,status,answered_at,directive_title FROM check_in WHERE id=${checkInId} AND user_id=${userId} FOR UPDATE`;
     const row = rows[0];
     if (!row) continue;
     if (row.status !== "unknown" || row.answered_at !== null) continue;
@@ -136,6 +152,19 @@ async function answerCheckInsBatch(
         updated_at=${at}
       WHERE id=${checkInId}
     `;
+    await logOfferOutcome(tx, userId, {
+      event: "checked_in",
+      commandId: command.commandId,
+      targetType: "check_in",
+      targetId: checkInId,
+      label: row.directive_title,
+      detail: {
+        command: command.type,
+        status,
+        answerSource: "session_reconciliation",
+        ...(deviated && command.tail.deviationCategory ? { deviationCategory: command.tail.deviationCategory } : {})
+      }
+    });
   }
 }
 
@@ -187,4 +216,18 @@ async function recordVoluntaryCheckIn(
       ${command.deviationTargetId ?? null}, ${command.answerSource}, ${requestAgent()}
     )`;
   snap?.inserted("check_in", [id]);
+  await logOfferOutcome(tx, userId, {
+    event: "checked_in",
+    commandId: command.commandId,
+    targetType: "check_in",
+    targetId: id,
+    label: belief.title,
+    detail: {
+      command: command.type,
+      status: command.status,
+      answerSource: command.answerSource,
+      ...(command.deviationCategory ? { deviationCategory: command.deviationCategory } : {}),
+      ...(command.deviationTargetId ? { deviationTargetId: command.deviationTargetId } : {})
+    }
+  });
 }
