@@ -41,6 +41,10 @@ OCR and title are built after the local-only core is verified on a real machine;
 
 SQLite in WAL mode (with `secure_delete`) at `%LOCALAPPDATA%\rhen-watch\activity.db`. On first run the folder's inherited permissions are removed with `icacls` so only the current user (not Administrators or SYSTEM inheritance) can read it, including the WAL and SHM files. A network-share path prints a warning. Tables: `events` (id TEXT primary key generated on the device, device, ts_start, ts_end, source, kind, attrs JSON), `metrics` (per-minute CPU time, working set, database size, event and drop counts), `meta` (schema version, device id, heartbeat, open state). The id exists before any later upload, so a future uploader is idempotent. Writes are one transaction per batch.
 
+## Tray, pause and install
+
+The agent shows a tray icon whenever it runs (it is never hidden). Pause closes every open interval and records a `paused` interval; nothing else is recorded until resume, not even gaps, and the paused state is stored so a restart stays paused. `rhen-watchw.exe` is the same program built for the Windows subsystem so start-at-logon shows no console; `rhen-watch.exe install` copies both to `%LOCALAPPDATA%\Programs\rhen-watch`, sets an HKCU Run entry and starts it; `uninstall [--purge]` reverses it. It is a per-user app, not a service, because the foreground hook and lock state exist only in the interactive session. A failed final write at clean stop is reported, not swallowed.
+
 ## Interface
 
 `rhen-watch run [--for SECONDS]` runs in the foreground until Ctrl+C, `rhen-watch stop` or the time limit; it unhooks and flushes on exit and on panic. `rhen-watch report [--day YYYY-MM-DD]` prints time per app and category, idle and locked time, `unknown` gaps and the collectors' own cost. `rhen-watch status`, `config init|path`, `wipe --yes`. No background service or autostart in phase 1; that is a separate decision.

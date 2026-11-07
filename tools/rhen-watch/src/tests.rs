@@ -468,9 +468,9 @@ fn a_day_through_the_runner_reports_honestly() {
 #[test]
 fn civil_date_round_trip() {
     for (y, m, d) in [(1970, 1, 1), (2026, 11, 6), (2024, 2, 29), (2000, 3, 1)] {
-        assert_eq!(crate::civil_from_days(crate::days_from_civil(y, m, d)), (y, m, d));
+        assert_eq!(crate::cli::civil_from_days(crate::cli::days_from_civil(y, m, d)), (y, m, d));
     }
-    assert_eq!(crate::days_from_civil(1970, 1, 1), 0);
+    assert_eq!(crate::cli::days_from_civil(1970, 1, 1), 0);
 }
 
 #[test]
@@ -747,4 +747,69 @@ fn an_unreadable_idle_counter_is_recorded_once_as_degraded() {
     r.stop().unwrap();
     let rows = r.store().events_between(0, i64::MAX).unwrap();
     assert_eq!(rows.iter().filter(|e| e.kind == "degraded").count(), 1);
+}
+
+// ---- pause, tray control, clean stop ----
+
+#[test]
+fn pause_records_a_paused_interval_and_nothing_else_until_resume() {
+    let mut e = engine();
+    e.step(1000, fg("code.exe"));
+    let s = e.step(2000, Signal::Pause);
+    assert_eq!(closes(&s.ops), 1);
+    assert!(
+        s.ops
+            .iter()
+            .any(|o| matches!(o, Op::Open { kind, source, .. } if kind == "paused" && *source == SRC_AGENT))
+    );
+    assert!(e.paused());
+    // while paused: no app, no lock, no stall record even after an hour
+    assert!(e.step(3000, fg("chrome.exe")).ops.is_empty());
+    assert!(e.step(4000, Signal::Session(SessionEvt::Lock)).ops.is_empty());
+    assert!(e.step(3_600_000, Signal::Tick).ops.is_empty());
+    let s = e.step(3_700_000, Signal::Resume);
+    assert!(
+        s.ops.contains(&Op::Close {
+            id: "id2".into(),
+            ts: 3_700_000
+        }),
+        "{:?}",
+        s.ops
+    );
+    assert!(s.refresh_foreground && !e.paused());
+}
+
+#[test]
+fn pause_survives_a_restart() {
+    let now = Rc::new(Cell::new(1_000_000_000_000i64));
+    let dir = std::env::temp_dir().join(format!("rhen-watch-pause-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("p.db");
+    let _ = std::fs::remove_file(&path);
+    {
+        let mut r = fake(&now, Config::default(), Store::open(&path).unwrap());
+        r.start().unwrap();
+        r.handle(Raw::Control(crate::runner::Control::Pause)).unwrap();
+        assert_eq!(r.state(), "paused");
+        r.stop().unwrap();
+    }
+    now.set(now.get() + 60_000);
+    let mut r = fake(&now, Config::default(), Store::open(&path).unwrap());
+    r.start().unwrap();
+    assert_eq!(r.state(), "paused", "a reboot must not silently start recording again");
+    r.handle(Raw::Control(crate::runner::Control::Resume)).unwrap();
+    assert_eq!(r.state(), "recording");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_final_write_that_cannot_be_made_is_reported() {
+    let now = Rc::new(Cell::new(1_000_000_000_000i64));
+    let mut store = Store::in_memory().unwrap();
+    store.fail_next = 10_000;
+    let mut r = fake(&now, Config::default(), store);
+    r.start().unwrap();
+    assert_eq!(r.state(), "degraded");
+    let err = r.stop().unwrap_err();
+    assert!(err.contains("could not be written"), "{err}");
 }

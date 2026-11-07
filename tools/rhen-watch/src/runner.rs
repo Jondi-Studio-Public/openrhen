@@ -25,6 +25,14 @@ pub enum Raw {
     Foreground(usize),
     Session(SessionEvt),
     Power(PowerEvt),
+    Control(Control),
+}
+
+/// Commands from the tray menu.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Control {
+    Pause,
+    Resume,
 }
 
 const IDLE_EVERY_MS: Ms = 5_000;
@@ -103,6 +111,9 @@ impl<S: Sys> Runner<S> {
             }],
         )?;
         self.feed(Signal::Tick)?;
+        if self.store.meta("paused").map_err(|e| e.to_string())?.as_deref() == Some("1") {
+            return self.feed(Signal::Pause);
+        }
         if let Some(fg) = self.sys.current_foreground() {
             self.feed(Signal::Foreground(fg))?;
         }
@@ -114,7 +125,29 @@ impl<S: Sys> Runner<S> {
             Raw::Foreground(hwnd) => Signal::Foreground(self.sys.resolve(hwnd)),
             Raw::Session(e) => Signal::Session(e),
             Raw::Power(e) => Signal::Power(e),
+            Raw::Control(c) => return self.control(c),
         };
+        self.feed(signal)
+    }
+
+    /// `recording`, `paused`, or `degraded` (writes are failing); shown on the tray icon.
+    pub fn state(&self) -> &'static str {
+        if self.engine.paused() {
+            "paused"
+        } else if self.failures > 0 {
+            "degraded"
+        } else {
+            "recording"
+        }
+    }
+
+    pub fn control(&mut self, c: Control) -> Result<(), String> {
+        let (signal, flag) = match c {
+            Control::Pause => (Signal::Pause, "1"),
+            Control::Resume => (Signal::Resume, "0"),
+        };
+        // Remember it, so a restart or reboot does not silently start recording again.
+        self.store.set_meta("paused", flag).map_err(|e| e.to_string())?;
         self.feed(signal)
     }
 
@@ -180,6 +213,20 @@ impl<S: Sys> Runner<S> {
             attrs: Default::default(),
         });
         self.apply(now, ops)?;
+        // The last write matters most: retry it, and say so if it still cannot be made.
+        for _ in 0..5 {
+            if self.pending.is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            self.apply(now, vec![])?;
+        }
+        if !self.pending.is_empty() {
+            return Err(format!(
+                "the final {} records could not be written; the next start will record the gap as unknown",
+                self.pending.len()
+            ));
+        }
         self.flush_metrics(i64::MAX / 2)
     }
 
