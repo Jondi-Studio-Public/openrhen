@@ -20,6 +20,7 @@
     "contract-snapshot": "tsx scripts/generate-agent-contract-snapshot.ts"
   },
   "dependencies": {
+    "@openrhen/activity-importers": "workspace:*",
     "@openrhen/contracts": "workspace:*",
     "zod": "4.6.7"
   },
