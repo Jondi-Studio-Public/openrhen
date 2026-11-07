@@ -1,11 +1,15 @@
 import { archiveHasher, openArchive, sourceSha256, type Archive } from "./archive.js";
+import { parseAccessLogCsv, parseAccessLogJson } from "./parsers/access-log.js";
 import { parseAppleHealth } from "./parsers/apple-health.js";
 import { parseChromeHistory } from "./parsers/chrome.js";
 import { channelIdFromFolder, parseDiscordMessagesCsv, parseDiscordMessagesJson } from "./parsers/discord.js";
 import { parseFitMetrics } from "./parsers/fit.js";
 import { parseGoogleActivity } from "./parsers/google-activity.js";
+import { chatSpaceId, parseChatOwner, parseGoogleChatMessages } from "./parsers/google-chat.js";
+import { isPhotoSidecarName, parseGooglePhotosSidecar } from "./parsers/google-photos.js";
 import { parseMapsPlaces } from "./parsers/maps.js";
 import { parseSpotifyHistory } from "./parsers/spotify.js";
+import { parseTimeline } from "./parsers/timeline.js";
 import { ImportReadError, newStats, skip, type ActivityEventDraft, type Stats } from "./types.js";
 
 /**
@@ -19,6 +23,10 @@ export const IMPORT_SOURCES = [
   "google-activity",
   "maps",
   "fit",
+  "timeline",
+  "google-chat",
+  "access-log",
+  "google-photos",
   "youtube",
   "spotify",
   "discord",
@@ -61,6 +69,9 @@ export interface ImportPlan {
   sha256For(job: EventJob): Promise<string>;
 }
 
+/** Importers written from documented formats and never run on a real export. Each run says so. */
+const UNVERIFIED_SOURCES = new Set(["timeline", "google-chat", "google-access-log", "google-photos"]);
+
 const basenameOf = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 const parentOf = (path: string) => {
   const parts = path.split("/");
@@ -78,6 +89,17 @@ async function readAll(chunks: AsyncIterable<Uint8Array | string>, declaredSize:
     parts.push(part);
   }
   return Buffer.concat(parts);
+}
+
+/** Adds the file's name to an `ImportReadError` from its parser, so the message says which file. */
+async function* inFile<T>(file: string, rows: AsyncGenerator<T>): AsyncGenerator<T> {
+  try {
+    yield* rows;
+  } catch (error) {
+    if (error instanceof ImportReadError && !error.message.startsWith(`${file}:`))
+      throw new ImportReadError(`${file}: ${error.message}`);
+    throw error;
+  }
 }
 
 function eventJob(
@@ -151,6 +173,84 @@ function fitJob(archive: Archive): EventJob | null {
   });
 }
 
+function timelineJob(archive: Archive): EventJob | null {
+  const files = pick(
+    archive,
+    (path, lower) =>
+      basenameOf(lower) === "timeline.json" ||
+      basenameOf(lower) === "records.json" ||
+      (/^\d{4}_[a-z]+\.json$/.test(basenameOf(lower)) && /^\d{4}$/.test(parentOf(path)))
+  );
+  if (files.length === 0) return null;
+  return eventJob("timeline", files, async function* (stats) {
+    for (const file of files) yield* inFile(file, parseTimeline(archive.open(file), stats));
+  });
+}
+
+/** `Google Chat/Users/<id>/user_info.json` names the owner; the Users folder is the only place the export says who you are. */
+function chatOwnerFiles(archive: Archive): string[] {
+  return matching(archive, (_path, lower) => /(^|\/)users\/[^/]+\/user_info\.json$/.test(lower));
+}
+
+function googleChatJob(archive: Archive): EventJob | null {
+  const files = pick(
+    archive,
+    (path, lower) => basenameOf(lower) === "messages.json" && /(^|\/)groups\/[^/]+\/messages\.json$/.test(lower)
+  );
+  if (files.length === 0) return null;
+  const ownerFiles = archive.kind === "file" ? [] : chatOwnerFiles(archive);
+  return eventJob("google-chat", [...files, ...ownerFiles], async function* (stats) {
+    let owner: string | null = null;
+    for (const file of ownerFiles) {
+      owner = await parseChatOwner(archive.open(file));
+      if (owner) break;
+    }
+    for (const file of files) {
+      const space = chatSpaceId(parentOf(file));
+      if (!space) {
+        stats.read += 1;
+        skip(stats, "space folder name is empty");
+        continue;
+      }
+      yield* inFile(file, parseGoogleChatMessages(archive.open(file), space, owner, stats));
+    }
+  });
+}
+
+function accessLogJob(archive: Archive): EventJob | null {
+  const files = pick(
+    archive,
+    (path, lower) =>
+      /^activities\b.*\.(csv|json)$/.test(basenameOf(lower)) &&
+      (lower.includes("access log") || basenameOf(lower).includes("services accessed"))
+  );
+  if (files.length === 0) return null;
+  return eventJob("google-access-log", files, async function* (stats) {
+    for (const file of files)
+      yield* inFile(
+        file,
+        file.toLowerCase().endsWith(".json")
+          ? parseAccessLogJson(archive.open(file), stats)
+          : parseAccessLogCsv(archive.open(file), stats)
+      );
+  });
+}
+
+/** Only each photo's small `.json` sidecar is listed, hashed and read; the media files are never opened. */
+function googlePhotosJob(archive: Archive): EventJob | null {
+  const files = pick(
+    archive,
+    (_path, lower) =>
+      lower.endsWith(".json") &&
+      isPhotoSidecarName(basenameOf(lower)) &&
+      /(^|\/)google (photos|fotos|foto)[^/]*\//.test(lower)
+  );
+  if (files.length === 0) return null;
+  return eventJob("google-photos", files, async function* (stats) {
+    for (const file of files) yield* parseGooglePhotosSidecar(archive.open(file), basenameOf(file), stats);
+  });
+}
+
 function spotifyJob(archive: Archive): EventJob | null {
   const files = pick(archive, (_p, lower) => /^streaming_history_audio_.*\.json$/.test(basenameOf(lower)));
   if (files.length === 0) return null;
@@ -210,6 +310,10 @@ const EXPECTED: Record<Exclude<ImportSourceName, "takeout">, string> = {
   "google-activity": "My Activity/<product>/MyActivity.json",
   maps: "Saved Places.json or Labeled places.json",
   fit: "Fit/Daily activity metrics/*.csv",
+  timeline: "Timeline.json, Records.json or Semantic Location History/<year>/<year>_<MONTH>.json",
+  "google-chat": "Google Chat/Groups/<space>/messages.json",
+  "access-log": "Access Log Activity/Activities - A list of Google services accessed by.csv",
+  "google-photos": "Google Photos/<album>/<photo>.<ext>.json (the sidecar files)",
   youtube: "YouTube and YouTube Music/history/watch-history.json",
   spotify: "Streaming_History_Audio_*.json",
   discord: "messages/c<channel id>/messages.csv (or messages.json)",
@@ -221,6 +325,10 @@ const BUILDERS: Record<Exclude<ImportSourceName, "takeout" | "youtube">, (archiv
   "google-activity": googleActivityJob,
   maps: mapsJob,
   fit: fitJob,
+  timeline: timelineJob,
+  "google-chat": googleChatJob,
+  "access-log": accessLogJob,
+  "google-photos": googlePhotosJob,
   spotify: spotifyJob,
   discord: discordJob,
   "apple-health": appleHealthJob
@@ -234,9 +342,18 @@ export async function planImport(source: ImportSourceName, path: string): Promis
   if (source === "takeout") {
     if (archive.kind === "file")
       throw new ImportReadError(
-        `${path} is a single file. "takeout" reads a Takeout zip (or the folder it was unzipped into); for one file name its source, e.g. "chrome", "google-activity", "maps", "fit" or "youtube".`
+        `${path} is a single file. "takeout" reads a Takeout zip (or the folder it was unzipped into); for one file name its source, e.g. "chrome", "google-activity", "maps", "fit", "timeline", "google-chat", "access-log", "google-photos" or "youtube".`
       );
-    for (const name of ["chrome", "google-activity", "maps", "fit"] as const) {
+    for (const name of [
+      "chrome",
+      "google-activity",
+      "maps",
+      "fit",
+      "timeline",
+      "google-chat",
+      "access-log",
+      "google-photos"
+    ] as const) {
       const job = BUILDERS[name](archive);
       if (job) jobs.push(job);
       else notes.push(`No ${EXPECTED[name]} found in ${path}; skipped.`);
@@ -254,9 +371,14 @@ export async function planImport(source: ImportSourceName, path: string): Promis
   if (jobs.length === 0)
     throw new ImportReadError(
       source === "takeout"
-        ? `Nothing this importer reads was found in ${path}. Expected a Takeout with Chrome, My Activity, Maps, Fit or YouTube history. Export those products from takeout.google.com in JSON format.`
+        ? `Nothing this importer reads was found in ${path}. Expected a Takeout with Chrome, My Activity, Maps, Fit, Timeline, Google Chat, Access Log Activity, Google Photos or YouTube history. Export those products from takeout.google.com in JSON format.`
         : `No ${EXPECTED[source]} found in ${path}. Check that you chose the right source and the right export.`
     );
+  for (const job of jobs)
+    if (job.kind === "events" && UNVERIFIED_SOURCES.has(job.source))
+      notes.push(
+        `${job.source}: format not yet checked against a real Takeout; read the skipped reasons below and report a file that does not parse.`
+      );
   if (archive.duplicates.length > 0)
     notes.push(
       `${archive.duplicates.length} path(s) appear in more than one zip part (for example ${archive.duplicates[0]}); only the first copy was read.`

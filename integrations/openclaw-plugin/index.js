@@ -24,8 +24,7 @@ function readManifest() {
 export default {
   id: "openrhen",
   name: "OpenRhen",
-  description:
-    "Connects OpenClaw to OpenRhen over remote MCP, teaches the agent to drive it, and reports agent time.",
+  description: "Connects OpenClaw to OpenRhen over remote MCP, teaches the agent to drive it, and reports agent time.",
   register(api) {
     const manifest = readManifest();
     const problem = manifest ? unstampedProblem(manifest) : undefined;
@@ -35,8 +34,14 @@ export default {
       api.logger.info("OpenRhen agent time is not reported: set agentTimeToken in the plugin's settings.");
       return;
     }
-    if (typeof config.portalUrl !== "string" || config.portalUrl.length === 0 || config.portalUrl.includes(PLACEHOLDER_HOST)) {
-      api.logger.info("OpenRhen agent time is not reported: run stamp-url.mjs or set portalUrl in the plugin's settings.");
+    if (
+      typeof config.portalUrl !== "string" ||
+      config.portalUrl.length === 0 ||
+      config.portalUrl.includes(PLACEHOLDER_HOST)
+    ) {
+      api.logger.info(
+        "OpenRhen agent time is not reported: run stamp-url.mjs or set portalUrl in the plugin's settings."
+      );
       return;
     }
     const reporter = createAgentTimeReporter({

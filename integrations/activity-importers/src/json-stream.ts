@@ -18,7 +18,7 @@ const MAX_ELEMENT_CHARS = 8 * 1024 * 1024;
  */
 export async function* jsonArrayObjects(
   source: ByteSource,
-  onEnd: (info: { truncated: boolean; sawArray: boolean }) => void = () => undefined
+  onEnd: (info: { truncated: boolean; sawArray: boolean; topKeys: string[] }) => void = () => undefined
 ): AsyncGenerator<JsonElement> {
   const stack: string[] = [];
   let inString = false;
@@ -28,20 +28,39 @@ export async function* jsonArrayObjects(
   let pending = "";
   let sawArray = false;
   let aborted = false;
+  // The names of the top-level object's keys (at most 20), so a caller can say what a document held when it had no array of rows.
+  const topKeys: string[] = [];
+  let expectKey = false;
+  let keyText = "";
+  let inKey = false;
   for await (const chunk of textChunks(source)) {
     let from = 0;
     for (let i = 0; i < chunk.length; i += 1) {
       const code = chunk.charCodeAt(i);
       if (inString) {
-        if (escaped) escaped = false;
-        else if (code === 0x5c) escaped = true;
-        else if (code === 0x22) inString = false;
+        if (escaped) {
+          escaped = false;
+          if (inKey && keyText.length < 60) keyText += chunk[i];
+        } else if (code === 0x5c) escaped = true;
+        else if (code === 0x22) {
+          inString = false;
+          if (inKey) {
+            inKey = false;
+            if (topKeys.length < 20) topKeys.push(keyText.slice(0, 40));
+          }
+        } else if (inKey && keyText.length < 60) keyText += chunk[i];
         continue;
       }
       if (code === 0x22) {
         inString = true;
+        if (expectKey && stack.length === 1 && stack[0] === "{") {
+          inKey = true;
+          keyText = "";
+          expectKey = false;
+        }
         continue;
       }
+      if (code === 0x2c && stack.length === 1 && stack[0] === "{") expectKey = true;
       if (code === 0x5b || code === 0x7b) {
         // [ or {
         if (code === 0x5b && outerArrayDepth === -1 && stack.length <= 1) {
@@ -53,6 +72,7 @@ export async function* jsonArrayObjects(
           from = i;
           pending = "";
         }
+        if (code === 0x7b && stack.length === 0) expectKey = true;
         stack.push(code === 0x5b ? "[" : "{");
       } else if (code === 0x5d || code === 0x7d) {
         stack.pop();
@@ -82,5 +102,5 @@ export async function* jsonArrayObjects(
       }
     }
   }
-  onEnd({ truncated: aborted || stack.length > 0 || inString, sawArray });
+  onEnd({ truncated: aborted || stack.length > 0 || inString, sawArray, topKeys });
 }

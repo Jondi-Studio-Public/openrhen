@@ -59,6 +59,14 @@ export const ACTIVITY_SOURCES: Readonly<Record<string, ActivitySourceEntry>> = {
   "google-activity": { schemaVersion: 1, kinds: ["search", "view", "ask"] },
   "maps-places": { schemaVersion: 1, kinds: ["place"] },
   fit: { schemaVersion: 1, kinds: ["steps", "activity"] },
+  // Takeout Timeline. place_visit/activity_segment have an end; point is an instant. attrs: lat, lng, place_id, ...; content is the place name and address.
+  timeline: { schemaVersion: 1, kinds: ["place_visit", "activity_segment", "point"] },
+  // Takeout Google Chat. Reuses the gmail attrs shape (thread_id = space id, from, from_self, direction); content is the message text.
+  "google-chat": { schemaVersion: 1, kinds: ["message"] },
+  // Takeout Access Log Activity. attrs: product, activity_type only; the IP address and user-agent are never read.
+  "google-access-log": { schemaVersion: 1, kinds: ["access"] },
+  // Takeout Google Photos sidecar metadata only (never the media). attrs: lat, lng, uploaded_at; content is the file name and description.
+  "google-photos": { schemaVersion: 1, kinds: ["photo", "video"] },
   spotify: { schemaVersion: 1, kinds: ["play"] },
   "discord-package": { schemaVersion: 1, kinds: ["message"] },
   "apple-health": { schemaVersion: 1, kinds: ["sleep", "workout", "steps"] },

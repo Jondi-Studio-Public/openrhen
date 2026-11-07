@@ -45,7 +45,14 @@ test("the tarball holds the files list and package.json, sorted, under openclaw-
   const names = listing.map((line) => line.split(/\s+/).at(-1));
   assert.deepEqual(names, [...names].sort());
   for (const name of names) assert.ok(name.startsWith("openclaw-plugin/"), name);
-  for (const entry of ["package.json", "openclaw.plugin.json", "index.js", "agent-time.js", "stamp-url.mjs", "README.md"]) {
+  for (const entry of [
+    "package.json",
+    "openclaw.plugin.json",
+    "index.js",
+    "agent-time.js",
+    "stamp-url.mjs",
+    "README.md"
+  ]) {
     assert.ok(names.includes(`openclaw-plugin/${entry}`), entry);
   }
   assert.ok(names.some((name) => name.startsWith("openclaw-plugin/skills/") && name.endsWith("SKILL.md")));

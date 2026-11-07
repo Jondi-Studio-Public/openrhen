@@ -26,18 +26,22 @@ describe("jsonArrayObjects", () => {
   });
 
   it("reports a malformed element without stopping, and a cut-off file as truncated", async () => {
-    let end: { truncated: boolean; sawArray: boolean } | undefined;
+    let end: { truncated: boolean; sawArray: boolean; topKeys: string[] } | undefined;
     const elements = await collect(
       jsonArrayObjects(chunked('[{"a":1},{"b":oops},{"c":3},{"d":', 5), (info) => (end = info))
     );
     expect(elements.map((e) => e.ok)).toEqual([true, false, true]);
-    expect(end).toEqual({ truncated: true, sawArray: true });
+    expect(end).toEqual({ truncated: true, sawArray: true, topKeys: [] });
   });
 
   it("says when there is no array at all", async () => {
-    let end: { truncated: boolean; sawArray: boolean } | undefined;
+    let end: { truncated: boolean; sawArray: boolean; topKeys: string[] } | undefined;
     await collect(jsonArrayObjects(chunked('{"a":1}', 2), (info) => (end = info)));
-    expect(end).toEqual({ truncated: false, sawArray: false });
+    expect(end).toEqual({ truncated: false, sawArray: false, topKeys: ["a"] });
+    await collect(
+      jsonArrayObjects(chunked('{"x":{"y":[1]},"k\\"q":[{"v":"a,\\"b\\":"}],"z":2}', 3), (info) => (end = info))
+    );
+    expect(end?.topKeys).toEqual(["x", 'k"q', "z"]);
   });
 });
 
