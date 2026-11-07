@@ -424,9 +424,13 @@ export function explainActivityRefusal(
       message:
         `The plan is not tracking that ${label} now because the commitment "${holder.title}" (id ${String(holder.id)}) holds ` +
         `this time${until}, so there is nothing to start. Nothing is wrong with the ${label} itself. A commitment keeps ` +
-        "its protected block until it ends, even when its session was finished or the owner has said they are done early. " +
-        "Do not retry this start. The options are: wait until the block ends; or, if the owner no longer wants the " +
-        "commitment at all, rhen_cancel it (that cancels the whole commitment, not just today's block). Ask the owner which.",
+        "its protected block until it ends, unless the owner frees it, even when its session was finished. " +
+        "Do not retry this start. If the owner says they are done with the commitment, call rhen_save_commitment " +
+        `{"fields":{"id":"${String(holder.id)}","free":true}} (the commitment stays; free:false takes it back), then ` +
+        "rhen_status and start again. free works only while the commitment is running now (confirmed, started and not " +
+        "yet ended); if the save says it is not found, the id is not a stored commitment, so ask the owner. " +
+        "Otherwise wait until the block ends. Use rhen_cancel only if the owner no longer " +
+        "wants the commitment at all: it cancels the whole commitment.",
       nextCall: statusCall
     };
   }
