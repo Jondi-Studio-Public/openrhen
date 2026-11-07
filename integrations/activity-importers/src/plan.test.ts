@@ -50,6 +50,74 @@ describe("planImport", () => {
     expect(counts).toEqual({ "chrome-takeout": 1, "google-activity": 1, "maps-places": 0, fit: 1 });
   });
 
+  it("finds the Timeline, Google Chat, Access Log and Photos files by name, reads only photo sidecars, and reports products not found", async () => {
+    const path = join(dir, "takeout-new.zip");
+    const media = Buffer.from("MEDIA-BYTES-MUST-NOT-BE-READ");
+    writeFileSync(
+      path,
+      makeZip([
+        {
+          name: "Takeout/Location History (Timeline)/Records.json",
+          data: JSON.stringify({ locations: [{ timestampMs: "1767323045123", latitudeE7: 1, longitudeE7: 2 }] })
+        },
+        {
+          name: "Takeout/Location History (Timeline)/Semantic Location History/2026/2026_JANUARY.json",
+          data: JSON.stringify({ timelineObjects: [] })
+        },
+        {
+          name: "Takeout/Google Chat/Users/User 1/user_info.json",
+          data: JSON.stringify({ user: { email: "me@example.test" } })
+        },
+        {
+          name: "Takeout/Google Chat/Groups/Space AAA/messages.json",
+          data: JSON.stringify({
+            messages: [
+              {
+                creator: { email: "me@example.test" },
+                created_date: "Monday, January 2, 2023 at 3:04:05 PM UTC",
+                message_id: "AAA/1",
+                text: "hi"
+              }
+            ]
+          })
+        },
+        { name: "Takeout/Google Chat/Groups/Space AAA/group_info.json", data: "{}" },
+        {
+          name: "Takeout/Access Log Activity/Activities - A list of Google services accessed by.csv",
+          data: "Activity Timestamp,Product Name,IP Address\n2026-01-02 03:04:05 UTC,Gmail,1.2.3.4\n"
+        },
+        { name: "Takeout/Access Log Activity/Devices - A list of devices that have accessed.csv", data: "x\n" },
+        { name: "Takeout/Google Photos/Trip/IMG_1.jpg", data: media },
+        {
+          name: "Takeout/Google Photos/Trip/IMG_1.jpg.json",
+          data: JSON.stringify({ title: "IMG_1.jpg", photoTakenTime: { timestamp: "1767323045" } })
+        },
+        { name: "Takeout/Google Photos/Trip/metadata.json", data: JSON.stringify({ title: "Trip" }) }
+      ])
+    );
+    const plan = await planImport("takeout", path);
+    expect(plan.jobs.map((job) => job.source)).toEqual([
+      "timeline",
+      "google-chat",
+      "google-access-log",
+      "google-photos"
+    ]);
+    expect(plan.notes.filter((note) => note.startsWith("No ")).length).toBe(5);
+    const counts: Record<string, number> = {};
+    const files: Record<string, string[]> = {};
+    for (const job of plan.jobs) {
+      if (job.kind !== "events") continue;
+      const events = await collect(job.events());
+      counts[job.source] = events.length;
+      files[job.source] = job.files;
+      expect(JSON.stringify(events)).not.toContain("MEDIA-BYTES");
+      expect(JSON.stringify(events)).not.toContain("1.2.3.4");
+    }
+    expect(counts).toEqual({ timeline: 1, "google-chat": 1, "google-access-log": 1, "google-photos": 1 });
+    expect(files["google-photos"]).toEqual(["Takeout/Google Photos/Trip/IMG_1.jpg.json"]);
+    expect(files["google-access-log"]).toHaveLength(1);
+  });
+
   it("records each source of one zip under its own hash, and a bare file under its own", async () => {
     const path = join(dir, "takeout2.zip");
     writeFileSync(path, takeout);

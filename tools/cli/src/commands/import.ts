@@ -83,6 +83,7 @@ export const importCommand: CommandSpec = {
     "import commit 3f2a1c4e-... --ready-only --yes",
     "import delete 3f2a1c4e-... --yes",
     "import takeout C:\\Users\\you\\Documents\\data-exports\\takeout-001.zip",
+    "import timeline C:\\Users\\you\\Documents\\data-exports\\Records.json --dry-run",
     "import spotify C:\\Users\\you\\Documents\\data-exports\\my_spotify_data.zip --dry-run",
     "import apple-health C:\\Users\\you\\Documents\\data-exports\\export.zip"
   ],

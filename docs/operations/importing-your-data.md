@@ -28,7 +28,7 @@ You need this when you want to load a data export (Google Takeout, Spotify, Disc
    Invoke-RestMethod -Method Put -Uri "$env:OPENRHEN_URL/api/activity-sources/spotify" -ContentType "application/json" -Body '{"contentEnabled": true}'
    ```
 
-   This route is owner-only, so a portal that runs with `OPENRHEN_OWNER_AUTH=require` needs the owner credential on the request (see "Owner token" in the [CLI README](../../tools/cli/README.md)); there is no settings screen for it yet. Use `chrome-takeout`, `google-activity`, `maps-places`, `fit`, `spotify`, `discord-package` or `apple-health` in place of `spotify`. The gate decides what is stored from then on; turning it on after an import does not bring the dropped text back, so set it first.
+   This route is owner-only, so a portal that runs with `OPENRHEN_OWNER_AUTH=require` needs the owner credential on the request (see "Owner token" in the [CLI README](../../tools/cli/README.md)); there is no settings screen for it yet. Use `chrome-takeout`, `google-activity`, `maps-places`, `fit`, `timeline`, `google-chat`, `google-access-log`, `google-photos`, `spotify`, `discord-package` or `apple-health` in place of `spotify`. The gate decides what is stored from then on; turning it on after an import does not bring the dropped text back, so set it first.
 
 4. **Put the exports in one folder**, for example `C:\Users\you\Documents\data-exports\`, and quote any path with a space.
 
@@ -36,7 +36,7 @@ Try any import first with `--dry-run`: it parses the file and prints what would 
 
 ## What to request, and in which format
 
-### Google Takeout (Chrome, My Activity, Maps, Fit, YouTube)
+### Google Takeout (Chrome, My Activity, Maps, Fit, Timeline, Chat, Access Log, Photos, YouTube)
 
 Go to takeout.google.com, choose **Deselect all**, then tick only:
 
@@ -46,6 +46,10 @@ Go to takeout.google.com, choose **Deselect all**, then tick only:
 | My Activity | all products except YouTube (Search, Maps, Assistant, Gemini Apps, Discover) | **JSON**, not HTML | `google-activity` searches, views and prompts |
 | Maps (your places) | saved places | JSON | `maps-places` |
 | Fit | daily activity metrics | CSV | `fit` steps (best effort) |
+| Timeline (Location History) | all data | JSON | `timeline` place visits, activity segments and location points (**unverified**) |
+| Google Chat | all data | JSON | `google-chat` messages (**unverified**) |
+| Access Log Activity | all data | CSV or JSON | `google-access-log` accesses (**unverified**) |
+| Google Photos | all albums | JSON sidecars come with the photos | `google-photos` photo and video metadata (**unverified**) |
 | YouTube and YouTube Music | history | **JSON**, not HTML | the existing watch-history route |
 
 Pick **Export once**, `.zip`, and the largest part size offered. A large export arrives as several parts; download them all into one folder and point the command at the folder. Google builds the export in hours to a day or two and emails a link that expires after a week.
@@ -82,7 +86,12 @@ Notes on what Takeout gives and what this reads:
 - **Maps**: a saved place becomes an instant event at the date it was saved. A place with no date (labelled places such as Home and Work carry none in the file) has no time to put it at, so it is skipped and counted.
 - **Fit** is being retired by Google and its export has changed shape before, so it is best effort. Interval files (`Daily activity metrics/2026-01-02.csv`) become step events with their time zone. A per-day summary file becomes one approximate event per day, because a bare date has no time zone.
 - **Chrome** times are read as microseconds since 1970, and a value outside 1995 to tomorrow is skipped, because guessing a different epoch would move every visit.
-- Location history (Timeline) is not read.
+- **Unverified formats.** The Timeline, Google Chat, Access Log Activity and Google Photos parsers were written from the documented and community-known shapes of those exports, with synthetic test fixtures, and have not been run against a real export. Run `--dry-run` first and read the skipped reasons: a format that has drifted is skipped and counted, never guessed. Report a real file that does not parse.
+- **Timeline** reads `Records.json` (raw points, one `point` event each: a long history is millions of rows), `Semantic Location History/<year>/<year>_<MONTH>.json` (`place_visit` with start and end, `activity_segment` with both ends) and the on-device `Timeline.json` (a list, or `semanticSegments`; path points become `point`). Times need a zone or are epoch milliseconds; a number of another size is skipped, not rescaled. Place name and address are text (`content`); positions are in `attrs` (rounded to about a metre), so, like Maps places, they are kept whatever the content gate says. The raw `Records.json` points file is the biggest source in a Takeout; import it on its own with `rhen import timeline <Records.json>` if you do not want it in a `takeout` run.
+- **Google Chat** reads `Groups/<space>/messages.json`; the space id is `thread_id` and each message (yours and others') is a `message` with the sender's address as `from`. Only the text is kept (as content); annotations and attachment names are not. Who you are comes from `Users/<id>/user_info.json`; without it `from_self` and `direction` are left out. `created_date` is English text such as "Monday, January 2, 2023 at 3:04:05 PM UTC"; a message in another wording or zone is skipped and counted, because reading it would mean guessing. `group_info.json` is not read.
+- **Access Log Activity** reads the "Activities" file only (the "Devices" file is not read). Each row becomes an `access` with the product and activity type. The IP address and user-agent columns are never read, so they cannot reach the store.
+- **Google Photos** reads only the small `.json` sidecar beside each photo or video (`IMG_1234.jpg.json`, or `.supplemental-metadata.json`). The photo and video files are never opened or sent, and album `metadata.json` is ignored. One event per item (`photo` or `video`) at `photoTakenTime`, with its position in `attrs`, and file name and description as content. An item with no `photoTakenTime` is skipped (the upload time is not when it happened). One caution: when the export is a single zip, the recorded checksum is the zip's SHA-256, which reads the whole zip on this computer to hash it; nothing in it is parsed or sent except the sidecars. An unzipped folder hashes only the sidecars.
+- **Flow** (Google's Takeout "Flow" product) is not read: its file format is not documented anywhere in this repository and cannot be built without a real export. Send a sample (with private content removed) and it can be added.
 
 ### Spotify
 

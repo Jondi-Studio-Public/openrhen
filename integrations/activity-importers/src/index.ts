@@ -17,6 +17,10 @@ export {
 export { parseChromeHistory } from "./parsers/chrome.js";
 export { parseGoogleActivity } from "./parsers/google-activity.js";
 export { parseMapsPlaces, type PlaceList } from "./parsers/maps.js";
+export { parseTimeline } from "./parsers/timeline.js";
+export { chatSpaceId, parseChatDate, parseChatOwner, parseGoogleChatMessages } from "./parsers/google-chat.js";
+export { parseAccessLogCsv, parseAccessLogJson } from "./parsers/access-log.js";
+export { isPhotoSidecarName, parseGooglePhotosSidecar, photoKindOf } from "./parsers/google-photos.js";
 export { parseFitMetrics } from "./parsers/fit.js";
 export { parseSpotifyHistory } from "./parsers/spotify.js";
 export { channelIdFromFolder, parseDiscordMessagesCsv, parseDiscordMessagesJson } from "./parsers/discord.js";
