@@ -3421,3 +3421,61 @@ export const youtubeQuotaUse = pgTable(
     check("youtube_quota_use_units_check", sql`${table.unitsSpent} >= 0`)
   ]
 );
+
+/**
+ * The Now offer log: what Now offered, and what happened next. Append-only, one row per event, never updated and
+ * never deleted by code (rows go only with their user, by the cascade). Kept apart from planning retention
+ * (`plan-retention.ts` deletes unchosen offers after 7 days), so `recommendation_id` and `target_id` carry no foreign
+ * key and `label` snapshots the title: a deleted recommendation or action still reads. Written in the same
+ * transaction as the thing it records (`offered` when a plan is published, an outcome when a command is applied) by
+ * `offer-log/offer-log.ts`; a failed insert rolls that transaction back. The planner and the engine never read it
+ * (`watch-history/engine-blind.test.ts`), so it is no plan input. In `BACKUP_TABLES` (format 21): history nothing
+ * regenerates. See `docs/operations/database-and-backups.md`.
+ *
+ * `rank` is the target's rank in the user's latest `offered` row before the command (`rank_basis` says whether there was
+ * one); a target outside that row's top 5 has a null rank and `detail.off_plan = true`.
+ */
+export const offerLog = pgTable(
+  "offer_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+    event: text("event").notNull(),
+    recommendationId: uuid("recommendation_id"),
+    surface: text("surface").notNull().default("server"),
+    resolutionKind: text("resolution_kind"),
+    targetType: text("target_type"),
+    targetId: text("target_id"),
+    executionOptionId: text("execution_option_id"),
+    label: text("label"),
+    rank: smallint("rank"),
+    rankBasis: text("rank_basis"),
+    candidates: jsonb("candidates"),
+    validUntil: timestamp("valid_until", { withTimezone: true }),
+    actor: text("actor"),
+    commandId: uuid("command_id"),
+    detail: jsonb("detail")
+      .notNull()
+      .default(sql`'{}'::jsonb`)
+  },
+  (table) => [
+    check(
+      "offer_log_event_check",
+      sql`${table.event} IN ('offered','shown','started','skipped','did_not_start','blocked','snoozed','checked_in')`
+    ),
+    check("offer_log_surface_check", sql`${table.surface} IN ('server','portal','handheld')`),
+    check(
+      "offer_log_rank_basis_check",
+      sql`${table.rankBasis} IS NULL OR ${table.rankBasis} IN ('offered_row','none')`
+    ),
+    check("offer_log_rank_check", sql`${table.rank} IS NULL OR ${table.rank} >= 1`),
+    index("offer_log_user_time_idx").on(table.userId, table.occurredAt),
+    index("offer_log_user_event_time_idx").on(table.userId, table.event, table.occurredAt.desc()),
+    uniqueIndex("offer_log_command_event_target_idx")
+      .on(table.commandId, table.event, table.targetId)
+      .where(sql`${table.commandId} IS NOT NULL`)
+  ]
+);

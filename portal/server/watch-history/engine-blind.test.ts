@@ -4,14 +4,18 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 /**
- * Watch history stays invisible to the planning engine: its tables are not plan inputs (so a write queues no
- * recalculation) and nothing that builds the portal state or the forecast request reads them.
+ * Watch history and the Now offer log stay invisible to the planning engine: their tables are not plan inputs (so a
+ * write queues no recalculation) and nothing that builds the portal state or the forecast request reads them.
  */
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "..", "..", "..");
 const WATCH_TABLES = ["watch_events", "watch_imports", "video_info"];
-/** The watch-history tables and the tables that support them (saved keys, the YouTube quota counter): none feeds the plan. */
-const BLIND_TABLES = [...WATCH_TABLES, "app_secrets", "youtube_quota_use"];
+/**
+ * The watch-history tables and the tables that support them (saved keys, the YouTube quota counter), and the Now offer
+ * log: none feeds the plan. The offer log is write-only for planning: `plan-forecast-runtime.ts` appends an `offered`
+ * row through `offer-log/offer-log.ts`, which lives outside `planning/`, and no planning or engine file names the table.
+ */
+const BLIND_TABLES = [...WATCH_TABLES, "app_secrets", "youtube_quota_use", "offer_log"];
 
 const SKIPPED_DIRECTORIES = new Set([
   "node_modules",
@@ -44,7 +48,9 @@ const MAY_NAME_BLIND_TABLES = new Set([
   "portal/server/persistence/postgres/app-secrets-store.ts",
   "portal/server/secrets/read-secret.ts",
   "platform/database/src/schema/core.ts",
-  "platform/database/src/operations/backup-format.ts"
+  "platform/database/src/operations/backup-format.ts",
+  "platform/database/src/operations/private/legacy-backups.ts",
+  "platform/database/src/offer-log/offer-log.ts"
 ]);
 
 describe("watch history is blind to the engine", () => {
@@ -69,6 +75,31 @@ describe("watch history is blind to the engine", () => {
     expect(files.length).toBeGreaterThan(5);
     for (const file of files)
       for (const table of BLIND_TABLES) expect(file.text, `${file.path} names ${table}`).not.toContain(table);
+  });
+
+  it("is never read by the engine, and retention and planning only append through the helper", () => {
+    const engine = sources(join(repo, "engine"));
+    expect(engine.length).toBeGreaterThan(20);
+    for (const file of engine) {
+      expect(file.text, `${file.path} names the offer log`).not.toContain("offer_log");
+      expect(file.text, `${file.path} imports the offer log helper`).not.toContain("offer-log");
+    }
+    const planning = sources(join(repo, "platform", "database", "src", "planning"));
+    const importing = planning
+      .filter((file) => file.text.includes("offer-log"))
+      .map((file) => relative(repo, file.path).split(sep).join("/"));
+    // The one planning file that touches the log appends an `offered` row; it imports the writer, never a reader or the table.
+    expect(importing).toEqual(["platform/database/src/planning/plan-forecast-runtime.ts"]);
+    const runtime = planning.find((file) => file.path.endsWith("plan-forecast-runtime.ts"))!.text;
+    const imported = /import \{([^}]*)\} from "\.\.\/offer-log\/offer-log\.js"/.exec(runtime)?.[1] ?? "";
+    expect(
+      imported
+        .split(",")
+        .map((name) => name.trim().replace(/^type /, ""))
+        .sort()
+    ).toEqual(["OFFER_LOG_TOP_CANDIDATES", "OfferedCandidate", "recordOffered"]);
+    const retention = planning.find((file) => file.path.endsWith("plan-retention.ts"))!.text;
+    expect(retention).not.toMatch(/offer[-_]log/);
   });
 
   it("is named by no other non-test source in the repository", () => {

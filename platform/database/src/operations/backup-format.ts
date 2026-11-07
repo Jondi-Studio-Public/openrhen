@@ -119,7 +119,11 @@ const CORE_BACKUP_TABLES = [
   // does not lose years of history; `watch_events` references `watch_imports` and `users`, so it comes second.
   // Neither is a plan input and the engine never reads them.
   "watch_imports",
-  "watch_events"
+  "watch_events",
+  // The Now offer log (format 21): what Now offered and what happened next. Append-only history nothing regenerates
+  // (`plan-retention.ts` deletes the recommendations it describes after a week). References only `users`. A format 20
+  // backup has no such table and restores with it empty (`legacy-backups.ts`). The planner never reads it.
+  "offer_log"
 ] as const;
 
 export const BACKUP_TABLES: readonly BackupTable[] = [...CORE_BACKUP_TABLES, ...groupBackupTables("current")];
@@ -215,7 +219,7 @@ export type BackupTables = Record<CoreBackupTable, Record<string, unknown>[]> &
   Record<string, Record<string, unknown>[]>;
 
 /** The format a new backup is written in. A format bump changes this one constant and nothing else. */
-export const CURRENT_BACKUP_FORMAT_VERSION = 20 as const;
+export const CURRENT_BACKUP_FORMAT_VERSION = 21 as const;
 
 /** Only a current-format backup is held to a row-for-row content check on restore (S8-11). */
 export function isContentVerifiedFormat(formatVersion: number): boolean {
@@ -313,7 +317,7 @@ export function validateBackup(value: unknown): OpenRhenBackup {
     throw new Error("Unsupported or incomplete OpenRhen backup");
   }
   const version = backup.formatVersion;
-  // An older format is read only where the private reader registers its table list; this build restores format 20 alone.
+  // An older format is read only where the legacy reader registers its table list (format 20 is registered there).
   const required =
     version === CURRENT_BACKUP_FORMAT_VERSION
       ? BACKUP_TABLES
@@ -326,7 +330,11 @@ export function validateBackup(value: unknown): OpenRhenBackup {
       Number.isInteger(version) &&
       version >= 1 &&
       version < CURRENT_BACKUP_FORMAT_VERSION
-        ? `: this build restores format ${CURRENT_BACKUP_FORMAT_VERSION} backups only`
+        ? `: this build restores format ${CURRENT_BACKUP_FORMAT_VERSION} backups${
+            legacyRequiredTables(CURRENT_BACKUP_FORMAT_VERSION - 1)
+              ? ` and format ${CURRENT_BACKUP_FORMAT_VERSION - 1} ones`
+              : ""
+          } only`
         : "";
     throw new Error(`Unsupported backup formatVersion ${String(version)}${reason}`);
   }

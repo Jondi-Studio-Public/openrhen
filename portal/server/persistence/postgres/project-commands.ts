@@ -13,6 +13,7 @@ import { pathwaysToStore } from "./requirement-pathways";
 import { readStateAfterCommit } from "./read-after-commit";
 import { watchActionWrite, watchProjectWrite } from "./entity-snapshot";
 import type { PoolSql } from "./sql-pool";
+import { logOfferOutcome } from "./offer-log-writer";
 import { WriteSnapshot } from "./write-snapshot";
 
 export async function saveProject(sql: PoolSql, command: SaveProjectCommand): Promise<PortalState> {
@@ -153,9 +154,10 @@ export async function saveAction(sql: PoolSql, command: SaveActionCommand): Prom
         latest_start_at: Date | null;
         prep_for_commitment_id: string | null;
         notes: string | null;
+        available_from: Date | null;
         before: Record<string, unknown>;
       }[]
-    >`SELECT ac.version, ac.remaining_minutes, ac.deadline_at, ac.latest_start_at, ac.prep_for_commitment_id, ac.notes, to_jsonb(ac) - 'notes' AS before FROM actions ac JOIN projects p ON p.id=ac.project_id JOIN outcomes o ON o.id=p.outcome_id JOIN areas ar ON ar.id=o.area_id WHERE ac.id=${id} AND ar.user_id=${userId} FOR NO KEY UPDATE OF ac`;
+    >`SELECT ac.version, ac.remaining_minutes, ac.available_from, ac.deadline_at, ac.latest_start_at, ac.prep_for_commitment_id, ac.notes, to_jsonb(ac) - 'notes' AS before FROM actions ac JOIN projects p ON p.id=ac.project_id JOIN outcomes o ON o.id=p.outcome_id JOIN areas ar ON ar.id=o.area_id WHERE ac.id=${id} AND ar.user_id=${userId} FOR NO KEY UPDATE OF ac`;
     // The same test the rule write below uses: anything else deletes the rule and its history with it.
     // Null: the save drops the rule. Otherwise the windows it keeps, as the rule write below derives them.
     await watchActionWrite(
@@ -274,6 +276,27 @@ export async function saveAction(sql: PoolSql, command: SaveActionCommand): Prom
       await tx`UPDATE actions SET project_id=${projectId}, title=${action.title}, status=${action.status}, scheduling_mode=${schedulingMode}, optimistic_minutes=${action.optimisticMinutes}, expected_minutes=${action.expectedMinutes}, pessimistic_minutes=${action.pessimisticMinutes}, remaining_minutes=${action.remainingMinutes}, remaining_set_at=CASE WHEN ${remainingConfirmed} THEN CURRENT_TIMESTAMP ELSE remaining_set_at END, energy=${action.energy}, minimum_session_minutes=${action.minimumSessionMinutes}, maximum_session_minutes=${action.maximumSessionMinutes}, splittable=${action.splittable}, setup_minutes=${action.setupMinutes}, importance=${action.importance}, consequence=${action.consequence}, available_from=${action.availableFrom ? new Date(action.availableFrom) : null}, deadline_at=${deadlineAt}, latest_start_at=${latestStartAt}, notes=${notes}, private=COALESCE(${action.private ?? null},actions.private), prep_for_commitment_id=${prepForCommitmentId}, completed_at=COALESCE(${completedAt},actions.completed_at), assumed_fields=${pgNameArray(assumedFields)}::text[], version=version+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id}`;
     else
       await tx`INSERT INTO actions (id, project_id, title, status, scheduling_mode, optimistic_minutes, expected_minutes, pessimistic_minutes, remaining_minutes, energy, minimum_session_minutes, maximum_session_minutes, splittable, setup_minutes, importance, consequence, available_from, deadline_at, latest_start_at, notes, private, prep_for_commitment_id, completed_at, assumed_fields) VALUES (${id}, ${projectId}, ${action.title}, ${action.status}, ${schedulingMode}, ${action.optimisticMinutes}, ${action.expectedMinutes}, ${action.pessimisticMinutes}, ${action.remainingMinutes}, ${action.energy}, ${action.minimumSessionMinutes}, ${action.maximumSessionMinutes}, ${action.splittable}, ${action.setupMinutes}, ${action.importance}, ${action.consequence}, ${action.availableFrom ? new Date(action.availableFrom) : null}, ${deadlineAt}, ${latestStartAt}, ${notes}, ${action.private ?? false}, ${prepForCommitmentId}, ${completedAt}, ${pgNameArray(assumedFields)}::text[])`;
+    // Snooze is only a later `availableFrom` on a save, with no offer context: the offer log records it here, by diffing
+    // the stored value, so no client has to remember to report it. A first availability on a new action is not a snooze.
+    const snoozedUntil = action.availableFrom ? new Date(action.availableFrom) : null;
+    if (
+      existing[0] &&
+      snoozedUntil &&
+      snoozedUntil.getTime() > Date.now() &&
+      (!existing[0].available_from || snoozedUntil.getTime() > existing[0].available_from.getTime())
+    )
+      await logOfferOutcome(tx, userId, {
+        event: "snoozed",
+        commandId,
+        targetType: "action",
+        targetId: id,
+        label: action.title,
+        detail: {
+          command: "save_action",
+          until: snoozedUntil.toISOString(),
+          previous: existing[0].available_from ? existing[0].available_from.toISOString() : null
+        }
+      });
     await tx`DELETE FROM action_dependencies WHERE action_id=${id}`;
     // `action_contexts` (the flat per-action tag table) is retired. `requirementPathways` is
     // the sole stored source now; a caller sending only the legacy `contexts` is folded into one AND

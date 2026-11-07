@@ -27,6 +27,7 @@ import { deriveProjectPace } from "./completion-ratios.js";
 import { notifyStateChanged } from "./state-changed.js";
 import { recordNudgeShadow } from "./plan-nudge-shadow.js";
 import { readJourneySummary } from "./journey-summary.js";
+import { OFFER_LOG_TOP_CANDIDATES, recordOffered, type OfferedCandidate } from "../offer-log/offer-log.js";
 
 export const PLAN_FORECAST_JOB_TYPE = "plan_forecast.recalculate.v1";
 type UpsertAssignments = ReadonlyArray<readonly [column: string, value: postgres.PendingQuery<postgres.Row[]>]>;
@@ -742,6 +743,46 @@ export async function persistPlanForecastResult(
     if (!targetId) continue;
     await sql`INSERT INTO recommendation_candidates (recommendation_id,action_id,occurrence_id,target_type,target_id,execution_option_id,rank,total_score,score_components,eligible,exclusion_reasons,recommended_minutes) VALUES (${recommendationId},${actionId},${stringOrNull(candidate.action?.occurrenceId)},${targetType},${targetId},${stringOrNull(candidate.action?.executionOptionId)},${index + 1},${candidate.totalScore ?? 0},${sql.json((candidate.scoreComponents ?? {}) as never)},${candidate.eligible ?? false},${sql.json((candidate.exclusionReasons ?? []) as never)},${candidate.recommendedMinutes ?? null}) ON CONFLICT DO NOTHING`;
   }
+  // The offer history keeps what was offered after this run's candidates are gone (they are deleted on the next
+  // publish, and the recommendation row after a week). Same transaction: a plan that cannot be logged is not published.
+  // Only the top five are kept, and a run that offers what the last one did writes nothing (`recordOffered`).
+  const offeredCandidates: OfferedCandidate[] = [];
+  for (const [index, rawCandidate] of (recommendation.candidates ?? []).entries()) {
+    if (offeredCandidates.length >= OFFER_LOG_TOP_CANDIDATES) break;
+    const candidate = rawCandidate as {
+      action?: Record<string, unknown>;
+      totalScore?: number;
+      eligible?: boolean;
+      recommendedMinutes?: number | null;
+    };
+    const deliverableId = stringOrNull(candidate.action?.deliverableId);
+    const targetId = deliverableId ?? stringOrNull(candidate.action?.templateActionId ?? candidate.action?.id);
+    if (!targetId) continue;
+    offeredCandidates.push({
+      targetType: deliverableId ? "deliverable" : "action",
+      targetId,
+      executionOptionId: stringOrNull(candidate.action?.executionOptionId),
+      rank: index + 1,
+      score: candidate.totalScore ?? 0,
+      eligible: candidate.eligible ?? false,
+      minutes: candidate.recommendedMinutes ?? null
+    });
+  }
+  await recordOffered(sql, userId, {
+    recommendationId,
+    validUntil: new Date(result.validUntil),
+    primary:
+      primaryTargetId === null
+        ? null
+        : {
+            targetType: primaryTargetType,
+            targetId: primaryTargetId,
+            executionOptionId: stringOrNull(primaryAction?.executionOptionId),
+            label: stringOrNull(primaryAction?.title)
+          },
+    candidates: offeredCandidates,
+    actor: "system"
+  });
   return true;
 }
 
