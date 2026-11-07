@@ -540,6 +540,8 @@ describe("explainActivityRefusal (routine step, sleep, deliverable)", () => {
     expect(refusal.message).toContain('"Craig Cooking" (id craig) holds this time until 2026-11-06T04:00:00.000Z');
     expect(refusal.message).toContain("Do not retry");
     expect(refusal.message).toContain('{"fields":{"id":"craig","free":true}}');
+    expect(refusal.message).toContain("unless the owner frees it");
+    expect(refusal.message).toContain("only while the commitment is running now");
     expect(refusal.message).toContain("rhen_cancel");
     expect(refusal.message).not.toContain("from Now");
     expect(refusal.message).not.toContain("not present in the current Plan");
