@@ -7,6 +7,7 @@ import { resolve } from "node:path";
 import { integrationDatabaseName } from "@openrhen/database";
 import { runDerivedTick } from "@/server/derived/derived-runner";
 import {
+  ActivityInputError,
   deleteActivityImport,
   purgeActivitySource,
   purgeExpiredActivity,
@@ -230,6 +231,44 @@ describe("the tick applies a set retention", () => {
       retentionPurge: "not_set",
       lastPurge: null
     });
+  });
+});
+
+describe("settings and bad values", () => {
+  it("refuses a retention on derived and derived-shadow with a message saying why, and still lets null clear", async () => {
+    // `derived-shadow` is not a registered source until 2a-3; the guard names it so it holds once it is.
+    const refused = setActivitySourceSettings(sql, "derived", { retentionDays: 30 });
+    await expect(refused).rejects.toBeInstanceOf(ActivityInputError);
+    await expect(refused).rejects.toThrow(/not applied to derived rows.*kept as history.*raw source/s);
+    expect(await sql`SELECT 1 FROM activity_source_state WHERE retention_days IS NOT NULL`).toHaveLength(0);
+    await expect(setActivitySourceSettings(sql, "derived", { retentionDays: null })).resolves.toMatchObject({
+      retentionDays: null
+    });
+  });
+
+  it("skips a source whose retention makes an invalid cutoff, reports it, and still purges the others", async () => {
+    await source(userId, "gmail", "old-gmail");
+    await source(userId, "spotify", "old-spotify");
+    await sql`INSERT INTO activity_source_state (user_id, source, retention_days) VALUES (${userId}, 'gmail', 2147483647), (${userId}, 'spotify', 30)`;
+    const result = await tick();
+    expect(result).toMatchObject({
+      status: "ok",
+      retention: {
+        removed: 1,
+        sources: [
+          { source: "gmail", removed: 0, skipped: expect.stringMatching(/retention_days 2147483647/) },
+          { source: "spotify", removed: 1 }
+        ]
+      }
+    });
+    expect(await keys("gmail")).toEqual(["old-gmail"]);
+    expect(await keys("spotify")).toEqual([]);
+    const gmail = (await readActivitySummary(sql)).sources.find((s) => s.source === "gmail")!;
+    expect(gmail.lastPurge).toMatchObject({ removed: 0, skipped: expect.any(String) });
+    expect(await purgeExpiredActivity(sql, now)).toEqual([
+      { source: "gmail", removed: 0 },
+      { source: "spotify", removed: 0 }
+    ]);
   });
 });
 

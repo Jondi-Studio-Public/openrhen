@@ -52,6 +52,9 @@ describe("PUT /api/activity-sources/[source]", () => {
 
   it("answers a body it cannot read, or an unknown source, with a 400 or 404 that says what to send", async () => {
     expect((await put({ retentionDays: 0 })).status).toBe(400);
+    const tooLong = await put({ retentionDays: 36_501 });
+    expect(tooLong.status).toBe(400);
+    expect(((await tooLong.json()) as { error: string }).error).toContain("1 to 36500");
     expect((await put({ surprise: true })).status).toBe(400);
     store.setActivitySourceSettings.mockRejectedValue(new store.ActivityInputError('Source "x" is not known.', 404));
     expect((await put({ contentEnabled: true })).status).toBe(404);

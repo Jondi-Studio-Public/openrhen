@@ -66,11 +66,12 @@ interface SourceStateRow {
 }
 
 /** The last retention purge that deleted something, kept in the source state's cursor by the retention pass. */
-function readLastPurge(cursor: unknown): { removed: number; at: string } | null {
-  const held = (cursor as { lastPurge?: { removed?: unknown; at?: unknown } } | null)?.lastPurge;
-  return typeof held?.removed === "number" && typeof held.at === "string"
-    ? { removed: held.removed, at: held.at }
-    : null;
+function readLastPurge(cursor: unknown): { removed: number; at: string; skipped?: string } | null {
+  const held = (cursor as { lastPurge?: { removed?: unknown; at?: unknown; skipped?: unknown } } | null)?.lastPurge;
+  if (typeof held?.removed !== "number" || typeof held.at !== "string") return null;
+  return typeof held.skipped === "string"
+    ? { removed: held.removed, at: held.at, skipped: held.skipped }
+    : { removed: held.removed, at: held.at };
 }
 
 /**
@@ -362,6 +363,11 @@ export async function setActivitySourceSettings(sql: PoolSql, source: string, se
     throw new ActivityInputError(
       `Source "${source}" is not known. Use one of: ${ACTIVITY_SOURCE_NAMES.join(", ")}.`,
       404
+    );
+  if (typeof settings.retentionDays === "number" && (source === "derived" || source === "derived-shadow"))
+    throw new ActivityInputError(
+      `Retention is not applied to derived rows, they are kept as history (message classes and facts are what Mark learned from your mail). Set retention on the raw source instead, such as "gmail", and send {"retentionDays": null} to "${source}" to clear any value.`,
+      400
     );
   const userId = await ensureUser(sql);
   return sql.begin(async (tx) => {

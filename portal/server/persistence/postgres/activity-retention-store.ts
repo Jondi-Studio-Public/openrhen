@@ -18,6 +18,8 @@ export const RETENTION_BATCHES_PER_TICK = 4;
 export interface RetentionSourceResult {
   source: string;
   removed: number;
+  /** Why this source was left alone this pass (nothing deleted), when it was. */
+  skipped?: string;
 }
 
 export interface RetentionPassResult {
@@ -47,6 +49,17 @@ export async function purgeExpiredForUserTx(
     }
     const cutoff = new Date(now.getTime() - state.retention_days * 86_400_000);
     let removed = 0;
+    // A value no real date can come from (only a direct database write gets past the API's cap) skips this source for
+    // the pass, so one bad setting cannot stop the person's other sources.
+    if (!Number.isFinite(cutoff.getTime()) || cutoff.getUTCFullYear() < 1) {
+      const skipped = `retention_days ${state.retention_days} is too large to give a date; nothing was deleted for this source. Set it to at most 36500.`;
+      sources.push({ source: state.source, removed: 0, skipped });
+      await tx`
+        UPDATE activity_source_state
+        SET cursor = COALESCE(cursor, '{}'::jsonb) || ${tx.json({ lastPurge: { removed: 0, at: now.toISOString(), skipped } })}
+        WHERE user_id = ${userId} AND source = ${state.source}`;
+      continue;
+    }
     while (budget > 0) {
       const batch = await tx<{ id: string }[]>`
         SELECT id FROM activity_events
