@@ -49,3 +49,53 @@ export type {
   T0Share,
   WrongAutoAction
 } from "./eval-stats.js";
+export {
+  DENY_LIST_VERSION,
+  HOSTED_DENIALS,
+  HOSTED_MAX_CONTEXT,
+  HOSTED_MAX_TEXT_CODE_POINTS,
+  hostedEligibility,
+  vettedContext
+} from "./hosted-eligibility.js";
+export type {
+  HostedDenial,
+  HostedEligibility,
+  HostedEligibilityInput,
+  HostedMessage,
+  HostedVerdict
+} from "./hosted-eligibility.js";
+export {
+  FACT_REPLY_SCHEMA,
+  FACT_SYSTEM_PROMPT,
+  MAX_FACTS_PER_REPLY,
+  MAX_REPLY_CHARS,
+  MAX_REPLY_QUOTE_CODE_POINTS,
+  MODEL_FACT_TYPES,
+  PROMPT_LIMITS,
+  PROMPT_VERSION,
+  REPLY_FAILURES,
+  buildFactPrompt,
+  parseFactReply
+} from "./fact-prompt.js";
+export type {
+  FactPromptInput,
+  FactPromptResult,
+  ModelFactType,
+  ParsedFact,
+  PromptContext,
+  PromptMessage,
+  ReplyFailure,
+  ReplyResult
+} from "./fact-prompt.js";
+export { LINK_RELATIONS, MAX_LINK_CANDIDATES, linkCandidates, linkFromChoice } from "./link-candidates.js";
+export type { LinkCandidate, LinkLabel, LinkPoolFact, LinkRelation, LinkTarget } from "./link-candidates.js";
+export { MAX_WHEN_CANDIDATES, WHEN_LANGUAGES, WHEN_MAX_TEXT_CODE_POINTS, resolveWhen } from "./resolve-when.js";
+export type {
+  ResolveWhenFailure,
+  ResolveWhenInput,
+  ResolveWhenResult,
+  ResolvedWhen,
+  WhenCandidate
+} from "./resolve-when.js";
+export { CONTEXT_MESSAGES, localContext, newestContext } from "./context-select.js";
+export type { VettedContext } from "./context-select.js";
