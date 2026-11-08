@@ -407,3 +407,110 @@ describe("resolveWhen: a partly read expression is never reported as a single su
       expect(when(text, "UTC", SYDNEY_SUN, lang), text).toBeNull();
   });
 });
+
+describe("resolveWhen: review of PR 140", () => {
+  const LONDON_REF = "2026-11-08T12:00:00Z";
+  it.each(["en-GB", "en-US", "en", "en-AU"])(
+    "'Dec 25 at noon' and 'Nov 20 at 3pm' are those days of this year, not a year 2025 or 2020 (%s)",
+    (lang) => {
+      expect(when("Dec 25 at noon", "Europe/London", LONDON_REF, lang)).toMatchObject({
+        candidates: [{ start: "2026-12-25T12:00:00Z" }],
+        ambiguous: false
+      });
+      expect(when("Nov 20 at 3pm", "Europe/London", LONDON_REF, lang)).toMatchObject({
+        candidates: [{ start: "2026-11-20T15:00:00Z" }],
+        ambiguous: false
+      });
+      for (const text of ["Dec 25", "December 25th", "25 Dec", "25th December"]) {
+        const result = when(text, "Europe/London", LONDON_REF, lang);
+        expect(result?.candidates, `${text} ${lang}`).toEqual([
+          { start: "2026-12-25T00:00:00Z", end: "2026-12-26T00:00:00Z" }
+        ]);
+        expect(result?.ambiguous).toBe(true);
+      }
+    }
+  );
+
+  it("a non-ambiguous result that starts before the message, with no past word, is flagged", () => {
+    expect(when("today at 9am", "Australia/Sydney", SYDNEY_SUN)?.ambiguous).toBe(true);
+    expect(when("today at 9am yesterday", "Australia/Sydney", SYDNEY_SUN)).not.toBeNull();
+  });
+
+  it("an ordinal left unread next to a time takes that day: 'due 15th at 5pm' is the 15th, not today", () => {
+    expect(when("due 15th at 5pm")).toMatchObject({
+      candidates: [{ start: "2026-11-15T17:00:00+11:00" }],
+      ambiguous: true
+    });
+    expect(when("6pm on the 14th")?.candidates[0]?.start).toBe("2026-11-14T18:00:00+11:00");
+  });
+
+  it.each(["rent due on the 1st", "on the 5th", "by the 15th"])(
+    "an ordinal alone is ambiguous, not null: %s",
+    (text) => {
+      expect(when(text)?.ambiguous).toBe(true);
+    }
+  );
+
+  it.each(["Friday 22:00 - 02:00", "Friday 8pm-2am", "Friday from 8pm to 2am"])(
+    "an overnight range keeps its end on the next day: %s",
+    (text) => {
+      const c = when(text)?.candidates[0];
+      expect(c?.end, text).toMatch(/^2026-11-14T02:00:00\+11:00$/);
+    }
+  );
+
+  it("'Saturday at midnight' is the start of Sunday first, ambiguous with both", () => {
+    expect(when("Saturday at midnight")?.candidates.map((c) => c.start)).toEqual([
+      "2026-11-15T00:00:00+11:00",
+      "2026-11-14T00:00:00+11:00"
+    ]);
+  });
+
+  it("a four-digit year after a month name is still a year", () => {
+    expect(when("Dec 2027", "Australia/Sydney", SYDNEY_SUN, "en-GB")?.candidates[0]?.start).toMatch(/^2027-12/);
+  });
+
+  it.each(["by the 15th", "on the 3rd", "the 22nd", "by the 1st"])(
+    "a bare ordinal day is never a silent null: %s",
+    (text) => {
+      const result = when(text);
+      expect(result).not.toBeNull();
+      expect(result?.ambiguous).toBe(true);
+      expect(result?.candidates).toHaveLength(1);
+    }
+  );
+
+  it("a bare ordinal resolves to the next occurrence of that day of the month", () => {
+    // 8 Nov 2026 in Sydney: the 15th is this month, the 3rd is next month, the 8th is today.
+    expect(when("by the 15th")?.candidates[0]?.start).toBe("2026-11-15T00:00:00+11:00");
+    expect(when("on the 3rd")?.candidates[0]?.start).toBe("2026-12-03T00:00:00+11:00");
+    expect(when("on the 8th")?.candidates[0]?.start).toBe("2026-11-08T00:00:00+11:00");
+    expect(when("by the 31st", "Australia/Sydney", "2026-11-08T01:00:00Z")?.candidates[0]?.start).toBe(
+      "2026-12-31T00:00:00+11:00"
+    );
+    expect(when("by the 15th")?.raw).toEqual([3, 11]);
+  });
+
+  it("an overnight range ends the next day", () => {
+    expect(when("Friday 10pm to 2am")?.candidates).toEqual([
+      { start: "2026-11-13T22:00:00+11:00", end: "2026-11-14T02:00:00+11:00" }
+    ]);
+    expect(when("tomorrow from 11pm to 1am")?.candidates[0]?.end).toBe("2026-11-10T01:00:00+11:00");
+  });
+
+  it("'Friday midnight' means the end of Friday: both readings, the start of Saturday first, ambiguous", () => {
+    for (const text of ["Friday midnight", "midnight Friday", "midnight tomorrow"]) {
+      const result = when(text);
+      expect(result?.ambiguous, text).toBe(true);
+      expect(result?.candidates.length, text).toBe(2);
+    }
+    expect(when("Friday midnight")?.candidates.map((c) => c.start)).toEqual([
+      "2026-11-14T00:00:00+11:00",
+      "2026-11-13T00:00:00+11:00"
+    ]);
+    expect(when("midnight tonight")).toMatchObject({
+      candidates: [{ start: "2026-11-09T00:00:00+11:00" }],
+      ambiguous: false
+    });
+  });
+});

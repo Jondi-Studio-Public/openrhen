@@ -1,4 +1,4 @@
-import { CONTEXT_MESSAGES, type VettedContext } from "./context-select.js";
+import { CONTEXT_MESSAGES, type VettedCandidates, type VettedContext } from "./context-select.js";
 import { LINK_RELATIONS, MAX_LINK_CANDIDATES, type LinkCandidate } from "./link-candidates.js";
 
 /** Version of the wording below. Any change to the instruction text or the fences bumps it; a golden test pins the text. */
@@ -130,7 +130,7 @@ export interface FactPromptInput {
    */
   context?: VettedContext<PromptContext> | undefined;
   /** From `linkCandidates`; the model may point a fact at one by label. */
-  candidates?: readonly LinkCandidate[] | undefined;
+  candidates?: VettedCandidates<LinkCandidate> | undefined;
 }
 
 export type FactPromptResult =

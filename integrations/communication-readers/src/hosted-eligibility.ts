@@ -1,8 +1,15 @@
 import { classifyMessage } from "./classify-message.js";
-import { CONTEXT_MESSAGES, newestContext, type VettedContext } from "./context-select.js";
+import {
+  CONTEXT_MESSAGES,
+  newestContext,
+  relabel,
+  type VettedCandidates,
+  type VettedContext
+} from "./context-select.js";
+import type { LinkCandidate } from "./link-candidates.js";
 
 /** Version of the deny-list below. A change to any pattern or sender token bumps it; it is recorded with each hosted send later. */
-export const DENY_LIST_VERSION = "d2";
+export const DENY_LIST_VERSION = "d3";
 /** Text longer than this (code points, subject plus body) is never sent: the check reads all of it, and a bound keeps that cheap. */
 export const HOSTED_MAX_TEXT_CODE_POINTS = 200000;
 /** Context messages put in a prompt: the newest few of the conversation, per the plan. */
@@ -53,6 +60,8 @@ export interface HostedEligibilityInput {
   /** The earlier messages of the thread, oldest first. Only the newest 3 (`newestContext`) can be sent, and only those are checked. */
   context: readonly HostedMessage[];
   /** Lower-case sender addresses he has labelled sensitive. */
+  /** The link candidates whose quotes would go in the prompt (`linkCandidates`); each quote is checked like message text. */
+  candidates?: readonly (LinkCandidate | null | undefined)[] | undefined;
   sensitiveSenders?: ReadonlySet<string> | readonly string[];
 }
 
@@ -70,6 +79,10 @@ export interface HostedEligibility {
   context: HostedVerdict[];
   /** Indexes into the input `context` array of the messages that may go in the prompt; empty when `send` is false. */
   contextKept: number[];
+  /** One verdict per input candidate, same order (a null entry is not eligible). */
+  candidates: HostedVerdict[];
+  /** Indexes into the input `candidates` that may go in the prompt; empty when `send` is false. */
+  candidatesKept: number[];
   denyListVersion: typeof DENY_LIST_VERSION;
 }
 
@@ -335,7 +348,7 @@ const PASSWORD: RegExp[] = [
 
 const SENSITIVE_TOPIC: RegExp[] = [
   // health
-  /\b(?:diagnos\w{0,6}|medical|medication|prescription|prescribed|pathology|biopsy|oncolog\w*|cancer|chemo\w*|tumou?r|pregnan\w*|miscarriage|fertility|ivf|hiv|std|sti|surgery|surgeon|hospital|clinic|gp appointment|doctor'?s? appointment|doctor appointment|therap(?:y|ist|ies)|psychiatr\w*|psycholog\w*|psychotherap\w*|counsell?(?:or|ing)|mental health|depress\w*|anxiety|self[- ]harm|suicid\w*|rehab|addiction|(?:test|blood|scan|lab|medical|health|mri|pathology|biopsy) results?|blood test|referral|sick note|medical certificate|disabilit\w*|mri|ct scan|x-?ray|ultrasound|dementia|alzheimer\w*|bipolar|schizophren\w*|antidepress\w*|antipsychotic\w*|adhd|diabet\w*|insulin|epilep\w*|dentist|dental|orthodont\w*|chiropract\w*)\b/u,
+  /\b(?:diagnos\w{0,6}|medical|medication|prescription|prescribed|pathology|biopsy|oncolog\w*|cancer|chemo\w*|tumou?r|pregnan\w*|miscarriage|fertility|ivf|hiv|std|sti|surgery|surgeon|hospital|clinic|gp appointment|doctor'?s? appointment|doctor appointment|therap(?:y|ist|ies)|psychiatr\w*|psycholog\w*|psych\w*|physio\w*|dr\.? [a-z]+(?:'s)? (?:appointment|visit|rooms?)|(?:got|get|received|waiting for)\b[^.\n]{0,20}\bresults?\b|results? (?:came )?back|psychotherap\w*|counsell?(?:or|ing)|mental health|depress\w*|anxiety|self[- ]harm|suicid\w*|rehab|addiction|(?:test|blood|scan|lab|medical|health|mri|pathology|biopsy) results?|blood test|referral|sick note|medical certificate|disabilit\w*|mri|ct scan|x-?ray|ultrasound|dementia|alzheimer\w*|bipolar|schizophren\w*|antidepress\w*|antipsychotic\w*|adhd|diabet\w*|insulin|epilep\w*|dentist|dental|orthodont\w*|chiropract\w*)\b/u,
   words([
     "therapie",
     "arzttermin",
@@ -401,7 +414,7 @@ const SENSITIVE_TOPIC: RegExp[] = [
   ]),
   words(["律师", "律師", "离婚", "離婚", "裁判", "弁護士", "адвокат", "юрист", "развод"], false),
   // work, immigration, welfare, abuse
-  /\b(?:fired|let go|laid off|layoffs?|dismissal|terminated|redundan\w*|disciplinary|grievance|performance review|performance improvement plan|hr (?:said|told|investigation|meeting|complaint)|immigration|visa (?:application|(?:\w+ ){0,2}(?:refused|rejected|denied))|refused entry|citizenship|permanent residen\w*|work permit|green card|asylum|deportation|centrelink|welfare|child protection|domestic violence|domestic abuse|abus(?:e|ed|ive|er)|stalk\w*|coercive|harass\w*|sexual assault|assault\w*|rape|molest\w*|threatened|grief|funeral|bereave\w*)\b/u
+  /\b(?:fired|job interview|let go|laid off|layoffs?|dismissal|terminated|redundan\w*|disciplinary|grievance|performance review|performance improvement plan|hr (?:said|told|investigation|meeting|complaint)|immigration|visa (?:application|(?:\w+ ){0,2}(?:refused|rejected|denied))|refused entry|citizenship|permanent residen\w*|work permit|green card|asylum|deportation|centrelink|welfare|child protection|domestic violence|domestic abuse|abus(?:e|ed|ive|er)|stalk\w*|coercive|harass\w*|sexual assault|assault\w*|rape|molest\w*|threatened|grief|funeral|bereave\w*)\b/u
 ];
 
 const SECRET: RegExp[] = [
@@ -576,25 +589,54 @@ export function hostedEligibility(input: HostedEligibilityInput): HostedEligibil
   const message = verdict(input.message, sensitive);
   const picked = newestContext(input.context);
   const context = picked.map((entry) => verdict(entry.message, sensitive));
-  const threadSensitive = context.some((entry) => entry.reasons.some((reason) => CONTENT_DENIALS.has(reason)));
+  const inputCandidates = Array.isArray(input.candidates) ? input.candidates.slice(0, 5) : [];
+  const candidates = inputCandidates.map((entry): HostedVerdict => {
+    if (entry === null || typeof entry !== "object") return { eligible: false, reasons: ["no_text"] };
+    const quote = typeof entry.quote === "string" ? entry.quote : "";
+    if (Array.from(quote).length > HOSTED_MAX_TEXT_CODE_POINTS) return { eligible: false, reasons: ["text_too_long"] };
+    const reasons = quote.trim() === "" ? [] : textDenials(quote);
+    return { eligible: reasons.length === 0, reasons };
+  });
+  const threadSensitive =
+    context.some((entry) => entry.reasons.some((reason) => CONTENT_DENIALS.has(reason))) ||
+    candidates.some((entry) => entry.reasons.some((reason) => CONTENT_DENIALS.has(reason)));
   if (threadSensitive && message.eligible) {
     message.eligible = false;
     message.reasons.push("thread_sensitive");
   }
   const send = message.eligible;
+  const candidatesKept = send ? candidates.flatMap((entry, index) => (entry.eligible ? [index] : [])) : [];
   const contextKept = send ? picked.flatMap((entry, index) => (context[index]!.eligible ? [entry.index] : [])) : [];
-  return { send, message, context, contextKept, denyListVersion: DENY_LIST_VERSION };
+  const result: HostedEligibility = {
+    send,
+    message,
+    context,
+    contextKept,
+    candidates,
+    candidatesKept,
+    denyListVersion: DENY_LIST_VERSION
+  };
+  vettedMail.set(result, {
+    context: contextKept.map((index) => input.context[index] as HostedMessage),
+    candidates: candidatesKept.map((index) => inputCandidates[index] as LinkCandidate)
+  });
+  return result;
 }
 
+/** What each eligibility result cleared, kept by identity so a result that was copied or rebuilt clears nothing. */
+const vettedMail = new WeakMap<HostedEligibility, { context: HostedMessage[]; candidates: LinkCandidate[] }>();
+
 /**
- * The context messages that may go in the prompt, in order, ready for `buildFactPrompt`: those `hostedEligibility`
- * kept. Pass the same `context` array given to `hostedEligibility`. The result carries a brand `buildFactPrompt` requires.
+ * The context messages that may go in the prompt, in order, ready for `buildFactPrompt`: exactly those
+ * `hostedEligibility` kept for this result. A result that was copied or built by hand returns nothing.
  */
-export function vettedContext<T extends HostedMessage>(
-  eligibility: HostedEligibility,
-  context: readonly (T | null | undefined)[]
+export function vettedContext<T extends HostedMessage = HostedMessage>(
+  eligibility: HostedEligibility
 ): VettedContext<T> {
-  return eligibility.contextKept.flatMap((index) =>
-    context[index] ? [context[index] as T] : []
-  ) as unknown as VettedContext<T>;
+  return (vettedMail.get(eligibility)?.context ?? []) as unknown as VettedContext<T>;
+}
+
+/** The link candidates that may go in the prompt, relabelled `c1`.. in order; use this same list to read the model's answer. */
+export function vettedCandidates(eligibility: HostedEligibility): VettedCandidates<LinkCandidate> {
+  return relabel(vettedMail.get(eligibility)?.candidates) as unknown as VettedCandidates<LinkCandidate>;
 }

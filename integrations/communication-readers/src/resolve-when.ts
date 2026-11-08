@@ -458,8 +458,32 @@ const WEEK_OR_MONTH =
   /(?<![\p{L}])(?:weeks?|months?|wochen?|monate?|semaines?|mois|semanas?|mes(?:es)?|settimana|settimane|mesi|mese|maand|vecka|manad|månad|недел\p{L}*|месяц\p{L}*|тиждень|тижн\p{L}*|місяц\p{L}*)(?![\p{L}])|[週周月]/iu;
 const TIME_LIKE = /\d{1,2}\s?(?::|\.|h\b|am\b|pm\b|uhr\b|時|时|点|點)/iu;
 
-/** Whether the text outside the parsed spans still has anything that looks like part of a date or time. */
-function hasUnreadDate(text: string, spans: readonly [number, number][]): boolean {
+/** "the 15th", "5th": a day of the month with no month. */
+const ORDINAL_DAY = /(?<![\p{L}\d])(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)(?![\p{L}\d])/iu;
+/** A month name then one or two digits and no year after: "Dec 25" is the 25th, whatever the English variant. */
+const MONTH_DAY =
+  /(?<![\p{L}])(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+\d{1,2}(?:st|nd|rd|th)?(?![\d:])(?!\s*,?\s*\d{4})/iu;
+
+/** The next date (today included) whose day of the month is `day`, as UTC year, month index and day. */
+function nextDayOfMonth(refWallMs: number, day: number): { year: number; month: number } | null {
+  if (!Number.isInteger(day) || day < 1 || day > 31) return null;
+  const ref = new Date(refWallMs);
+  for (let ahead = 0; ahead < 14; ahead++) {
+    const year = ref.getUTCFullYear();
+    const month = ref.getUTCMonth() + ahead;
+    const length = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+    if (day > length) continue;
+    const when = Date.UTC(year, month, day);
+    if (when >= Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), ref.getUTCDate())) {
+      const d = new Date(when);
+      return { year: d.getUTCFullYear(), month: d.getUTCMonth() };
+    }
+  }
+  return null;
+}
+
+/** The text outside the parsed spans. */
+function unreadText(text: string, spans: readonly [number, number][]): string {
   let rest = "";
   let at = 0;
   for (const [from, to] of [...spans].sort((a, b) => a[0] - b[0])) {
@@ -467,6 +491,11 @@ function hasUnreadDate(text: string, spans: readonly [number, number][]): boolea
     at = Math.max(at, to);
   }
   rest += text.slice(at);
+  return rest;
+}
+
+/** Whether the text outside the parsed spans still has anything that looks like part of a date or time. */
+function hasUnreadDate(rest: string): boolean {
   const folded = foldWord(rest);
   return /\d/u.test(rest) || DATE_WORDS_LATIN.test(folded) || DATE_WORDS_OTHER.test(folded);
 }
@@ -550,6 +579,11 @@ function readResult(result: ParsedResult, tz: string, refMs: number, refShiftedM
     result.end && endRead
       ? Date.UTC(result.end.get("year")!, result.end.get("month")! - 1, result.end.get("day")!)
       : null;
+  if (hour === 0 && minute === 0 && /midnight/iu.test(result.text)) {
+    // "Friday midnight" is the end of Friday, the start of Saturday; the start of Friday is the other reading.
+    ambiguous = true;
+    push(instantsAt(tz, Date.UTC(year, month - 1, day + 1)).instants[0]!);
+  }
   for (const h of hours) {
     const wall = Date.UTC(year, month - 1, day, h, minute, second);
     const found = instantsAt(tz, wall);
@@ -560,7 +594,8 @@ function readResult(result: ParsedResult, tz: string, refMs: number, refShiftedM
         const shift = h === hour ? 0 : 12;
         const endWall = endDay + ((endHour + shift) % 24) * 3600000 + endMinute * 60000;
         end = instantsAt(tz, endWall).instants[0];
-        if (end !== undefined && end < instant) end = undefined;
+        // "10pm to 2am": an end that is not after its start is the next day's.
+        if (end !== undefined && end <= instant) end = instantsAt(tz, endWall + 86400000).instants[0];
       }
       push(instant, end);
     }
@@ -574,8 +609,11 @@ function readResult(result: ParsedResult, tz: string, refMs: number, refShiftedM
  * with a time of day is the only case that is not `ambiguous`: a day with no time (all day), "at 3" with no am/pm, a
  * wall time the clocks skip or repeat, a numeric date that reads differently day-first and month-first ("3/4"),
  * several dates in one quote, and an unsupported language are all `ambiguous: true` with at most 3 candidates.
- * Recurrence ("every Monday") is read as its next occurrence and is not detected here, so the caller must not treat a
- * non-ambiguous result as proof of a single event. `raw` is the offsets of the first date in the message.
+ * Recurrence words ("every Monday", "weekly", and their equivalents in the supported languages) set `ambiguous`; a
+ * series phrased some other way is not detected, so a non-ambiguous result is not proof of a single event. Date text
+ * left unread (a day number, a weekday, "next week"), a result that starts before the message with no past word, a
+ * month name then a bare number ("Dec 25" is the 25th, never a year), a bare ordinal ("by the 15th" is the next 15th,
+ * all day) and an end hour chrono invented are handled as the tests describe. `raw` is the offsets of the first date.
  */
 export function resolveWhen(input: ResolveWhenInput): ResolveWhenResult {
   const refMs =
@@ -602,7 +640,12 @@ export function resolveWhen(input: ResolveWhenInput): ResolveWhenResult {
   const refShifted = refMs + offsetMinutes(tz, refMs) * 60000;
   const options = { forwardDate: !PAST.test(input.text) };
   const parse = (chrono: Chrono) => chrono.parse(input.text, { instant: new Date(refShifted), timezone: 0 }, options);
-  const parsed = parse(parser.primary);
+  const english = /^en(?:[-_]|$)/iu.test(
+    typeof input.lang === "string" && input.lang.trim() !== "" ? input.lang.trim() : "en"
+  );
+  // The day-first English parser reads "Dec 25" as December of year 2025; month-first reads it as the 25th.
+  const primary = english && MONTH_DAY.test(input.text) ? casualEn : parser.primary;
+  const parsed = parse(primary);
   const spans = parsed.map((result): [number, number] => [result.index, result.index + result.text.length]);
   let readings = parsed
     .map((result) => ({ result, reading: readResult(result, tz, refMs, refShifted) }))
@@ -623,9 +666,10 @@ export function resolveWhen(input: ResolveWhenInput): ResolveWhenResult {
     spans.length = 0;
     spans.push(tonightSpan);
   }
-  const unread = hasUnreadDate(input.text, spans);
+  const rest = unreadText(input.text, spans);
+  const unread = hasUnreadDate(rest);
   let ambiguousNumeric = RECURRENCE.test(input.text) && readings.length > 0;
-  if (parser.usAlternative) {
+  if (parser.usAlternative && primary === parser.primary) {
     // "3/4" is 3 April day-first and 3 March month-first: chrono's casual English is month-first, so add the other.
     const numeric = NUMERIC_DATE.exec(input.text);
     if (numeric && Number(numeric[1]) <= 12 && Number(numeric[2]) <= 12 && numeric[1] !== numeric[2]) {
@@ -647,11 +691,46 @@ export function resolveWhen(input: ResolveWhenInput): ResolveWhenResult {
       }
     }
   }
+  const ordinal = english ? ORDINAL_DAY.exec(readings.length === 0 ? input.text : rest) : null;
+  if (readings.length === 0 && ordinal) {
+    // A bare day of the month: the next time that day comes round, all day, and always flagged.
+    const next = nextDayOfMonth(refShifted, Number(ordinal[1]));
+    if (next) {
+      const day = Number(ordinal[1]);
+      const startWall = Date.UTC(next.year, next.month, day);
+      const endWall = Date.UTC(next.year, next.month, day + 1);
+      const index = ordinal.index;
+      const chars = codePoints(input.text.slice(0, index));
+      const length = codePoints(ordinal[0]);
+      const at = (input.textStart ?? 0) + chars;
+      return {
+        ok: true,
+        when: {
+          ...(Number.isInteger(at) && at >= 0 && at + length <= CONTENT_LIMIT
+            ? { raw: [at, at + length] as [number, number] }
+            : {}),
+          ref_time,
+          tz,
+          candidates: [
+            {
+              start: rfc3339(tz, instantsAt(tz, startWall).instants[0]!),
+              end: rfc3339(tz, instantsAt(tz, endWall).instants[0]!)
+            }
+          ],
+          ambiguous: true
+        }
+      };
+    }
+  }
   if (readings.length === 0) {
     // Nothing was read. If the text still looks like a date (a day name, a time, a word from another language, or a
     // language this parser does not read), say so; a silent null would hide it.
     const folded = foldWord(input.text);
-    const looksLikeDate = DATE_WORDS_LATIN.test(folded) || DATE_WORDS_OTHER.test(folded) || TIME_LIKE.test(input.text);
+    const looksLikeDate =
+      DATE_WORDS_LATIN.test(folded) ||
+      DATE_WORDS_OTHER.test(folded) ||
+      TIME_LIKE.test(input.text) ||
+      /\d{1,2}(?:st|nd|rd|th)(?![\p{L}\d])/iu.test(input.text);
     return { ok: true, when: looksLikeDate ? { ref_time, tz, candidates: [], ambiguous: true } : null };
   }
 
@@ -665,8 +744,27 @@ export function resolveWhen(input: ResolveWhenInput): ResolveWhenResult {
 
   let candidates: WhenCandidate[];
   let ambiguous = first.reading.ambiguous || ambiguousNumeric || unread;
-  if (readings.length === 1) candidates = first.reading.candidates;
-  else {
+  if (readings.length === 1) {
+    candidates = first.reading.candidates;
+    const timeOnly = first.result.start.isCertain("hour") && !first.result.start.isCertain("day");
+    const next = ordinal && timeOnly ? nextDayOfMonth(refShifted, Number(ordinal[1])) : null;
+    if (next && ordinal) {
+      // "due 15th at 5pm": chrono read the time and took today; the day is the unread ordinal.
+      const day = Number(ordinal[1]);
+      const move = (time: string) => {
+        const wall = Date.UTC(
+          next.year,
+          next.month,
+          day,
+          Number(time.slice(11, 13)),
+          Number(time.slice(14, 16)),
+          Number(time.slice(17, 19))
+        );
+        return rfc3339(tz, instantsAt(tz, wall).instants[0]!);
+      };
+      candidates = candidates.map((c) => ({ start: move(c.start), ...(c.end ? { end: move(c.end) } : {}) }));
+    } else if (ordinal) candidates = [];
+  } else {
     // Several dates in one quote: the first reading of each, which is ambiguous by definition.
     ambiguous = true;
     candidates = readings.flatMap((entry) => entry.reading.candidates.slice(0, 1));
@@ -677,5 +775,7 @@ export function resolveWhen(input: ResolveWhenInput): ResolveWhenResult {
   if (unique.length > MAX_WHEN_CANDIDATES) ambiguous = true;
   const kept = unique.slice(0, MAX_WHEN_CANDIDATES);
   if (kept.length !== 1) ambiguous = true;
+  // A sure reading that lies before the message, from text with no past word, is a misread, not a fact.
+  if (!ambiguous && kept.some((c) => Date.parse(c.start) < refMs) && !PAST.test(input.text)) ambiguous = true;
   return { ok: true, when: { ...(raw ? { raw } : {}), ref_time, tz, candidates: kept, ambiguous } };
 }

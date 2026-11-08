@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { localCandidates } from "./context-select.js";
 import { buildFactPrompt } from "./fact-prompt.js";
 import {
   DENY_LIST_VERSION,
   HOSTED_DENIALS,
   hostedEligibility,
   vettedContext,
+  vettedCandidates,
   type HostedDenial,
   type HostedMessage
 } from "./hosted-eligibility.js";
@@ -280,13 +282,13 @@ describe("hostedEligibility: the context checked is the context sent (verifier b
     const result = hostedEligibility({ message: person(), context });
     expect(result.send).toBe(true);
     expect(result.contextKept).toEqual([2, 4]);
-    expect(vettedContext(result, context)).toEqual([context[2], context[4]]);
+    expect(vettedContext(result)).toEqual([context[2], context[4]]);
   });
 
   it("a prompt built from the vetted context never contains a message the check did not pass", () => {
     const context = [ok(1), ok(2), ok(3), secret(4), secret(5)];
     const result = hostedEligibility({ message: person(), context: context.slice(0, 3) });
-    const sent = vettedContext(result, context.slice(0, 3));
+    const sent = vettedContext(result);
     const prompt = buildFactPrompt({
       boundary: "k3j9x0aab7q2m5zr",
       message: { from: "a@example.test", subject: "s", content: "Hello there" },
@@ -441,5 +443,81 @@ describe("hostedEligibility: wider deny-list (verifier 4 to 6)", () => {
     expect(ordinary).toHaveLength(30);
     const denied = ordinary.filter((content) => !hostedEligibility({ message: person({ content }), context: [] }).send);
     expect(denied.length, denied.join(" | ")).toBeLessThanOrEqual(3);
+  });
+});
+
+describe("candidates: link candidate quotes are vetted like any other text that is sent", () => {
+  const id = (n: number) => String(n).padStart(40, "0");
+  const candidate = (n: number, quote: string | null) => ({
+    label: "c1" as const,
+    factId: id(n),
+    factType: "event",
+    quote
+  });
+  const benign = person({ content: "ok thursday works", subject: "Re: Thursday" });
+
+  it("a denied quote (invoice and BSB) never reaches the hosted prompt: the message is held back", () => {
+    const candidates = [
+      candidate(1, "Please pay invoice 4821 to BSB 062-000 acc 12345678"),
+      candidate(2, "Meet at the park at 3")
+    ];
+    const result = hostedEligibility({ message: benign, context: [], candidates });
+    expect(result.send).toBe(false);
+    expect(result.message.reasons).toEqual(["thread_sensitive"]);
+    expect(result.candidates.map((c) => c.eligible)).toEqual([false, true]);
+    expect(vettedCandidates(result)).toEqual([]);
+    expect(vettedContext(result)).toEqual([]);
+  });
+
+  it.each(["The wifi password is hunter2", "Your verification code is 482913", "Biopsy results on Tuesday"])(
+    "any content denial in a candidate quote holds the message back: %s",
+    (quote) => {
+      const result = hostedEligibility({ message: benign, context: [], candidates: [candidate(1, quote)] });
+      expect(result.send).toBe(false);
+      expect(result.candidatesKept).toEqual([]);
+    }
+  );
+
+  it("clean candidates go, relabelled c1.. in order, and what is vetted is what the prompt shows", () => {
+    const candidates = [candidate(1, "Meet at the park at 3"), candidate(2, null), candidate(3, "Dinner on Friday")];
+    const result = hostedEligibility({ message: benign, context: [], candidates });
+    expect(result.send).toBe(true);
+    const vetted = vettedCandidates(result);
+    expect(vetted.map((c) => [c.label, c.factId])).toEqual([
+      ["c1", id(1)],
+      ["c2", id(2)],
+      ["c3", id(3)]
+    ]);
+    const prompt = buildFactPrompt({
+      boundary: "k3j9x0aab7q2m5zr",
+      message: { from: "a@example.test", subject: "s", content: "ok thursday works" },
+      candidates: vetted
+    });
+    expect(prompt.ok && prompt.user).toContain("c1 | event | Meet at the park at 3");
+  });
+
+  it("a local model gets the candidates unvetted, relabelled", () => {
+    const local = localCandidates([candidate(1, "The wifi password is hunter2"), candidate(2, "x")]);
+    expect(local.map((c) => c.label)).toEqual(["c1", "c2"]);
+  });
+
+  it("vettedContext of an eligibility that was copied or rebuilt returns nothing, never another array's mail", () => {
+    const context = [person({ content: "Plain one" }), person({ content: "Plain two" })];
+    const result = hostedEligibility({ message: person(), context });
+    expect(vettedContext(result)).toHaveLength(2);
+    expect(vettedContext({ ...result })).toEqual([]);
+  });
+});
+
+describe("deny-list d3", () => {
+  it.each([
+    "Psych appointment on Monday",
+    "Physio at 4 on Thursday",
+    "Dr Nguyen appointment at 3",
+    "I got the results back",
+    "Results came back this morning",
+    "I have a job interview on Friday"
+  ])("denies: %s", (content) => {
+    expect(hostedEligibility({ message: person({ content }), context: [] }).send).toBe(false);
   });
 });

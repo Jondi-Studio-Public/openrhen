@@ -30,3 +30,28 @@ export type VettedContext<T> = readonly T[] & { readonly [vetted]: true };
 export function localContext<T>(context: readonly (T | null | undefined)[] | null | undefined): VettedContext<T> {
   return newestContext(context).map((entry) => entry.message) as unknown as VettedContext<T>;
 }
+
+declare const vettedCandidatesBrand: unique symbol;
+/**
+ * Link candidates cleared to go in a prompt, relabelled `c1`.. in order. Only `vettedCandidates` (hosted, after
+ * `hostedEligibility` ran over the quotes) and `localCandidates` (a model on the owner's machine) make one, so a quote
+ * nothing checked cannot reach a prompt. Use the same list with `linkFromChoice` to read the model's answer.
+ */
+export type VettedCandidates<T> = readonly T[] & { readonly [vettedCandidatesBrand]: true };
+
+/** Candidates for a local model: the first 5, relabelled `c1`.. Never use this for the hosted tier. */
+export function localCandidates<T extends { label: string }>(
+  candidates: readonly (T | null | undefined)[] | null | undefined
+): VettedCandidates<T> {
+  return relabel(candidates) as unknown as VettedCandidates<T>;
+}
+
+export function relabel<T extends { label: string }>(
+  candidates: readonly (T | null | undefined)[] | null | undefined
+): T[] {
+  if (!Array.isArray(candidates)) return [];
+  return candidates
+    .filter((c): c is T => c !== null && typeof c === "object")
+    .slice(0, 5)
+    .map((c, index) => ({ ...c, label: `c${index + 1}` }));
+}

@@ -55,6 +55,7 @@ export {
   HOSTED_MAX_CONTEXT,
   HOSTED_MAX_TEXT_CODE_POINTS,
   hostedEligibility,
+  vettedCandidates,
   vettedContext
 } from "./hosted-eligibility.js";
 export type {
@@ -97,5 +98,5 @@ export type {
   ResolvedWhen,
   WhenCandidate
 } from "./resolve-when.js";
-export { CONTEXT_MESSAGES, localContext, newestContext } from "./context-select.js";
-export type { VettedContext } from "./context-select.js";
+export { CONTEXT_MESSAGES, localCandidates, localContext, newestContext } from "./context-select.js";
+export type { VettedCandidates, VettedContext } from "./context-select.js";
