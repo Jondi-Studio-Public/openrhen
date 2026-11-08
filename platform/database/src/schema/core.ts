@@ -3432,6 +3432,8 @@ export const activityEvents = pgTable(
     uniqueIndex("activity_events_key_idx").on(table.userId, table.source, table.eventKey),
     index("activity_events_user_source_time_idx").on(table.userId, table.source, table.tsStart),
     index("activity_events_import_idx").on(table.importId),
+    // The derived-reader runner scans a source by when we learned of a row, and the `as_of` reader filters on it.
+    index("activity_events_user_source_ingested_idx").on(table.userId, table.source, table.ingestedAt),
     // Reply state is read at query time: a later from_self event with the same attrs.thread_id.
     index("activity_events_thread_idx")
       .on(table.userId, table.source, sql`(${table.attrs}->>'thread_id')`, table.tsStart)
@@ -3460,6 +3462,58 @@ export const activitySourceState = pgTable(
   (table) => [
     primaryKey({ columns: [table.userId, table.source] }),
     check("activity_source_state_retention_check", sql`${table.retentionDays} IS NULL OR ${table.retentionDays} >= 1`)
+  ]
+);
+
+/**
+ * Which source rows a derived row (`source = 'derived'` or `'derived-shadow'`) was read from. A derived row is a
+ * projection of its sources, so it goes when its last source goes: every source-delete path runs
+ * `deleteDerivedForSources` first, in the same transaction (the cascade here removes only the lineage rows).
+ * `user_id` is carried so a per-user delete and the isolation tests need no join. Never a plan input.
+ */
+export const derivedLineage = pgTable(
+  "derived_lineage",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    derivedId: uuid("derived_id")
+      .notNull()
+      .references(() => activityEvents.id, { onDelete: "cascade" }),
+    sourceId: uuid("source_id")
+      .notNull()
+      .references(() => activityEvents.id, { onDelete: "cascade" })
+  },
+  (table) => [
+    primaryKey({ columns: [table.derivedId, table.sourceId] }),
+    index("derived_lineage_source_idx").on(table.sourceId)
+  ]
+);
+
+/**
+ * Per-extractor progress for the derived readers: where a version of an extractor has scanned to, when it last
+ * succeeded, its last error, and which version is the promoted one. `active` is a promotion record (one active
+ * version per extractor, enforced by the partial unique index), not a user setting. Separate from
+ * `activity_source_state`, whose cursor columns stay for pollers: an extractor and a source are different keys.
+ */
+export const extractorState = pgTable(
+  "extractor_state",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    extractor: text("extractor").notNull(),
+    version: text("version").notNull(),
+    cursor: jsonb("cursor"),
+    lastOkAt: timestamp("last_ok_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    active: boolean("active").notNull().default(false)
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.extractor, table.version] }),
+    uniqueIndex("extractor_state_one_active_idx")
+      .on(table.userId, table.extractor)
+      .where(sql`${table.active}`)
   ]
 );
 
