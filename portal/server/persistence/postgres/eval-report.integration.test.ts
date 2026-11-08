@@ -285,11 +285,32 @@ describe("readEvalReport", () => {
       field: "fact_type",
       new_value: "deadline"
     });
-    const cut = await readEvalReport(sql, { factScanCap: 2 });
-    expect(cut.versions[0]!.problems).toEqual([expect.stringContaining("Only the newest 2 fact rows")]);
+    const cut = await readEvalReport(sql, { window: 2 });
+    expect(cut.versions[0]!.problems).toEqual([
+      expect.stringContaining("Only the newest 2 rows of derived were looked at for facts")
+    ]);
     const whole = await readEvalReport(sql);
     expect(whole.versions[0]!.problems).toEqual([]);
     expect(whole.versions[0]!.report.wrongAutoActions.count).toBe(1);
+  });
+
+  it("takes the T0 share over the newest window of messages and says when the window cut some off", async () => {
+    await state("1", true);
+    const ids: string[] = [];
+    for (const key of ["m1", "m2", "m3", "m4"]) {
+      const id = await row("gmail", "message", key, at(Number(key.slice(1))), {});
+      ids.push(id);
+    }
+    // m1 and m2 are the oldest; only m1 is classified.
+    await classified("c1", ids[0]!, klass("m1", "bulk"));
+    await classified("c4", ids[3]!, klass("m4", "bulk"));
+    await label("l", at(9), { source_event_id: "m4", field: "class", answer: "bulk" });
+    const narrow = (await readEvalReport(sql, { window: 2 })).versions[0]!;
+    expect(narrow.report.t0).toMatchObject({ messages: 2, resolvedByT0: 1 });
+    expect(narrow.problems).toEqual([expect.stringContaining("T0 share is over the newest 2 messages only")]);
+    const whole = (await readEvalReport(sql)).versions[0]!;
+    expect(whole.report.t0).toMatchObject({ messages: 4, resolvedByT0: 2 });
+    expect(whole.problems).toEqual([]);
   });
 
   it("never counts source_gone as a wrong action, but counts another status an extractor wrote that the person changed", async () => {

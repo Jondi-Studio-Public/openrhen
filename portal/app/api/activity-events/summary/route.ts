@@ -1,7 +1,13 @@
 import { estimateBackfill } from "@openrhen/communication-readers";
 import { withRoute } from "@/server/logging";
 import { readActivitySummary } from "@/server/persistence/postgres/activity-store";
-import { readEvalReport } from "@/server/persistence/postgres/eval-report-store";
+import {
+  EVAL_STATEMENT_TIMEOUT,
+  EVAL_WINDOW_DEFAULT,
+  EVAL_WINDOW_MAX,
+  EVAL_WINDOW_MIN,
+  readEvalReport
+} from "@/server/persistence/postgres/eval-report-store";
 import { sqlPool } from "@/server/persistence/postgres/sql-pool";
 import { databaseUrl } from "@/server/runtime-env";
 
@@ -9,7 +15,9 @@ import { databaseUrl } from "@/server/runtime-env";
  * Counts and the last event per source, each source's content gate and retention, and recent imports. The owner's own
  * read. `?report=eval` adds `eval`: how each extractor version agrees with the person's own labels (precision and recall
  * with intervals, wrong automatic actions, the T0 share), computed only when asked for. With `tokens_per_message` and
- * `seconds_per_message` (both, bounded) it also sizes a model backfill of the raw mail still held.
+ * `seconds_per_message` (both, bounded) it also sizes a model backfill of the raw mail still held. `window` (rows the
+ * bounded reads look at; default 100000) narrows or widens the report. A report that outruns its statement timeout is a
+ * 503 with Retry-After and the fix, never an opaque 500.
  */
 export const GET = withRoute("/api/activity-events/summary", async (request) => {
   const connectionString = databaseUrl();
@@ -61,9 +69,41 @@ export const GET = withRoute("/api/activity-events/summary", async (request) => 
       );
     }
   }
+  const rawWindow = params.get("window");
+  let window: number | undefined;
+  if (rawWindow !== null) {
+    if (report !== "eval")
+      return Response.json(
+        {
+          error:
+            "window sizes the eval report. Add report=eval (GET /api/activity-events/summary?report=eval&window=50000), or remove it."
+        },
+        { status: 400 }
+      );
+    window = rawWindow === "" ? Number.NaN : Number(rawWindow);
+    if (!Number.isInteger(window) || window < EVAL_WINDOW_MIN || window > EVAL_WINDOW_MAX)
+      return Response.json(
+        {
+          error: `window "${rawWindow}" is not a whole number of rows from ${EVAL_WINDOW_MIN} to ${EVAL_WINDOW_MAX}. Send the number of rows the report may look at, such as window=50000 (default ${EVAL_WINDOW_DEFAULT}).`
+        },
+        { status: 400 }
+      );
+  }
   const sql = sqlPool(connectionString);
-  const summary = await readActivitySummary(sql);
-  return Response.json(report === "eval" ? { ...summary, eval: await readEvalReport(sql, { backfill }) } : summary, {
-    headers: { "cache-control": "no-store" }
-  });
+  try {
+    const summary = await readActivitySummary(sql);
+    return Response.json(
+      report === "eval" ? { ...summary, eval: await readEvalReport(sql, { backfill, window }) } : summary,
+      { headers: { "cache-control": "no-store" } }
+    );
+  } catch (error) {
+    // 57014 is Postgres cancelling a statement that ran past its statement timeout.
+    if ((error as { code?: unknown } | null)?.code !== "57014") throw error;
+    return Response.json(
+      {
+        error: `The eval report timed out: a query ran longer than ${EVAL_STATEMENT_TIMEOUT} and Postgres cancelled it, so nothing was returned. The report is heavy on a large store. Nothing was changed. Retry in a minute (Retry-After: 60); if it times out again, narrow it with a smaller window, such as ?report=eval&window=20000 (it is ${EVAL_WINDOW_DEFAULT} by default and can go down to ${EVAL_WINDOW_MIN}), and tell the owner if even that times out.`
+      },
+      { status: 503, headers: { "retry-after": "60", "cache-control": "no-store" } }
+    );
+  }
 });

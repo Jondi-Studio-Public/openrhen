@@ -41,22 +41,30 @@ import type { PoolSql, Sql } from "./sql-pool";
  *     raw messages still held. Deleted mail leaves both sides together. A label about mail that has since been deleted
  *     is not scored, and the entry says how many.
  *
- * Cost. Predictions about a message are found through `derived_lineage` (indexed on `source_id`), and the message is
- * found by its event key (unique index). Predictions about a fact, and the person's own rows, are not: there is no
- * index on `attrs ->> 'fact_id'` or on `(user_id, source, kind)`, so the fact read looks at the newest
- * `FACT_SCAN_CAP` fact rows only (and says so when that cuts it short) and the whole read runs under a statement
- * timeout. The migration that introduces fact writers (2b) owes an expression index on (user_id, (attrs ->> 'fact_id'))
- * and one on (user_id, source, kind); with them the cap can go.
+ * Cost (measured against about 4M rows with the repo's real indexes; numbers in docs/architecture/activity-store.md).
+ * Every read is a single pass or an indexed lookup, and nothing scans more than `window` rows beyond the one pass over
+ * the person's `derived` rows that finds his labels:
+ *   - his labels, overrides, statuses and the extractor-written statuses come from ONE pass over `derived` rows of the
+ *     three kinds (there is no index on `kind`; the pass is complete because a label must never be missed);
+ *   - predictions about a message come from `derived_lineage` (indexed on `source_id`) and the message from its event
+ *     key (unique index);
+ *   - fact rows have no index by `fact_id`, so only the newest `window` rows of each `derived` source are looked at;
+ *   - the T0 share is taken over the newest `window` raw messages (an ordered index scan), joined through lineage.
+ * Each cut-short read says so in the entry's `problems`. The migration that introduces fact writers (2b) owes an
+ * expression index on (user_id, (attrs ->> 'fact_id')) and one on (user_id, source, kind); with them the window goes.
  */
 
-export const FACT_SCAN_CAP = 20_000;
+/** Rows looked at per bounded read unless the caller narrows or widens it. */
+export const EVAL_WINDOW_DEFAULT = 100_000;
+export const EVAL_WINDOW_MIN = 100;
+export const EVAL_WINDOW_MAX = 1_000_000;
 export const EVAL_STATEMENT_TIMEOUT = "15s";
 
 export interface EvalReportOptions {
   /** When both are given, the report carries a backfill estimate for each raw input source. */
   backfill?: { tokensPerMessage: number; secondsPerMessage: number } | undefined;
-  /** Fact rows looked at per version; a test lowers it. */
-  factScanCap?: number | undefined;
+  /** Rows the bounded reads look at (fact rows, raw messages for the T0 share); default `EVAL_WINDOW_DEFAULT`. */
+  window?: number | undefined;
 }
 
 export interface EvalVersionReport {
@@ -104,11 +112,6 @@ function subjectOf(attrs: Record<string, unknown>): EvalSubject | null {
 
 const subjectKey = (subject: EvalSubject) => `${subject.kind}:${subject.id}`;
 
-interface DerivedRow {
-  attrs: unknown;
-  at: Date;
-}
-
 export async function readEvalReport(sql: PoolSql, options: EvalReportOptions = {}): Promise<EvalReportSet> {
   const userId = await ensureUser(sql);
   return sql.begin("isolation level repeatable read read only", async (tx) => {
@@ -118,14 +121,30 @@ export async function readEvalReport(sql: PoolSql, options: EvalReportOptions = 
 }
 
 async function readInTransaction(sql: Sql, userId: string, options: EvalReportOptions): Promise<EvalReportSet> {
-  // The person's own words: labels, overrides and statuses with no posting agent.
-  const own = await sql<{ kind: string; attrs: unknown; at: Date }[]>`
-    SELECT kind, attrs, ingested_at AS at FROM activity_events
-    WHERE user_id = ${userId} AND source = 'derived' AND kind IN ('label', 'override', 'fact_status')
-      AND ingested_via IS NULL`;
-  const [{ ignored } = { ignored: 0 }] = await sql<{ ignored: number }[]>`
-    SELECT count(*)::int AS ignored FROM activity_events
-    WHERE user_id = ${userId} AND source = 'derived' AND kind = 'label' AND ingested_via IS NOT NULL`;
+  // ONE pass over the person's `derived` rows of the three kinds that are not extractor output (no index on `kind`, so
+  // this is the one complete scan; it must be complete because a label must never be missed). It yields his own words
+  // (no posting agent), the labels others wrote (counted, not read), and the statuses extractors wrote.
+  const bookkeeping = await sql<{ kind: string; attrs: unknown; at: Date; via: string | null }[]>`
+    SELECT kind, attrs, ingested_at AS at, ingested_via AS via FROM activity_events
+    WHERE user_id = ${userId} AND source = 'derived' AND kind IN ('label', 'override', 'fact_status')`;
+  let ignored = 0;
+  const autoStatuses: AutoWrite[] = [];
+  const own: { kind: string; attrs: unknown; at: Date }[] = [];
+  for (const item of bookkeeping) {
+    if (item.via === null) own.push(item);
+    else if (item.kind === "label") ignored += 1;
+    else if (item.kind === "fact_status" && item.via.startsWith("extractor:")) {
+      // `source_gone` is the retention pass's bookkeeping, not a judgement of the extractor.
+      const attrs = record(item.attrs);
+      if (typeof attrs.fact_id === "string" && typeof attrs.status === "string" && attrs.status !== "source_gone")
+        autoStatuses.push({
+          subject: { kind: "fact", id: attrs.fact_id },
+          field: "status",
+          value: attrs.status,
+          at: item.at.toISOString()
+        });
+    }
+  }
 
   const labels: EvalLabel[] = [];
   const corrections: PersonCorrection[] = [];
@@ -161,6 +180,8 @@ async function readInTransaction(sql: Sql, userId: string, options: EvalReportOp
     version: row.version,
     active: row.active
   }));
+  const sameGroup = (attrs: Record<string, unknown>, group: (typeof groups)[number]) =>
+    attrs.extractor === group.extractor && attrs.extractor_version === group.version;
 
   const wanted = (kind: EvalSubject["kind"]) => [
     ...new Set(
@@ -171,99 +192,146 @@ async function readInTransaction(sql: Sql, userId: string, options: EvalReportOp
   ];
   const messageKeys = wanted("message");
   const factIds = wanted("fact");
-  const factCap = options.factScanCap ?? FACT_SCAN_CAP;
+  const window = options.window ?? EVAL_WINDOW_DEFAULT;
 
-  // The raw messages still held, by event key, for each distinct input.
-  const heldByInput = new Map<string, Map<string, string>>();
-  const heldMessages = async (input: { source: string; kind: string }) => {
+  // Per distinct input source: the labelled messages still held (by event key) and every version's class rows about them.
+  interface InputRead {
+    held: Map<string, string>;
+    classRows: { source: string; attrs: Record<string, unknown>; at: Date }[];
+    /** Raw messages looked at for the T0 share (the newest `window`), and whether there were more. */
+    windowMessages: number;
+    windowCut: boolean;
+    /** Tier-t0 classes among them, by source/extractor/version. */
+    t0: Map<string, number>;
+  }
+  const inputs = new Map<string, InputRead>();
+  const readInput = async (input: { source: string; kind: string }): Promise<InputRead> => {
     const key = `${input.source}\u0000${input.kind}`;
-    let held = heldByInput.get(key);
-    if (held === undefined) {
-      held = new Map();
-      if (messageKeys.length > 0) {
-        const rows = await sql<{ id: string; event_key: string }[]>`
-          SELECT id, event_key FROM activity_events
-          WHERE user_id = ${userId} AND source = ${input.source} AND kind = ${input.kind}
-            AND event_key IN (SELECT jsonb_array_elements_text(${sql.json(messageKeys)}))`;
-        for (const row of rows) held.set(row.event_key, row.id);
-      }
-      heldByInput.set(key, held);
+    const done = inputs.get(key);
+    if (done !== undefined) return done;
+    const held = new Map<string, string>();
+    if (messageKeys.length > 0) {
+      const rows = await sql<{ id: string; event_key: string }[]>`
+        SELECT id, event_key FROM activity_events
+        WHERE user_id = ${userId} AND source = ${input.source} AND kind = ${input.kind}
+          AND event_key IN (SELECT jsonb_array_elements_text(${sql.json(messageKeys)}))`;
+      for (const row of rows) held.set(row.event_key, row.id);
     }
-    return held;
-  };
-  const rawCounts = new Map<string, number>();
-  const rawCount = async (input: { source: string; kind: string }) => {
-    const key = `${input.source}\u0000${input.kind}`;
-    if (!rawCounts.has(key)) {
-      const [row] = await sql<{ n: number }[]>`
-        SELECT count(*)::int AS n FROM activity_events
-        WHERE user_id = ${userId} AND source = ${input.source} AND kind = ${input.kind}`;
-      rawCounts.set(key, row?.n ?? 0);
+    const classRows: InputRead["classRows"] = [];
+    if (held.size > 0) {
+      // Through lineage (indexed on source_id): never a scan of the derived rows.
+      const found = await sql<{ source: string; attrs: unknown; at: Date }[]>`
+        SELECT e.source, e.attrs, e.ingested_at AS at
+        FROM derived_lineage dl
+        JOIN activity_events e ON e.id = dl.derived_id
+        WHERE dl.user_id = ${userId}
+          AND dl.source_id IN (SELECT value::uuid FROM jsonb_array_elements_text(${sql.json([...held.values()])}))
+          AND e.source IN ('derived', 'derived-shadow') AND e.kind = 'msg_class'`;
+      for (const row of found) classRows.push({ source: row.source, attrs: record(row.attrs), at: row.at });
     }
-    return rawCounts.get(key) ?? 0;
+    // The T0 share over the newest `window` raw messages: an ordered index scan, then lineage by an indexed lateral
+    // lookup per message (the LIMIT keeps the planner from hashing the whole lineage table). One more row than the
+    // window says whether the window cut anything off.
+    const [seen] = await sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM (
+        SELECT 1 FROM activity_events
+        WHERE user_id = ${userId} AND source = ${input.source} AND kind = ${input.kind}
+        ORDER BY ingested_at DESC LIMIT ${window + 1}) newest`;
+    const t0 = new Map<string, number>();
+    const t0Rows = await sql<{ source: string; extractor: string; version: string; n: number }[]>`
+      WITH newest AS MATERIALIZED (
+        SELECT id FROM activity_events
+        WHERE user_id = ${userId} AND source = ${input.source} AND kind = ${input.kind}
+        ORDER BY ingested_at DESC LIMIT ${window})
+      SELECT e.source, e.attrs ->> 'extractor' AS extractor, e.attrs ->> 'extractor_version' AS version,
+             count(DISTINCT newest.id)::int AS n
+      FROM newest
+      CROSS JOIN LATERAL (SELECT derived_id FROM derived_lineage WHERE source_id = newest.id LIMIT 50) dl
+      JOIN activity_events e ON e.id = dl.derived_id
+      WHERE e.source IN ('derived', 'derived-shadow') AND e.kind = 'msg_class' AND e.attrs ->> 'tier' = 't0'
+      GROUP BY 1, 2, 3`;
+    for (const row of t0Rows) t0.set(`${row.source}\u0000${row.extractor}\u0000${row.version}`, row.n);
+    const read = {
+      held,
+      classRows,
+      windowMessages: Math.min(seen?.n ?? 0, window),
+      windowCut: (seen?.n ?? 0) > window,
+      t0
+    };
+    inputs.set(key, read);
+    return read;
   };
+
+  // Fact rows: only the newest `window` rows of each source are looked at (there is no index by fact id).
+  const factsBySource = new Map<string, { attrs: Record<string, unknown>; at: Date }[]>();
+  const factCut = new Set<string>();
+  if (factIds.length > 0)
+    for (const source of new Set(groups.map((g) => g.source))) {
+      const found = await sql<{ attrs: unknown; at: Date | null; scanned: number }[]>`
+        WITH newest AS (
+          SELECT kind, attrs, ingested_at FROM activity_events
+          WHERE user_id = ${userId} AND source = ${source}
+          ORDER BY ingested_at DESC LIMIT ${window})
+        SELECT attrs, ingested_at AS at, (SELECT count(*)::int FROM newest) AS scanned
+        FROM newest
+        WHERE kind = 'fact' AND attrs ->> 'fact_id' IN (SELECT jsonb_array_elements_text(${sql.json(factIds)}))
+        UNION ALL
+        SELECT NULL, NULL, (SELECT count(*)::int FROM newest)
+        WHERE NOT EXISTS (SELECT 1 FROM newest WHERE kind = 'fact' AND attrs ->> 'fact_id' IN (SELECT jsonb_array_elements_text(${sql.json(factIds)})))`;
+      if ((found[0]?.scanned ?? 0) >= window) factCut.add(source);
+      factsBySource.set(
+        source,
+        found
+          .filter((row) => row.attrs !== null && row.at !== null)
+          .map((row) => ({ attrs: record(row.attrs), at: row.at! }))
+      );
+    }
 
   const versions: EvalVersionReport[] = [];
   for (const group of groups) {
     const problems: string[] = [];
-    const input = EXTRACTORS.find((candidate) => candidate.name === group.extractor)?.input ?? null;
-    const rows: DerivedRow[] = [];
+    const known = EXTRACTORS.find((candidate) => candidate.name === group.extractor);
+    const rows: { attrs: Record<string, unknown>; at: Date }[] = [];
     let scoredLabels = labels;
+    let t0: { messages: number; resolvedByT0: number } | null = null;
 
-    if (input === null) {
+    if (known === undefined) {
       if (messageKeys.length > 0)
         problems.push(
           `The server does not know extractor "${group.extractor}", so its input source is unknown: predictions about messages and the T0 share are left out.`
         );
     } else {
-      const held = await heldMessages(input);
-      // Predictions about a message, through lineage (indexed on source_id): never a scan of the derived rows.
-      if (held.size > 0) {
-        const found = await sql<DerivedRow[]>`
-          SELECT e.attrs, e.ingested_at AS at
-          FROM derived_lineage dl
-          JOIN activity_events e ON e.id = dl.derived_id
-          WHERE dl.user_id = ${userId}
-            AND dl.source_id IN (SELECT value::uuid FROM jsonb_array_elements_text(${sql.json([...held.values()])}))
-            AND e.source = ${group.source} AND e.kind = 'msg_class'
-            AND e.attrs ->> 'extractor' = ${group.extractor} AND e.attrs ->> 'extractor_version' = ${group.version}`;
-        rows.push(...found);
-      }
-      const gone = labels.filter((l) => l.subject.kind === "message" && !held.has(l.subject.id));
+      const read = await readInput(known.input);
+      rows.push(...read.classRows.filter((row) => row.source === group.source && sameGroup(row.attrs, group)));
+      const gone = labels.filter((l) => l.subject.kind === "message" && !read.held.has(l.subject.id));
       if (gone.length > 0) {
-        scoredLabels = labels.filter((l) => !(l.subject.kind === "message" && !held.has(l.subject.id)));
+        scoredLabels = labels.filter((l) => !(l.subject.kind === "message" && !read.held.has(l.subject.id)));
         problems.push(`${gone.length} label(s) are about mail that has since been deleted and are not scored.`);
       }
+      t0 = {
+        messages: read.windowMessages,
+        resolvedByT0: read.t0.get(`${group.source}\u0000${group.extractor}\u0000${group.version}`) ?? 0
+      };
+      if (read.windowCut)
+        problems.push(
+          `The T0 share is over the newest ${window} messages only; there are more. Pass a larger window to widen it.`
+        );
     }
 
     if (factIds.length > 0) {
-      // Only the newest `factCap` fact rows of this source are looked at (no index to find them by fact_id).
-      const recent = await sql<{ n: number }[]>`
-        SELECT count(*)::int AS n FROM (
-          SELECT 1 FROM activity_events
-          WHERE user_id = ${userId} AND source = ${group.source} AND kind = 'fact'
-          ORDER BY ingested_at DESC LIMIT ${factCap}) newest`;
-      if ((recent[0]?.n ?? 0) >= factCap)
+      rows.push(...(factsBySource.get(group.source) ?? []).filter((row) => sameGroup(row.attrs, group)));
+      if (factCut.has(group.source))
         problems.push(
-          `Only the newest ${factCap} fact rows were looked at, so labels about older facts may show no prediction. An index on the fact id (owed in the migration that adds fact writers) removes this limit.`
+          `Only the newest ${window} rows of ${group.source} were looked at for facts, so labels about older facts may show no prediction. An index on the fact id (owed in the migration that adds fact writers) removes this limit.`
         );
-      const found = await sql<DerivedRow[]>`
-        SELECT attrs, at FROM (
-          SELECT attrs, ingested_at AS at FROM activity_events
-          WHERE user_id = ${userId} AND source = ${group.source} AND kind = 'fact'
-          ORDER BY ingested_at DESC LIMIT ${factCap}) newest
-        WHERE attrs ->> 'extractor' = ${group.extractor} AND attrs ->> 'extractor_version' = ${group.version}
-          AND attrs ->> 'fact_id' IN (SELECT jsonb_array_elements_text(${sql.json(factIds)}))`;
-      rows.push(...found);
     }
 
     const predictions = new Map<string, { prediction: EvalPrediction; at: number }>();
     const writes: AutoWrite[] = [];
     for (const row of rows) {
-      const attrs = record(row.attrs);
-      const subject = subjectOf(attrs);
+      const subject = subjectOf(row.attrs);
       if (subject === null) continue;
-      for (const [field, value] of Object.entries(attrs)) {
+      for (const [field, value] of Object.entries(row.attrs)) {
         if (BOOKKEEPING.has(field)) continue;
         writes.push({ subject, field, value, at: row.at.toISOString() });
         // Several rows can speak for one subject and field; the latest is what the extractor says now.
@@ -271,20 +339,6 @@ async function readInTransaction(sql: Sql, userId: string, options: EvalReportOp
         if (!predictions.has(key) || predictions.get(key)!.at <= row.at.getTime())
           predictions.set(key, { prediction: { subject, field, value }, at: row.at.getTime() });
       }
-    }
-
-    let t0: { messages: number; resolvedByT0: number } | null = null;
-    if (input !== null) {
-      // Tier-t0 classes counted through lineage, so a class whose message is gone is not counted.
-      const [t0Row] = await sql<{ n: number }[]>`
-        SELECT count(DISTINCT s.id)::int AS n
-        FROM activity_events e
-        JOIN derived_lineage dl ON dl.derived_id = e.id
-        JOIN activity_events s ON s.id = dl.source_id AND s.source = ${input.source} AND s.kind = ${input.kind}
-        WHERE e.user_id = ${userId} AND e.source = ${group.source} AND e.kind = 'msg_class'
-          AND e.attrs ->> 'tier' = 't0'
-          AND e.attrs ->> 'extractor' = ${group.extractor} AND e.attrs ->> 'extractor_version' = ${group.version}`;
-      t0 = { messages: await rawCount(input), resolvedByT0: t0Row?.n ?? 0 };
     }
 
     let report: EvalReport;
@@ -308,24 +362,6 @@ async function readInTransaction(sql: Sql, userId: string, options: EvalReportOp
     versions.push({ ...group, report, problems });
   }
 
-  // Statuses an extractor wrote itself (`source_gone` is the retention pass's bookkeeping, not a judgement).
-  const statusWrites = await sql<{ attrs: unknown; at: Date }[]>`
-    SELECT attrs, ingested_at AS at FROM activity_events
-    WHERE user_id = ${userId} AND source = 'derived' AND kind = 'fact_status' AND ingested_via LIKE 'extractor:%'`;
-  const autoStatuses: AutoWrite[] = statusWrites.flatMap((row) => {
-    const attrs = record(row.attrs);
-    return typeof attrs.fact_id === "string" && typeof attrs.status === "string" && attrs.status !== "source_gone"
-      ? [
-          {
-            subject: { kind: "fact" as const, id: attrs.fact_id },
-            field: "status",
-            value: attrs.status,
-            at: row.at.toISOString()
-          }
-        ]
-      : [];
-  });
-
   const set: EvalReportSet = {
     labels: { total: labels.length, unfielded: labels.filter((l) => l.field === null).length, ignored },
     versions,
@@ -339,7 +375,11 @@ async function readInTransaction(sql: Sql, userId: string, options: EvalReportOp
       inputs.set(`${extractor.input.source}\u0000${extractor.input.kind}`, extractor.input);
     set.backfill = [];
     for (const input of inputs.values()) {
-      const messages = await rawCount(input);
+      // The one exact count of the raw rows (an index range count with a heap check for `kind`); only when a sizing was asked for.
+      const [counted] = await sql<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM activity_events
+        WHERE user_id = ${userId} AND source = ${input.source} AND kind = ${input.kind}`;
+      const messages = counted?.n ?? 0;
       const base = { messages, ...options.backfill };
       const share = versions
         .filter((v) => v.active && EXTRACTORS.find((e) => e.name === v.extractor)?.input.source === input.source)
