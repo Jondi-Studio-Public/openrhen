@@ -33,19 +33,19 @@ beforeEach(() => {
 });
 
 describe("PUT /api/activity-sources/[source]", () => {
-  it("returns the store's answer, including the note that the retention purge does not run yet", async () => {
+  it("returns the store's answer, including the retention note", async () => {
     store.setActivitySourceSettings.mockResolvedValue({
       source: "spotify",
       contentEnabled: false,
       retentionDays: 90,
-      retentionRuns: false,
-      note: "Retention is saved, but the automatic purge does not run yet."
+      retentionRuns: true,
+      note: "Retention is saved. Expired events are deleted automatically."
     });
     const response = await put({ retentionDays: 90 });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
-      retentionRuns: false,
-      note: expect.stringContaining("does not run yet")
+      retentionRuns: true,
+      note: expect.stringContaining("deleted automatically")
     });
     expect(store.setActivitySourceSettings.mock.calls[0]![2]).toEqual({ retentionDays: 90 });
   });

@@ -442,8 +442,8 @@ describe("settings, summary and reads", () => {
       source: "spotify",
       contentEnabled: true,
       retentionDays: 90,
-      retentionRuns: false,
-      note: expect.stringMatching(/does not run yet.*nothing is deleted automatically/s)
+      retentionRuns: true,
+      note: expect.stringMatching(/deleted automatically.*derived/s)
     });
     expect(await setActivitySourceSettings(sql, "spotify", { retentionDays: null })).toMatchObject({
       retentionRuns: false,
@@ -466,7 +466,7 @@ describe("settings, summary and reads", () => {
     });
     expect(summary.sources.find((s) => s.source === "iphone-health")).toMatchObject({ events: 0, lastEventAt: null });
     // Nothing runs the retention purge yet, and the summary says so wherever a retention is set.
-    expect(watch.retentionPurge).toBe("not_running");
+    expect(watch.retentionPurge).toBe("scheduled");
     expect(summary.sources.find((s) => s.source === "spotify")!.retentionPurge).toBe("not_set");
   });
 
