@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyMessage } from "./classify-message.js";
+import { JSONLD_EVENT_TYPES, JSONLD_ORDER_TYPES, classifyMessage } from "./classify-message.js";
 
 describe("classifyMessage", () => {
   it("returns unknown with no_headers on empty attrs, never person by default", () => {
@@ -43,6 +43,74 @@ describe("classifyMessage", () => {
     expect(classifyMessage({ message_id: "<m@x>", jsonld: [{ "@type": "Person" }, { "@type": "Order" }] }).class).toBe(
       "transaction"
     );
+  });
+
+  it("matches JSON-LD types exactly against a named list, never by substring", () => {
+    for (const type of [
+      "EventualThing",
+      "Eventide",
+      "OrderedList",
+      "ReorderAction",
+      "Subreservation",
+      "InvoiceLine",
+      "event",
+      "order"
+    ]) {
+      const result = classifyMessage({ message_id: "<m@x>", jsonld: [{ "@type": type }] });
+      expect(result.reasons, type).not.toContain("jsonld_event");
+      expect(result.reasons, type).not.toContain("jsonld_order");
+    }
+    expect(JSONLD_EVENT_TYPES).toContain("FlightReservation");
+    expect(JSONLD_ORDER_TYPES).toEqual(expect.arrayContaining(["Order", "Invoice"]));
+    for (const type of JSONLD_EVENT_TYPES)
+      expect(classifyMessage({ message_id: "<m@x>", jsonld: { "@type": type } }).class, type).toBe("calendar");
+    for (const type of JSONLD_ORDER_TYPES)
+      expect(classifyMessage({ message_id: "<m@x>", jsonld: { "@type": type } }).class, type).toBe("transaction");
+  });
+
+  it("lists the real schema.org Event and Reservation subtypes, spelt as schema.org spells them", () => {
+    for (const type of [
+      "DeliveryEvent",
+      "PublicationEvent",
+      "BroadcastEvent",
+      "OnDemandEvent",
+      "SaleEvent",
+      "Hackathon",
+      "EventSeries",
+      "ChildrensEvent",
+      "ConferenceEvent",
+      "PerformingArtsEvent",
+      "ScreeningEvent",
+      "TheaterEvent",
+      "ExhibitionEvent",
+      "SocialEvent",
+      "VisualArtsEvent",
+      "LiteraryEvent",
+      "FoodEvent",
+      "EducationEvent",
+      "SportsEvent",
+      "MusicEvent",
+      "DanceEvent",
+      "ComedyEvent",
+      "BusinessEvent",
+      "Festival"
+    ])
+      expect(JSONLD_EVENT_TYPES, type).toContain(type);
+    expect(JSONLD_EVENT_TYPES).not.toContain("ChildrenEvent");
+    expect(new Set(JSONLD_EVENT_TYPES).size).toBe(JSONLD_EVENT_TYPES.length);
+  });
+
+  it("accepts the schema.org prefixed forms of a listed type, and no other prefix", () => {
+    expect(classifyMessage({ message_id: "<m@x>", jsonld: { "@type": "http://schema.org/Event" } }).class).toBe(
+      "calendar"
+    );
+    expect(classifyMessage({ message_id: "<m@x>", jsonld: { "@type": "https://schema.org/Order" } }).class).toBe(
+      "transaction"
+    );
+    expect(classifyMessage({ message_id: "<m@x>", jsonld: { "@type": "schema:Event" } }).class).toBe("calendar");
+    expect(
+      classifyMessage({ message_id: "<m@x>", jsonld: { "@type": "http://evil.example/Event" } }).reasons
+    ).not.toContain("jsonld_event");
   });
 
   it("calls a noreply receipt a transaction", () => {

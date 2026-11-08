@@ -1,4 +1,5 @@
 import {
+  ACTIVITY_MAX_BODY_BYTES,
   AGENT_PROPOSAL_SUMMARY_MAX,
   closeEntityPayloadSchema,
   isClosedStatus,
@@ -27,6 +28,8 @@ import type { WriteClaim } from "./agent-actor";
 import { companionCleared, omittedStoredFields, recordInState } from "@/shared/record-in-state";
 import { PROPOSALS_UNAVAILABLE, proposalErrorResponse } from "./agent-proposals/errors";
 import type { Sql } from "./persistence/postgres/sql-pool";
+import { activityBodyTooLarge } from "./activity-ingest";
+import { BodyTooLargeError, readBodyCapped } from "./imports/capped-body";
 
 /**
  * Scope enforcement for database tokens, run by `withRoute` after
@@ -561,6 +564,33 @@ async function readBody(request: Request): Promise<unknown> {
     .catch(() => undefined);
 }
 
+/** The activity ingest body is the one that can run to megabytes: read it under the handler's cap, so nothing is buffered or parsed past it. */
+async function readActivityBody(request: Request): Promise<{ body: unknown } | { tooLarge: true }> {
+  const copy = request.clone();
+  // A tee'd stream is released only when both branches are cancelled.
+  const release = () => {
+    void copy.body?.cancel().catch(() => undefined);
+    void request.body?.cancel().catch(() => undefined);
+  };
+  let text: string;
+  try {
+    text = await readBodyCapped(copy, ACTIVITY_MAX_BODY_BYTES);
+  } catch (error) {
+    if (error instanceof BodyTooLargeError) {
+      release();
+      return { tooLarge: true };
+    }
+    // A client that aborts mid-body: no body, so the caller answers 400 rather than failing with a 500.
+    release();
+    return { body: undefined };
+  }
+  try {
+    return { body: JSON.parse(text) as unknown };
+  } catch {
+    return { body: undefined };
+  }
+}
+
 /**
  * What an agent does about a proposal it now regrets. There is no withdraw, so say so, and say which of the two cases
  * it is in: a save with a record id carries a coalesce key and a corrected save replaces the pending card; a settings
@@ -674,7 +704,12 @@ export async function enforceAgentRequest(
   const method = request.method.toUpperCase();
   const isWrite = !["GET", "HEAD", "OPTIONS"].includes(method);
   const needsBody = isWrite && routeNeedsBody(method, route);
-  const body = needsBody ? await readBody(request) : undefined;
+  let body: unknown;
+  if (needsBody && route === "/api/activity-events") {
+    const read = await readActivityBody(request);
+    if ("tooLarge" in read) return activityBodyTooLarge();
+    body = read.body;
+  } else body = needsBody ? await readBody(request) : undefined;
   // A decision that depends on the body is never made without one, and the handler never sees a body we could not read.
   if (needsBody && !asRecord(body))
     return Response.json({ error: "The request body must be a JSON object." }, { status: 400 });

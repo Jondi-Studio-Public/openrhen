@@ -351,6 +351,8 @@ export function isKnownScope(scope: string): boolean {
     // The activity store: capture posts events; reading them back (content included) is its own scope.
     knownScopes.add("write:activity-event");
     knownScopes.add("read:activity-event");
+    // Writing derived rows an extractor produces (fact, msg_class). Never override or fact_status: those need write:activity-event.
+    knownScopes.add("write:activity-derived");
     knownScopes.add("write:plan-map");
     // A token holding this scope has its settle applied directly.
     knownScopes.add("write:catch-up");

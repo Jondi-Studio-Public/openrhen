@@ -511,3 +511,41 @@ describe("settings, summary and reads", () => {
     expect(await sql`SELECT 1 FROM activity_events WHERE user_id = ${other!.id}`).toHaveLength(1);
   });
 });
+
+describe("who a derived row is attributed to", () => {
+  const derived = (id: string, kind: string, attrs: Record<string, unknown>) => ({
+    id,
+    source: "derived",
+    kind,
+    start: "2026-11-07T10:00:00.000Z",
+    attrs
+  });
+  const label = { fact_id: "f".repeat(40), answer: "ask" };
+
+  it("records the posting agent as ingested_via, null for the person, and never lets attrs say otherwise", async () => {
+    const asMark = await ingest([derived("by-mark", "label", label)], {}, "mark");
+    const asPerson = await ingest([derived("by-person", "label", { ...label, answer: "fyi" })], {}, null);
+    expect(asMark.added).toBe(1);
+    expect(asPerson.added).toBe(1);
+    const rows = await sql<{ event_key: string; ingested_via: string | null }[]>`
+      SELECT event_key, ingested_via FROM activity_events WHERE source = 'derived' ORDER BY event_key`;
+    expect(rows).toEqual([
+      { event_key: "by-mark", ingested_via: "mark" },
+      { event_key: "by-person", ingested_via: null }
+    ]);
+    // Only rows with ingested_via IS NULL count as his labels.
+    const his =
+      await sql`SELECT 1 FROM activity_events WHERE source = 'derived' AND kind = 'label' AND ingested_via IS NULL`;
+    expect(his).toHaveLength(1);
+  });
+
+  it("refuses a row that claims to be the person through attrs.by, from the person or from an agent", async () => {
+    for (const via of ["mark", null]) {
+      const result = await ingest([derived(`claims-${via}`, "label", { ...label, by: "jondi" })], {}, via);
+      expect(result.added).toBe(0);
+      expect(result.rejected).toHaveLength(1);
+      expect(result.rejected[0]!.reason).toContain("attrs.by");
+    }
+    expect(await count()).toBe(0);
+  });
+});

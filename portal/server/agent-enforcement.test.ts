@@ -879,6 +879,115 @@ describe("activity store", () => {
     expect(await refused?.json()).toMatchObject({ missingScopes: ["write:activity-event"] });
   });
 
+  it("lets only the derived scope post fact rows, and keeps fact_status and override with the event scope", async () => {
+    const one = (kind: string) => ({
+      schema: 1,
+      events: [{ id: "k", source: "derived", kind, start: "2026-11-08T01:00:00Z" }]
+    });
+    expect(await call("POST", "/api/activity-events", principal(["write:activity-derived"]), one("fact"))).toBeNull();
+    const refusedFact = await call("POST", "/api/activity-events", principal(["write:activity-event"]), one("fact"));
+    expect(await refusedFact?.json()).toMatchObject({ missingScopes: ["write:activity-derived"] });
+    // An extractor token never outranks a person's confirmed status.
+    for (const kind of ["fact_status", "override"]) {
+      const refused = await call("POST", "/api/activity-events", principal(["write:activity-derived"]), one(kind));
+      expect(refused?.status, kind).toBe(403);
+      expect(await refused?.json(), kind).toMatchObject({ missingScopes: ["write:activity-event"] });
+      expect(
+        await call("POST", "/api/activity-events", principal(["write:activity-event"]), one(kind)),
+        kind
+      ).toBeNull();
+    }
+  });
+
+  it("answers an oversize activity body with the handler's 413, valid JSON or not, and does not parse it", async () => {
+    const big = (text: string) =>
+      enforceAgentRequest(
+        new Request("http://portal.test/api/activity-events", { method: "POST", body: text }),
+        "/api/activity-events",
+        principal(["write:activity-event"]),
+        {},
+        { stored: async () => ({}) }
+      );
+    const pad = "x".repeat(2 * 1024 * 1024 + 1);
+    const validJson = JSON.stringify({ schema: 1, events: [{ source: "rhen-watch", kind: "window", pad }] });
+    for (const text of [validJson, pad]) {
+      const response = await big(text);
+      expect(response?.status).toBe(413);
+      expect(await response?.json()).toMatchObject({ error: expect.stringContaining("over 2 MB") });
+    }
+    // At the cap and below, the rule still reads the body as before.
+    expect(
+      await call("POST", "/api/activity-events", principal(["write:activity-event"]), { schema: 1, events: [] })
+    ).toBeNull();
+  });
+
+  it("cancels the whole body stream when the declared length is over the cap, and answers 400 when the read fails", async () => {
+    const run = (stream: ReadableStream<Uint8Array>, headers: Record<string, string>) =>
+      enforceAgentRequest(
+        new Request("http://portal.test/api/activity-events", {
+          method: "POST",
+          headers,
+          body: stream,
+          duplex: "half"
+        } as RequestInit),
+        "/api/activity-events",
+        principal(["write:activity-event"]),
+        {},
+        { stored: async () => ({}) }
+      );
+    let cancelled = false;
+    const declared = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new Uint8Array(1024));
+      },
+      cancel() {
+        cancelled = true;
+      }
+    });
+    const tooLarge = await run(declared, { "content-length": String(3 * 1024 * 1024) });
+    expect(tooLarge?.status).toBe(413);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(cancelled).toBe(true);
+
+    // A client that aborts mid-body is a bad request, not a server error.
+    const aborted = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"schema":1,'));
+        controller.error(new Error("client aborted"));
+      }
+    });
+    const response = await run(aborted, {});
+    expect(response?.status).toBe(400);
+  });
+
+  it("refuses an empty batch from a token holding no activity scope (the scope list is never empty)", async () => {
+    const refused = await call("POST", "/api/activity-events", principal(["read:plan"]), { schema: 1, events: [] });
+    expect(refused?.status).toBe(403);
+    expect(await refused?.json()).toMatchObject({ missingScopes: ["write:activity-event"] });
+  });
+
+  it("lets one malformed row through to the handler, which rejects it alone", async () => {
+    const held = principal(["write:activity-event"]);
+    expect(
+      await call("POST", "/api/activity-events", held, {
+        schema: 1,
+        events: [{ source: "rhen-watch", kind: "window" }, null]
+      })
+    ).toBeNull();
+  });
+
+  it("refuses a token a derived label or correction, whatever scopes it holds", async () => {
+    const all = principal(["write:activity-event", "write:activity-derived", "read:activity-event"]);
+    for (const kind of ["label", "correction"]) {
+      const refused = await call("POST", "/api/activity-events", all, {
+        schema: 1,
+        events: [{ id: "k", source: "derived", kind, start: "2026-11-08T01:00:00Z" }]
+      });
+      expect(refused?.status, kind).toBe(403);
+      expect(JSON.stringify(await refused?.json()), kind).toContain("owner session");
+    }
+  });
+
   it("keeps the read-back (which returns content) behind read:activity-event, which capture does not hold", async () => {
     expect(await call("GET", "/api/activity-events", principal(["read:activity-event"]))).toBeNull();
     const refused = await call("GET", "/api/activity-events", principal(["write:activity-event"]));

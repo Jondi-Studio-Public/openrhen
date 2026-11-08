@@ -3,6 +3,7 @@ import {
   ACTIVITY_DEVICE_MAX_CHARS,
   ACTIVITY_FILENAME_MAX_CHARS,
   ACTIVITY_KEY_MAX_CHARS,
+  ACTIVITY_MAX_BODY_BYTES,
   ACTIVITY_MAX_BATCH,
   ACTIVITY_SCHEMA_VERSION,
   describeTimeProblem,
@@ -10,6 +11,16 @@ import {
   isActivityShorthand
 } from "@openrhen/contracts";
 import type { ActivityBatch } from "@/server/persistence/postgres/activity-store";
+
+/** The answer to an ingest body over the cap: the handler and the agent-token check give the same one. */
+export function activityBodyTooLarge(): Response {
+  return Response.json(
+    {
+      error: `That request is over ${ACTIVITY_MAX_BODY_BYTES / (1024 * 1024)} MB. Send fewer events per request (at most 1000).`
+    },
+    { status: 413 }
+  );
+}
 
 /** JSON with object keys sorted at every depth, so the same facts always hash alike. */
 export function stableJson(value: unknown): string {
