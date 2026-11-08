@@ -41,6 +41,8 @@ export const IGNORED = [/^[^/]+\.md$/, /^docs\//, /^\.agents\//, /^\.claude\//, 
 export const EXTRA_EDGES = [
   { from: "engine/service", to: "portal", suite: "integration" },
   { from: "integrations/openclaw-plugin", to: "tools/cli", suite: "unit" },
+  // The portal's vocabulary test reads the communication readers' source text to keep their copy of it equal.
+  { from: "integrations/communication-readers", to: "portal", suite: "unit" },
   // Edges of packages the export leaves out are registered in private/index.mjs.
   ...edgeExtensions()
 ];

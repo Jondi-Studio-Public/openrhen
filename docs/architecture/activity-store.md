@@ -14,6 +14,10 @@ Sources and kinds added with the Takeout importers (Timeline, Google Chat, Acces
 
 `source` and `kind` are checked in code against the registry (`ACTIVITY_SOURCES` in `platform/contracts/src/activity-events.ts`), not by a database constraint, so a new source needs no migration. Each source has a `schemaVersion`; `correction` is accepted as a kind for every source.
 
+## Derived rows
+
+Source `derived` (schemaVersion 1) holds what a reader extracted from other rows, never the text itself. Kinds: `msg_class` (`class` person, bulk, automated, transaction or calendar, `reasons` from a closed list, `tier`), `fact` (`fact_id`, `fact_type` ask, commitment, event or deadline), `fact_status` (`fact_id`, `status` proposed, confirmed, rescheduled, cancelled, done, superseded or source_gone, `valid_from`), `override` (`fact_id`, `field`, `new_value`) and `label` (his ground-truth `answer`). `validateActivityEvent` applies the per-kind rules in `platform/contracts/src/activity-derived.ts` to every writer: an unknown class, reason, status or type is rejected with the allowed values and the fix; attrs are at most 4 KB (half the general limit); `content` is refused; and `attrs.by` is refused because the server derives the actor from the posting agent (`ingested_via`, null for the person). A message with no header attrs is `unknown` and gets no `msg_class` row. `integrations/communication-readers` holds the pure functions the readers share: `classifyMessage`, `factId` (sha1 over the frozen `n1` normaliser version), the `event_key` rules, the evidence-span locator (code-point offsets plus a truncated content hash) and status resolution (latest `valid_from`, ties by person over Mark over extractor, `expired` computed at read). Lineage, the runner, scopes and the derived read route are later changes.
+
 ## Ingest
 
 `POST /api/activity-events`, scope `write:activity-event` (preset `activity-capture`, which grants nothing else). Send the token in the `X-OpenRhen-Token` header. Create the token from the agent-tokens card in the portal, or with `rhen agent-token create --name <agent> --scopes activity-capture`.

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { describeDerivedProblem } from "./activity-derived.js";
 import { withoutDatePatterns } from "./agent-sessions.js";
 
 /**
@@ -75,9 +76,10 @@ export const ACTIVITY_SOURCES: Readonly<Record<string, ActivitySourceEntry>> = {
   // attrs: thread_id, gmail_id, from, to[], from_self, direction (in|out), labels[], subject; content is the stripped body (gated).
   // Discord and notification messages reuse this attrs shape, with thread_id the channel id.
   gmail: { schemaVersion: 1, kinds: ["message"] },
-  // Facts read out of other events. attrs: source_event_id, who, what, when, confidence. A status change is a later
-  // fact_status row (rows are never updated). A derived row never carries the raw body.
-  derived: { schemaVersion: 1, kinds: ["invite", "ask", "fact_status"] },
+  // Rows read out of other events by a versioned reader. msg_class and fact name their source_event_id; fact_status,
+  // override and label name a fact_id. A status change is a later fact_status row (rows are never updated). Per-kind
+  // attrs are validated in activity-derived.ts; a derived row never carries the raw body.
+  derived: { schemaVersion: 1, kinds: ["msg_class", "fact", "fact_status", "override", "label"] },
   "iphone-shortcuts": {
     schemaVersion: 1,
     kinds: [
@@ -389,6 +391,10 @@ export function validateActivityEvent(raw: unknown, now: Date): ActivityEventVer
       `attrs is ${attrsBytes} bytes; the limit is ${ACTIVITY_ATTRS_MAX_BYTES}. Keep small facts in attrs and put text in content.`
     );
   const content = rawContent as string | null;
+  if (source === "derived") {
+    const derivedProblem = describeDerivedProblem(kind, attrs, content);
+    if (derivedProblem) return reject(derivedProblem);
+  }
   if (content !== null) {
     const contentProblem = describeUnstorableText("content", content);
     if (contentProblem) return reject(contentProblem);
