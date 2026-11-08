@@ -1,5 +1,12 @@
 import { readFileSync } from "node:fs";
-import { DERIVED_FACT_STATUSES, DERIVED_MSG_CLASSES, DERIVED_MSG_CLASS_REASONS } from "@openrhen/contracts";
+import {
+  DERIVED_CONTENT_MAX_CODE_POINTS,
+  DERIVED_FACT_STATUSES,
+  DERIVED_MAX_WHO,
+  DERIVED_MSG_CLASSES,
+  DERIVED_MSG_CLASS_REASONS,
+  DERIVED_SPAN_MAX_CODE_POINTS
+} from "@openrhen/contracts";
 import { describe, expect, it } from "vitest";
 
 // integrations/communication-readers imports no workspace package, so it keeps its own copy of the derived vocabulary;
@@ -22,5 +29,13 @@ describe("the communication readers' copy of the derived vocabulary", () => {
 
   it("has the same fact statuses", () => {
     expect(listIn(source("fact-status"), "FACT_STATUSES")).toEqual([...DERIVED_FACT_STATUSES]);
+  });
+
+  it("has the same limits on a grounded span and on who", () => {
+    const number = (name: string, constant: string) =>
+      Number(new RegExp(`export const ${constant} = (\\d+)`).exec(source(name))?.[1]);
+    expect(number("ground-quote", "MAX_QUOTE_CODE_POINTS")).toBe(DERIVED_SPAN_MAX_CODE_POINTS);
+    expect(number("message-context", "MAX_WHO")).toBe(DERIVED_MAX_WHO);
+    expect(number("ground-quote", "MAX_CONTENT_CODE_POINTS")).toBe(DERIVED_CONTENT_MAX_CODE_POINTS);
   });
 });
