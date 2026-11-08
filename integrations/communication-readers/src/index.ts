@@ -24,6 +24,16 @@ export { BACKFILL_LIMITS, estimateBackfill } from "./backfill-estimate.js";
 export type { BackfillEstimate, BackfillInput } from "./backfill-estimate.js";
 export { EVAL_CAVEAT, buildEvalReport } from "./eval-report.js";
 export type { EvalReport, EvalReportInput } from "./eval-report.js";
+export { FACT_TYPES, factMetrics, fallbackFactPredictions } from "./eval-facts.js";
+export type {
+  FactEvalInput,
+  FactMetrics,
+  FactReference,
+  FactRow,
+  FactSpan,
+  FactTypeMetrics,
+  FalseAlarms
+} from "./eval-facts.js";
 export { drawSample } from "./eval-sampling.js";
 export type { SampleCandidate, SamplePlan, SampleRequest } from "./eval-sampling.js";
 export { WRONG_AUTO_ACTIONS_LISTED, fieldMetrics, t0Share, wilsonInterval, wrongAutoActions } from "./eval-stats.js";

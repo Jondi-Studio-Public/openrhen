@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import {
   DERIVED_CONTENT_MAX_CODE_POINTS,
   DERIVED_FACT_STATUSES,
+  DERIVED_FACT_TYPES,
   DERIVED_MAX_WHO,
   DERIVED_MSG_CLASSES,
   DERIVED_MSG_CLASS_REASONS,
@@ -29,6 +30,10 @@ describe("the communication readers' copy of the derived vocabulary", () => {
 
   it("has the same fact statuses", () => {
     expect(listIn(source("fact-status"), "FACT_STATUSES")).toEqual([...DERIVED_FACT_STATUSES]);
+  });
+
+  it("has the same fact types", () => {
+    expect(listIn(source("eval-facts"), "FACT_TYPES")).toEqual([...DERIVED_FACT_TYPES]);
   });
 
   it("has the same limits on a grounded span and on who", () => {

@@ -128,6 +128,40 @@ const same = (a: unknown, b: unknown): boolean => text(a) === text(b);
 const subjectKey = (subject: EvalSubject, field: string) => `${subject.kind}\u0000${subject.id}\u0000${field}`;
 const instant = (value: string): number => Date.parse(value);
 
+/**
+ * One answer per subject and field: the latest label wins (equal times fall back to the answer's text so input order
+ * never matters). A subject labelled again keeps the slice of its earliest labelled slice: re-labelling is a correction
+ * of the answer, not a new draw, so it must not move a message out of (or into) the random slice. Labels with no field
+ * are left out.
+ */
+export function resolveLabels(labels: readonly EvalLabel[]): {
+  latest: Map<string, EvalLabel & { field: string }>;
+  firstSlice: Map<string, { at: number; slice: "random" | "stratified" }>;
+} {
+  const latest = new Map<string, EvalLabel & { field: string }>();
+  const firstSlice = new Map<string, { at: number; slice: "random" | "stratified" }>();
+  for (const candidate of labels) {
+    if (candidate.field === null) continue;
+    const entry = candidate as EvalLabel & { field: string };
+    const key = subjectKey(entry.subject, entry.field);
+    if (entry.slice === "random" || entry.slice === "stratified") {
+      const held = firstSlice.get(key);
+      if (held === undefined || instant(entry.at) < held.at)
+        firstSlice.set(key, { at: instant(entry.at), slice: entry.slice });
+    }
+    const held = latest.get(key);
+    if (
+      held === undefined ||
+      instant(entry.at) > instant(held.at) ||
+      (instant(entry.at) === instant(held.at) && text(entry.answer) > text(held.answer))
+    )
+      latest.set(key, entry);
+  }
+  return { latest, firstSlice };
+}
+
+export { rate, text as answerText };
+
 export interface FieldMetrics {
   field: string;
   /** Distinct subjects labelled for this field (latest label each). */
@@ -150,28 +184,7 @@ export function fieldMetrics(labels: readonly EvalLabel[], predictions: readonly
   for (const prediction of predictions)
     predicted.set(subjectKey(prediction.subject, prediction.field), prediction.value);
 
-  // The latest label wins for a subject and field; equal times fall back to the answer's text so input order never matters.
-  const latest = new Map<string, EvalLabel & { field: string }>();
-  // A subject labelled again keeps the slice of its earliest labelled slice: re-labelling is a correction of the answer,
-  // not a new draw, so it must not move a message out of (or into) the random slice.
-  const firstSlice = new Map<string, { at: number; slice: "random" | "stratified" }>();
-  for (const candidate of labels) {
-    if (candidate.field === null) continue;
-    const entry = candidate as EvalLabel & { field: string };
-    const key = subjectKey(entry.subject, entry.field);
-    if (entry.slice === "random" || entry.slice === "stratified") {
-      const held = firstSlice.get(key);
-      if (held === undefined || instant(entry.at) < held.at)
-        firstSlice.set(key, { at: instant(entry.at), slice: entry.slice });
-    }
-    const held = latest.get(key);
-    if (
-      held === undefined ||
-      instant(entry.at) > instant(held.at) ||
-      (instant(entry.at) === instant(held.at) && text(entry.answer) > text(held.answer))
-    )
-      latest.set(key, entry);
-  }
+  const { latest, firstSlice } = resolveLabels(labels);
 
   const byField = new Map<string, FieldMetrics>();
   for (const [key, entry] of [...latest].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
