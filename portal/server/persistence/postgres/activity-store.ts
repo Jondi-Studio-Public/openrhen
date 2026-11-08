@@ -16,8 +16,9 @@ import {
   type ValidActivityEvent
 } from "@openrhen/contracts";
 import { runtimeEnv } from "@/server/runtime-env";
+import { deleteDerivedForSources } from "./derived-lineage-store";
 import { ensureUser } from "./ensure-user";
-import type { PoolSql, Sql } from "./sql-pool";
+import type { PoolSql, Sql, TxSql } from "./sql-pool";
 
 /**
  * The activity store: one append-only table of events from every non-plan source (activity-store design). Rows are
@@ -388,6 +389,18 @@ async function deleteInBatches(run: () => Promise<number>): Promise<number> {
   }
 }
 
+/**
+ * Deletes one batch of source rows inside the caller's transaction, after the derived rows read from them (a fact
+ * read from several messages goes with the last one). Returns the batch size, not the rows left to delete, so a
+ * derived row the helper already removed cannot make the batch loop stop early.
+ */
+async function removeBatch(tx: TxSql, userId: string, ids: string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  await deleteDerivedForSources(tx, userId, ids);
+  await tx`DELETE FROM activity_events WHERE user_id = ${userId} AND id IN (SELECT value::uuid FROM jsonb_array_elements_text(${tx.json(ids)}))`;
+  return ids.length;
+}
+
 /** Undoes one import: its events and its record. `deleted` is false when the id is not the person's. */
 export async function deleteActivityImport(
   sql: PoolSql,
@@ -399,11 +412,16 @@ export async function deleteActivityImport(
   >`SELECT id FROM activity_imports WHERE id = ${importId} AND user_id = ${userId}`;
   if (!owned) return { deleted: false, removed: 0 };
   const removed = await deleteInBatches(async () => {
-    const gone = await sql`
-      DELETE FROM activity_events WHERE id IN (
-        SELECT id FROM activity_events WHERE import_id = ${importId} AND user_id = ${userId} LIMIT ${ACTIVITY_PURGE_BATCH}
-      ) RETURNING 1`;
-    return gone.length;
+    // One transaction per batch: the derived rows read from these sources go first, while their lineage still exists.
+    return sql.begin(async (tx) => {
+      const batch = await tx<{ id: string }[]>`
+        SELECT id FROM activity_events WHERE import_id = ${importId} AND user_id = ${userId} LIMIT ${ACTIVITY_PURGE_BATCH}`;
+      return removeBatch(
+        tx,
+        userId,
+        batch.map((row) => row.id)
+      );
+    });
   });
   await sql`DELETE FROM activity_imports WHERE id = ${importId} AND user_id = ${userId}`;
   return { deleted: true, removed };
@@ -418,11 +436,15 @@ export async function purgeActivitySource(sql: PoolSql, source: string): Promise
     );
   const userId = await ensureUser(sql);
   const removed = await deleteInBatches(async () => {
-    const gone = await sql`
-      DELETE FROM activity_events WHERE id IN (
-        SELECT id FROM activity_events WHERE user_id = ${userId} AND source = ${source} LIMIT ${ACTIVITY_PURGE_BATCH}
-      ) RETURNING 1`;
-    return gone.length;
+    return sql.begin(async (tx) => {
+      const batch = await tx<{ id: string }[]>`
+        SELECT id FROM activity_events WHERE user_id = ${userId} AND source = ${source} LIMIT ${ACTIVITY_PURGE_BATCH}`;
+      return removeBatch(
+        tx,
+        userId,
+        batch.map((row) => row.id)
+      );
+    });
   });
   await sql`DELETE FROM activity_imports WHERE user_id = ${userId} AND source = ${source}`;
   return { removed };

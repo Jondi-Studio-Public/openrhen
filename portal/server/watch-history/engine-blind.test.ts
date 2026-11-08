@@ -16,7 +16,13 @@ const WATCH_TABLES = ["watch_events", "watch_imports", "video_info"];
  * offer log is write-only for planning: `plan-forecast-runtime.ts` appends an `offered` row through
  * `offer-log/offer-log.ts`, which lives outside `planning/`, and no planning or engine file names the table.
  */
-const ACTIVITY_TABLES = ["activity_events", "activity_imports", "activity_source_state"];
+const ACTIVITY_TABLES = [
+  "activity_events",
+  "activity_imports",
+  "activity_source_state",
+  "derived_lineage",
+  "extractor_state"
+];
 const BLIND_TABLES = [...WATCH_TABLES, ...ACTIVITY_TABLES, "app_secrets", "youtube_quota_use", "offer_log"];
 
 const SKIPPED_DIRECTORIES = new Set([
@@ -48,6 +54,7 @@ const MAY_NAME_BLIND_TABLES = new Set([
   "portal/server/persistence/postgres/watch-history-store.ts",
   "portal/server/persistence/postgres/video-lengths-store.ts",
   "portal/server/persistence/postgres/activity-store.ts",
+  "portal/server/persistence/postgres/derived-lineage-store.ts",
   "portal/server/persistence/postgres/app-secrets-store.ts",
   "portal/server/secrets/read-secret.ts",
   "platform/database/src/schema/core.ts",

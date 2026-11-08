@@ -22,7 +22,7 @@ import {
 const backupOf = (formatVersion: number, list: readonly string[], format: string = BACKUP_FORMAT) => {
   const tables = Object.fromEntries(list.map((table) => [table, []])) as Record<string, unknown[]>;
   return {
-    ...(formatVersion === CURRENT_BACKUP_FORMAT_VERSION
+    ...(formatVersion >= 23
       ? {
           streamed: { activity_events: { file: "x.activity-events.ndjson", rows: 0, bytes: 0, sha256: "0".repeat(64) } }
         }
@@ -244,11 +244,11 @@ describe("backup table count", () => {
   // Adding a table to BACKUP_TABLES changes this count; that is the prompt to bump `formatVersion`, freeze
   // the previous list as a literal and update the number here, in that order.
   it("pins BACKUP_TABLES.length to the current formatVersion so an added table forces a bump", () => {
-    expect(BACKUP_TABLES.length).toBe(72 + groupBackupTables("current").length);
+    expect(BACKUP_TABLES.length).toBe(74 + groupBackupTables("current").length);
   });
 });
 
-describe("backup format 23", () => {
+describe("backup format 24", () => {
   it("pins the format strings: the one written, and the one the reader also accepts", () => {
     expect(BACKUP_FORMAT).toBe("priorities-postgresql-logical-backup");
     expect(ACCEPTED_BACKUP_FORMATS).toContain("openrhen-postgresql-logical-backup");
@@ -289,7 +289,7 @@ describe("backup format 23", () => {
 
   it("rejects a format newer than this build reads", () => {
     expect(() => validateBackup(backupOf(CURRENT_BACKUP_FORMAT_VERSION + 1, BACKUP_TABLES))).toThrow(
-      /^Unsupported backup formatVersion 24$/
+      /^Unsupported backup formatVersion 25$/
     );
   });
 });
@@ -307,15 +307,15 @@ describe("older backup formats", () => {
     return import("./backup-format.js");
   };
 
-  it("refuses an older format, saying this build restores format 23 only, when no reader recognises it", async () => {
+  it("refuses an older format, saying this build restores format 24 only, when no reader recognises it", async () => {
     const { validateBackup: validate, BACKUP_TABLES: tables } = await withSeam(() => undefined);
-    for (const version of [1, 5, 19, 20, 21, 22]) {
+    for (const version of [1, 5, 19, 20, 21, 22, 23]) {
       expect(() => validate(backupOf(version, tables))).toThrow(
-        `Unsupported backup formatVersion ${version}: this build restores format 23 backups only`
+        `Unsupported backup formatVersion ${version}: this build restores format 24 backups only`
       );
     }
     expect(() => validate(backupOf(0, tables))).toThrow(/^Unsupported backup formatVersion 0$/);
-    expect(() => validate(backupOf(23, tables))).not.toThrow();
+    expect(() => validate(backupOf(24, tables))).not.toThrow();
   });
 
   it("restores a format 22 backup through the shipped reader, with its rows in the JSON, with or without a skip marker", async () => {
@@ -323,14 +323,28 @@ describe("older backup formats", () => {
     const { legacyRequiredTables } = await import("./private/legacy-backups.js");
     const format22 = legacyRequiredTables(22);
     expect(format22).toBeDefined();
-    // Format 23 changed where activity_events rows live, not which tables exist.
-    expect([...tables].filter((table) => !format22!.includes(table))).toEqual([]);
+    // Format 23 changed where activity_events rows live; format 24 added the two derived-reader tables.
+    expect([...tables].filter((table) => !format22!.includes(table))).toEqual(["derived_lineage", "extractor_state"]);
     expect(format22!.filter((table) => !tables.includes(table))).toEqual([]);
     const plain = validate(backupOf(22, format22!));
-    expect(tablesAbsentFrom(plain)).toEqual([]);
+    expect(tablesAbsentFrom(plain)).toEqual(["derived_lineage", "extractor_state"]);
     expect(plain.streamed).toBeUndefined();
     const skipped = [{ table: "activity_events", rows: 600000, reason: "over the guard" }];
     expect(validate({ ...backupOf(22, format22!), skipped }).skipped).toEqual(skipped);
+  });
+
+  it("restores a format 23 backup, whose events are streamed, with the derived-reader tables empty", async () => {
+    const { validateBackup: validate, BACKUP_TABLES: tables, tablesAbsentFrom } = await import("./backup-format.js");
+    const { legacyRequiredTables } = await import("./private/legacy-backups.js");
+    const format23 = legacyRequiredTables(23);
+    expect(format23).toBeDefined();
+    expect([...tables].filter((table) => !format23!.includes(table))).toEqual(["derived_lineage", "extractor_state"]);
+    expect(format23!.filter((table) => !tables.includes(table))).toEqual([]);
+    const backup = validate(backupOf(23, format23!));
+    expect(tablesAbsentFrom(backup)).toEqual(["derived_lineage", "extractor_state"]);
+    expect(backup.streamed?.activity_events).toBeDefined();
+    const { streamed: _streamed, ...bare } = backupOf(23, format23!);
+    expect(() => validate(bare)).toThrow(/streamed section is missing from the manifest/);
   });
 
   it("restores a format 21 backup, which has no activity tables, through the shipped reader", async () => {
@@ -342,11 +356,19 @@ describe("older backup formats", () => {
     expect([...tables].filter((table) => !format21!.includes(table))).toEqual([
       "activity_imports",
       "activity_events",
-      "activity_source_state"
+      "activity_source_state",
+      "derived_lineage",
+      "extractor_state"
     ]);
     expect(format21!.filter((table) => !tables.includes(table))).toEqual([]);
     const backup = validate(backupOf(21, format21!));
-    expect(tablesAbsentFrom(backup)).toEqual(["activity_imports", "activity_events", "activity_source_state"]);
+    expect(tablesAbsentFrom(backup)).toEqual([
+      "activity_imports",
+      "activity_events",
+      "activity_source_state",
+      "derived_lineage",
+      "extractor_state"
+    ]);
     expect(() => validate(backupOf(21, tables))).not.toThrow();
     expect(() => validate(backupOf(21, format21!.slice(1)))).toThrow(/missing table/);
   });
@@ -361,7 +383,9 @@ describe("older backup formats", () => {
       "offer_log",
       "activity_imports",
       "activity_events",
-      "activity_source_state"
+      "activity_source_state",
+      "derived_lineage",
+      "extractor_state"
     ]);
     expect(format20!.filter((table) => !tables.includes(table))).toEqual([]);
     const backup = validate(backupOf(20, format20!));
@@ -369,12 +393,14 @@ describe("older backup formats", () => {
       "offer_log",
       "activity_imports",
       "activity_events",
-      "activity_source_state"
+      "activity_source_state",
+      "derived_lineage",
+      "extractor_state"
     ]);
     expect(() => validate(backupOf(20, tables))).not.toThrow();
     expect(() => validate(backupOf(20, format20!.slice(1)))).toThrow(/missing table/);
     expect(() => validate(backupOf(19, format20!))).toThrow(
-      "Unsupported backup formatVersion 19: this build restores format 23 backups and format 22 ones only"
+      "Unsupported backup formatVersion 19: this build restores format 24 backups and format 23 ones only"
     );
   });
 
@@ -386,8 +412,8 @@ describe("older backup formats", () => {
     });
     expect(() => validate(backupOf(7, ["portal_state", "users"]))).not.toThrow();
     expect(() => validate(backupOf(7, ["portal_state"]))).toThrow("Backup is missing table users");
-    expect(() => validate(backupOf(6, ["portal_state", "users"]))).toThrow(/format 23 backups only/);
-    expect(asked).toEqual([7, 7, 6, 22]);
+    expect(() => validate(backupOf(6, ["portal_state", "users"]))).toThrow(/format 24 backups only/);
+    expect(asked).toEqual([7, 7, 6, 23]);
   });
 
   it("does not ask the reader about a current-format backup", async () => {
@@ -396,7 +422,7 @@ describe("older backup formats", () => {
       asked.push(version);
       return undefined;
     });
-    validate(backupOf(23, tables));
+    validate(backupOf(24, tables));
     expect(asked).toEqual([]);
   });
 });

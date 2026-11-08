@@ -133,7 +133,13 @@ const CORE_BACKUP_TABLES = [
   // (`STREAMED_BACKUP_TABLES`); its position here still fixes the restore order: users, imports, events, settings.
   "activity_imports",
   "activity_events",
-  "activity_source_state"
+  "activity_source_state",
+  // Derived-reader state (format 24): which source rows each derived row was read from (after `activity_events`, which
+  // both of its foreign keys point at), and per-extractor progress and promotion. Lineage is regenerable in principle
+  // but is the only thing that lets a source delete take its derived rows with it, so it is kept with the events it
+  // describes. A format 20 to 23 backup has neither table and restores with them empty (`legacy-backups.ts`).
+  "derived_lineage",
+  "extractor_state"
 ] as const;
 
 export const BACKUP_TABLES: readonly BackupTable[] = [...CORE_BACKUP_TABLES, ...groupBackupTables("current")];
@@ -229,7 +235,7 @@ export type BackupTables = Record<CoreBackupTable, Record<string, unknown>[]> &
   Record<string, Record<string, unknown>[]>;
 
 /** The format a new backup is written in. A format bump changes this one constant and nothing else. */
-export const CURRENT_BACKUP_FORMAT_VERSION = 23 as const;
+export const CURRENT_BACKUP_FORMAT_VERSION = 24 as const;
 
 /** Only a current-format backup is held to a row-for-row content check on restore (S8-11). */
 export function isContentVerifiedFormat(formatVersion: number): boolean {
@@ -418,7 +424,8 @@ export function validateBackup(value: unknown): OpenRhenBackup {
       throw new Error(`Backup is missing table ${table}`);
   }
   if (checksum(backup.tables) !== backup.sha256) throw new Error("Backup checksum does not match its contents");
-  if (version === CURRENT_BACKUP_FORMAT_VERSION) {
+  // Formats 23 and 24 both keep `activity_events` rows in a streamed section.
+  if (typeof version === "number" && version >= 23) {
     for (const table of STREAMED_BACKUP_TABLES) {
       const section = backup.streamed?.[table];
       const rows = (backup.tables as Record<string, unknown[]>)[table];

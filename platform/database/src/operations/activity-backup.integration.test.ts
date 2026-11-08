@@ -71,7 +71,7 @@ afterAll(async () => {
   await sql?.end();
 });
 
-const TABLES = ["activity_imports", "activity_events", "activity_source_state"];
+const TABLES = ["activity_imports", "activity_events", "activity_source_state", "derived_lineage", "extractor_state"];
 
 let dir: string;
 beforeEach(async () => {
@@ -88,10 +88,11 @@ const seedRows = async (rows: number, importId: string | null = null) =>
       FROM generate_series(1, ${rows}::int) g`;
 
 describe("the activity store in the backup", () => {
-  it("is covered by the backup lists, with imports before events, and at format 23", async () => {
+  it("is covered by the backup lists, with imports before events and lineage after them, and at format 24", async () => {
     for (const table of TABLES) expect(BACKUP_TABLES).toContain(table);
     expect(BACKUP_TABLES.indexOf("activity_imports")).toBeLessThan(BACKUP_TABLES.indexOf("activity_events"));
-    expect(CURRENT_BACKUP_FORMAT_VERSION).toBe(23);
+    expect(BACKUP_TABLES.indexOf("activity_events")).toBeLessThan(BACKUP_TABLES.indexOf("derived_lineage"));
+    expect(CURRENT_BACKUP_FORMAT_VERSION).toBe(24);
     await expect(assertBackupCoverage(sql)).resolves.toBeUndefined();
   });
 
@@ -108,6 +109,10 @@ describe("the activity store in the backup", () => {
     `;
     await sql`INSERT INTO activity_source_state (user_id, source, content_enabled, retention_days, cursor)
               VALUES (${userId}, 'spotify', true, 365, '{"after":"123"}')`;
+    const [k1, k2] = await sql<{ id: string }[]>`SELECT id FROM activity_events ORDER BY event_key`;
+    await sql`INSERT INTO derived_lineage (user_id, derived_id, source_id) VALUES (${userId}, ${k2!.id}, ${k1!.id})`;
+    await sql`INSERT INTO extractor_state (user_id, extractor, version, cursor, active)
+              VALUES (${userId}, 'msg_class', 't0-1', '{"at":"2026-11-01T00:00:00Z"}', true)`;
     const before = await readAllTables(sql);
     expect(before.activity_events).toHaveLength(2);
 
@@ -116,13 +121,16 @@ describe("the activity store in the backup", () => {
     expect(written.sections[0]).toMatchObject({ table: "activity_events", rows: 2 });
     expect((await readdir(dir)).sort()).toEqual([written.path.split("/").at(-1), written.sections[0]!.file].sort());
     const backup = validateBackup(JSON.parse(await readFile(written.path, "utf8")));
-    expect(backup.formatVersion).toBe(23);
+    expect(backup.formatVersion).toBe(24);
     expect(backup.tables.activity_events).toEqual([]);
     expect(backup.tables.activity_imports).toHaveLength(1);
     expect(backup.streamed!.activity_events).toMatchObject({ rows: 2, sha256: written.sections[0]!.sha256 });
     await verifySection(written.sections[0]!.path, backup.streamed!.activity_events!);
 
-    await sql.unsafe('TRUNCATE TABLE "activity_events", "activity_imports", "activity_source_state"');
+    expect(backup.tables.derived_lineage).toHaveLength(1);
+    await sql.unsafe(
+      'TRUNCATE TABLE "activity_events", "activity_imports", "activity_source_state", "extractor_state" CASCADE'
+    );
     const outcome = await restoreBackup(sql, backup, written.path);
     expect(outcome.streamedRows).toEqual({ activity_events: 2 });
     expect(outcome.absent).toEqual([]);
@@ -131,6 +139,8 @@ describe("the activity store in the backup", () => {
     expect(after.activity_events).toEqual(before.activity_events);
     expect(after.activity_imports).toEqual(before.activity_imports);
     expect(after.activity_source_state).toEqual(before.activity_source_state);
+    expect(after.derived_lineage).toEqual(before.derived_lineage);
+    expect(after.extractor_state).toEqual(before.extractor_state);
   });
 
   it("restores into a database that already holds other events: the restore replaces them", async () => {
