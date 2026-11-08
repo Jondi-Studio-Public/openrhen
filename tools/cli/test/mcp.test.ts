@@ -735,6 +735,37 @@ describe("tool errors carry structuredContent.error", () => {
     expect(error).toEqual({ code: "conflict", message: "Another session is already open.", retryable: false });
   });
 
+  it("a refused token is code auth: not retryable, with what to tell the person", async () => {
+    const { error } = await failing(
+      1,
+      JSON.stringify({ error: "The agent token is not recognised.", exitCode: 1, code: "auth" })
+    );
+    expect(error).toMatchObject({ code: "auth", retryable: false });
+    expect(error.message).toContain("Do not repeat this call or try another");
+    expect(error.tellThePerson).toContain("rhen agent-token create");
+    expect(error.tellThePerson).toContain("OPENRHEN_TOKEN");
+  });
+
+  it("words a missing-token 401 for credentials, not for 'this agent's token'", async () => {
+    const { error } = await failing(
+      1,
+      JSON.stringify({ error: "A named agent must present its token (X-OpenRhen-Token).", exitCode: 1, code: "auth" })
+    );
+    expect(error).toMatchObject({ code: "auth", retryable: false });
+    expect(error.message).toContain("did not accept the credentials for this call");
+    expect(error.message).not.toContain("this agent's token");
+    expect(error.tellThePerson).toContain("OPENRHEN_TOKEN");
+  });
+
+  it("leaves the portal's own revoked-token text alone: it already says what to do", async () => {
+    const revoked =
+      'The agent token "mark" was revoked, so nothing was done. Do not retry. Tell the owner it was revoked and ask whether they want it replaced.';
+    const { error } = await failing(1, JSON.stringify({ error: revoked, exitCode: 1, code: "auth" }));
+    expect(error).toMatchObject({ code: "auth", retryable: false });
+    expect(error.message).toBe(revoked);
+    expect(error.tellThePerson).toBeUndefined();
+  });
+
   it("a guarded refusal is code guarded with suggestedPath from the JSON error", async () => {
     const { error } = await failing(
       1,

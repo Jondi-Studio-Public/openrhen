@@ -27,7 +27,8 @@ describe("agent error mapping", () => {
       "reentry_required"
     ]);
     expect(agentErrorCodeForExit(99)).toBe("usage");
-    expect(AGENT_ERROR_CODES).toHaveLength(8);
+    expect(AGENT_ERROR_CODES).toHaveLength(9);
+    expect(AGENT_ERROR_CODES).toContain("auth");
   });
 
   it("an explicit code wins over the exit code, and an unknown one is ignored", () => {
