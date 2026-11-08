@@ -35,16 +35,47 @@ describe("the s1 sentence splitter", () => {
   });
 
   it("does not split after an abbreviation, an initial or a list number", () => {
-    expect(texts("Dr. Smith will call. e.g. on Monday. J. Lee agrees.")).toEqual([
+    expect(texts("Dr. Smith will call. e.g. on Monday. Mrs. Lee agrees.")).toEqual([
       "Dr. Smith will call.",
       "e.g. on Monday.",
-      "J. Lee agrees."
+      "Mrs. Lee agrees."
     ]);
     expect(texts("1. Send the form. 2. Pay the fee.")).toEqual(["1. Send the form.", "2. Pay the fee."]);
   });
 
-  it("does not split after a dotted initialism such as U.S.A. (a known trade-off: a sentence that ends with one runs on)", () => {
+  it("splits real sentences that end in 'no', 'B', 'C', 'Co', 'St' or 'Inc' (the fix for merged asks)", () => {
+    expect(texts("Can you confirm, yes or no. Also please send the invoice by Friday.")).toEqual([
+      "Can you confirm, yes or no.",
+      "Also please send the invoice by Friday."
+    ]);
+    expect(texts("We chose Plan B. Please book the venue.")).toEqual(["We chose Plan B.", "Please book the venue."]);
+    expect(texts("Do you want vitamin C. Send the form.")).toEqual(["Do you want vitamin C.", "Send the form."]);
+    expect(texts("Send it to Acme Inc. Please confirm.")).toEqual(["Send it to Acme Inc.", "Please confirm."]);
+    expect(texts("Meet me on Main St. Bring the form.")).toEqual(["Meet me on Main St.", "Bring the form."]);
+  });
+
+  it("treats a stop after etc., approx, cf, fig, inc, ltd or co as not ending a sentence only before a lower-case word or a digit", () => {
+    expect(texts("Bring pens, paper etc. and a laptop. Thanks")).toEqual([
+      "Bring pens, paper etc. and a laptop.",
+      "Thanks"
+    ]);
+    expect(texts("Bring pens, paper etc. Then leave.")).toEqual(["Bring pens, paper etc.", "Then leave."]);
+    expect(texts("See fig. 3 for it. Ok")).toEqual(["See fig. 3 for it.", "Ok"]);
+    expect(texts("Acme Ltd. is happy. Ok")).toEqual(["Acme Ltd. is happy.", "Ok"]);
+  });
+
+  it("splits after a single capital letter always: a name with an initial is split (known limit), a sentence is never merged", () => {
+    expect(texts("John F. Kennedy spoke. J. Smith agreed.")).toEqual([
+      "John F.",
+      "Kennedy spoke.",
+      "J.",
+      "Smith agreed."
+    ]);
+  });
+
+  it("keeps a dotted initialism such as U.S.A. inside a sentence only before a lower-case word or a digit", () => {
     expect(texts("Ship to the U.S.A. by Friday. Thanks")).toEqual(["Ship to the U.S.A. by Friday.", "Thanks"]);
+    expect(texts("Ship to the U.S.A. Please confirm.")).toEqual(["Ship to the U.S.A.", "Please confirm."]);
   });
 
   it("splits CJK full stops without whitespace", () => {

@@ -20,26 +20,10 @@ const TERMINATORS = new Set([".", "!", "?", "…"]);
 /** Full stops that need no whitespace after them to end a sentence. */
 const CJK_TERMINATORS = new Set(["。", "！", "？"]);
 const CLOSERS = new Set(['"', "'", ")", "]", "}", "»", "”", "’", "」", "』", "）"]);
-const ABBREVIATIONS = new Set([
-  "mr",
-  "mrs",
-  "ms",
-  "dr",
-  "prof",
-  "sr",
-  "jr",
-  "st",
-  "vs",
-  "no",
-  "fig",
-  "approx",
-  "inc",
-  "ltd",
-  "co",
-  "cf",
-  "e.g",
-  "i.e"
-]);
+/** Titles and Latin abbreviations that are followed by what they introduce, so a stop after them never ends a sentence. */
+const ALWAYS_ABBREVIATIONS = new Set(["mr", "mrs", "ms", "dr", "prof", "sr", "jr", "vs", "e.g", "i.e"]);
+/** Abbreviations that often end a sentence too: a stop after them is not an end only before a lower-case word or a digit. */
+const CONDITIONAL_ABBREVIATIONS = new Set(["etc", "approx", "cf", "fig", "inc", "ltd", "co"]);
 
 const isSpace = (point: string | undefined) => point !== undefined && WHITESPACE.test(point);
 
@@ -54,13 +38,24 @@ function wordBefore(points: readonly string[], dot: number): string {
     .toLowerCase();
 }
 
-/** True when the word before a lone full stop means the stop does not end the sentence. */
-function stopIsNotAnEnd(points: readonly string[], dot: number, unitStart: number): boolean {
+/** Whether the next non-space code point at or after `from` is a lower-case letter or a digit (the sentence goes on). */
+function continuesLowerOrDigit(points: readonly string[], from: number): boolean {
+  let i = from;
+  while (i < points.length && isSpace(points[i])) i++;
+  return i < points.length && /^[\p{Ll}\p{Nd}]$/u.test(points[i]!);
+}
+
+/**
+ * True when the word before a lone full stop (at `dot`, the stop run ending before `after`) means the stop does not end
+ * the sentence. A single letter always ends one ("Plan B. Please", "vitamin C. Send"), so "John F. Kennedy" splits: a
+ * split name costs nothing, a merged sentence merges two facts into one id.
+ */
+function stopIsNotAnEnd(points: readonly string[], dot: number, unitStart: number, after: number): boolean {
   const word = wordBefore(points, dot);
-  if (ABBREVIATIONS.has(word)) return true;
-  if (/^\p{L}$/u.test(word)) return true;
+  if (ALWAYS_ABBREVIATIONS.has(word)) return true;
+  if (CONDITIONAL_ABBREVIATIONS.has(word)) return continuesLowerOrDigit(points, after);
   // A dotted initialism such as U.S.A. (its final stop included): "u.s.a" before the stop.
-  if (/^(?:\p{L}\.)+\p{L}$/u.test(word)) return true;
+  if (/^(?:\p{L}\.)+\p{L}$/u.test(word)) return continuesLowerOrDigit(points, after);
   // "1." at the start of a unit is a list number.
   return /^\d{1,3}$/u.test(word) && points.slice(unitStart, dot).join("").trim() === word;
 }
@@ -122,7 +117,7 @@ function segmentEnds(points: readonly string[]): number[] {
       const cjk = CJK_TERMINATORS.has(points[stops - 1]!);
       const atBoundary = j >= points.length || isSpace(points[j]) || cjk;
       const lone = stops - i === 1 && point === ".";
-      if (atBoundary && !(lone && j === stops && stopIsNotAnEnd(points, i, unitStart))) {
+      if (atBoundary && !(lone && j === stops && stopIsNotAnEnd(points, i, unitStart, j))) {
         ends.push(j);
         unitStart = j;
       }

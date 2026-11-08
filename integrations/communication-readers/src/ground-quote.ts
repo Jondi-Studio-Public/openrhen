@@ -38,8 +38,8 @@ export interface GroundQuoteInput {
  * The grounding gate. A fact is written only if its quote matches the message text exactly once (after folding
  * whitespace; case sensitive) and the matched stretch is at most 200 code points. Anything else is rejected, never
  * repaired: the extractor does not write the row and counts the reason (`tallyGrounding`). On success it returns the
- * span to store, the sentence the quote starts in and the n2 fact id of that sentence. A span that starts on a quoted
- * (`>`) line is refused, so an old ask quoted in a reply never grounds a new fact; so are message text over 200,000 code
+ * span to store, the sentence the quote starts in and the n2 fact id of that sentence. A span that touches a quoted
+ * (`>`) line, its first line or any later one, is refused, so an old ask quoted in a reply never grounds a new fact; so are message text over 200,000 code
  * points and a sentence with no letter or digit.
  */
 export function groundQuote(input: GroundQuoteInput): GroundingResult {
@@ -53,7 +53,7 @@ export function groundQuote(input: GroundQuoteInput): GroundingResult {
   if (found.state === "absent") return { ok: false, reason: "not_found" };
   if (found.state === "ambiguous") return { ok: false, reason: "ambiguous" };
   if (found.span.end - found.span.start > MAX_QUOTE_CODE_POINTS) return { ok: false, reason: "too_long" };
-  if (startsInQuotedLine(input.content, found.span.start)) return { ok: false, reason: "quoted_text" };
+  if (touchesQuotedLine(input.content, found.span.start, found.span.end)) return { ok: false, reason: "quoted_text" };
   const sentence = sentenceAt(input.content, found.span.start);
   // The quote starts on a non-space code point, which always lies inside a unit; a missing one would be a splitter bug.
   if (sentence === null) return { ok: false, reason: "not_found" };
@@ -67,13 +67,19 @@ export function groundQuote(input: GroundQuoteInput): GroundingResult {
   };
 }
 
-/** Whether the line holding code point `offset` starts with a `>` quote marker (after spaces or tabs). */
-function startsInQuotedLine(content: string, offset: number): boolean {
+/** Whether any line the span [start, end) touches starts with a `>` quote marker (after spaces or tabs). */
+function touchesQuotedLine(content: string, start: number, end: number): boolean {
   const points = Array.from(content);
-  let i = offset;
-  while (i > 0 && points[i - 1] !== "\n") i--;
-  while (points[i] === " " || points[i] === "\t") i++;
-  return points[i] === ">";
+  const quoted = (lineStart: number) => {
+    let i = lineStart;
+    while (points[i] === " " || points[i] === "\t") i++;
+    return points[i] === ">";
+  };
+  let first = start;
+  while (first > 0 && points[first - 1] !== "\n") first--;
+  if (quoted(first)) return true;
+  for (let i = start; i < end; i++) if (points[i] === "\n" && quoted(i + 1)) return true;
+  return false;
 }
 
 export interface GroundingTally {
