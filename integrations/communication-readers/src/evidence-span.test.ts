@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EVIDENCE_HASH_HEX_CHARS, locateEvidence, resolveEvidence } from "./evidence-span.js";
+import { EVIDENCE_HASH_HEX_CHARS, locateEvidence, resolveEvidence, searchEvidence } from "./evidence-span.js";
 
 describe("locateEvidence", () => {
   it("finds a unique quote and returns code-point offsets", () => {
@@ -71,5 +71,16 @@ describe("resolveEvidence", () => {
 
   it("says the source changed when the hash no longer matches", () => {
     expect(resolveEvidence(content + " edited", span)).toEqual({ state: "source_changed" });
+  });
+});
+
+describe("searchEvidence", () => {
+  it("says why nothing was found, and agrees with locateEvidence when something was", () => {
+    expect(searchEvidence("a b a", "")).toEqual({ state: "empty" });
+    expect(searchEvidence("a b a", "  ")).toEqual({ state: "empty" });
+    expect(searchEvidence("a b a", "c")).toEqual({ state: "absent" });
+    expect(searchEvidence("a b a", "a")).toEqual({ state: "ambiguous" });
+    expect(searchEvidence("aaa", "aa")).toEqual({ state: "ambiguous" });
+    expect(searchEvidence("a b a", "b")).toEqual({ state: "found", span: locateEvidence("a b a", "b") });
   });
 });

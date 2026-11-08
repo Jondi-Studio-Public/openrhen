@@ -42,14 +42,16 @@ function fold(codePoints: readonly string[]): Folded {
   return folded;
 }
 
+export type EvidenceSearch =
+  { state: "found"; span: EvidenceSpan } | { state: "empty" } | { state: "absent" } | { state: "ambiguous" };
+
 /**
- * Finds `quote` (a verbatim quote, matched after folding whitespace, case sensitive) in `content`. Returns its span in
- * code points plus the truncated content hash, or null when the quote is empty, absent or occurs more than once
- * (overlaps count): the caller sends those to review rather than guessing which occurrence was meant.
+ * `locateEvidence` with the reason it found nothing: `empty` (no quote), `absent` (not in the content) or `ambiguous`
+ * (more than one occurrence, overlaps counted), so a caller can count the three apart.
  */
-export function locateEvidence(content: string, quote: string): EvidenceSpan | null {
+export function searchEvidence(content: string, quote: string): EvidenceSearch {
   const needle = fold(Array.from(quote.trim())).chars;
-  if (needle.length === 0) return null;
+  if (needle.length === 0) return { state: "empty" };
   const haystack = fold(Array.from(content));
   let found = -1;
   for (let i = 0; i + needle.length <= haystack.chars.length; i++) {
@@ -60,15 +62,24 @@ export function locateEvidence(content: string, quote: string): EvidenceSpan | n
         break;
       }
     if (!match) continue;
-    if (found !== -1) return null;
+    if (found !== -1) return { state: "ambiguous" };
     found = i;
   }
-  if (found === -1) return null;
+  if (found === -1) return { state: "absent" };
   return {
-    start: haystack.starts[found]!,
-    end: haystack.ends[found + needle.length - 1]!,
-    hash: contentHash(content)
+    state: "found",
+    span: { start: haystack.starts[found]!, end: haystack.ends[found + needle.length - 1]!, hash: contentHash(content) }
   };
+}
+
+/**
+ * Finds `quote` (a verbatim quote, matched after folding whitespace, case sensitive) in `content`. Returns its span in
+ * code points plus the truncated content hash, or null when the quote is empty, absent or occurs more than once
+ * (overlaps count): the caller sends those to review rather than guessing which occurrence was meant.
+ */
+export function locateEvidence(content: string, quote: string): EvidenceSpan | null {
+  const result = searchEvidence(content, quote);
+  return result.state === "found" ? result.span : null;
 }
 
 export type ResolvedEvidence =

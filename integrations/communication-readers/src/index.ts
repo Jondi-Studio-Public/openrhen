@@ -1,7 +1,21 @@
 export { MSG_CLASSES, MSG_CLASS_REASONS, classifyMessage } from "./classify-message.js";
 export type { MessageClassification, MsgClass, MsgClassReason } from "./classify-message.js";
-export { EVIDENCE_HASH_HEX_CHARS, locateEvidence, resolveEvidence } from "./evidence-span.js";
-export type { EvidenceSpan, ResolvedEvidence } from "./evidence-span.js";
+export { EVIDENCE_HASH_HEX_CHARS, locateEvidence, resolveEvidence, searchEvidence } from "./evidence-span.js";
+export type { EvidenceSearch, EvidenceSpan, ResolvedEvidence } from "./evidence-span.js";
+export { MAX_SENTENCE_CODE_POINTS, SPLITTER_VERSION, sentenceAt, splitSentences } from "./sentence-split.js";
+export type { SentenceUnit } from "./sentence-split.js";
+export { FACT_ID_NORMALISER_VERSION, factIdN2, stripQuoteMarkers } from "./fact-id-n2.js";
+export type { FactIdN2Input } from "./fact-id-n2.js";
+export {
+  GROUNDING_FAILURES,
+  MAX_CONTENT_CODE_POINTS,
+  MAX_QUOTE_CODE_POINTS,
+  groundQuote,
+  tallyGrounding
+} from "./ground-quote.js";
+export type { GroundQuoteInput, GroundingFailure, GroundingResult, GroundingTally } from "./ground-quote.js";
+export { MAX_WHO, messageFactContext } from "./message-context.js";
+export type { MessageFactContext, MessageFactContextFailure } from "./message-context.js";
 export { NORMALISER_VERSION, factId, normaliseText, readerEventKey, statusEventKey } from "./fact-id.js";
 export type { FactIdInput, ReaderEventKeyInput, StatusEventKeyInput } from "./fact-id.js";
 export { FACT_STATUSES, isOpenStatus, resolveFactStatus } from "./fact-status.js";
