@@ -427,7 +427,8 @@ function liveExtractorVersions(sql: Sql, userId: string, asOf: Date | undefined)
     return sql`SELECT extractor, version FROM extractor_state WHERE user_id = ${userId} AND active`;
   return sql`
     SELECT DISTINCT ON (extractor) extractor, version FROM (
-      SELECT es.extractor, es.version, (p.value ->> 'at')::timestamptz AS at
+      SELECT es.extractor, es.version, CASE WHEN jsonb_typeof(p.value -> 'at') = 'string' AND (p.value ->> 'at') ~ '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$'
+               THEN (p.value ->> 'at')::timestamptz END AS at
       FROM extractor_state es
       CROSS JOIN LATERAL jsonb_array_elements(
         CASE WHEN jsonb_typeof(es.cursor -> 'promotions') = 'array' THEN es.cursor -> 'promotions' ELSE '[]'::jsonb END

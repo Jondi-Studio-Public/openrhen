@@ -44,7 +44,7 @@ export const msgClassT0: Extractor = {
   version: MSG_CLASS_T0_VERSION,
   via: `extractor:${MSG_CLASS_T0}`,
   input: { source: "gmail", kind: "message" },
-  extract(message: SourceMessage) {
+  extract(message: SourceMessage, now: Date) {
     if (!isPlainObject(message.attrs))
       throw new Error("The message's attrs are not an object, so it cannot be classified.");
     const result = classifyMessage(message.attrs);
@@ -70,7 +70,8 @@ export const msgClassT0: Extractor = {
         id: key,
         source: "derived",
         kind: "msg_class",
-        start: message.tsStart.toISOString(),
+        // A bad Date header can put a message in the future, which the store refuses; the source id is in attrs anyway.
+        start: new Date(Math.min(message.tsStart.getTime(), now.getTime())).toISOString(),
         attrs: {
           source_event_id: message.key,
           class: result.class,

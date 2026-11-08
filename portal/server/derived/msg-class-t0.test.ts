@@ -65,4 +65,11 @@ describe("msg-class-t0", () => {
       for (const row of (await msgClassT0.extract(message(attrs), now)) as { kind: string }[])
         expect(row.kind).toBe("msg_class");
   });
+
+  it("never dates the row ahead of now: a message dated far in the future is clamped to now", async () => {
+    const future = { ...message(BULK), tsStart: new Date("2026-12-25T00:00:00Z") };
+    const [row] = (await msgClassT0.extract(future, now)) as { start: string }[];
+    expect(row!.start).toBe(now.toISOString());
+    expect(validateActivityEvent(row, now)).toMatchObject({ ok: true });
+  });
 });

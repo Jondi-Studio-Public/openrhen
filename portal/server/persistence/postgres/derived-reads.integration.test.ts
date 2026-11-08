@@ -179,6 +179,14 @@ describe("reading derived rows as of a time", () => {
     expect(await keys({ asOf: at(320) })).toEqual(["v3"]);
   });
 
+  it("ignores a malformed promotion time instead of failing the read", async () => {
+    await twoVersions();
+    await sql`UPDATE extractor_state SET cursor = jsonb_set(cursor, '{promotions}', cursor->'promotions' || '[{"version":"9","at":"garbage"},{"version":"8","at":5},{"version":"7"}]'::jsonb)
+      WHERE version = '1'`;
+    expect(await keys({ asOf: at(60) })).toEqual(["v1a", "v1b"]);
+    expect(await keys({ asOf: at(200) })).toEqual(["v2a", "v2b"]);
+  });
+
   it("applies the time limit to every source, not only derived", async () => {
     await sql`INSERT INTO activity_events (user_id, source, kind, event_key, ts_start, ingested_at)
       VALUES (${userId}, 'gmail', 'message', 'old', '2026-11-01T00:00:00Z', ${at(10)}),

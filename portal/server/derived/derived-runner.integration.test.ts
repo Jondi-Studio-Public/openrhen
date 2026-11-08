@@ -228,7 +228,61 @@ describe("msg-class-t0 runner", () => {
   });
 });
 
+describe("first run and odd dates", () => {
+  it("classifies a message dated in the far future, with the row dated no later than now", async () => {
+    const [made] = await sql<{ id: string }[]>`
+      INSERT INTO activity_events (user_id, source, kind, event_key, ts_start, attrs, ingested_at)
+      VALUES (${userId}, 'gmail', 'message', 'future', '2027-06-01T00:00:00Z', ${sql.json(BULK as never)}, ${at(-100)}) RETURNING id`;
+    expect(made).toBeTruthy();
+    await tick(0);
+    const rows = await sql<{ ts_start: Date }[]>`SELECT ts_start FROM activity_events WHERE source = 'derived'`;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.ts_start.getTime()).toBeLessThanOrEqual(at(0).getTime());
+    expect((await cursorOf()).cursor.skipped).toBe(0);
+  });
+
+  it("does not lose a row committed after the first run began, whose ingest began 30 s before it", async () => {
+    await mail(at(-500));
+    await tick(0, { backfillBatch: 1 });
+    await mail(at(-30)); // a slow ingest that started before the first tick and committed after it
+    for (let i = 1; i <= 6; i++) await tick(i * 100);
+    expect(await classified()).toBe(2);
+  });
+});
+
 describe("failures", () => {
+  it("keeps the ids of skipped messages with a reason code, last 50 only", async () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 53; i++) ids.push(await mail(at(-1000 + i), "bad"));
+    for (let i = 0; i < 3; i++) await tick(i, { backfillBatch: 500 });
+    const state = await cursorOf();
+    expect(state.cursor.skipped).toBe(53);
+    expect(state.cursor.skippedIds).toHaveLength(50);
+    expect(state.cursor.skippedIds[0]).toMatchObject({
+      id: expect.any(String),
+      key: expect.stringMatching(/^g/),
+      code: "extractor_error"
+    });
+    expect(new Set(state.cursor.skippedIds.map((x: { id: string }) => x.id)).size).toBe(50);
+    expect(ids.length).toBe(53);
+    await tick(10);
+    expect((await cursorOf()).cursor.skippedIds).toHaveLength(50);
+  });
+
+  it("records a refused row with its own code", async () => {
+    const refused = await mail(at(-100));
+    const bad: Extractor = {
+      ...msgClassT0,
+      extract(message, now) {
+        const rows = msgClassT0.extract(message, now) as { attrs: Record<string, unknown> }[];
+        rows[0]!.attrs.class = "spam";
+        return rows;
+      }
+    };
+    for (let i = 0; i < 3; i++) await tick(i, { extractors: [bad] });
+    expect((await cursorOf()).cursor.skippedIds[0]).toMatchObject({ id: refused, code: "row_refused" });
+  });
+
   it("counts a malformed message as a failure of that message alone, retries it, then skips it and says so", async () => {
     const bad = await mail(at(-100), ["not", "an", "object"]);
     await mail(at(-90));

@@ -29,19 +29,22 @@ describe("the closed vocabularies", () => {
   });
 });
 
+/** The extractor attrs every msg_class and fact row must carry. */
+const EXT = { extractor: "msg-class-t0", extractor_version: "1" };
+
 describe("describeDerivedProblem", () => {
   it("accepts a well-formed row of every kind", () => {
     expect(
       describeDerivedProblem(
         "msg_class",
-        { source_event_id: "g1", class: "bulk", reasons: ["list_id"], tier: "t0" },
+        { ...EXT, source_event_id: "g1", class: "bulk", reasons: ["list_id"], tier: "t0" },
         null
       )
     ).toBeNull();
     expect(
       describeDerivedProblem(
         "fact",
-        { source_event_id: "g1", fact_id: FACT_ID, fact_type: "ask", confidence: 0.5 },
+        { ...EXT, source_event_id: "g1", fact_id: FACT_ID, fact_type: "ask", confidence: 0.5 },
         null
       )
     ).toBeNull();
@@ -80,17 +83,25 @@ describe("describeDerivedProblem", () => {
   it("rejects an unknown reason code and an unknown class, naming the allowed values", () => {
     const reason = describeDerivedProblem(
       "msg_class",
-      { source_event_id: "g1", class: "bulk", reasons: ["looks_spammy"] },
+      { ...EXT, source_event_id: "g1", class: "bulk", reasons: ["looks_spammy"] },
       null
     );
     expect(reason).toContain('"looks_spammy"');
     for (const code of DERIVED_MSG_CLASS_REASONS) expect(reason).toContain(code);
-    const cls = describeDerivedProblem("msg_class", { source_event_id: "g1", class: "spam", reasons: [] }, null);
+    const cls = describeDerivedProblem(
+      "msg_class",
+      { ...EXT, source_event_id: "g1", class: "spam", reasons: [] },
+      null
+    );
     for (const name of DERIVED_MSG_CLASSES) expect(cls).toContain(name);
   });
 
   it("says unknown is never stored, rather than listing it as a class", () => {
-    const problem = describeDerivedProblem("msg_class", { source_event_id: "g1", class: "unknown", reasons: [] }, null);
+    const problem = describeDerivedProblem(
+      "msg_class",
+      { ...EXT, source_event_id: "g1", class: "unknown", reasons: [] },
+      null
+    );
     expect(problem).toContain("unknown");
     expect(problem).toContain("Do not write");
   });
@@ -104,16 +115,28 @@ describe("describeDerivedProblem", () => {
   });
 
   it("rejects a bad fact_id, fact_type, tier and confidence with the fix", () => {
-    expect(describeDerivedProblem("fact", { source_event_id: "g", fact_id: "XYZ", fact_type: "ask" }, null)).toContain(
-      "40 lowercase hex"
+    expect(
+      describeDerivedProblem("fact", { ...EXT, source_event_id: "g", fact_id: "XYZ", fact_type: "ask" }, null)
+    ).toContain("40 lowercase hex");
+    const type = describeDerivedProblem(
+      "fact",
+      { ...EXT, source_event_id: "g", fact_id: FACT_ID, fact_type: "invite" },
+      null
     );
-    const type = describeDerivedProblem("fact", { source_event_id: "g", fact_id: FACT_ID, fact_type: "invite" }, null);
     for (const name of DERIVED_FACT_TYPES) expect(type).toContain(name);
     expect(
-      describeDerivedProblem("msg_class", { source_event_id: "g", class: "bulk", reasons: [], tier: "t9" }, null)
+      describeDerivedProblem(
+        "msg_class",
+        { ...EXT, source_event_id: "g", class: "bulk", reasons: [], tier: "t9" },
+        null
+      )
     ).toContain("t0");
     expect(
-      describeDerivedProblem("fact", { source_event_id: "g", fact_id: FACT_ID, fact_type: "ask", confidence: 2 }, null)
+      describeDerivedProblem(
+        "fact",
+        { ...EXT, source_event_id: "g", fact_id: FACT_ID, fact_type: "ask", confidence: 2 },
+        null
+      )
     ).toContain("between 0 and 1");
   });
 
@@ -126,7 +149,7 @@ describe("describeDerivedProblem", () => {
     expect(
       describeDerivedProblem(
         "msg_class",
-        { source_event_id: "g", class: "bulk", reasons: ["list_id", "list_id"] },
+        { ...EXT, source_event_id: "g", class: "bulk", reasons: ["list_id", "list_id"] },
         null
       )
     ).toContain("more than once");
@@ -187,7 +210,14 @@ describe("extractor and extractor_version on msg_class and fact", () => {
   it("accepts both together, or neither", () => {
     expect(msg({ extractor: "msg-class-t0", extractor_version: "1" })).toBeNull();
     expect(fact({ extractor: "ask-t2", extractor_version: "2.1-beta" })).toBeNull();
-    expect(msg({})).toBeNull();
+  });
+
+  it("requires both on msg_class and fact, naming the fix, since reads show only the active version's rows", () => {
+    for (const problem of [msg({}), fact({})]) {
+      expect(problem).toContain("attrs.extractor");
+      expect(problem).toContain("attrs.extractor_version");
+      expect(problem).toContain("msg-class-t0");
+    }
   });
 
   it("refuses one without the other, naming the fix", () => {

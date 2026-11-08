@@ -1,4 +1,4 @@
-import { validateActivityEvent } from "@openrhen/contracts";
+import { DERIVED_EXTRACTOR_KINDS, validateActivityEvent } from "@openrhen/contracts";
 import { lockActivityUser } from "./activity-lock";
 import { recordLineage } from "./derived-lineage-store";
 import { ensureUser } from "./ensure-user";
@@ -12,7 +12,7 @@ import type { PoolSql, TxSql } from "./sql-pool";
  * no route.
  *
  * Each row goes through `validateActivityEvent`, the same judge as the API, so the runner cannot store what a client
- * would be refused. A row it refuses is reported alone and the rest are written. Only source `derived` is written here.
+ * would be refused. A row it refuses is reported alone and the rest are written. Only source `derived`, and only the kinds an extractor writes (`msg_class`, `fact`), are written here: the rule that the runner never writes a status, override or label is held by this function, not just by the extractors.
  */
 
 const INSERT_CHUNK = 500;
@@ -66,6 +66,13 @@ export async function writeDerivedRowsTx(
       results[index] = {
         ok: false,
         reason: `The runner writes source "derived" only, not "${event.source}". Build the row with source "derived".`
+      };
+      return;
+    }
+    if (!(DERIVED_EXTRACTOR_KINDS as readonly string[]).includes(event.kind)) {
+      results[index] = {
+        ok: false,
+        reason: `The runner writes ${DERIVED_EXTRACTOR_KINDS.join(" and ")} rows only, not "${event.kind}". A status, override or label is a person's or Mark's to write through the API.`
       };
       return;
     }

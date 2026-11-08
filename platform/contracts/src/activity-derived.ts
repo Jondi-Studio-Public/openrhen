@@ -82,11 +82,12 @@ function checkTier(attrs: Record<string, unknown>): string | null {
 
 /**
  * `extractor` and `extractor_version` say which extractor version wrote a `msg_class` or `fact` row; reads show a row
- * only while that version is the active one. Both or neither: a half-named row could never be matched to a version.
+ * only while that version is the active one. Both are required: a row naming no version could never be read back.
  */
 function checkExtractor(attrs: Record<string, unknown>): string | null {
   const { extractor, extractor_version: version } = attrs;
-  if (extractor === undefined && version === undefined) return null;
+  if (extractor === undefined && version === undefined)
+    return 'attrs.extractor and attrs.extractor_version are missing. A msg_class or fact row names the extractor version that wrote it, such as "extractor": "msg-class-t0", "extractor_version": "1"; reads show only the active version\'s rows, so a row naming none could never be read back.';
   if (typeof extractor !== "string" || !EXTRACTOR_NAME.test(extractor))
     return `attrs.extractor ${shown(extractor)} is not an extractor name. Use lowercase letters, digits and hyphens, 1 to 60 characters, such as "msg-class-t0".`;
   if (typeof version !== "string" || !EXTRACTOR_VERSION.test(version))

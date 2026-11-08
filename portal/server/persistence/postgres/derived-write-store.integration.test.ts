@@ -163,6 +163,61 @@ describe("writeDerivedRows", () => {
     expect(await sql`SELECT 1 FROM activity_events WHERE source = 'rhen-watch'`).toHaveLength(0);
   });
 
+  it("writes only the kinds an extractor writes: msg_class and fact, never a status, override or label", async () => {
+    const m = await mail("m1");
+    const fid = "a".repeat(40);
+    const out = await writeDerivedRows(
+      sql,
+      [
+        {
+          event: {
+            id: "s",
+            source: "derived",
+            kind: "fact_status",
+            start: "2026-11-01T00:00:00Z",
+            attrs: { fact_id: fid, status: "done", valid_from: "2026-11-01T00:00:00Z" }
+          },
+          sourceIds: [m]
+        },
+        {
+          event: {
+            id: "o",
+            source: "derived",
+            kind: "override",
+            start: "2026-11-01T00:00:00Z",
+            attrs: { fact_id: fid, field: "when", new_value: 1 }
+          },
+          sourceIds: [m]
+        },
+        {
+          event: {
+            id: "l",
+            source: "derived",
+            kind: "label",
+            start: "2026-11-01T00:00:00Z",
+            attrs: { fact_id: fid, answer: "x" }
+          },
+          sourceIds: [m]
+        },
+        {
+          event: {
+            id: "f",
+            source: "derived",
+            kind: "fact",
+            start: "2026-11-01T00:00:00Z",
+            attrs: { source_event_id: "m", fact_id: fid, fact_type: "ask", extractor: "x-t2", extractor_version: "1" }
+          },
+          sourceIds: [m]
+        }
+      ],
+      VIA,
+      now
+    );
+    expect(out.map((r) => r.ok)).toEqual([false, false, false, true]);
+    expect(out[0]).toMatchObject({ reason: expect.stringContaining("msg_class") });
+    expect(await derivedCount()).toBe(1);
+  });
+
   it("is one transaction: a failure after some rows are in leaves nothing behind", async () => {
     const m = await mail("m1");
     await expect(

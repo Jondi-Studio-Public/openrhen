@@ -24,7 +24,7 @@ import { EXTRACTORS, type Extractor } from "./extractor-registry";
  * same messages again forever. Instead the extractor's state cursor holds two watermarks over `(ingested_at, id)`:
  *   - forward: rows after the high watermark (live mail), oldest first;
  *   - backfill: rows before the low watermark (history), newest first.
- * Both start at the time of the first run, so the whole existing store is backfill and everything arriving later is
+ * Both start one settle margin before the first run, so the whole existing store is backfill and everything arriving later is
  * forward. Forward work always runs before backfill work in a tick, and both are bounded, so a large backlog cannot
  * hold up live mail. The row id breaks ties, so rows sharing an `ingested_at` across a batch boundary are neither
  * skipped nor repeated. The forward scan stops `SETTLE_MS` short of now: `ingested_at` is the start time of the
@@ -82,11 +82,24 @@ interface Retry {
   n: number;
 }
 
+/** Why a message was given up on: the extractor threw (including attrs it could not read), or the store refused its row. */
+export type SkipCode = "extractor_error" | "row_refused" | "retry_list_full";
+
+export const SKIPPED_IDS_KEPT = 50;
+
+interface Skipped {
+  id: string;
+  key: string;
+  code: string;
+  at: string;
+}
+
 interface Cursor {
   forward?: Mark;
   backfill?: Mark;
   retries?: Record<string, Retry>;
   skipped?: number;
+  skippedIds?: Skipped[];
 }
 
 const isMark = (value: unknown): value is Mark =>
@@ -95,7 +108,9 @@ const isMark = (value: unknown): value is Mark =>
   typeof (value as Mark).at === "string" &&
   typeof (value as Mark).id === "string";
 
-function readCursor(raw: Record<string, unknown>): Required<Pick<Cursor, "retries" | "skipped">> & Cursor {
+function readCursor(
+  raw: Record<string, unknown>
+): Required<Pick<Cursor, "retries" | "skipped" | "skippedIds">> & Cursor {
   const retries: Record<string, Retry> = {};
   if (raw.retries !== null && typeof raw.retries === "object")
     for (const [id, value] of Object.entries(raw.retries as Record<string, unknown>)) {
@@ -106,13 +121,20 @@ function readCursor(raw: Record<string, unknown>): Required<Pick<Cursor, "retrie
     ...(isMark(raw.forward) ? { forward: raw.forward } : {}),
     ...(isMark(raw.backfill) ? { backfill: raw.backfill } : {}),
     retries,
-    skipped: typeof raw.skipped === "number" ? raw.skipped : 0
+    skipped: typeof raw.skipped === "number" ? raw.skipped : 0,
+    skippedIds: Array.isArray(raw.skippedIds)
+      ? (raw.skippedIds as unknown[]).filter(
+          (item): item is Skipped =>
+            item !== null && typeof item === "object" && typeof (item as Skipped).id === "string"
+        )
+      : []
   };
 }
 
 interface Failure {
   message: SourceRow;
   reason: string;
+  code: SkipCode;
 }
 
 interface BatchOutcome {
@@ -146,7 +168,11 @@ async function processBatch(
         owner.push(message);
       }
     } catch (error) {
-      failures.push({ message, reason: error instanceof Error ? error.message : "The extractor failed." });
+      failures.push({
+        message,
+        reason: error instanceof Error ? error.message : "The extractor failed.",
+        code: "extractor_error"
+      });
     }
   }
   let written = 0;
@@ -154,7 +180,7 @@ async function processBatch(
   if (rows.length > 0) {
     const results = await writeDerivedRowsTx(tx, userId, rows, extractor.via, now);
     results.forEach((result, index) => {
-      if (!result.ok) failures.push({ message: owner[index]!, reason: result.reason });
+      if (!result.ok) failures.push({ message: owner[index]!, reason: result.reason, code: "row_refused" });
       else if (result.added) written += 1;
       else alreadyHeld += 1;
     });
@@ -192,12 +218,15 @@ async function runExtractor(
   if (!state.active) return { ...result, status: "inactive" };
 
   const cursor = readCursor(state.cursor);
-  const start: Mark = { at: now.toISOString(), id: NIL_ID };
+  // Both marks start `settleMs` before now, not at now: a slow ingest that began just before the first run has an
+  // `ingested_at` inside that window and may commit after the first scan. Forward covers it once it has settled.
+  const start: Mark = { at: new Date(now.getTime() - options.settleMs).toISOString(), id: NIL_ID };
   const forward = cursor.forward ?? start;
   let backfill = cursor.backfill ?? start;
   let forwardMark = forward;
   const retries = { ...cursor.retries };
   let skipped = cursor.skipped;
+  let skippedIds = [...cursor.skippedIds];
   const problems: string[] = [];
 
   const absorb = (outcome: BatchOutcome) => {
@@ -211,6 +240,15 @@ async function runExtractor(
     const room = failure.message.id in retries || Object.keys(retries).length < RETRY_CAP;
     if (attempts >= MAX_ATTEMPTS || !room) {
       delete retries[failure.message.id];
+      skippedIds = [
+        ...skippedIds,
+        {
+          id: failure.message.id,
+          key: failure.message.key,
+          code: room ? failure.code : "retry_list_full",
+          at: now.toISOString()
+        }
+      ].slice(-SKIPPED_IDS_KEPT);
       skipped += 1;
       result.skipped += 1;
     } else {
@@ -268,7 +306,7 @@ async function runExtractor(
       ? null
       : `${problems.length} message(s) failed to classify this run, first: ${problems[0]}`.slice(0, ERROR_MAX_CHARS);
   await saveExtractorProgressTx(tx, userId, extractor.name, extractor.version, {
-    cursor: { forward: forwardMark, backfill, retries, skipped },
+    cursor: { forward: forwardMark, backfill, retries, skipped, skippedIds },
     lastOkAt: now,
     lastError
   });
