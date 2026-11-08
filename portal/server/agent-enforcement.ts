@@ -566,19 +566,28 @@ async function readBody(request: Request): Promise<unknown> {
 
 /** The activity ingest body is the one that can run to megabytes: read it under the handler's cap, so nothing is buffered or parsed past it. */
 async function readActivityBody(request: Request): Promise<{ body: unknown } | { tooLarge: true }> {
+  const copy = request.clone();
+  // A tee'd stream is released only when both branches are cancelled.
+  const release = () => {
+    void copy.body?.cancel().catch(() => undefined);
+    void request.body?.cancel().catch(() => undefined);
+  };
+  let text: string;
   try {
-    const text = await readBodyCapped(request.clone(), ACTIVITY_MAX_BODY_BYTES);
-    try {
-      return { body: JSON.parse(text) as unknown };
-    } catch {
-      return { body: undefined };
-    }
+    text = await readBodyCapped(copy, ACTIVITY_MAX_BODY_BYTES);
   } catch (error) {
     if (error instanceof BodyTooLargeError) {
-      void request.body?.cancel().catch(() => undefined);
+      release();
       return { tooLarge: true };
     }
-    throw error;
+    // A client that aborts mid-body: no body, so the caller answers 400 rather than failing with a 500.
+    release();
+    return { body: undefined };
+  }
+  try {
+    return { body: JSON.parse(text) as unknown };
+  } catch {
+    return { body: undefined };
   }
 }
 

@@ -921,6 +921,45 @@ describe("activity store", () => {
     ).toBeNull();
   });
 
+  it("cancels the whole body stream when the declared length is over the cap, and answers 400 when the read fails", async () => {
+    const run = (stream: ReadableStream<Uint8Array>, headers: Record<string, string>) =>
+      enforceAgentRequest(
+        new Request("http://portal.test/api/activity-events", {
+          method: "POST",
+          headers,
+          body: stream,
+          duplex: "half"
+        } as RequestInit),
+        "/api/activity-events",
+        principal(["write:activity-event"]),
+        {},
+        { stored: async () => ({}) }
+      );
+    let cancelled = false;
+    const declared = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new Uint8Array(1024));
+      },
+      cancel() {
+        cancelled = true;
+      }
+    });
+    const tooLarge = await run(declared, { "content-length": String(3 * 1024 * 1024) });
+    expect(tooLarge?.status).toBe(413);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(cancelled).toBe(true);
+
+    // A client that aborts mid-body is a bad request, not a server error.
+    const aborted = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"schema":1,'));
+        controller.error(new Error("client aborted"));
+      }
+    });
+    const response = await run(aborted, {});
+    expect(response?.status).toBe(400);
+  });
+
   it("refuses an empty batch from a token holding no activity scope (the scope list is never empty)", async () => {
     const refused = await call("POST", "/api/activity-events", principal(["read:plan"]), { schema: 1, events: [] });
     expect(refused?.status).toBe(403);

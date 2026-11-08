@@ -77,7 +77,23 @@ describe("classifyMessage", () => {
       "SaleEvent",
       "Hackathon",
       "EventSeries",
-      "ChildrensEvent"
+      "ChildrensEvent",
+      "ConferenceEvent",
+      "PerformingArtsEvent",
+      "ScreeningEvent",
+      "TheaterEvent",
+      "ExhibitionEvent",
+      "SocialEvent",
+      "VisualArtsEvent",
+      "LiteraryEvent",
+      "FoodEvent",
+      "EducationEvent",
+      "SportsEvent",
+      "MusicEvent",
+      "DanceEvent",
+      "ComedyEvent",
+      "BusinessEvent",
+      "Festival"
     ])
       expect(JSONLD_EVENT_TYPES, type).toContain(type);
     expect(JSONLD_EVENT_TYPES).not.toContain("ChildrenEvent");
