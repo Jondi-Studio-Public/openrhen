@@ -190,6 +190,9 @@ importers:
       '@openrhen/cli':
         specifier: workspace:*
         version: link:../tools/cli
+      '@openrhen/communication-readers':
+        specifier: workspace:*
+        version: link:../integrations/communication-readers
       '@openrhen/contracts':
         specifier: workspace:*
         version: link:../platform/contracts

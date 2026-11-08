@@ -5,19 +5,25 @@ import {
   ACTIVITY_SCHEMA_VERSION,
   ACTIVITY_SOURCES,
   ACTIVITY_SOURCE_NAMES,
+  DERIVED_EXTRACTOR_KINDS,
   isKnownActivitySource,
   validateActivityEvent,
   type ActivityEventRow,
   type ActivityEventsPage,
+  type ActivityExtractorSummary,
   type ActivityIngestResult,
   type ActivityRejection,
   type ActivitySourceSettings,
   type ActivitySummary,
   type ValidActivityEvent
 } from "@openrhen/contracts";
+import { EXTRACTORS } from "@/server/derived/extractor-registry";
 import { runtimeEnv } from "@/server/runtime-env";
+import { lockActivityUser } from "./activity-lock";
 import { deleteDerivedForSources } from "./derived-lineage-store";
+import { countRowsAfter, countRowsBefore, type Mark } from "./derived-scan-store";
 import { ensureUser } from "./ensure-user";
+import { readExtractorStates } from "./extractor-state-store";
 import type { PoolSql, Sql, TxSql } from "./sql-pool";
 
 /**
@@ -262,7 +268,73 @@ export async function readActivitySummary(sql: Sql): Promise<ActivitySummary> {
       retentionPurge: state?.retention_days == null ? ("not_set" as const) : ("not_running" as const)
     };
   });
-  return { sources, imports: await importsList(sql, userId, 20) };
+  const { extractors, derivedBehind } = await extractorSummaries(sql, userId);
+  return {
+    derivedBehind,
+    extractors,
+    sources,
+    imports: await importsList(sql, userId, 20)
+  };
+}
+
+const isMark = (value: unknown): value is Mark =>
+  value !== null &&
+  typeof value === "object" &&
+  typeof (value as Mark).at === "string" &&
+  typeof (value as Mark).id === "string";
+
+/**
+ * Every extractor version the person holds, plus each registered extractor that has not run yet (entirely behind), with
+ * how far behind it is. "Behind" is an exact count over the `(user, source, ingested_at)` index: source rows after the
+ * forward watermark (live mail, including mail still inside the settle margin) plus rows before the backfill watermark.
+ */
+async function extractorSummaries(
+  sql: Sql,
+  userId: string
+): Promise<{ extractors: ActivityExtractorSummary[]; derivedBehind: number }> {
+  const held = await readExtractorStates(sql, userId);
+  const known = new Map(EXTRACTORS.map((extractor) => [`${extractor.name}\u0000${extractor.version}`, extractor]));
+  const rows = held.map((state) => ({
+    state,
+    extractor: known.get(`${state.extractor}\u0000${state.version}`) ?? null
+  }));
+  for (const extractor of EXTRACTORS)
+    if (!held.some((state) => state.extractor === extractor.name && state.version === extractor.version))
+      rows.push({
+        state: {
+          extractor: extractor.name,
+          version: extractor.version,
+          active: false,
+          cursor: {},
+          lastOkAt: null,
+          lastError: null
+        },
+        extractor
+      });
+  const out: ActivityExtractorSummary[] = [];
+  let derivedBehind = 0;
+  for (const { state, extractor } of rows) {
+    let behind: number | null = null;
+    if (extractor) {
+      const forward = isMark(state.cursor.forward) ? state.cursor.forward : null;
+      const backfill = isMark(state.cursor.backfill) ? state.cursor.backfill : null;
+      behind =
+        (await countRowsAfter(sql, userId, extractor.input, forward)) +
+        (backfill === null ? 0 : await countRowsBefore(sql, userId, extractor.input, backfill));
+    }
+    // Counts toward the layer's lag when it is the active version, or when nothing of that extractor has run at all.
+    if (state.active || !held.some((other) => other.extractor === state.extractor)) derivedBehind += behind ?? 0;
+    out.push({
+      extractor: state.extractor,
+      version: state.version,
+      active: state.active,
+      behind,
+      skipped: typeof state.cursor.skipped === "number" ? state.cursor.skipped : 0,
+      lastOkAt: state.lastOkAt?.toISOString() ?? null,
+      lastError: state.lastError
+    });
+  }
+  return { extractors: out, derivedBehind };
 }
 
 /**
@@ -324,6 +396,11 @@ export interface ActivityReadQuery {
   to?: Date | undefined;
   after?: string | undefined;
   limit?: number | undefined;
+  /**
+   * Point-in-time read: only rows ingested at or before this instant, and, for rows an extractor wrote, only the
+   * version that was active then. An old `asOf` therefore returns the same rows however many runs or promotions follow.
+   */
+  asOf?: Date | undefined;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -341,7 +418,34 @@ function decodeCursor(cursor: string): { at: Date; id: string } {
   return { at, id };
 }
 
-/** A page of events in time order (start, then id), filtered by source, kind and a half-open time range. */
+/**
+ * The extractor versions whose rows reads show: the active ones now, or, for `asOf`, the version each extractor had been
+ * promoted to by then (the latest promotion at or before it; the record lives in `extractor_state.cursor.promotions`).
+ */
+function liveExtractorVersions(sql: Sql, userId: string, asOf: Date | undefined) {
+  if (asOf === undefined)
+    return sql`SELECT extractor, version FROM extractor_state WHERE user_id = ${userId} AND active`;
+  return sql`
+    SELECT DISTINCT ON (extractor) extractor, version FROM (
+      SELECT es.extractor, es.version, (p.value ->> 'at')::timestamptz AS at
+      FROM extractor_state es
+      CROSS JOIN LATERAL jsonb_array_elements(
+        CASE WHEN jsonb_typeof(es.cursor -> 'promotions') = 'array' THEN es.cursor -> 'promotions' ELSE '[]'::jsonb END
+      ) AS p(value)
+      WHERE es.user_id = ${userId}
+    ) promotions
+    WHERE at <= ${asOf}
+    ORDER BY extractor, at DESC, version DESC`;
+}
+
+/**
+ * A page of events in time order (start, then id), filtered by source, kind and a half-open time range.
+ *
+ * Rows of source `derived` that an extractor wrote (`msg_class`, `fact`) are shown only for the active version of that
+ * extractor (attrs.extractor and attrs.extractor_version), so an extractor with no active version yet, and a row that
+ * names no version, return nothing rather than a guess. A person's rows (`fact_status`, `override`, `label`) belong to
+ * no extractor version and are always shown.
+ */
 export async function readActivityEvents(sql: Sql, query: ActivityReadQuery): Promise<ActivityEventsPage> {
   const userId = await ensureUser(sql);
   const limit = Math.min(Math.max(query.limit ?? ACTIVITY_READ_DEFAULT_LIMIT, 1), ACTIVITY_READ_MAX_LIMIT);
@@ -355,6 +459,13 @@ export async function readActivityEvents(sql: Sql, query: ActivityReadQuery): Pr
       ${query.kind === undefined ? sql`` : sql`AND kind = ${query.kind}`}
       ${query.from === undefined ? sql`` : sql`AND ts_start >= ${query.from}`}
       ${query.to === undefined ? sql`` : sql`AND ts_start < ${query.to}`}
+      ${query.asOf === undefined ? sql`` : sql`AND ingested_at <= ${query.asOf}`}
+      AND (
+        source <> 'derived' OR kind NOT IN ${sql(DERIVED_EXTRACTOR_KINDS as unknown as string[])} OR EXISTS (
+          SELECT 1 FROM (${liveExtractorVersions(sql, userId, query.asOf)}) live
+          WHERE live.extractor = attrs ->> 'extractor' AND live.version = attrs ->> 'extractor_version'
+        )
+      )
       ${cursor === null ? sql`` : sql`AND (ts_start, id) > (${cursor.at}, ${cursor.id}::uuid)`}
     ORDER BY ts_start, id
     LIMIT ${limit + 1}`;
@@ -412,8 +523,10 @@ export async function deleteActivityImport(
   >`SELECT id FROM activity_imports WHERE id = ${importId} AND user_id = ${userId}`;
   if (!owned) return { deleted: false, removed: 0 };
   const removed = await deleteInBatches(async () => {
-    // One transaction per batch: the derived rows read from these sources go first, while their lineage still exists.
+    // One transaction per batch, under the per-person activity lock the derived-rows runner also takes: the derived rows
+    // read from these sources go first, while their lineage still exists, and the runner cannot add a link meanwhile.
     return sql.begin(async (tx) => {
+      await lockActivityUser(tx, userId);
       const batch = await tx<{ id: string }[]>`
         SELECT id FROM activity_events WHERE import_id = ${importId} AND user_id = ${userId} LIMIT ${ACTIVITY_PURGE_BATCH}`;
       return removeBatch(
@@ -437,6 +550,7 @@ export async function purgeActivitySource(sql: PoolSql, source: string): Promise
   const userId = await ensureUser(sql);
   const removed = await deleteInBatches(async () => {
     return sql.begin(async (tx) => {
+      await lockActivityUser(tx, userId);
       const batch = await tx<{ id: string }[]>`
         SELECT id FROM activity_events WHERE user_id = ${userId} AND source = ${source} LIMIT ${ACTIVITY_PURGE_BATCH}`;
       return removeBatch(

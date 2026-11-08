@@ -1,0 +1,39 @@
+import { describe, expect, it } from "vitest";
+import {
+  DERIVED_TICK_BUSY_MS,
+  DERIVED_TICK_FAILED_MS,
+  DERIVED_TICK_IDLE_MS,
+  DERIVED_TICK_MORE_MS,
+  derivedTickDelayMs
+} from "./derived-tick-schedule.js";
+
+describe("derivedTickDelayMs", () => {
+  it("goes again at once when the last run filled a batch", () => {
+    expect(derivedTickDelayMs({ ok: true, body: { status: "ok", more: true } })).toBe(DERIVED_TICK_MORE_MS);
+  });
+
+  it("waits the idle interval when the run finished everything", () => {
+    expect(derivedTickDelayMs({ ok: true, body: { status: "ok", more: false } })).toBe(DERIVED_TICK_IDLE_MS);
+  });
+
+  it("looks again soon when another run held the lock", () => {
+    expect(derivedTickDelayMs({ ok: true, body: { status: "busy" } })).toBe(DERIVED_TICK_BUSY_MS);
+  });
+
+  it("backs off after a failed request, whatever the body says", () => {
+    expect(derivedTickDelayMs({ ok: false, body: { status: "ok", more: true } })).toBe(DERIVED_TICK_FAILED_MS);
+    expect(derivedTickDelayMs({ ok: false, body: null })).toBe(DERIVED_TICK_FAILED_MS);
+  });
+
+  it("falls back to the idle interval for a body it does not know", () => {
+    for (const body of [null, "x", {}, { status: "skipped", reason: "no_database" }, { status: "ok" }])
+      expect(derivedTickDelayMs({ ok: true, body }), JSON.stringify(body)).toBe(DERIVED_TICK_IDLE_MS);
+  });
+
+  it("never asks for a pause of more than a minute or less than a second", () => {
+    for (const ms of [DERIVED_TICK_IDLE_MS, DERIVED_TICK_MORE_MS, DERIVED_TICK_BUSY_MS, DERIVED_TICK_FAILED_MS]) {
+      expect(ms).toBeGreaterThanOrEqual(1_000);
+      expect(ms).toBeLessThanOrEqual(60_000);
+    }
+  });
+});

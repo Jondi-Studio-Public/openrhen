@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@openrhen/cli": "workspace:*",
+    "@openrhen/communication-readers": "workspace:*",
     "@openrhen/contracts": "workspace:*",
     "@openrhen/database": "workspace:*",
     "@types/qrcode": "^1.5.6",

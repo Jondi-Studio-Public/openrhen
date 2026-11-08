@@ -177,3 +177,31 @@ describe("applied at ingest", () => {
     ).toBe(true);
   });
 });
+
+describe("extractor and extractor_version on msg_class and fact", () => {
+  const msg = (extra: Record<string, unknown>) =>
+    describeDerivedProblem("msg_class", { source_event_id: "g1", class: "bulk", reasons: ["list_id"], ...extra }, null);
+  const fact = (extra: Record<string, unknown>) =>
+    describeDerivedProblem("fact", { source_event_id: "g", fact_id: FACT_ID, fact_type: "ask", ...extra }, null);
+
+  it("accepts both together, or neither", () => {
+    expect(msg({ extractor: "msg-class-t0", extractor_version: "1" })).toBeNull();
+    expect(fact({ extractor: "ask-t2", extractor_version: "2.1-beta" })).toBeNull();
+    expect(msg({})).toBeNull();
+  });
+
+  it("refuses one without the other, naming the fix", () => {
+    expect(msg({ extractor: "msg-class-t0" })).toContain("attrs.extractor_version");
+    expect(msg({ extractor_version: "1" })).toContain("attrs.extractor");
+    expect(fact({ extractor_version: "1" })).toContain("attrs.extractor");
+  });
+
+  it("refuses names and versions that are not plain identifiers", () => {
+    for (const extractor of ["", "Msg Class", "a".repeat(61), 7, null, "-lead"])
+      expect(msg({ extractor, extractor_version: "1" }), String(extractor)).toContain("attrs.extractor ");
+    for (const extractor_version of ["", "v 1", "1".repeat(21), 1, null, ".1"])
+      expect(msg({ extractor: "msg-class-t0", extractor_version }), String(extractor_version)).toContain(
+        "attrs.extractor_version"
+      );
+  });
+});

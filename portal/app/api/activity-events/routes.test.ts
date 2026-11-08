@@ -140,6 +140,23 @@ describe("GET /api/activity-events", () => {
     });
   });
 
+  it("passes as_of to the store as an instant, and leaves it out when not sent", async () => {
+    store.readActivityEvents.mockResolvedValue({ events: [], next: null });
+    await get("?source=derived&as_of=2026-11-08T10:00:00%2B10:00");
+    expect(store.readActivityEvents.mock.calls[0]![1].asOf).toEqual(new Date("2026-11-08T00:00:00Z"));
+    await get("?source=derived");
+    expect(store.readActivityEvents.mock.calls[1]![1].asOf).toBeUndefined();
+  });
+
+  it("refuses an as_of that is not an RFC 3339 time with an offset, before reading", async () => {
+    for (const bad of ["2026-11-08", "yesterday", "2026-11-08T00:00:00", "2026-13-40T00:00:00Z", ""]) {
+      const response = await get(`?as_of=${encodeURIComponent(bad)}`);
+      expect(response.status, bad).toBe(400);
+      expect((await response.json()).error).toMatch(/as_of must be an RFC 3339 time/);
+    }
+    expect(store.readActivityEvents).not.toHaveBeenCalled();
+  });
+
   it("answers a cursor the store refuses with a 400 that says what to send, never a 500", async () => {
     store.readActivityEvents.mockRejectedValue(
       new store.ActivityInputError(
