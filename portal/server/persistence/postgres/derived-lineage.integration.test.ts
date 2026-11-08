@@ -98,6 +98,26 @@ describe("recordLineage", () => {
   });
 });
 
+describe("recordLineage refuses derived-from-derived and self links", () => {
+  it("skips a source that is itself a derived or derived-shadow row", async () => {
+    const [d1, d2] = [await derived("d1"), await derived("d2")];
+    const shadow = await row(userId, "derived-shadow", "sh1");
+    expect(await recordLineage(sql, userId, [d2], [d1])).toBe(0);
+    expect(await recordLineage(sql, userId, [d2], [shadow])).toBe(0);
+    expect(await lineageCount()).toBe(0);
+  });
+
+  it("skips a link from a row to itself, and still adds the real source in the same call", async () => {
+    const mail = await row(userId, "gmail", "m1");
+    const d1 = await derived("d1");
+    expect(await recordLineage(sql, userId, [d1], [d1])).toBe(0);
+    expect(await recordLineage(sql, userId, [d1], [d1, mail])).toBe(1);
+    expect(await lineageCount()).toBe(1);
+    await purgeActivitySource(sql, "gmail");
+    expect(await keys("derived")).toEqual([]);
+  });
+});
+
 describe("deleting sources takes the derived rows read from them", () => {
   it("undoing an import deletes the facts read from it, and only those", async () => {
     const first = await ingestActivityEvents(

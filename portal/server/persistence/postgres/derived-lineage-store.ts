@@ -11,7 +11,9 @@ import type { Sql, TxSql } from "./sql-pool";
 /**
  * Ids go in as one JSON parameter and are expanded with `jsonb_array_elements_text`: a pool opened without type fetching
  * (the integration suites) cannot encode an array parameter, and the portal's other id-list queries do the same.
- * Lineage only ever points from rows whose source is `derived` or `derived-shadow`.
+ * Lineage only ever points from rows whose source is `derived` or `derived-shadow` to rows that are not, and never
+ * from a row to itself: the delete helper does not recurse, so a derived-from-derived or self link would leave rows
+ * it could never delete (`recordLineage` skips such links).
  */
 const idList = (sql: Sql, ids: readonly string[]) => sql.json(ids as string[]);
 
@@ -37,6 +39,7 @@ export async function recordLineage(
     WHERE d.id IN (SELECT value::uuid FROM jsonb_array_elements_text(${derivedList})) AND d.user_id = ${userId}
       AND d.source IN ('derived', 'derived-shadow')
       AND s.id IN (SELECT value::uuid FROM jsonb_array_elements_text(${sourceList})) AND s.user_id = ${userId}
+      AND s.source NOT IN ('derived', 'derived-shadow') AND s.id <> d.id
     ON CONFLICT (derived_id, source_id) DO NOTHING
     RETURNING 1`;
   return added.length;
