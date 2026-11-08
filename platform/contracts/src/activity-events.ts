@@ -80,6 +80,11 @@ export const ACTIVITY_SOURCES: Readonly<Record<string, ActivitySourceEntry>> = {
   // override and label name a fact_id. A status change is a later fact_status row (rows are never updated). Per-kind
   // attrs are validated in activity-derived.ts; a derived row never carries the raw body.
   derived: { schemaVersion: 1, kinds: ["msg_class", "fact", "fact_status", "override", "label"] },
+  // Rows a not-yet-promoted extractor version writes so two versions can be compared on the eval set before one is
+  // promoted: extractor output only (msg_class, fact), under the same validators as `derived`, and no `correction`
+  // kind. A status, override or label is never stored here for any writer. Reads of `derived` never show these rows,
+  // and only the in-process runner path and a write:activity-derived token write them. Not a user-facing shadow mode.
+  "derived-shadow": { schemaVersion: 1, kinds: ["msg_class", "fact"] },
   "iphone-shortcuts": {
     schemaVersion: 1,
     kinds: [
@@ -108,8 +113,13 @@ export function isKnownActivitySource(source: string): boolean {
   return Object.hasOwn(ACTIVITY_SOURCES, source);
 }
 
+/** Sources that hold one kind of output only and so take no `correction` row. */
+const NO_CORRECTIONS: readonly string[] = ["derived-shadow"];
+
 export function activityKindsOf(source: string): readonly string[] {
-  return isKnownActivitySource(source) ? [...ACTIVITY_SOURCES[source]!.kinds, ACTIVITY_CORRECTION_KIND] : [];
+  if (!isKnownActivitySource(source)) return [];
+  const kinds = ACTIVITY_SOURCES[source]!.kinds;
+  return NO_CORRECTIONS.includes(source) ? [...kinds] : [...kinds, ACTIVITY_CORRECTION_KIND];
 }
 
 const SOURCE_NAME = /^[a-z0-9][a-z0-9-]{0,39}$/;
@@ -391,7 +401,7 @@ export function validateActivityEvent(raw: unknown, now: Date): ActivityEventVer
       `attrs is ${attrsBytes} bytes; the limit is ${ACTIVITY_ATTRS_MAX_BYTES}. Keep small facts in attrs and put text in content.`
     );
   const content = rawContent as string | null;
-  if (source === "derived") {
+  if (source === "derived" || source === "derived-shadow") {
     const derivedProblem = describeDerivedProblem(kind, attrs, content);
     if (derivedProblem) return reject(derivedProblem);
   }
@@ -438,7 +448,7 @@ export interface ActivitySourceSummary {
   retentionDays: number | null;
   /** `scheduled` while a retention is set: the derived tick deletes expired events. `not_set` keeps the source permanently. */
   retentionPurge: "not_set" | "scheduled";
-  /** The last purge of this source that deleted something (rows deleted, when), or that skipped it with the reason; null if neither has happened. */
+  /** The last purge of this source that deleted something (rows deleted, when), or that skipped it with the reason; null if neither has happened, and always null while the source has no retention (a record from an earlier setting is hidden). */
   lastPurge: { removed: number; at: string; skipped?: string } | null;
 }
 
@@ -509,7 +519,7 @@ export function activityEventsJsonSchema(): Record<string, unknown> {
     "x-sources": Object.fromEntries(
       Object.entries(ACTIVITY_SOURCES).map(([name, entry]) => [
         name,
-        { schemaVersion: entry.schemaVersion, kinds: [...entry.kinds, ACTIVITY_CORRECTION_KIND] }
+        { schemaVersion: entry.schemaVersion, kinds: [...activityKindsOf(name)] }
       ])
     )
   };

@@ -520,7 +520,7 @@ describe("who a derived row is attributed to", () => {
     start: "2026-11-07T10:00:00.000Z",
     attrs
   });
-  const label = { fact_id: "f".repeat(40), answer: "ask" };
+  const label = { fact_id: "f".repeat(40), field: "fact_type", answer: "ask" };
 
   it("records the posting agent as ingested_via, null for the person, and never lets attrs say otherwise", async () => {
     const asMark = await ingest([derived("by-mark", "label", label)], {}, "mark");
@@ -537,6 +537,43 @@ describe("who a derived row is attributed to", () => {
     const his =
       await sql`SELECT 1 FROM activity_events WHERE source = 'derived' AND kind = 'label' AND ingested_via IS NULL`;
     expect(his).toHaveLength(1);
+  });
+
+  it("stores a derived-shadow row under its own source, attributed to the poster, and refuses a client by there too", async () => {
+    const shadow = (id: string, attrs: Record<string, unknown>) => ({
+      id,
+      source: "derived-shadow",
+      kind: "msg_class",
+      start: "2026-11-07T10:00:00.000Z",
+      attrs: {
+        source_event_id: "g1",
+        class: "bulk",
+        reasons: [],
+        extractor: "msg-class-t0",
+        extractor_version: "2",
+        ...attrs
+      }
+    });
+    expect((await ingest([shadow("sh1", {})], {}, "extractor-agent")).added).toBe(1);
+    const refused = await ingest([shadow("sh2", { by: "jondi" })], {}, "extractor-agent");
+    expect(refused.rejected[0]!.reason).toContain("attrs.by");
+    expect(
+      await sql`SELECT ingested_via FROM activity_events WHERE source = 'derived-shadow' AND event_key = 'sh1'`
+    ).toEqual([{ ingested_via: "extractor-agent" }]);
+    // Nothing but extractor output is stored there, whoever posts it.
+    for (const via of ["extractor-agent", "mark", null])
+      for (const kind of ["label", "override", "fact_status", "correction"]) {
+        const result = await ingest(
+          [{ id: `no-${kind}-${via}`, source: "derived-shadow", kind, start: "2026-11-07T10:00:00.000Z", attrs: {} }],
+          {},
+          via
+        );
+        expect(result.added, `${kind} by ${via}`).toBe(0);
+        expect(result.rejected[0]!.reason).toContain("msg_class, fact");
+      }
+    // A read that does not name the source never shows it.
+    expect((await readActivityEvents(sql, {})).events).toHaveLength(0);
+    expect((await readActivityEvents(sql, { source: "derived-shadow" })).events).toHaveLength(1);
   });
 
   it("refuses a row that claims to be the person through attrs.by, from the person or from an agent", async () => {

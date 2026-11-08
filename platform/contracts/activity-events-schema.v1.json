@@ -265,6 +265,13 @@
         "correction"
       ]
     },
+    "derived-shadow": {
+      "schemaVersion": 1,
+      "kinds": [
+        "msg_class",
+        "fact"
+      ]
+    },
     "iphone-shortcuts": {
       "schemaVersion": 1,
       "kinds": [

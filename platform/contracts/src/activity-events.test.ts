@@ -58,8 +58,54 @@ describe("the source registry", () => {
     });
   });
 
+  it("registers derived-shadow with the extractor kinds only (msg_class, fact), and no correction kind", () => {
+    expect(ACTIVITY_SOURCES["derived-shadow"]).toEqual({ schemaVersion: 1, kinds: ["msg_class", "fact"] });
+    expect(activityKindsOf("derived-shadow")).toEqual(["msg_class", "fact"]);
+  });
+
+  it("refuses fact_status, override, label and correction in derived-shadow, for every writer, naming the allowed kinds", () => {
+    for (const kind of ["fact_status", "override", "label", "correction"]) {
+      const verdict = validateActivityEvent(
+        {
+          id: "s1",
+          source: "derived-shadow",
+          kind,
+          start: "2026-11-07T11:00:00Z",
+          attrs: { fact_id: "a".repeat(40), answer: "x", field: "fact_type" }
+        },
+        now
+      );
+      expect(verdict.ok, kind).toBe(false);
+      if (!verdict.ok) {
+        expect(verdict.reason, kind).toContain("msg_class, fact");
+        expect(verdict.reason, kind).toContain(`"${kind}"`);
+      }
+    }
+  });
+
+  it("holds a derived-shadow row to the derived rules: the same attrs validators, no body, no client by", () => {
+    const row = (attrs: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
+      validateActivityEvent(
+        { id: "s1", source: "derived-shadow", kind: "msg_class", start: "2026-11-07T11:00:00Z", attrs, ...extra },
+        now
+      );
+    const good = {
+      source_event_id: "g1",
+      class: "bulk",
+      reasons: ["list_id"],
+      extractor: "msg-class-t0",
+      extractor_version: "2"
+    };
+    expect(row(good).ok).toBe(true);
+    expect(row({ ...good, class: "spam" })).toMatchObject({ ok: false });
+    expect(row({ ...good, by: "me" })).toMatchObject({ ok: false });
+    expect(row(good, { content: "the body" })).toMatchObject({ ok: false });
+  });
+
   it("accepts a correction kind for every source and nothing for an unknown one", () => {
-    for (const source of Object.keys(ACTIVITY_SOURCES)) expect(activityKindsOf(source)).toContain("correction");
+    // derived-shadow is the exception: it holds extractor output only.
+    for (const source of Object.keys(ACTIVITY_SOURCES).filter((name) => name !== "derived-shadow"))
+      expect(activityKindsOf(source)).toContain("correction");
     expect(activityKindsOf("nope")).toEqual([]);
     expect(activityKindsOf("constructor")).toEqual([]);
   });

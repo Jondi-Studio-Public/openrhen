@@ -277,7 +277,8 @@ export async function readActivitySummary(sql: Sql): Promise<ActivitySummary> {
       contentEnabled: state?.content_enabled ?? activityContentDefault(),
       retentionDays: state?.retention_days ?? null,
       retentionPurge: state?.retention_days == null ? ("not_set" as const) : ("scheduled" as const),
-      lastPurge: readLastPurge(state?.cursor)
+      // A source with no retention is permanent: a purge record left from an earlier setting would read as a deletion that is no longer scheduled.
+      lastPurge: state?.retention_days == null ? null : readLastPurge(state?.cursor)
     };
   });
   const { extractors, derivedBehind } = await extractorSummaries(sql, userId);
@@ -459,7 +460,8 @@ function liveExtractorVersions(sql: Sql, userId: string, asOf: Date | undefined)
  * Rows of source `derived` that an extractor wrote (`msg_class`, `fact`) are shown only for the active version of that
  * extractor (attrs.extractor and attrs.extractor_version), so an extractor with no active version yet, and a row that
  * names no version, return nothing rather than a guess. A person's rows (`fact_status`, `override`, `label`) belong to
- * no extractor version and are always shown.
+ * no extractor version and are always shown. Rows of source `derived-shadow` (a version not yet promoted, kept for the
+ * eval comparison) are never shown as output: they come back only when `source` asks for `derived-shadow` by name.
  */
 export async function readActivityEvents(sql: Sql, query: ActivityReadQuery): Promise<ActivityEventsPage> {
   const userId = await ensureUser(sql);
@@ -475,6 +477,7 @@ export async function readActivityEvents(sql: Sql, query: ActivityReadQuery): Pr
       ${query.from === undefined ? sql`` : sql`AND ts_start >= ${query.from}`}
       ${query.to === undefined ? sql`` : sql`AND ts_start < ${query.to}`}
       ${query.asOf === undefined ? sql`` : sql`AND ingested_at <= ${query.asOf}`}
+      ${query.source === "derived-shadow" ? sql`` : sql`AND source <> 'derived-shadow'`}
       AND (
         source <> 'derived' OR kind NOT IN ${sql(DERIVED_EXTRACTOR_KINDS as unknown as string[])} OR EXISTS (
           SELECT 1 FROM (${liveExtractorVersions(sql, userId, query.asOf)}) live

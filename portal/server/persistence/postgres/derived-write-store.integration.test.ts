@@ -5,7 +5,8 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { resolve } from "node:path";
 import { integrationDatabaseName } from "@openrhen/database";
-import { writeDerivedRows, writeDerivedRowsTx } from "./derived-write-store";
+import { readActivityEvents } from "./activity-store";
+import { writeDerivedRows, writeDerivedRowsTx, writeShadowRows, writeShadowRowsTx } from "./derived-write-store";
 import { ensureUser } from "./ensure-user";
 
 config({ path: resolve(process.cwd(), "../.env"), quiet: true });
@@ -236,5 +237,103 @@ describe("writeDerivedRows", () => {
     const out = await writeDerivedRows(sql, [{ event: classRow("k1"), sourceIds: [theirs] }], VIA, now);
     expect(out[0]).toMatchObject({ ok: true, added: true });
     expect(await lineage()).toBe(0);
+  });
+});
+
+describe("writeShadowRows (extractor versions compared before one is promoted)", () => {
+  const shadowRow = (id: string, version = "2") => ({
+    ...classRow(id, { source: "derived-shadow" }, { extractor_version: version }),
+    source: "derived-shadow"
+  });
+  const shadowCount = async () =>
+    (await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM activity_events WHERE source = 'derived-shadow'`)[0]!.n;
+
+  it("writes under source derived-shadow with lineage, returns the id, and is idempotent", async () => {
+    const m = await mail("m1");
+    const [res] = await writeShadowRows(sql, [{ event: shadowRow("k1"), sourceIds: [m] }], VIA, now);
+    expect(res).toMatchObject({ ok: true, added: true });
+    const [again] = await writeShadowRows(sql, [{ event: shadowRow("k1"), sourceIds: [m] }], VIA, now);
+    expect(again).toMatchObject({ ok: true, added: false });
+    expect(again!.ok && again!.id).toBe(res!.ok && res!.id);
+    expect(await shadowCount()).toBe(1);
+    expect(await derivedCount()).toBe(0);
+    expect(await lineage()).toBe(1);
+    const [stored] = await sql<{ ingested_via: string; content: string | null }[]>`
+      SELECT ingested_via, content FROM activity_events WHERE source = 'derived-shadow'`;
+    expect(stored).toMatchObject({ ingested_via: VIA, content: null });
+  });
+
+  it("lets the same event key live in derived and derived-shadow without clashing", async () => {
+    const m = await mail("m1");
+    await writeDerivedRows(sql, [{ event: classRow("same"), sourceIds: [m] }], VIA, now);
+    const [res] = await writeShadowRows(sql, [{ event: shadowRow("same"), sourceIds: [m] }], VIA, now);
+    expect(res).toMatchObject({ ok: true, added: true });
+    expect(await derivedCount()).toBe(1);
+    expect(await shadowCount()).toBe(1);
+  });
+
+  it("refuses a row of the other source on each path, naming the source to build the row with", async () => {
+    const m = await mail("m1");
+    const [toShadow] = await writeShadowRows(sql, [{ event: classRow("k1"), sourceIds: [m] }], VIA, now);
+    expect(toShadow).toMatchObject({ ok: false, reason: expect.stringContaining('source "derived-shadow"') });
+    const [toDerived] = await writeDerivedRows(sql, [{ event: shadowRow("k2"), sourceIds: [m] }], VIA, now);
+    expect(toDerived).toMatchObject({ ok: false, reason: expect.stringContaining('source "derived"') });
+    expect(await derivedCount()).toBe(0);
+    expect(await shadowCount()).toBe(0);
+  });
+
+  it("writes msg_class and fact only: the registry refuses a status, override, label or correction in derived-shadow", async () => {
+    const m = await mail("m1");
+    const [res] = await writeShadowRows(
+      sql,
+      [
+        {
+          event: {
+            id: "l",
+            source: "derived-shadow",
+            kind: "label",
+            start: "2026-11-01T00:00:00Z",
+            attrs: { fact_id: "a".repeat(40), answer: "x" }
+          },
+          sourceIds: [m]
+        }
+      ],
+      VIA,
+      now
+    );
+    expect(res).toMatchObject({ ok: false, reason: expect.stringContaining("msg_class, fact") });
+  });
+
+  it("is available inside the caller's transaction and rolls back with it", async () => {
+    const m = await mail("m1");
+    await expect(
+      sql.begin(async (tx) => {
+        await writeShadowRowsTx(tx, userId, [{ event: shadowRow("k1"), sourceIds: [m] }], VIA, now);
+        throw new Error("boom");
+      })
+    ).rejects.toThrow("boom");
+    expect(await shadowCount()).toBe(0);
+  });
+
+  it("is never read as active output: an unfiltered read and a derived read leave shadow rows out, an explicit shadow read shows them", async () => {
+    const m = await mail("m1");
+    await sql`INSERT INTO extractor_state (user_id, extractor, version, active) VALUES (${userId}, 'msg-class-t0', '1', true)`;
+    await writeDerivedRows(sql, [{ event: classRow("live"), sourceIds: [m] }], VIA, now);
+    await writeShadowRows(sql, [{ event: shadowRow("shadow"), sourceIds: [m] }], VIA, now);
+    const keys = async (query: { source?: string }) =>
+      (await readActivityEvents(sql, query)).events
+        .filter((e) => e.kind === "msg_class")
+        .map((e) => `${e.source}:${e.key}`);
+    expect(await keys({})).toEqual(["derived:live"]);
+    expect(await keys({ source: "derived" })).toEqual(["derived:live"]);
+    expect(await keys({ source: "derived-shadow" })).toEqual(["derived-shadow:shadow"]);
+  });
+
+  it("goes with its source mail like any derived row", async () => {
+    const m = await mail("m1");
+    await writeShadowRows(sql, [{ event: shadowRow("k1"), sourceIds: [m] }], VIA, now);
+    const { purgeActivitySource } = await import("./activity-store");
+    await purgeActivitySource(sql, "gmail");
+    expect(await shadowCount()).toBe(0);
   });
 });

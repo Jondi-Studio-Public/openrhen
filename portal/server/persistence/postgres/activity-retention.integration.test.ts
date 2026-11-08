@@ -232,14 +232,34 @@ describe("the tick applies a set retention", () => {
       lastPurge: null
     });
   });
+
+  it("hides the last purge once the retention is cleared, so a permanent source never shows a stale deletion", async () => {
+    await source(userId, "gmail", "old");
+    await setActivitySourceSettings(sql, "gmail", { retentionDays: 30 });
+    await tick();
+    expect((await readActivitySummary(sql)).sources.find((s) => s.source === "gmail")!.lastPurge).not.toBeNull();
+    await setActivitySourceSettings(sql, "gmail", { retentionDays: null });
+    expect((await readActivitySummary(sql)).sources.find((s) => s.source === "gmail")).toMatchObject({
+      retentionDays: null,
+      retentionPurge: "not_set",
+      lastPurge: null
+    });
+    // The record is hidden, not erased: setting a retention again shows the last purge that really happened.
+    await setActivitySourceSettings(sql, "gmail", { retentionDays: 30 });
+    expect((await readActivitySummary(sql)).sources.find((s) => s.source === "gmail")!.lastPurge).toMatchObject({
+      removed: 1
+    });
+  });
 });
 
 describe("settings and bad values", () => {
   it("refuses a retention on derived and derived-shadow with a message saying why, and still lets null clear", async () => {
-    // `derived-shadow` is not a registered source until 2a-3; the guard names it so it holds once it is.
     const refused = setActivitySourceSettings(sql, "derived", { retentionDays: 30 });
     await expect(refused).rejects.toBeInstanceOf(ActivityInputError);
     await expect(refused).rejects.toThrow(/not applied to derived rows.*kept as history.*raw source/s);
+    const shadow = setActivitySourceSettings(sql, "derived-shadow", { retentionDays: 30 });
+    await expect(shadow).rejects.toBeInstanceOf(ActivityInputError);
+    await expect(shadow).rejects.toThrow(/not applied to derived rows.*kept as history.*raw source/s);
     expect(await sql`SELECT 1 FROM activity_source_state WHERE retention_days IS NOT NULL`).toHaveLength(0);
     await expect(setActivitySourceSettings(sql, "derived", { retentionDays: null })).resolves.toMatchObject({
       retentionDays: null
