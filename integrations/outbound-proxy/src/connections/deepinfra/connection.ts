@@ -1,9 +1,12 @@
 /**
  * The `deepinfra` connection: text embeddings (`model_provider.embed`) from DeepInfra's
- * OpenAI-compatible endpoint. DEEPINFRA_API_KEY stays in this process.
+ * OpenAI-compatible endpoint (DEEPINFRA_API_KEY stays in this process), and `complete`: a chat completion with the key
+ * the person typed, sent in the request body.
  */
 import { connectionManifest } from "@openrhen/contracts";
 import type { BoundConnection } from "../../host/connection-api.js";
+import { answer } from "../../host/model-complete.js";
+import { completeWithDeepInfra, parseDeepInfraComplete } from "./complete.js";
 import {
   MAX_EMBEDDING_TEXT_CHARS,
   MAX_EMBEDDING_TEXTS,
@@ -23,6 +26,16 @@ export const deepinfraConnection: BoundConnection = {
   manifest: manifest(),
   create: () => ({
     model_provider: {
+      // The key arrives in the request body (typed in Settings, stored by the portal); this proxy's environment key is for embeddings only.
+      complete: {
+        kind: "json",
+        rate: "hosted",
+        async run(call) {
+          const parsed = parseDeepInfraComplete(call.body);
+          if (!parsed.ok) return { status: 400, body: { error: parsed.error } };
+          return answer(await completeWithDeepInfra(parsed.input, parsed.apiKey, call.fetch, call.signal));
+        }
+      },
       embed: {
         kind: "json",
         rate: "embedding",

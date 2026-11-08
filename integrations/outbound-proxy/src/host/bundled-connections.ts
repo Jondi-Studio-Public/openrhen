@@ -2,6 +2,7 @@ import { calendarFeedConnection } from "../connections/calendar-feed/connection.
 import { deepinfraConnection } from "../connections/deepinfra/connection.js";
 import { googleCalendarConnection } from "../connections/google-calendar/connection.js";
 import { googleRoutesConnection } from "../connections/google-routes/connection.js";
+import { ollamaConnection } from "../connections/ollama/connection.js";
 import { openaiConnection } from "../connections/openai/connection.js";
 import { pulseConnection } from "../connections/pulse/connection.js";
 import { youtubeDataConnection } from "../connections/youtube-data/connection.js";
@@ -16,6 +17,7 @@ export const CORE_CONNECTIONS: readonly BoundConnection[] = [
   pulseConnection,
   openaiConnection,
   deepinfraConnection,
+  ollamaConnection,
   calendarFeedConnection,
   youtubeDataConnection
 ];

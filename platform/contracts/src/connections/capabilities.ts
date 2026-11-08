@@ -17,7 +17,7 @@ export const CAPABILITY_OPS = {
   calendar_sink: ["status", "create", "update", "remove", "write_proof"],
   travel_time: ["matrix"],
   geocoding: ["geocode"],
-  model_provider: ["extract", "stream", "embed", "probe"],
+  model_provider: ["extract", "stream", "embed", "complete", "probe"],
   status_publish: ["config", "publish"],
   video_metadata: ["durations"]
 } as const satisfies Record<CapabilityId, readonly string[]>;
@@ -38,6 +38,7 @@ export const opIdSchema = z.enum([
   "extract",
   "stream",
   "embed",
+  "complete",
   "probe",
   "config",
   "publish",

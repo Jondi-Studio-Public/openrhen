@@ -43,7 +43,8 @@ describe("outbound integrations proxy boundary", () => {
         expect.objectContaining({ id: "google", label: "Google Maps", capabilities: ["travel_time", "geocoding"] }),
         expect.objectContaining({ id: "pulse", label: "Pulse", capabilities: ["status_publish"] }),
         expect.objectContaining({ id: "openai", capabilities: ["model_provider"] }),
-        expect.objectContaining({ id: "deepinfra", capabilities: ["model_provider"] })
+        expect.objectContaining({ id: "deepinfra", capabilities: ["model_provider"] }),
+        expect.objectContaining({ id: "ollama", label: "Ollama", capabilities: ["model_provider"] })
       ])
     });
   });
@@ -161,6 +162,26 @@ describe("outbound integrations proxy boundary", () => {
     expect((await call()).status).toBe(429);
     vi.unstubAllEnvs();
     resetAiRateLimitForTests();
+  });
+
+  it("serves complete for ollama and deepinfra behind the token; a denied address is answered without any connection", async () => {
+    resetAiRateLimitForTests();
+    const url = await start();
+    const call = (id: string, body: unknown, token = "test-token") =>
+      fetch(`${url}/capabilities/model_provider/${id}/complete`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify(body)
+      });
+    const messages = [{ role: "user", content: "hi" }];
+    const denied = await call("ollama", { baseUrl: "http://169.254.169.254:11434", model: "qwen3:14b", messages });
+    expect(denied.status).toBe(502);
+    expect(await denied.json()).toMatchObject({ outcome: "unreachable", message: expect.stringContaining("metadata") });
+    const compose = await call("ollama", { baseUrl: "http://postgres:11434", model: "qwen3:14b", messages });
+    expect(await compose.json()).toMatchObject({ outcome: "unreachable" });
+    expect((await call("ollama", { model: "qwen3:14b", messages })).status).toBe(400);
+    expect((await call("deepinfra", { model: "a/b", messages })).status).toBe(400);
+    expect((await call("ollama", {}, "wrong")).status).toBe(401);
   });
 
   it("validates the embed op and needs DEEPINFRA_API_KEY", async () => {
