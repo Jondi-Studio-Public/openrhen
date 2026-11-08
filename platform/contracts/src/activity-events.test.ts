@@ -52,7 +52,10 @@ describe("the source registry", () => {
 
   it("registers gmail messages and the derived facts, at schema version 1", () => {
     expect(ACTIVITY_SOURCES.gmail).toEqual({ schemaVersion: 1, kinds: ["message"] });
-    expect(ACTIVITY_SOURCES.derived).toEqual({ schemaVersion: 1, kinds: ["invite", "ask", "fact_status"] });
+    expect(ACTIVITY_SOURCES.derived).toEqual({
+      schemaVersion: 1,
+      kinds: ["msg_class", "fact", "fact_status", "override", "label"]
+    });
   });
 
   it("accepts a correction kind for every source and nothing for an unknown one", () => {

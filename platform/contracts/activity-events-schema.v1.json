@@ -257,9 +257,11 @@
     "derived": {
       "schemaVersion": 1,
       "kinds": [
-        "invite",
-        "ask",
+        "msg_class",
+        "fact",
         "fact_status",
+        "override",
+        "label",
         "correction"
       ]
     },

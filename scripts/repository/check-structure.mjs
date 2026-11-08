@@ -27,6 +27,7 @@ const expectedPackages = new Map([
   ["platform/contracts/package.json", "@openrhen/contracts"],
   ["platform/database/package.json", "@openrhen/database"],
   ["integrations/activity-importers/package.json", "@openrhen/activity-importers"],
+  ["integrations/communication-readers/package.json", "@openrhen/communication-readers"],
   ["integrations/outbound-proxy/package.json", "@openrhen/outbound-proxy"],
   ["integrations/openclaw-plugin/package.json", "@openrhen/openclaw-plugin"],
   ["tools/cli/package.json", "@openrhen/cli"]
@@ -191,6 +192,13 @@ for (const absolute of maintainedFiles) {
   // The activity importers are pure streaming parsers: bytes in, event drafts out. They import no other workspace
   // package (not even the contracts), so the CLI is the only place that knows both the file formats and the wire.
   if (source.startsWith("integrations/activity-importers/")) {
+    for (const dependency of workspaceImports)
+      errors.push(`${source} imports forbidden workspace package ${dependency}`);
+  }
+  // The communication readers are pure functions over an event's attrs and text (classify a message, name a fact, locate
+  // evidence, resolve a status). They import no workspace package, so the same code can run in the portal, a test
+  // harness or a bridge; the vocabulary they share with the contracts is held in step by a test in portal/server.
+  if (source.startsWith("integrations/communication-readers/")) {
     for (const dependency of workspaceImports)
       errors.push(`${source} imports forbidden workspace package ${dependency}`);
   }
