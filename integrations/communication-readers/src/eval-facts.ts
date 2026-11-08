@@ -230,24 +230,41 @@ function assign<R, C>(refs: readonly R[], cands: readonly C[], weight: (r: R, c:
     }
     return out;
   }
-  let best: { total: number; pairs: [R, C][] } = { total: 0, pairs: [] };
-  const search = (i: number, used: number, total: number, pairs: [R, C][]) => {
-    if (i === refs.length) {
-      if (total > best.total || (total === best.total && pairs.length > best.pairs.length))
-        best = { total, pairs: [...pairs] };
-      return;
-    }
+  // Best completion from reference i with the candidates in `used` taken, memoised on (i, used): at most
+  // refs x 2^cands states, so the limit above stays fast even when every span overlaps every other.
+  interface Best {
+    total: number;
+    count: number;
+    pick: number; // candidate taken by reference i, or -1 to leave it unmatched
+  }
+  const memo = new Map<number, Best>();
+  const solve = (i: number, used: number): Best => {
+    if (i === refs.length) return { total: 0, count: 0, pick: -1 };
+    const key = i * (1 << cands.length) + used;
+    const held = memo.get(key);
+    if (held !== undefined) return held;
+    let best: Best = { ...solve(i + 1, used), pick: -1 };
     for (let j = 0; j < cands.length; j++) {
       const w = weight(refs[i]!, cands[j]!);
       if ((used & (1 << j)) !== 0 || w <= 0) continue;
-      pairs.push([refs[i]!, cands[j]!]);
-      search(i + 1, used | (1 << j), total + w, pairs);
-      pairs.pop();
+      const rest = solve(i + 1, used | (1 << j));
+      const total = rest.total + w;
+      const count = rest.count + 1;
+      if (total > best.total || (total === best.total && count > best.count)) best = { total, count, pick: j };
     }
-    search(i + 1, used, total, pairs);
+    memo.set(key, best);
+    return best;
   };
-  search(0, 0, 0, []);
-  return best.pairs;
+  const pairs: [R, C][] = [];
+  let used = 0;
+  for (let i = 0; i < refs.length; i++) {
+    const { pick } = solve(i, used);
+    if (pick >= 0) {
+      pairs.push([refs[i]!, cands[pick]!]);
+      used |= 1 << pick;
+    }
+  }
+  return pairs;
 }
 
 /**

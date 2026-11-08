@@ -234,6 +234,23 @@ describe("fallbackFactPredictions: matching rules", () => {
   });
 });
 
+describe("fallbackFactPredictions: size", () => {
+  it("pairs 12 references with 12 candidates that all overlap each other, quickly", () => {
+    const rows = Array.from({ length: 12 }, (_, i) =>
+      fact("m1", "ask", `c${String(i).padStart(2, "0")}`, [i, 200 + i])
+    );
+    const references = Array.from({ length: 12 }, (_, i) => ({
+      factId: `r${String(i).padStart(2, "0")}`,
+      messageId: "m1",
+      span: { start: i, end: 190 + i }
+    }));
+    const started = Date.now();
+    const result = fallbackFactPredictions(rows, references);
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(result.matched).toBe(12);
+  });
+});
+
 describe("buildEvalReport with facts", () => {
   it("scores fact_types labels as fact metrics, not as a field, and a promoted version against labels made for the old one", () => {
     const labels: EvalLabel[] = [

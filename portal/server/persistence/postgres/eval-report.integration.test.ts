@@ -287,7 +287,7 @@ describe("readEvalReport", () => {
     });
     const cut = await readEvalReport(sql, { window: 2 });
     expect(cut.versions[0]!.problems).toEqual([
-      expect.stringContaining("Only the newest 2 fact rows of derived were looked at")
+      expect.stringContaining("Only the newest 2 rows of derived were looked at")
     ]);
     const whole = await readEvalReport(sql);
     expect(whole.versions[0]!.problems).toEqual([]);
@@ -718,5 +718,18 @@ describe("readEvalReport: facts", () => {
     ]);
     const reached = reachedMessages(false, { shadow: { done } }, held);
     expect([...reached]).toEqual(["newest"]);
+  });
+
+  it("counts the fact window in rows of any kind: newer msg_class rows push older facts out of it", async () => {
+    await stateWith("1", true, wideCursor());
+    await messageAt("old", 10);
+    await typesLabel("old", ["ask"]);
+    await factFor("f-old", "old", factId(1), "ask");
+    for (let i = 0; i < 150; i++) await row("derived", "msg_class", `c${i}`, at(100 + i), klass("other", "bulk"), VIA);
+    const cut = await readEvalReport(sql, { window: 100 });
+    expect(cut.versions[0]!.report.facts).toMatchObject({ scored: 0, notReached: 1 });
+    expect(cut.versions[0]!.problems.join(" ")).toContain("Only the newest 100 rows of derived were looked at");
+    const whole = await readEvalReport(sql);
+    expect(whole.versions[0]!.report.facts).toMatchObject({ scored: 1 });
   });
 });
