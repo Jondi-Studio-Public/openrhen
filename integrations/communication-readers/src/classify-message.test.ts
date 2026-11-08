@@ -25,14 +25,24 @@ describe("classifyMessage", () => {
   });
 
   it("reads JSON-LD event and order types", () => {
-    expect(classifyMessage({ message_id: "<m@x>", jsonld: { type: "EventReservation" } })).toEqual({
+    expect(
+      classifyMessage({ message_id: "<m@x>", jsonld: [{ "@type": "EventReservation", reservationNumber: "R1" }] })
+    ).toEqual({
       class: "calendar",
       reasons: ["jsonld_event"]
     });
-    expect(classifyMessage({ message_id: "<m@x>", jsonld: { type: ["Order"] } })).toEqual({
+    expect(classifyMessage({ message_id: "<m@x>", jsonld: [{ "@type": ["Order"], orderNumber: "O1" }] })).toEqual({
       class: "transaction",
       reasons: ["jsonld_order"]
     });
+  });
+
+  it("also accepts a single JSON-LD object keyed @type or type, and finds a type in any array item", () => {
+    expect(classifyMessage({ message_id: "<m@x>", jsonld: { "@type": "Event" } }).class).toBe("calendar");
+    expect(classifyMessage({ message_id: "<m@x>", jsonld: { type: "Order" } }).class).toBe("transaction");
+    expect(classifyMessage({ message_id: "<m@x>", jsonld: [{ "@type": "Person" }, { "@type": "Order" }] }).class).toBe(
+      "transaction"
+    );
   });
 
   it("calls a noreply receipt a transaction", () => {
@@ -104,6 +114,17 @@ describe("classifyMessage", () => {
       class: "person",
       reasons: ["auth_failed", "no_automation_signals"]
     });
+  });
+
+  it("fires auth_failed on fail, softfail and permerror, but not on pass, neutral, none or temperror", () => {
+    for (const bad of ["fail", "softfail", "permerror"])
+      expect(classifyMessage({ message_id: "<m@x>", auth: { dmarc: bad } }).reasons).toContain("auth_failed");
+    for (const ok of ["pass", "neutral", "none", "temperror"])
+      expect(classifyMessage({ message_id: "<m@x>", auth: { spf: ok } }).reasons).not.toContain("auth_failed");
+  });
+
+  it("does not count has_unsubscribe: false as a header", () => {
+    expect(classifyMessage({ has_unsubscribe: false }).class).toBe("unknown");
   });
 
   it("ignores malformed header values rather than throwing", () => {

@@ -43,28 +43,36 @@ function senderLocalPart(from: unknown): string | null {
   return at > 0 ? address.slice(0, at).trim() : null;
 }
 
-function jsonldTypes(jsonld: Record<string, unknown>): string[] {
-  const raw = jsonld.type ?? jsonld["@type"];
-  return (Array.isArray(raw) ? raw : [raw]).filter((item): item is string => typeof item === "string");
+/** The types in `attrs.jsonld`: the bridge writes an array of objects keyed `@type`; one object, or `type`, is tolerated. */
+function jsonldTypes(value: unknown): string[] {
+  const items = Array.isArray(value) ? value : [value];
+  return items.flatMap((item) => {
+    if (item === null || typeof item !== "object" || Array.isArray(item)) return [];
+    const raw = (item as Record<string, unknown>)["@type"] ?? (item as Record<string, unknown>).type;
+    return (Array.isArray(raw) ? raw : [raw]).filter((type): type is string => typeof type === "string");
+  });
 }
+const AUTH_FAILURES = new Set(["fail", "softfail", "permerror"]);
 
 /**
  * Tier T0 of the message classifier: headers and sender only, plain code, no model. `attrs` is a gmail-shaped row's
  * attrs: `list_id`, `auto_submitted`, `has_unsubscribe`, `auth {spf,dkim,dmarc}`, `message_id`, `in_reply_to`,
- * `ics {...}`, `jsonld {...}`, plus `from`, `from_self` and `subject`. When none of the header inputs is present (empty
+ * `ics {...}`, `jsonld [{"@type": ...}]`, plus `from`, `from_self` and `subject`. When none of the header inputs is present (empty
  * attrs, a chat source, a bridge that has not parsed headers) the answer is `unknown` with reason `no_headers`, never
- * `person`: a guess here would train and act on mail nobody looked at. Strongest class wins: calendar, transaction,
+ * `person`. In practice `message_id` is the marker that the bridge parsed headers (nearly every mail has one); only
+ * `has_unsubscribe: true` counts, since `false` says nothing. `auth_failed` (fail, softfail, permerror) is a reason
+ * only and never changes the class, so a downstream rule must not auto-act on it alone. A guess here would train and act on mail nobody looked at. Strongest class wins: calendar, transaction,
  * automated, bulk, person. Never throws.
  */
 export function classifyMessage(attrs: Record<string, unknown>): MessageClassification {
   const listId = text(attrs.list_id);
   const autoSubmitted = text(attrs.auto_submitted);
-  const unsubscribe = typeof attrs.has_unsubscribe === "boolean" ? attrs.has_unsubscribe : null;
+  const unsubscribe = attrs.has_unsubscribe === true ? true : null;
   const auth = record(attrs.auth);
   const messageId = text(attrs.message_id);
   const inReplyTo = text(attrs.in_reply_to);
   const ics = record(attrs.ics);
-  const jsonld = record(attrs.jsonld);
+  const jsonldTypeList = jsonldTypes(attrs.jsonld).map((type) => type.toLowerCase());
 
   if (
     listId === null &&
@@ -74,13 +82,13 @@ export function classifyMessage(attrs: Record<string, unknown>): MessageClassifi
     messageId === null &&
     inReplyTo === null &&
     ics === null &&
-    jsonld === null
+    jsonldTypeList.length === 0
   )
     return { class: "unknown", reasons: ["no_headers"] };
 
   const reasons = new Set<MsgClassReason>();
   if (ics) reasons.add("ics_present");
-  const types = jsonld ? jsonldTypes(jsonld).map((type) => type.toLowerCase()) : [];
+  const types = jsonldTypeList;
   if (types.some((type) => type.includes("event") || type.includes("reservation"))) reasons.add("jsonld_event");
   if (types.some((type) => type.includes("order") || type.includes("invoice") || type.includes("receipt")))
     reasons.add("jsonld_order");
@@ -95,7 +103,7 @@ export function classifyMessage(attrs: Record<string, unknown>): MessageClassifi
   );
   const subject = text(attrs.subject);
   if (machineSent && subject !== null && RECEIPT.test(subject)) reasons.add("receipt_subject");
-  if (auth && ["spf", "dkim", "dmarc"].some((key) => typeof auth[key] === "string" && auth[key] === "fail"))
+  if (auth && ["spf", "dkim", "dmarc"].some((key) => typeof auth[key] === "string" && AUTH_FAILURES.has(auth[key])))
     reasons.add("auth_failed");
 
   let cls: MsgClass;

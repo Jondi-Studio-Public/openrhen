@@ -7,7 +7,7 @@ import { createHash } from "node:crypto";
  */
 export const NORMALISER_VERSION = "n1";
 
-const INVISIBLE = /[​-‍⁠﻿]/gu;
+const INVISIBLE = /[\u200b-\u200d\u2060\ufeff]/gu;
 
 /** n1: Unicode NFKC, invisible characters removed, lower case, whitespace runs folded to one space, trimmed. */
 export function normaliseText(text: string): string {

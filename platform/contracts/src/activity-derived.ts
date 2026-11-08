@@ -44,6 +44,13 @@ const list = (values: readonly string[]) => values.join(", ");
 const shown = (value: unknown) =>
   typeof value === "string" ? `"${value.slice(0, 60)}"` : (JSON.stringify(value) ?? "undefined");
 
+/** The shape matched, so check the date exists: `Date.parse` accepts 2026-02-30 as March, so compare the parts too. */
+function isRealTime(value: string): boolean {
+  if (Number.isNaN(Date.parse(value))) return false;
+  const [year, month, day] = [Number(value.slice(0, 4)), Number(value.slice(5, 7)), Number(value.slice(8, 10))];
+  return month >= 1 && month <= 12 && day >= 1 && day <= new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
 function requireFactId(attrs: Record<string, unknown>): string | null {
   const id = attrs.fact_id;
   if (id === undefined)
@@ -80,6 +87,8 @@ function checkMsgClass(attrs: Record<string, unknown>): string | null {
   const reasons = attrs.reasons;
   if (!Array.isArray(reasons) || reasons.length > DERIVED_MAX_REASONS)
     return `attrs.reasons must be a list of at most ${DERIVED_MAX_REASONS} reason codes from: ${list(DERIVED_MSG_CLASS_REASONS)}.`;
+  if (new Set(reasons).size !== reasons.length)
+    return "attrs.reasons lists a reason code more than once. List each code once.";
   for (const reason of reasons)
     if (typeof reason !== "string" || !(DERIVED_MSG_CLASS_REASONS as readonly string[]).includes(reason))
       return `attrs.reasons has ${shown(reason)}, which is not a reason code. Use only: ${list(DERIVED_MSG_CLASS_REASONS)}.`;
@@ -104,7 +113,7 @@ function checkFactStatus(attrs: Record<string, unknown>): string | null {
   const status = attrs.status;
   if (typeof status !== "string" || !(DERIVED_FACT_STATUSES as readonly string[]).includes(status))
     return `attrs.status ${shown(status)} is not a fact status. Use one of: ${list(DERIVED_FACT_STATUSES)}. Send {"fact_id": "...", "status": "confirmed", "valid_from": "2026-11-08T01:00:00Z"}.`;
-  if (typeof attrs.valid_from !== "string" || !RFC3339.test(attrs.valid_from))
+  if (typeof attrs.valid_from !== "string" || !RFC3339.test(attrs.valid_from) || !isRealTime(attrs.valid_from))
     return 'attrs.valid_from is missing or not an RFC 3339 time. Send when the status took effect, such as "2026-11-08T01:00:00Z".';
   return null;
 }

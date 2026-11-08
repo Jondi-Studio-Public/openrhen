@@ -117,6 +117,21 @@ describe("describeDerivedProblem", () => {
     ).toContain("between 0 and 1");
   });
 
+  it("rejects an impossible calendar date in valid_from, and a duplicate reason", () => {
+    for (const bad of ["2026-13-45T99:99:99Z", "2026-02-30T10:00:00Z", "2026-11-08T25:00:00Z"])
+      expect(
+        describeDerivedProblem("fact_status", { fact_id: FACT_ID, status: "done", valid_from: bad }, null),
+        bad
+      ).toContain("valid_from");
+    expect(
+      describeDerivedProblem(
+        "msg_class",
+        { source_event_id: "g", class: "bulk", reasons: ["list_id", "list_id"] },
+        null
+      )
+    ).toContain("more than once");
+  });
+
   it("requires the fields each kind needs", () => {
     expect(describeDerivedProblem("fact_status", { status: "done" }, null)).toContain("fact_id");
     expect(describeDerivedProblem("fact_status", { fact_id: FACT_ID, status: "done" }, null)).toContain("valid_from");
