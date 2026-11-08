@@ -43,6 +43,46 @@ function senderLocalPart(from: unknown): string | null {
   return at > 0 ? address.slice(0, at).trim() : null;
 }
 
+/** schema.org types that mean a dated happening: events and the reservations mail carries. Exact match, case-sensitive. */
+export const JSONLD_EVENT_TYPES: readonly string[] = [
+  "Event",
+  "BusinessEvent",
+  "ChildrenEvent",
+  "ComedyEvent",
+  "CourseInstance",
+  "DanceEvent",
+  "EducationEvent",
+  "ExhibitionEvent",
+  "Festival",
+  "FoodEvent",
+  "LiteraryEvent",
+  "MusicEvent",
+  "ScreeningEvent",
+  "SocialEvent",
+  "SportsEvent",
+  "TheaterEvent",
+  "VisualArtsEvent",
+  "EventReservation",
+  "Reservation",
+  "ReservationPackage",
+  "BoatReservation",
+  "BusReservation",
+  "FlightReservation",
+  "FoodEstablishmentReservation",
+  "LodgingReservation",
+  "RentalCarReservation",
+  "TaxiReservation",
+  "TrainReservation"
+];
+
+/** schema.org types that mean money owed or paid. Exact match, case-sensitive. */
+export const JSONLD_ORDER_TYPES: readonly string[] = ["Order", "Invoice"];
+
+/** `Event`, `schema:Event`, `http://schema.org/Event` and `https://schema.org/Event` are the same type; any other prefix is not schema.org and is left as is. */
+function schemaOrgName(type: string): string {
+  return type.replace(/^(?:https?:\/\/schema\.org\/|schema:)/u, "");
+}
+
 /** The types in `attrs.jsonld`: the bridge writes an array of objects keyed `@type`; one object, or `type`, is tolerated. */
 function jsonldTypes(value: unknown): string[] {
   const items = Array.isArray(value) ? value : [value];
@@ -72,7 +112,7 @@ export function classifyMessage(attrs: Record<string, unknown>): MessageClassifi
   const messageId = text(attrs.message_id);
   const inReplyTo = text(attrs.in_reply_to);
   const ics = record(attrs.ics);
-  const jsonldTypeList = jsonldTypes(attrs.jsonld).map((type) => type.toLowerCase());
+  const jsonldTypeList = jsonldTypes(attrs.jsonld).map(schemaOrgName);
 
   if (
     listId === null &&
@@ -88,10 +128,8 @@ export function classifyMessage(attrs: Record<string, unknown>): MessageClassifi
 
   const reasons = new Set<MsgClassReason>();
   if (ics) reasons.add("ics_present");
-  const types = jsonldTypeList;
-  if (types.some((type) => type.includes("event") || type.includes("reservation"))) reasons.add("jsonld_event");
-  if (types.some((type) => type.includes("order") || type.includes("invoice") || type.includes("receipt")))
-    reasons.add("jsonld_order");
+  if (jsonldTypeList.some((type) => JSONLD_EVENT_TYPES.includes(type))) reasons.add("jsonld_event");
+  if (jsonldTypeList.some((type) => JSONLD_ORDER_TYPES.includes(type))) reasons.add("jsonld_order");
   if (autoSubmitted !== null && autoSubmitted.trim().toLowerCase() !== "no") reasons.add("auto_submitted");
   if (listId !== null) reasons.add("list_id");
   if (unsubscribe === true) reasons.add("unsubscribe_header");

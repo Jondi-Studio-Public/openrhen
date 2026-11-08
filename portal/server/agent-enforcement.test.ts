@@ -879,6 +879,38 @@ describe("activity store", () => {
     expect(await refused?.json()).toMatchObject({ missingScopes: ["write:activity-event"] });
   });
 
+  it("lets only the derived scope post fact rows, and keeps fact_status and override with the event scope", async () => {
+    const one = (kind: string) => ({
+      schema: 1,
+      events: [{ id: "k", source: "derived", kind, start: "2026-11-08T01:00:00Z" }]
+    });
+    expect(await call("POST", "/api/activity-events", principal(["write:activity-derived"]), one("fact"))).toBeNull();
+    const refusedFact = await call("POST", "/api/activity-events", principal(["write:activity-event"]), one("fact"));
+    expect(await refusedFact?.json()).toMatchObject({ missingScopes: ["write:activity-derived"] });
+    // An extractor token never outranks a person's confirmed status.
+    for (const kind of ["fact_status", "override"]) {
+      const refused = await call("POST", "/api/activity-events", principal(["write:activity-derived"]), one(kind));
+      expect(refused?.status, kind).toBe(403);
+      expect(await refused?.json(), kind).toMatchObject({ missingScopes: ["write:activity-event"] });
+      expect(
+        await call("POST", "/api/activity-events", principal(["write:activity-event"]), one(kind)),
+        kind
+      ).toBeNull();
+    }
+  });
+
+  it("refuses a token a derived label or correction, whatever scopes it holds", async () => {
+    const all = principal(["write:activity-event", "write:activity-derived", "read:activity-event"]);
+    for (const kind of ["label", "correction"]) {
+      const refused = await call("POST", "/api/activity-events", all, {
+        schema: 1,
+        events: [{ id: "k", source: "derived", kind, start: "2026-11-08T01:00:00Z" }]
+      });
+      expect(refused?.status, kind).toBe(403);
+      expect(JSON.stringify(await refused?.json()), kind).toContain("owner session");
+    }
+  });
+
   it("keeps the read-back (which returns content) behind read:activity-event, which capture does not hold", async () => {
     expect(await call("GET", "/api/activity-events", principal(["read:activity-event"]))).toBeNull();
     const refused = await call("GET", "/api/activity-events", principal(["write:activity-event"]));

@@ -802,11 +802,79 @@ describe("scopesForRoute: archive and cancel (POST /api/commands/close)", () => 
 
 describe("scopesForRoute: the activity store", () => {
   it("lets the capture scope post events, and nothing else posts them", () => {
-    expect(scopesForRoute("POST", "/api/activity-events", {})).toEqual({
+    expect(
+      scopesForRoute("POST", "/api/activity-events", { source: "rhen-watch", kind: "window", start: "x" })
+    ).toEqual({
       kind: "scopes",
       scopes: ["write:activity-event"]
     });
     expect(AGENT_SCOPE_PRESETS["activity-capture"]).toEqual(["write:activity-event"]);
+  });
+
+  describe("derived rows: the scope follows the kind in the body", () => {
+    const post = (...events: Array<{ source: string; kind: string }>) =>
+      scopesForRoute("POST", "/api/activity-events", { schema: 1, events });
+    const needs = (decision: ReturnType<typeof scopesForRoute>) =>
+      decision.kind === "scopes" ? [...decision.scopes].sort() : decision.kind === "refused" ? "owner-only" : "?";
+
+    it("reads the body, because the scope depends on it", () => {
+      expect(routeNeedsBody("POST", "/api/activity-events")).toBe(true);
+    });
+
+    it("registers write:activity-derived", () => {
+      expect(isKnownScope("write:activity-derived")).toBe(true);
+    });
+
+    it("asks the derived scope for fact and msg_class, and for any derived-shadow row", () => {
+      expect(needs(post({ source: "derived", kind: "fact" }))).toEqual(["write:activity-derived"]);
+      expect(needs(post({ source: "derived", kind: "msg_class" }))).toEqual(["write:activity-derived"]);
+      expect(needs(post({ source: "derived-shadow", kind: "fact" }))).toEqual(["write:activity-derived"]);
+      expect(needs(post({ source: "derived-shadow", kind: "label" }))).toEqual(["write:activity-derived"]);
+    });
+
+    it("asks the event scope for override and fact_status, so an extractor token cannot write them", () => {
+      expect(needs(post({ source: "derived", kind: "override" }))).toEqual(["write:activity-event"]);
+      expect(needs(post({ source: "derived", kind: "fact_status" }))).toEqual(["write:activity-event"]);
+    });
+
+    it("keeps label and every other derived kind (including correction) with the owner session, naming the fix", () => {
+      for (const kind of ["label", "correction", "invite"]) {
+        const decision = post({ source: "derived", kind });
+        expect(decision).toMatchObject({ kind: "refused", reason: "owner-only" });
+        expect((decision as { message: string }).message).toMatch(/owner session/);
+        expect((decision as { message: string }).message).toMatch(/write:activity-event|write:activity-derived/);
+      }
+    });
+
+    it("demands the union for a mixed batch, and the owner for a batch with an owner-only row", () => {
+      expect(needs(post({ source: "derived", kind: "fact" }, { source: "derived", kind: "override" }))).toEqual([
+        "write:activity-derived",
+        "write:activity-event"
+      ]);
+      expect(needs(post({ source: "rhen-watch", kind: "window" }, { source: "derived", kind: "fact" }))).toEqual([
+        "write:activity-derived",
+        "write:activity-event"
+      ]);
+      expect(needs(post({ source: "derived", kind: "fact" }, { source: "derived", kind: "label" }))).toBe("owner-only");
+    });
+
+    it("reads the single-event shorthand the same way", () => {
+      expect(
+        needs(scopesForRoute("POST", "/api/activity-events", { source: "derived", kind: "fact", start: "x" }))
+      ).toEqual(["write:activity-derived"]);
+    });
+
+    it("falls back to the strictest scope for a malformed body", () => {
+      for (const body of [
+        {},
+        undefined,
+        { schema: 1, events: "no" },
+        { schema: 1, events: [null] },
+        { schema: 1, events: [{ kind: "fact" }] },
+        { source: 5 }
+      ])
+        expect(needs(scopesForRoute("POST", "/api/activity-events", body as never))).toBe("owner-only");
+    });
   });
 
   it("opens the read-back to the read scope only, and the import check to the capture scope only", () => {

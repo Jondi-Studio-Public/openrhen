@@ -82,7 +82,39 @@ function canonical(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 
-/** The `event_key` of an override, fact_status or label row: the same statement made twice stores once. */
+const RFC3339_INSTANT = /^(\d{4})-(\d{2})-(\d{2})t(\d{2}):(\d{2}):(\d{2})(\.\d+)?(z|[+-]\d{2}:\d{2})$/iu;
+
+/**
+ * A valid RFC 3339 instant in any spelling (`Z`, an offset, any fraction length) as UTC ISO with milliseconds
+ * (`2026-11-08T01:00:00.000Z`); anything else comes back unchanged, so the ingest validator rejects it rather than
+ * the hash hiding it. Sub-millisecond digits are dropped.
+ */
+export function canonicalInstant(value: string): string {
+  const match = RFC3339_INSTANT.exec(value);
+  if (match === null) return value;
+  const [, year, month, day, hour, minute, second, fraction, zone] = match;
+  const millis = Date.parse(
+    `${year}-${month}-${day}T${hour}:${minute}:${second}${(fraction ?? "").slice(0, 4).padEnd(fraction ? 4 : 0, "0")}${zone!.toUpperCase()}`
+  );
+  if (Number.isNaN(millis)) return value;
+  const instant = new Date(millis);
+  // Date.parse rolls an impossible day (Feb 30) forward in some engines: only accept the date that was written.
+  const local = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+  if (local.getUTCMonth() !== Number(month) - 1 || local.getUTCDate() !== Number(day)) return value;
+  return instant.toISOString();
+}
+
+/**
+ * The `event_key` of an override, fact_status or label row: the same statement made twice stores once. `validFrom`
+ * is hashed as a canonical instant, so the same moment in two spellings is one key.
+ */
 export function statusEventKey(input: StatusEventKeyInput): string {
-  return sha1([input.kind, input.factId, input.field, canonical(input.newValue), input.validFrom, input.by]);
+  return sha1([
+    input.kind,
+    input.factId,
+    input.field,
+    canonical(input.newValue),
+    canonicalInstant(input.validFrom),
+    input.by
+  ]);
 }

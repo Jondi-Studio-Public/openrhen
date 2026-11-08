@@ -527,6 +527,48 @@ function recurrenceRuleWrite(body: Body, stored: StoredFacts): RouteDecision {
   );
 }
 
+const DERIVED_OWNER_ONLY = (what: string): RouteDecision => ({
+  kind: "refused",
+  reason: "owner-only",
+  message:
+    `${what} is for the owner session; an agent token cannot write it, so nothing was changed. ` +
+    `Labels are the person's own answers and count only from the owner session; the generic "correction" kind and any other derived kind are not open to tokens. ` +
+    `A token with write:activity-derived may write source "derived" kinds fact and msg_class; a token with write:activity-event may write kinds override and fact_status. ` +
+    `Do not retry this call. The person does it in the owner session (signed in to the portal or the app); tell the owner: "I cannot do this myself; please do it in the owner session."`
+});
+
+/** The scope one activity row needs, or null when only the owner session may write it. A row we cannot read is the strictest case. */
+function activityEventScope(event: unknown): string | null {
+  const row = record(event);
+  const source = str(row?.source);
+  if (row === undefined || source === undefined) return null;
+  if (source === "derived-shadow") return "write:activity-derived";
+  if (source !== "derived") return "write:activity-event";
+  const kind = str(row.kind);
+  if (kind === "fact" || kind === "msg_class") return "write:activity-derived";
+  if (kind === "override" || kind === "fact_status") return "write:activity-event";
+  return null;
+}
+
+/**
+ * `POST /api/activity-events`: the scopes are the union over every row of the batch (or the shorthand event). Raw
+ * sources need `write:activity-event`. Derived rows: `fact` and `msg_class` (and any `derived-shadow` row) need
+ * `write:activity-derived`; `override` and `fact_status` need `write:activity-event`, so an extractor token cannot
+ * outrank a person's confirmed status; `label` and every other derived kind (the generic `correction` included) are
+ * the owner session's. A body that cannot be read falls to the strictest case, the owner session.
+ */
+function activityEventsWrite(body: Body): RouteDecision {
+  const events = body !== undefined && !Array.isArray(body.events) && "source" in body ? [body] : body?.events;
+  if (!Array.isArray(events)) return DERIVED_OWNER_ONLY("A body that is not an event or a batch of events");
+  const scopes = new Set<string>();
+  for (const event of events) {
+    const scope = activityEventScope(event);
+    if (scope === null) return DERIVED_OWNER_ONLY("Writing this activity row");
+    scopes.add(scope);
+  }
+  return { kind: "scopes", scopes: scopes.size === 0 ? ["write:activity-event"] : [...scopes] };
+}
+
 type Rule = (body: Body, stored: StoredFacts) => RouteDecision;
 
 /**
@@ -596,7 +638,8 @@ const WRITE_RULES: Record<string, Rule> = {
   // Agent time ingest: its own narrow scope, never a proposal, nothing on the hard floor.
   "POST /api/agent-sessions": () => ({ kind: "scopes", scopes: ["write:agent-session"] }),
   // Activity store ingest: its own narrow scope, never a proposal, nothing on the hard floor.
-  "POST /api/activity-events": () => ({ kind: "scopes", scopes: ["write:activity-event"] }),
+  // Which scope a row needs depends on its source and kind (see activityEventsWrite).
+  "POST /api/activity-events": (body) => activityEventsWrite(body),
   "POST /api/imports/extract": fixed({ tool: "import", action: "extract" }),
   "POST /api/imports/preview": fixed({ tool: "import", action: "preview" }),
   "POST /api/imports/[id]/commit": fixed({ tool: "import", action: "commit" }),
@@ -828,7 +871,9 @@ const BODY_ROUTES = new Set([
   "POST /api/commands/commitment-recurrence",
   "POST /api/commands/recurrence-goal",
   "POST /api/agent-proposals",
-  "POST /api/commands/close"
+  "POST /api/commands/close",
+  // The scope follows the source and kind of each row.
+  "POST /api/activity-events"
 ]);
 
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);

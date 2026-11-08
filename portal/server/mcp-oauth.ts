@@ -36,7 +36,8 @@ export const SCOPES_SUPPORTED: string[] = [
     ...AGENT_DRIVE_WRITE_SCOPES,
     "write:agent-session",
     "write:activity-event",
-    "read:activity-event"
+    "read:activity-event",
+    "write:activity-derived"
   ])
 ];
 

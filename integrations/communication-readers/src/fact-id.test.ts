@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { NORMALISER_VERSION, factId, normaliseText, readerEventKey, statusEventKey } from "./fact-id.js";
+import {
+  NORMALISER_VERSION,
+  canonicalInstant,
+  factId,
+  normaliseText,
+  readerEventKey,
+  statusEventKey
+} from "./fact-id.js";
 
 const F = "f".repeat(40);
 
@@ -88,7 +95,7 @@ describe("eventKey rules", () => {
         validFrom: "2026-11-08T01:00:00Z",
         by: null
       })
-    ).toBe("5912faf2b9c755a099177c3c8f9c3a5be10bc30e");
+    ).toBe("c75a74676785fe49c021694edff5e21c490c3c6f");
     expect(
       statusEventKey({
         kind: "override",
@@ -98,7 +105,35 @@ describe("eventKey rules", () => {
         validFrom: "2026-11-08T01:00:00Z",
         by: "mark"
       })
-    ).toBe("22b62f491b547f552504d826a923cbb7ba86a0a2");
+    ).toBe("68afc99b1ed1e0c5567e0bbbb18f96cd37f4a9c6");
+  });
+
+  it("hashes the instant, not its spelling: equivalent RFC 3339 forms give one key, different instants differ", () => {
+    const key = (validFrom: string) =>
+      statusEventKey({ kind: "fact_status", factId: F, field: "status", newValue: "done", validFrom, by: null });
+    const golden = "c75a74676785fe49c021694edff5e21c490c3c6f";
+    expect(key("2026-11-08T01:00:00Z")).toBe(golden);
+    for (const same of [
+      "2026-11-08T01:00:00.000Z",
+      "2026-11-08T01:00:00+00:00",
+      "2026-11-08T12:00:00+11:00",
+      "2026-11-07T20:00:00-05:00",
+      "2026-11-08T01:00:00.0Z",
+      "2026-11-08t01:00:00z"
+    ])
+      expect(key(same), same).toBe(golden);
+    expect(key("2026-11-08T01:00:00.001Z")).not.toBe(golden);
+    expect(key("2026-11-08T01:00:01Z")).not.toBe(golden);
+  });
+
+  it("canonicalises to UTC ISO with milliseconds", () => {
+    expect(canonicalInstant("2026-11-08T12:00:00+11:00")).toBe("2026-11-08T01:00:00.000Z");
+    expect(canonicalInstant("2026-11-08T01:00:00.5Z")).toBe("2026-11-08T01:00:00.500Z");
+  });
+
+  it("leaves a value that is not a valid RFC 3339 instant unchanged, so the validator (not the hash) rejects it", () => {
+    expect(canonicalInstant("tomorrow")).toBe("tomorrow");
+    expect(canonicalInstant("2026-02-30T01:00:00Z")).toBe("2026-02-30T01:00:00Z");
   });
 
   it("tells the person (null) from an agent, and one agent from another", () => {
