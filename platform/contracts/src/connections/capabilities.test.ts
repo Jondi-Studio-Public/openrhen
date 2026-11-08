@@ -15,7 +15,7 @@ describe("capabilities", () => {
     expect(CAPABILITY_OPS.video_metadata).toEqual(["durations"]);
     expect(CAPABILITY_OPS.calendar_source).toEqual(["proof", "list_calendars", "read_events"]);
     expect(CAPABILITY_OPS.calendar_sink).toEqual(["status", "create", "update", "remove", "write_proof"]);
-    expect(CAPABILITY_OPS.model_provider).toEqual(["extract", "stream", "embed", "probe"]);
+    expect(CAPABILITY_OPS.model_provider).toEqual(["extract", "stream", "embed", "complete", "probe"]);
   });
 
   it("opIdSchema covers every op of every capability", () => {
