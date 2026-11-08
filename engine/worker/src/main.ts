@@ -35,6 +35,7 @@ import { planMapSweepDue } from "./plan-map-sweep-schedule.js";
 import { extraLoopSteps } from "./extra-loops.js";
 import "./private/index.js";
 import { travelLookupTickDue } from "./travel-lookup-schedule.js";
+import { derivedTickDelayMs } from "./derived-tick-schedule.js";
 import { runIndependentLoops } from "./independent-loops.js";
 import { postTrigger, runLeaveByPushTick } from "./drain-log.js";
 import { createOwnerTimezone } from "./owner-timezone.js";
@@ -88,6 +89,7 @@ let nextLeaveByTickAt = 0;
  */
 const LEAVE_BY_TICK_INTERVAL_MS = 60_000;
 let nextPulseTickAt = 0;
+let nextDerivedTickAt = 0;
 /**
  * The pulse recorder's tick: "the worker's 60s
  * tick", posted to the portal's route since the recorder itself lives in the portal (it needs the
@@ -249,6 +251,7 @@ await runIndependentLoops(
     { name: "agent-wake", run: tickAgentWake },
     { name: "leave-by-push", run: afterPortalReady(tickLeaveByPush) },
     { name: "pulse-tick", run: afterPortalReady(tickPulseRecorder) },
+    { name: "derived-tick", run: afterPortalReady(tickDerivedRows) },
     { name: "plan-map-sweep", run: afterPortalReady(tickPlanMapSweep) },
     { name: "calendar-sync", run: afterPortalReady(tickCalendarSync) },
     ...extraLoopSteps({
@@ -685,6 +688,38 @@ async function tickTravelLookup() {
         workerId,
         error: error instanceof Error ? error.message : "Unknown error"
       })}\n`
+    );
+  }
+}
+
+/**
+ * The derived-rows tick (communication understanding, slice 2a-2c): only POSTs `{trigger:"scheduled"}` to the portal,
+ * which owns the extractors, their cursors and the writes. Gated on `PORTAL_INTERNAL_URL` like the other triggers that
+ * hand off to the portal, and never switched off. How soon it asks again comes from the answer (`derivedTickDelayMs`):
+ * straight away while a run is filling its batches, a minute when idle. The route is idempotent and locks per person,
+ * so asking early or twice is harmless.
+ */
+async function tickDerivedRows() {
+  if (!portalInternalUrl || Date.now() < nextDerivedTickAt) return;
+  nextDerivedTickAt = Date.now() + derivedTickDelayMs({ ok: true, body: null });
+  try {
+    const response = await fetch(`${portalInternalUrl}/api/integrations/derived/tick`, {
+      method: "POST",
+      headers: portalHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({ trigger: "scheduled" }),
+      signal: AbortSignal.timeout(120_000)
+    });
+    const body = await response.json().catch(() => null);
+    nextDerivedTickAt = Date.now() + derivedTickDelayMs({ ok: response.ok, body });
+    if (!response.ok) {
+      process.stderr.write(
+        `${JSON.stringify({ level: "error", message: "Derived rows tick request failed", workerId, httpStatus: response.status })}\n`
+      );
+    }
+  } catch (error) {
+    nextDerivedTickAt = Date.now() + derivedTickDelayMs({ ok: false, body: null });
+    process.stderr.write(
+      `${JSON.stringify({ level: "error", message: "Derived rows tick request failed", workerId, error: error instanceof Error ? error.message : "Unknown error" })}\n`
     );
   }
 }

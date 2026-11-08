@@ -32,6 +32,8 @@ export const DERIVED_MSG_CLASS_REASONS = [
   "from_self",
   "no_automation_signals"
 ] as const;
+/** The kinds an extractor writes: these rows name the extractor version that wrote them, and reads show the active version's only. */
+export const DERIVED_EXTRACTOR_KINDS = ["msg_class", "fact"] as const;
 export const DERIVED_FACT_TYPES = ["ask", "commitment", "event", "deadline"] as const;
 export const DERIVED_TIERS = ["t0", "t1", "t2", "t3"] as const;
 /** Attrs of a derived row are small facts and spans, never text, so the cap is half the general 8 KB. */
@@ -39,6 +41,8 @@ export const ACTIVITY_DERIVED_ATTRS_MAX_BYTES = 4096;
 export const DERIVED_MAX_REASONS = 8;
 
 const FACT_ID = /^[0-9a-f]{40}$/;
+const EXTRACTOR_NAME = /^[a-z0-9][a-z0-9-]{0,59}$/;
+const EXTRACTOR_VERSION = /^[A-Za-z0-9][A-Za-z0-9.-]{0,19}$/;
 const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 const list = (values: readonly string[]) => values.join(", ");
 const shown = (value: unknown) =>
@@ -76,8 +80,23 @@ function checkTier(attrs: Record<string, unknown>): string | null {
   return null;
 }
 
+/**
+ * `extractor` and `extractor_version` say which extractor version wrote a `msg_class` or `fact` row; reads show a row
+ * only while that version is the active one. Both are required: a row naming no version could never be read back.
+ */
+function checkExtractor(attrs: Record<string, unknown>): string | null {
+  const { extractor, extractor_version: version } = attrs;
+  if (extractor === undefined && version === undefined)
+    return 'attrs.extractor and attrs.extractor_version are missing. A msg_class or fact row names the extractor version that wrote it, such as "extractor": "msg-class-t0", "extractor_version": "1"; reads show only the active version\'s rows, so a row naming none could never be read back.';
+  if (typeof extractor !== "string" || !EXTRACTOR_NAME.test(extractor))
+    return `attrs.extractor ${shown(extractor)} is not an extractor name. Use lowercase letters, digits and hyphens, 1 to 60 characters, such as "msg-class-t0".`;
+  if (typeof version !== "string" || !EXTRACTOR_VERSION.test(version))
+    return `attrs.extractor_version ${shown(version)} is not a version. Send the extractor's version as a string of 1 to 20 letters, digits, dots or hyphens, such as "1", alongside attrs.extractor.`;
+  return null;
+}
+
 function checkMsgClass(attrs: Record<string, unknown>): string | null {
-  const problem = requireSourceEventId(attrs);
+  const problem = requireSourceEventId(attrs) ?? checkExtractor(attrs);
   if (problem) return problem;
   const cls = attrs.class;
   if (cls === "unknown")
@@ -96,7 +115,7 @@ function checkMsgClass(attrs: Record<string, unknown>): string | null {
 }
 
 function checkFact(attrs: Record<string, unknown>): string | null {
-  const problem = requireSourceEventId(attrs) ?? requireFactId(attrs);
+  const problem = requireSourceEventId(attrs) ?? requireFactId(attrs) ?? checkExtractor(attrs);
   if (problem) return problem;
   const type = attrs.fact_type;
   if (typeof type !== "string" || !(DERIVED_FACT_TYPES as readonly string[]).includes(type))

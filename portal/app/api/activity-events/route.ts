@@ -71,7 +71,9 @@ export const POST = withRoute("/api/activity-events", async (request, _context, 
 
 /**
  * Reads events back in time order (start, then id) for the predictor: `source`, `kind`, `from` and `to` (RFC 3339,
- * `to` exclusive), `limit` (up to 1000) and `after` (the `next` of the previous page). Content comes back too, so a
+ * `to` exclusive), `limit` (up to 1000) and `after` (the `next` of the previous page). `as_of` (RFC 3339) reads as the
+ * store stood then: rows ingested at or before it, and the derived extractor version that was active at that time.
+ * Rows of source `derived` come from the active extractor version only. Content comes back too, so a
  * token needs `read:activity-event`; the owner session may always read.
  */
 export const GET = withRoute("/api/activity-events", async (request) => {
@@ -86,6 +88,18 @@ export const GET = withRoute("/api/activity-events", async (request) => {
       throw new ActivityInputError(`${name} must be an RFC 3339 time such as 2026-11-07T00:00:00Z.`);
     return parsed;
   };
+  // `as_of` fixes the read in time (rows ingested by then, and the extractor version active then), so it must not be
+  // ambiguous: an RFC 3339 time with its offset, not a date alone or a time in the server's zone.
+  const asOf = () => {
+    const raw = params.get("as_of");
+    if (raw === null) return undefined;
+    if (
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(raw) ||
+      Number.isNaN(Date.parse(raw))
+    )
+      throw new ActivityInputError("as_of must be an RFC 3339 time with its offset, such as 2026-11-07T00:00:00Z.");
+    return new Date(raw);
+  };
   try {
     const rawLimit = params.get("limit");
     const limit = rawLimit === null ? undefined : Number(rawLimit);
@@ -97,6 +111,7 @@ export const GET = withRoute("/api/activity-events", async (request) => {
         kind: params.get("kind") ?? undefined,
         from: date("from"),
         to: date("to"),
+        asOf: asOf(),
         after: params.get("after") ?? undefined,
         limit
       }),

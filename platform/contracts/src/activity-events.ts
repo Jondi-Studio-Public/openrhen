@@ -440,7 +440,28 @@ export interface ActivitySourceSummary {
   retentionPurge: "not_set" | "not_running";
 }
 
+/** One extractor version of the derived layer (source `derived`), so a stale layer is visible instead of silently trusted. */
+export interface ActivityExtractorSummary {
+  extractor: string;
+  version: string;
+  /** The active version's rows are the ones reads show. False for a version not yet promoted, or one that has not run. */
+  active: boolean;
+  /**
+   * How many source rows this extractor has not read yet: those ingested after its forward watermark plus the backfill
+   * still to do (an exact count over the `(user, source, ingested_at)` index; every source row before the first run).
+   * Null for an extractor this server does not know.
+   */
+  behind: number | null;
+  /** Source messages given up on after repeated failures. */
+  skipped: number;
+  lastOkAt: string | null;
+  lastError: string | null;
+}
+
 export interface ActivitySummary {
+  /** The sum of `behind` over the active extractors (all not-yet-run ones included): how far the derived layer lags the mail. */
+  derivedBehind: number;
+  extractors: ActivityExtractorSummary[];
   sources: ActivitySourceSummary[];
   imports: { id: string; source: string; filename: string; eventCount: number; importedAt: string }[];
 }

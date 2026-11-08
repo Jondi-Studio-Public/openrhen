@@ -1243,6 +1243,7 @@ export {
 } from "./activity-events.js";
 export {
   ACTIVITY_DERIVED_ATTRS_MAX_BYTES,
+  DERIVED_EXTRACTOR_KINDS,
   DERIVED_FACT_STATUSES,
   DERIVED_FACT_TYPES,
   DERIVED_MSG_CLASSES,
@@ -1254,6 +1255,7 @@ export type {
   ActivityEventInput,
   ActivityEventRow,
   ActivityEventsPage,
+  ActivityExtractorSummary,
   ActivityEventVerdict,
   ActivityIngestResult,
   ActivityRejection,
