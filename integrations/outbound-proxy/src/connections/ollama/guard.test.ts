@@ -1,5 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
-import { classifyAddress, parseOllamaBaseUrl, parseOwnNetworks, resolveOllamaTarget } from "./guard.js";
+import { describe, expect, it } from "vitest";
+import {
+  checkOllamaTarget,
+  classifyAddress,
+  ollamaPortsFromEnv,
+  parseOllamaBaseUrl,
+  parseOwnNetworks
+} from "./guard.js";
 
 const own = parseOwnNetworks([{ cidr: "172.18.0.5/16" }, { cidr: "fd12:3456::5/64" }, { cidr: "127.0.0.1/8" }]);
 
@@ -8,10 +14,9 @@ describe("parseOllamaBaseUrl: what is accepted as typed", () => {
     ["http://192.168.1.20:11434", "192.168.1.20", 11434],
     ["http://192.168.1.20:11434/", "192.168.1.20", 11434],
     ["http://192.168.1.20", "192.168.1.20", 11434],
-    ["http://10.0.0.5:8000", "10.0.0.5", 8000],
     ["http://100.101.5.5:11434", "100.101.5.5", 11434],
     ["http://[fd7a:115c:a1e0::1]:11434", "fd7a:115c:a1e0::1", 11434],
-    ["http://PC.tail1234.ts.net:11434", "pc.tail1234.ts.net", 11434]
+    ["http://[FD7A:115C:A1E0::1]/", "fd7a:115c:a1e0::1", 11434]
   ])("%s", (raw, host, port) => {
     const parsed = parseOllamaBaseUrl(raw);
     expect(parsed).toMatchObject({ ok: true, host, port });
@@ -53,11 +58,17 @@ describe("parseOllamaBaseUrl: SSRF table", () => {
     ["sub localhost", "http://foo.localhost:11434"],
     ["internal", "http://metadata.google.internal:11434"],
     ["docker suffix", "http://db.docker:11434"],
+    ["host name", "http://pc.tail1234.ts.net:11434"],
+    ["host name, upper case", "http://PC.Example.COM:11434"],
+    ["name that looks like an IP", "http://192.168.1.20.nip.io:11434"],
     ["IPv6 without brackets", "http://fd7a::1:11434"],
     ["IPv6 bad literal", "http://[not-an-ip]:11434"],
     ["IPv6 zone id", "http://[fe80::1%25eth0]:11434"],
     ["port 0", "http://192.168.1.20:0"],
     ["port too big", "http://192.168.1.20:65536"],
+    ["a port Ollama does not use by default", "http://192.168.1.20:8000"],
+    ["port 8080", "http://192.168.1.20:8080"],
+    ["port 1024", "http://192.168.1.20:1024"],
     ["port 80", "http://192.168.1.20:80"],
     ["port 22", "http://192.168.1.20:22"],
     ["port 443", "http://192.168.1.20:443"],
@@ -73,6 +84,34 @@ describe("parseOllamaBaseUrl: SSRF table", () => {
     const parsed = parseOllamaBaseUrl(raw);
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) expect(parsed.message.length).toBeGreaterThan(30);
+  });
+
+  it("names the allowed port and the variable when a port is refused", () => {
+    const parsed = parseOllamaBaseUrl("http://192.168.1.20:8000");
+    expect(parsed.ok ? "" : parsed.message).toContain("11434");
+    expect(parsed.ok ? "" : parsed.message).toContain("OUTBOUND_OLLAMA_EXTRA_PORTS");
+  });
+
+  it("allows an extra port only from the operator's list, and never a stack port", () => {
+    const ports = ollamaPortsFromEnv({ OUTBOUND_OLLAMA_EXTRA_PORTS: "8000, 11500" });
+    expect([...ports].sort((a, b) => a - b)).toEqual([8000, 11434, 11500]);
+    expect(parseOllamaBaseUrl("http://192.168.1.20:8000", ports)).toMatchObject({ ok: true, port: 8000 });
+    expect(parseOllamaBaseUrl("http://192.168.1.20:11434", ports)).toMatchObject({ ok: true });
+    expect(parseOllamaBaseUrl("http://192.168.1.20:8001", ports).ok).toBe(false);
+    // The static list is a second layer even if the set were wrong.
+    expect(parseOllamaBaseUrl("http://192.168.1.20:5432", new Set([5432])).ok).toBe(false);
+  });
+
+  it.each(["80", "1023", "65536", "abc", "8000,", "8000,5432", "4200", "8000;9000", "-1", "1e4"])(
+    "refuses OUTBOUND_OLLAMA_EXTRA_PORTS=%s at start",
+    (value) => {
+      expect(() => ollamaPortsFromEnv({ OUTBOUND_OLLAMA_EXTRA_PORTS: value })).toThrow(/OUTBOUND_OLLAMA_EXTRA_PORTS/);
+    }
+  );
+
+  it("defaults to 11434 alone when the variable is unset or blank", () => {
+    expect([...ollamaPortsFromEnv({})]).toEqual([11434]);
+    expect([...ollamaPortsFromEnv({ OUTBOUND_OLLAMA_EXTRA_PORTS: "  " })]).toEqual([11434]);
   });
 
   it("refuses a non-string", () => {
@@ -145,29 +184,30 @@ describe("classifyAddress", () => {
   });
 });
 
-describe("resolveOllamaTarget", () => {
+describe("checkOllamaTarget", () => {
   const parse = (raw: string) => {
     const parsed = parseOllamaBaseUrl(raw);
     if (!parsed.ok) throw new Error(parsed.message);
     return parsed;
   };
 
-  it("takes an IP literal as typed, with no lookup", async () => {
-    const lookup = vi.fn();
-    const target = await resolveOllamaTarget(parse("http://192.168.1.20:11434"), { lookup, ownNetworks: own });
-    expect(target).toEqual({
+  it("takes the IP literal as typed", () => {
+    expect(checkOllamaTarget(parse("http://192.168.1.20:11434"), { ownNetworks: own })).toEqual({
       ok: true,
       address: "192.168.1.20",
       family: 4,
       hostHeader: "192.168.1.20:11434",
       origin: "http://192.168.1.20:11434"
     });
-    expect(lookup).not.toHaveBeenCalled();
   });
 
-  it("brackets an IPv6 literal in the origin", async () => {
-    const target = await resolveOllamaTarget(parse("http://[fd7a:115c:a1e0::1]:11434"), { ownNetworks: own });
-    expect(target).toMatchObject({ ok: true, family: 6, origin: "http://[fd7a:115c:a1e0::1]:11434" });
+  it("brackets an IPv6 literal in the origin and the Host header", () => {
+    expect(checkOllamaTarget(parse("http://[fd7a:115c:a1e0::1]:11434"), { ownNetworks: own })).toMatchObject({
+      ok: true,
+      family: 6,
+      hostHeader: "[fd7a:115c:a1e0::1]:11434",
+      origin: "http://[fd7a:115c:a1e0::1]:11434"
+    });
   });
 
   it.each([
@@ -177,87 +217,13 @@ describe("resolveOllamaTarget", () => {
     ["metadata", "http://169.254.169.254:11434", "metadata"],
     ["link local", "http://169.254.10.10:11434", "link_local"],
     ["alibaba metadata", "http://100.100.100.200:11434", "metadata"],
+    ["aws ipv6 metadata", "http://[fd00:ec2::254]:11434", "metadata"],
     ["public", "http://8.8.8.8:11434", "not_private"],
     ["own bridge", "http://172.18.0.3:11434", "own_network"],
     ["bridge gateway", "http://172.18.0.1:11434", "own_network"]
-  ])("refuses a literal: %s", async (_name, raw, reason) => {
-    const target = await resolveOllamaTarget(parse(raw), { ownNetworks: own });
+  ])("refuses a literal: %s", (_name, raw, reason) => {
+    const target = checkOllamaTarget(parse(raw), { ownNetworks: own });
     expect(target).toMatchObject({ ok: false, reason });
     if (!target.ok) expect(target.message).toMatch(/LAN|tailnet|private/);
-  });
-
-  it("resolves a hostname once and pins the checked address, keeping the typed Host header", async () => {
-    const lookup = vi.fn(async () => [{ address: "100.101.5.5", family: 4 }]);
-    const target = await resolveOllamaTarget(parse("http://pc.tail1234.ts.net:11434"), { lookup, ownNetworks: own });
-    expect(lookup).toHaveBeenCalledTimes(1);
-    expect(target).toEqual({
-      ok: true,
-      address: "100.101.5.5",
-      family: 4,
-      hostHeader: "pc.tail1234.ts.net:11434",
-      origin: "http://100.101.5.5:11434"
-    });
-  });
-
-  it("simulated DNS rebinding: the second answer is never used because there is no second lookup", async () => {
-    const answers = [[{ address: "192.168.1.20", family: 4 }], [{ address: "169.254.169.254", family: 4 }]];
-    const lookup = vi.fn(async () => answers.shift()!);
-    const target = await resolveOllamaTarget(parse("http://rebind.example.net:11434"), { lookup, ownNetworks: own });
-    expect(target).toMatchObject({ ok: true, address: "192.168.1.20", origin: "http://192.168.1.20:11434" });
-    expect(lookup).toHaveBeenCalledTimes(1);
-  });
-
-  it("refuses when any answer is outside the allowed ranges (a split-horizon answer)", async () => {
-    const lookup = async () => [
-      { address: "192.168.1.20", family: 4 },
-      { address: "127.0.0.1", family: 4 }
-    ];
-    expect(
-      await resolveOllamaTarget(parse("http://mix.example.net:11434"), { lookup, ownNetworks: own })
-    ).toMatchObject({
-      ok: false,
-      reason: "loopback"
-    });
-  });
-
-  it("refuses a name that resolves to the metadata address or a compose container", async () => {
-    for (const [address, reason] of [
-      ["169.254.169.254", "metadata"],
-      ["172.18.0.2", "own_network"]
-    ] as const) {
-      const lookup = async () => [{ address, family: 4 }];
-      expect(
-        await resolveOllamaTarget(parse("http://x.example.net:11434"), { lookup, ownNetworks: own })
-      ).toMatchObject({
-        ok: false,
-        reason
-      });
-    }
-  });
-
-  it("prefers IPv4, and names the fix when DNS fails or returns nothing", async () => {
-    const both = async () => [
-      { address: "fd7a:115c:a1e0::1", family: 6 },
-      { address: "100.101.5.5", family: 4 }
-    ];
-    expect(
-      await resolveOllamaTarget(parse("http://pc.ts.net:11434"), { lookup: both, ownNetworks: own })
-    ).toMatchObject({
-      ok: true,
-      address: "100.101.5.5"
-    });
-    const none = await resolveOllamaTarget(parse("http://pc.ts.net:11434"), {
-      lookup: async () => [],
-      ownNetworks: own
-    });
-    expect(none).toMatchObject({ ok: false, reason: "dns_failed" });
-    const broken = await resolveOllamaTarget(parse("http://pc.ts.net:11434"), {
-      lookup: async () => {
-        throw new Error("ENOTFOUND");
-      },
-      ownNetworks: own
-    });
-    expect(broken).toMatchObject({ ok: false, reason: "dns_failed" });
-    if (!broken.ok) expect(broken.message).toContain("IP address");
   });
 });

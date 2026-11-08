@@ -1,7 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpCall, OpResult } from "../../host/connection-api.js";
 import { parseOwnNetworks } from "./guard.js";
-import { createOllamaConnection } from "./connection.js";
+import { createOllamaConnection, ollamaConnection } from "./connection.js";
 
 const own = parseOwnNetworks([{ cidr: "172.18.0.5/16" }]);
 const GOOD = {
@@ -14,12 +14,10 @@ const GOOD = {
 const base = { baseUrl: "http://192.168.1.20:11434", model: "qwen3:14b", messages: [{ role: "user", content: "hi" }] };
 
 type FetchMock = ReturnType<typeof vi.fn<typeof fetch>>;
-function setup(
-  fetcher: FetchMock,
-  extra: { lookup?: (h: string) => Promise<{ address: string; family: number }[]>; timeoutMs?: number } = {}
-) {
+function setup(fetcher: FetchMock, extra: { timeoutMs?: number; ports?: ReadonlySet<number>; maxQueue?: number } = {}) {
   const connection = createOllamaConnection(() => ({
     ownNetworks: own,
+    ports: new Set([11434]),
     fetch: () => fetcher as unknown as typeof fetch,
     ...extra
   }));
@@ -38,6 +36,20 @@ const reply =
   (body: unknown, status = 200) =>
   async () =>
     Response.json(body, { status });
+
+describe("ollama connection at start", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("fails to load, naming the variable, when OUTBOUND_OLLAMA_EXTRA_PORTS is malformed", () => {
+    vi.stubEnv("OUTBOUND_OLLAMA_EXTRA_PORTS", "8000,80");
+    expect(() => ollamaConnection.create({})).toThrow(/OUTBOUND_OLLAMA_EXTRA_PORTS/);
+  });
+
+  it("loads with 11434 alone when it is unset", () => {
+    vi.stubEnv("OUTBOUND_OLLAMA_EXTRA_PORTS", "");
+    expect(ollamaConnection.create({}).model_provider?.complete).toBeDefined();
+  });
+});
 
 describe("ollama complete", () => {
   it("declares the local rate class and a timeout past its own 180 s clock", () => {
@@ -74,16 +86,61 @@ describe("ollama complete", () => {
     });
   });
 
-  it("returns the digest from /api/show when asked, after checking it first", async () => {
-    const fetcher = vi.fn<typeof fetch>(async (url) =>
-      Response.json(String(url).endsWith("/api/show") ? { digest: "sha256:abc" } : GOOD)
-    );
-    const result = await setup(fetcher).run({ ...base, withDigest: true });
-    expect(result.body).toMatchObject({ outcome: "ok", digest: "sha256:abc" });
-    expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
-      "http://192.168.1.20:11434/api/show",
-      "http://192.168.1.20:11434/api/chat"
-    ]);
+  describe("digest, from GET /api/tags", () => {
+    const D = "a".repeat(64);
+    const tags = (models: unknown) =>
+      vi.fn<typeof fetch>(async (url) => Response.json(String(url).endsWith("/api/tags") ? { models } : GOOD));
+
+    it("matches the entry by name, asks with GET and never touches /api/show", async () => {
+      const fetcher = tags([
+        { name: "other:1b", model: "other:1b", digest: "b".repeat(64) },
+        { name: "qwen3:14b", model: "qwen3:14b", digest: D }
+      ]);
+      const result = await setup(fetcher).run({ ...base, withDigest: true });
+      expect(result.body).toMatchObject({ outcome: "ok", digest: D });
+      expect(fetcher.mock.calls.map(([url, init]) => [url, init!.method])).toEqual([
+        ["http://192.168.1.20:11434/api/tags", "GET"],
+        ["http://192.168.1.20:11434/api/chat", "POST"]
+      ]);
+      expect(fetcher.mock.calls[0]![1]!.body).toBeUndefined();
+    });
+
+    it("adds :latest for a bare id, and matches on the model field", async () => {
+      const fetcher = tags([{ name: "x", model: "llama3:latest", digest: D }]);
+      expect((await setup(fetcher).run({ ...base, model: "llama3", withDigest: true })).body).toMatchObject({
+        digest: D
+      });
+    });
+
+    it("drops :latest when the entry is listed bare", async () => {
+      const fetcher = tags([{ name: "llama3", digest: D }]);
+      expect((await setup(fetcher).run({ ...base, model: "llama3:latest", withDigest: true })).body).toMatchObject({
+        digest: D
+      });
+    });
+
+    it.each([
+      ["a model that is not listed", [{ name: "other:1b", digest: "b".repeat(64) }]],
+      ["a digest that is not 64 hex", [{ name: "qwen3:14b", digest: "sha256:abc" }]],
+      ["no models array", undefined],
+      ["a non-array", "nope"]
+    ])("gives a null digest for %s, and the chat still runs", async (_name, models) => {
+      const result = await setup(tags(models)).run({ ...base, withDigest: true });
+      expect(result.body).toMatchObject({ outcome: "ok", digest: null });
+    });
+
+    it("does not ask for a digest unless withDigest is true", async () => {
+      const fetcher = tags([]);
+      await setup(fetcher).run(base);
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    });
+
+    it("a failing model list is answered like any other failure, not as a missing model", async () => {
+      const fetcher = vi.fn<typeof fetch>(reply({}, 404));
+      const r = (await setup(fetcher).run({ ...base, withDigest: true })).body as { outcome: string; message: string };
+      expect(r.outcome).toBe("bad_output");
+      expect(r.message).not.toContain("ollama pull");
+    });
   });
 
   it("accepts JSON output when a format was asked for", async () => {
@@ -141,6 +198,8 @@ describe("ollama complete", () => {
       const r = await outcome(fetcher, { timeoutMs: 20 });
       expect(r).toMatchObject({ status: 504, outcome: "timeout" });
       expect(r.message).toContain("loading");
+      expect(r.message).toContain("20 ms");
+      expect(r.message).not.toMatch(/within \d+ seconds/);
     });
 
     it("timeout: 504 from a gateway", async () => {
@@ -224,17 +283,127 @@ describe("ollama complete", () => {
       expect(fetcher).not.toHaveBeenCalled();
     });
 
-    it("a rebinding name is looked up once and the checked address is what is called", async () => {
-      const answers = [[{ address: "192.168.1.20", family: 4 }], [{ address: "169.254.169.254", family: 4 }]];
-      const lookup = vi.fn(async () => answers.shift()!);
+    it.each([
+      "http://pc.tail1234.ts.net:11434",
+      "http://rebind.example.net:11434",
+      "http://192.168.1.20.nip.io:11434",
+      "http://192.168.1.20:8000",
+      "http://192.168.1.20:11435"
+    ])("%s is refused: only IP literals, and only port 11434 by default", async (baseUrl) => {
       const fetcher = vi.fn<typeof fetch>(reply(GOOD));
-      await setup(fetcher, { lookup }).run({ ...base, baseUrl: "http://rebind.example.net:11434", withDigest: true });
-      expect(lookup).toHaveBeenCalledTimes(1);
-      expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
-        "http://192.168.1.20:11434/api/show",
-        "http://192.168.1.20:11434/api/chat"
-      ]);
-      expect((fetcher.mock.calls[0]![1]!.headers as Record<string, string>).host).toBe("rebind.example.net:11434");
+      const result = await setup(fetcher).run({ ...base, baseUrl });
+      expect(result.body).toMatchObject({ outcome: "unreachable" });
+      expect(fetcher).not.toHaveBeenCalled();
+    });
+
+    it("an extra port the operator allowed works, and one they did not still does not", async () => {
+      const ports = new Set([11434, 8000]);
+      const fetcher = vi.fn<typeof fetch>(reply(GOOD));
+      expect((await setup(fetcher, { ports }).run({ ...base, baseUrl: "http://10.0.0.5:8000" })).status).toBe(200);
+      expect(fetcher.mock.calls[0]![0]).toBe("http://10.0.0.5:8000/api/chat");
+      const refused = await setup(fetcher, { ports }).run({ ...base, baseUrl: "http://10.0.0.5:8001" });
+      expect(refused.body).toMatchObject({ outcome: "unreachable" });
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("one call at a time", () => {
+    const gate = () => {
+      let open!: () => void;
+      const opened = new Promise<void>((resolve) => (open = resolve));
+      return { opened, open };
+    };
+
+    it("queues up to the bound, runs in order, and answers rate_limited past it", async () => {
+      const g = gate();
+      let active = 0;
+      let peak = 0;
+      const order: string[] = [];
+      const fetcher = vi.fn<typeof fetch>(async (_url, init) => {
+        const id = JSON.parse(String(init!.body)).messages[0].content as string;
+        active++;
+        peak = Math.max(peak, active);
+        order.push(id);
+        await g.opened;
+        active--;
+        return Response.json(GOOD);
+      });
+      const { run } = setup(fetcher, { maxQueue: 1 });
+      const msg = (id: string) => ({ ...base, messages: [{ role: "user", content: id }] });
+      const first = run(msg("a"));
+      await vi.waitFor(() => expect(order).toEqual(["a"]));
+      const second = run(msg("b"));
+      const third = await run(msg("c"));
+      expect(third.status).toBe(429);
+      expect(third.body).toMatchObject({ outcome: "rate_limited" });
+      expect((third.body as { message: string }).message).toContain("one request at a time");
+      expect(order).toEqual(["a"]);
+      g.open();
+      expect((await first).status).toBe(200);
+      expect((await second).status).toBe(200);
+      expect(order).toEqual(["a", "b"]);
+      expect(peak).toBe(1);
+    });
+
+    it("frees the slot after a failure, so the next call runs", async () => {
+      let n = 0;
+      const fetcher = vi.fn<typeof fetch>(async () => {
+        if (n++ === 0) throw new Error("boom");
+        return Response.json(GOOD);
+      });
+      const { run } = setup(fetcher);
+      expect((await run(base)).body).toMatchObject({ outcome: "unreachable" });
+      expect((await run(base)).status).toBe(200);
+    });
+
+    it("a call cancelled while waiting leaves the line and does not block the next one", async () => {
+      const g = gate();
+      const fetcher = vi.fn<typeof fetch>(async () => {
+        await g.opened;
+        return Response.json(GOOD);
+      });
+      const { run } = setup(fetcher, { maxQueue: 1 });
+      const first = run(base);
+      await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+      const controller = new AbortController();
+      const waiting = run(base, controller.signal);
+      const rejected = expect(waiting).rejects.toThrow("cancelled");
+      controller.abort();
+      await rejected;
+      const next = run(base);
+      g.open();
+      expect((await first).status).toBe(200);
+      expect((await next).status).toBe(200);
+    });
+
+    it("time spent waiting counts against the 180 s clock", async () => {
+      const g = gate();
+      const fetcher = vi.fn<typeof fetch>(async () => {
+        await g.opened;
+        return Response.json(GOOD);
+      });
+      const { run } = setup(fetcher, { timeoutMs: 60 });
+      const first = run(base);
+      await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+      const second = run(base);
+      await new Promise((resolve) => setTimeout(resolve, 90));
+      g.open();
+      await first;
+      expect((await second).body).toMatchObject({ outcome: "timeout" });
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("a server that is not HTTP-valid cannot crash the proxy", () => {
+    it("maps an invalid status to bad_output", async () => {
+      const { InvalidUpstreamStatus } = await import("./pinned-fetch.js");
+      const fetcher = vi.fn<typeof fetch>(async () => {
+        throw new InvalidUpstreamStatus(999);
+      });
+      const r = (await setup(fetcher).run(base)).body as { outcome: string; message: string };
+      expect(r.outcome).toBe("bad_output");
+      expect(r.message).toContain("999");
+      expect(r.message).toContain("not Ollama");
     });
   });
 

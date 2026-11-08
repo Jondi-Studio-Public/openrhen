@@ -8,12 +8,13 @@ import {
   type CompleteInput,
   type CompleteResult
 } from "../../host/model-complete.js";
-import { parseOllamaBaseUrl, resolveOllamaTarget, type ResolveDeps } from "./guard.js";
-import { ResponseTooLarge } from "./pinned-fetch.js";
+import { DEFAULT_OLLAMA_PORT, checkOllamaTarget, parseOllamaBaseUrl, type ResolveDeps } from "./guard.js";
+import { InvalidUpstreamStatus, ResponseTooLarge } from "./pinned-fetch.js";
 
 /** The paths this connection will ever call, fixed here. The address is the person's; the path never is. */
 export const CHAT_PATH = "/api/chat";
-export const SHOW_PATH = "/api/show";
+/** The one GET: the model list, where Ollama documents each model's digest. */
+export const TAGS_PATH = "/api/tags";
 export const OLLAMA_TIMEOUT_MS = 180_000;
 
 const START_OLLAMA =
@@ -25,6 +26,8 @@ export type OllamaDeps = ResolveDeps & {
   fetch: typeof fetch;
   signal: AbortSignal;
   timeoutMs?: number;
+  /** Ports the operator allows; absent: 11434 only. */
+  allowedPorts?: ReadonlySet<number>;
 };
 
 type OllamaReply = {
@@ -36,6 +39,9 @@ type OllamaReply = {
 
 const count = (value: unknown) => (typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null);
 
+/** "about 3 seconds", or milliseconds under a second. */
+const spoken = (ms: number) => (ms < 1000 ? `${ms} ms` : `about ${Math.round(ms / 1000)} seconds`);
+
 async function call(
   fetcher: typeof fetch,
   origin: string,
@@ -45,10 +51,14 @@ async function call(
   signal: AbortSignal
 ): Promise<{ response: Response; bytes: Uint8Array | null }> {
   const response = await fetcher(`${origin}${path}`, {
-    method: "POST",
+    method: payload === undefined ? "GET" : "POST",
     redirect: "manual",
-    headers: { host: hostHeader, "content-type": "application/json", accept: "application/json" },
-    body: JSON.stringify(payload),
+    headers: {
+      host: hostHeader,
+      accept: "application/json",
+      ...(payload === undefined ? {} : { "content-type": "application/json" })
+    },
+    ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
     signal
   });
   const status = response.status;
@@ -61,9 +71,9 @@ async function call(
 
 /** One chat completion on the person's Ollama. Never throws for an outcome; rethrows only when the caller's own signal ended the call. */
 export async function completeWithOllama(input: OllamaInput, deps: OllamaDeps): Promise<CompleteResult> {
-  const parsed = parseOllamaBaseUrl(input.baseUrl);
+  const parsed = parseOllamaBaseUrl(input.baseUrl, deps.allowedPorts ?? new Set([DEFAULT_OLLAMA_PORT]));
   if (!parsed.ok) return fail("unreachable", parsed.message);
-  const target = await resolveOllamaTarget(parsed, deps);
+  const target = checkOllamaTarget(parsed, deps);
   if (!target.ok) return fail("unreachable", target.message);
 
   const shown = `${parsed.host}:${parsed.port}`;
@@ -83,21 +93,15 @@ export async function completeWithOllama(input: OllamaInput, deps: OllamaDeps): 
       const { response, bytes } = await call(
         deps.fetch,
         target.origin,
-        SHOW_PATH,
+        TAGS_PATH,
         target.hostHeader,
-        { model: input.model },
+        undefined,
         controller.signal
       );
-      const refused = refusal(response.status, shown, input.model);
+      const refused = refusal(response.status, shown, input.model, false);
       if (refused) return refused;
-      if (!bytes)
-        return fail("bad_output", `Ollama at ${shown} sent a model description over 1 MiB, which is refused.`);
-      try {
-        const shownBody = JSON.parse(new TextDecoder().decode(bytes)) as { digest?: unknown };
-        digest = typeof shownBody.digest === "string" ? shownBody.digest : null;
-      } catch {
-        digest = null;
-      }
+      if (!bytes) return fail("bad_output", `Ollama at ${shown} sent a model list over 1 MiB, which is refused.`);
+      digest = digestOf(bytes, input.model);
     }
 
     const { response, bytes } = await call(
@@ -114,7 +118,7 @@ export async function completeWithOllama(input: OllamaInput, deps: OllamaDeps): 
       },
       controller.signal
     );
-    const refused = refusal(response.status, shown, input.model);
+    const refused = refusal(response.status, shown, input.model, true);
     if (refused) return refused;
     if (!bytes)
       return fail(
@@ -158,9 +162,14 @@ export async function completeWithOllama(input: OllamaInput, deps: OllamaDeps): 
     if (timedOut)
       return fail(
         "timeout",
-        `Ollama at ${shown} did not finish within ${Math.round((deps.timeoutMs ?? OLLAMA_TIMEOUT_MS) / 1000)} seconds. A model that is still loading can take minutes the first time: wait and retry, or use a smaller model.`
+        `Ollama at ${shown} did not finish within ${spoken(deps.timeoutMs ?? OLLAMA_TIMEOUT_MS)}. A model that is still loading can take minutes the first time: wait and retry, or use a smaller model.`
       );
     if (deps.signal.aborted) throw error;
+    if (error instanceof InvalidUpstreamStatus)
+      return fail(
+        "bad_output",
+        `The address ${shown} answered with an invalid HTTP status (${error.status}), so it is not Ollama. Check that the address and port are Ollama's, not another program's.`
+      );
     if (error instanceof ResponseTooLarge)
       return fail(
         "bad_output",
@@ -174,13 +183,31 @@ export async function completeWithOllama(input: OllamaInput, deps: OllamaDeps): 
   }
 }
 
-function refusal(status: number, shown: string, model: string): CompleteResult | null {
+/** The digest of the requested model from `GET /api/tags`: `models[].digest` (64 hex), matched on `name` or `model`, with and without the `:latest` Ollama adds. Null when not found or not that shape. */
+function digestOf(bytes: Uint8Array, model: string): string | null {
+  let list: { models?: unknown };
+  try {
+    list = JSON.parse(new TextDecoder().decode(bytes)) as { models?: unknown };
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(list.models)) return null;
+  const wanted = new Set([model, model.includes(":") ? model.replace(/:latest$/, "") : `${model}:latest`]);
+  for (const entry of list.models as { name?: unknown; model?: unknown; digest?: unknown }[]) {
+    const names = [entry?.name, entry?.model];
+    if (names.some((name) => typeof name === "string" && wanted.has(name)))
+      return typeof entry.digest === "string" && /^[0-9a-f]{64}$/.test(entry.digest) ? entry.digest : null;
+  }
+  return null;
+}
+
+function refusal(status: number, shown: string, model: string, chat: boolean): CompleteResult | null {
   if (status >= 300 && status < 400)
     return fail(
       "unreachable",
       `Ollama at ${shown} answered with a redirect, which is refused. Use the address Ollama itself listens on.`
     );
-  if (status === 404)
+  if (status === 404 && chat)
     return fail(
       "unreachable",
       `Ollama at ${shown} does not have the model "${model}". On that computer run \`ollama pull ${model}\`, then try again.`

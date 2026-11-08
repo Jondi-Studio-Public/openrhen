@@ -3,42 +3,37 @@
  * public URL from reaching private space; this one lets a request reach exactly one kind of private space (the
  * person's own LAN or tailnet) and nothing else, because the proxy sits on the compose network beside `postgres` and
  * `engine-service`, and a typed address must never be a way to talk to them, to the host, or to a cloud metadata
- * service.
+ * service. Only IP literals are accepted, so there is no name lookup and nothing to rebind.
  *
  * The rules, in the order they run:
  *  1. Syntax (`parseOllamaBaseUrl`). The text is matched strictly before any URL parser sees it, so userinfo,
- *     backslashes, queries, fragments, odd IPv4 spellings (decimal, hex, octal, short forms) and IPv6 zone ids never
- *     get normalised into something allowed. Scheme `http` only, an optional path of `/`, an optional port (default
- *     11434) from 1024 up and not one the stack itself uses. The host is a strict dotted-quad IPv4, a bracketed
- *     IPv6 literal, or a DNS name that has a dot, whose last label starts with a letter and which is not under
- *     `.localhost`, `.internal` or `.docker`. A name with no dot is refused outright: Docker's DNS answers every
- *     compose service name (`postgres`, `engine-service`, `outbound-proxy`) and nothing else uses single labels.
+ *     backslashes, queries, fragments, odd IPv4 spellings (decimal, hex, octal, short forms), host names and IPv6
+ *     zone ids never get normalised into something allowed. Scheme `http` only and an optional path of `/`. The host
+ *     is a strict dotted-quad IPv4 or a bracketed IPv6 literal. The port is 11434 (the default when omitted) or one
+ *     the operator added with `OUTBOUND_OLLAMA_EXTRA_PORTS`; a static list of ports the stack and host use is
+ *     refused even then. Anything else could be probed through the outcome messages, so only one port is open.
  *  2. Addresses (`classifyAddress`). Only these are allowed: 10/8, 172.16/12, 192.168/16, 100.64/10 (CGNAT, which is
  *     what a tailnet uses) and fc00::/7 (which covers the tailnet's fd7a:115c:a1e0::/48). Everything else is denied,
  *     including every public address. Inside those ranges two things are still denied: the metadata addresses
  *     (169.254.169.254 is link-local anyway; 100.100.100.200 is Alibaba's and sits in CGNAT; fd00:ec2::/32 is AWS's
  *     IPv6 one) and any address inside a subnet of one of the proxy's own interfaces, read once at start, which is
- *     where `postgres`, `engine-service` and the bridge gateway (the host's published ports) live. IPv4-mapped IPv6
- *     (`::ffff:a.b.c.d`, in either spelling) is judged as the IPv4 it carries.
- *  3. Resolution (`resolveOllamaTarget`). A literal is used as typed. A name is looked up exactly once; every
- *     answer must pass rule 2 (one bad answer refuses the lot); IPv4 is preferred; the connection then goes to that
- *     checked address (the caller builds the URL from `origin`), never to the name again, so a second answer from a
- *     rebinding DNS server is never seen. The `Host` header stays as typed.
+ *     where `postgres`, `engine-service` and the bridge gateway live. IPv4-mapped IPv6 (`::ffff:a.b.c.d`, in either
+ *     spelling) is judged as the IPv4 it carries.
  * Redirects, the response size cap and the fixed paths belong to the caller (`client.ts`).
  */
-import { lookup as dnsLookup } from "node:dns/promises";
 import { networkInterfaces } from "node:os";
 import { isIP } from "node:net";
 import { parseIpBytes } from "../../host/ip-address.js";
 
 export const DEFAULT_OLLAMA_PORT = 11434;
 export const MIN_OLLAMA_PORT = 1024;
+export const EXTRA_PORTS_ENV = "OUTBOUND_OLLAMA_EXTRA_PORTS";
 /** Ports of the stack itself and the usual host services (published postgres is 55432, the engine 4100, the proxy 4200, the portal 8787). */
 export const DENIED_PORTS: ReadonlySet<number> = new Set([
   1433, 2375, 2376, 3000, 3306, 3389, 4100, 4200, 5432, 5900, 6379, 8787, 9200, 27017, 55432
 ]);
 
-export type ParsedBaseUrl = { ok: true; host: string; port: number; literal: 4 | 6 | null };
+export type ParsedBaseUrl = { ok: true; host: string; port: number; literal: 4 | 6 };
 export type Refusal = { ok: false; reason: RefusalReason; message: string };
 export type RefusalReason =
   "bad_url" | "loopback" | "link_local" | "metadata" | "own_network" | "not_private" | "dns_failed";
@@ -50,24 +45,41 @@ const HOW =
 
 const AUTHORITY = /^http:\/\/(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(?::(\d{1,5}))?\/?$/;
 const OCTET = /^(0|[1-9]\d{0,2})$/;
-const LABEL = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
-const DENIED_SUFFIXES = [".localhost", ".internal", ".docker"];
 
-export function parseOllamaBaseUrl(raw: unknown): ParsedBaseUrl | Refusal {
+/** The ports Ollama may be on: 11434 and the operator's extras. Throws a sentence naming the fix when the variable is malformed (the connection then fails to load, loudly, at start). */
+export function ollamaPortsFromEnv(env: Record<string, string | undefined>): ReadonlySet<number> {
+  const ports = new Set<number>([DEFAULT_OLLAMA_PORT]);
+  const text = env[EXTRA_PORTS_ENV]?.trim();
+  if (!text) return ports;
+  for (const part of text.split(",")) {
+    const port = /^\d{1,5}$/.test(part.trim()) ? Number(part.trim()) : NaN;
+    if (!(port >= MIN_OLLAMA_PORT && port <= 65_535) || DENIED_PORTS.has(port))
+      throw new Error(
+        `${EXTRA_PORTS_ENV} must be a comma list of ports from 1024 to 65535 that the stack does not use (not ${[...DENIED_PORTS].join(", ")}); "${part.trim()}" is not allowed.`
+      );
+    ports.add(port);
+  }
+  return ports;
+}
+
+export function parseOllamaBaseUrl(
+  raw: unknown,
+  allowedPorts: ReadonlySet<number> = new Set([DEFAULT_OLLAMA_PORT])
+): ParsedBaseUrl | Refusal {
   if (typeof raw !== "string" || raw.length === 0 || raw.length > 255)
     return refuse("bad_url", `baseUrl must be a short text. ${HOW}`);
   const match = AUTHORITY.exec(raw);
   if (!match)
     return refuse(
       "bad_url",
-      `baseUrl must look exactly like http://host:port with no login, path, query or fragment (https is not supported). ${HOW}`
+      `baseUrl must look exactly like http://IP:11434 with no login, path, query or fragment (https is not supported). ${HOW}`
     );
   const authorityHost = match[1] as string;
   const port = match[2] === undefined ? DEFAULT_OLLAMA_PORT : Number(match[2]);
-  if (!Number.isInteger(port) || port < MIN_OLLAMA_PORT || port > 65_535 || DENIED_PORTS.has(port))
+  if (!allowedPorts.has(port) || DENIED_PORTS.has(port))
     return refuse(
       "bad_url",
-      `Port ${match[2] ?? port} is not allowed: use 1024 to 65535, and not a port this stack or the host uses (such as 4100, 4200, 5432, 8787, 55432). Ollama's own port is ${DEFAULT_OLLAMA_PORT}.`
+      `Port ${match[2] ?? port} is not allowed. Ollama's port is ${DEFAULT_OLLAMA_PORT}. To use another port the operator adds it to ${EXTRA_PORTS_ENV} (a comma list of ports from 1024 to 65535) on the outbound proxy and restarts it; ports the stack itself uses (such as 4100, 4200, 5432, 8787, 55432) are never allowed.`
     );
 
   if (authorityHost.startsWith("[")) {
@@ -75,31 +87,13 @@ export function parseOllamaBaseUrl(raw: unknown): ParsedBaseUrl | Refusal {
     if (isIP(inner) !== 6) return refuse("bad_url", `The IPv6 address in baseUrl is not valid. ${HOW}`);
     return { ok: true, host: inner.toLowerCase(), port, literal: 6 };
   }
-  if (/^\d+\.\d+\.\d+\.\d+$/.test(authorityHost)) {
-    const parts = authorityHost.split(".");
-    if (!parts.every((part) => OCTET.test(part) && Number(part) <= 255))
-      return refuse("bad_url", `The IPv4 address in baseUrl must be four plain decimal numbers from 0 to 255. ${HOW}`);
+  const parts = authorityHost.split(".");
+  if (parts.length === 4 && parts.every((part) => OCTET.test(part) && Number(part) <= 255))
     return { ok: true, host: authorityHost, port, literal: 4 };
-  }
-  const host = authorityHost.toLowerCase();
-  const labels = host.split(".");
-  if (labels.length < 2)
-    return refuse(
-      "bad_url",
-      `A name with no dot is refused because it would be looked up as a container on this stack (postgres, engine-service and so on). Use the IP address of the machine running Ollama, or its full tailnet name. ${HOW}`
-    );
-  if (
-    host.length > 253 ||
-    labels.some((label) => label.length > 63 || !LABEL.test(label)) ||
-    !/^[a-z]/.test(labels[labels.length - 1] as string)
-  )
-    return refuse(
-      "bad_url",
-      `That host name is not valid (the last part must start with a letter; numbers that are not four plain decimal parts, hex and octal spellings are refused). ${HOW}`
-    );
-  if (DENIED_SUFFIXES.some((suffix) => host.endsWith(suffix)))
-    return refuse("bad_url", `Names ending in .localhost, .internal or .docker are not allowed. ${HOW}`);
-  return { ok: true, host, port, literal: null };
+  return refuse(
+    "bad_url",
+    `baseUrl must use the IP address of the machine running Ollama, as four plain decimal numbers (host names, decimal, hex, octal and short forms are refused). ${HOW}`
+  );
 }
 
 type Net = { bytes: Uint8Array; bits: number };
@@ -183,7 +177,6 @@ export type Resolved = {
 };
 
 export interface ResolveDeps {
-  lookup?: (hostname: string) => Promise<{ address: string; family: number }[]>;
   ownNetworks: readonly Net[];
 }
 
@@ -197,41 +190,16 @@ function denied(host: string, reason: keyof typeof WHY): Refusal {
   );
 }
 
-export async function resolveOllamaTarget(parsed: ParsedBaseUrl, deps: ResolveDeps): Promise<Resolved | Refusal> {
+/** The checked address to call, or why not. The literal is used as typed; there is no lookup. */
+export function checkOllamaTarget(parsed: ParsedBaseUrl, deps: ResolveDeps): Resolved | Refusal {
   const hostHeader = parsed.literal === 6 ? `[${parsed.host}]:${parsed.port}` : `${parsed.host}:${parsed.port}`;
-  if (parsed.literal) {
-    const reason = classifyAddress(parsed.host, deps.ownNetworks);
-    if (reason) return denied(parsed.host, reason);
-    return {
-      ok: true,
-      address: parsed.host,
-      family: parsed.literal,
-      hostHeader,
-      origin: originOf(parsed.host, parsed.literal, parsed.port)
-    };
-  }
-  let answers: { address: string; family: number }[];
-  try {
-    answers = await (deps.lookup ?? ((name) => dnsLookup(name, { all: true, verbatim: true })))(parsed.host);
-  } catch {
-    answers = [];
-  }
-  if (answers.length === 0)
-    return refuse(
-      "dns_failed",
-      `${parsed.host} did not resolve from inside the proxy (a tailnet MagicDNS name often does not). Use the machine's IP address instead, for example http://100.101.5.5:${parsed.port}.`
-    );
-  for (const { address } of answers) {
-    const reason = classifyAddress(address, deps.ownNetworks);
-    if (reason) return denied(parsed.host, reason);
-  }
-  const chosen = answers.find((a) => a.family === 4) ?? (answers[0] as { address: string; family: number });
-  const family = chosen.family === 4 ? 4 : 6;
+  const reason = classifyAddress(parsed.host, deps.ownNetworks);
+  if (reason) return denied(parsed.host, reason);
   return {
     ok: true,
-    address: chosen.address,
-    family,
+    address: parsed.host,
+    family: parsed.literal,
     hostHeader,
-    origin: originOf(chosen.address, family, parsed.port)
+    origin: originOf(parsed.host, parsed.literal, parsed.port)
   };
 }

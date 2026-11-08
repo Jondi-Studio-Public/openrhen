@@ -1,7 +1,8 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { pinnedHttpFetch, ResponseTooLarge } from "./pinned-fetch.js";
+import { createServer as createTcpServer } from "node:net";
+import { InvalidUpstreamStatus, pinnedHttpFetch, ResponseTooLarge } from "./pinned-fetch.js";
 
 // The transport only: it is pointed at a loopback server here, which the guard (a separate step) would refuse.
 let server: http.Server | undefined;
@@ -59,5 +60,31 @@ describe("pinnedHttpFetch", () => {
     const pending = pinnedHttpFetch()(`${origin}/api/chat`, { method: "POST", body: "{}", signal: controller.signal });
     setTimeout(() => controller.abort(), 20);
     await expect(pending).rejects.toBeTruthy();
+  });
+
+  it("rejects, rather than throwing out of the socket handler, when the status line is not a valid HTTP status", async () => {
+    const uncaught: unknown[] = [];
+    const record = (error: unknown) => uncaught.push(error);
+    process.on("uncaughtException", record);
+    try {
+      for (const line of ["HTTP/1.1 999 X", "HTTP/1.1 099 Y", "HTTP/1.1 600 Z"]) {
+        const raw = createTcpServer((socket) => {
+          socket.once("data", () => socket.end(`${line}\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}`));
+        });
+        await new Promise<void>((resolve) => raw.listen(0, "127.0.0.1", resolve));
+        const port = (raw.address() as AddressInfo).port;
+        try {
+          await expect(
+            pinnedHttpFetch()(`http://127.0.0.1:${port}/api/chat`, { method: "POST", body: "{}" })
+          ).rejects.toBeInstanceOf(InvalidUpstreamStatus);
+        } finally {
+          await new Promise<void>((resolve) => raw.close(() => resolve()));
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    } finally {
+      process.off("uncaughtException", record);
+    }
+    expect(uncaught).toEqual([]);
   });
 });
