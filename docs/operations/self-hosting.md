@@ -130,7 +130,7 @@ To try OpenRhen with a believable week of invented data instead of an empty plan
 
 - `docker compose up` starts nothing and shows no error: there is no `.env`. Every service is profile-gated and `COMPOSE_PROFILES` comes from `.env`, so run `docker compose run --rm setup` first.
 - Postgres exits with "superuser password is not specified": setup was skipped. Run `docker compose run --rm setup`, then `docker compose up -d`.
-- `outbound-proxy` exits complaining about its token: same cause; `.env` still has the placeholder.
+- A service exits at once with one line starting "OpenRhen cannot start:" (a missing `DATABASE_URL`, `PLAN_FORECAST_SERVICE_TOKEN` or `OUTBOUND_PROXY_TOKEN`, or a token still set to the placeholder): same cause. Run `docker compose run --rm setup` (it never overwrites a value you set), then `docker compose up -d`. See the line with `docker compose logs --tail 20 <service>`.
 - Photo uploads fail with EACCES: `var/photos` is owned by the wrong user. `docker compose run --rm setup` fixes ownership.
 - "port is already allocated": something else holds 8787 or 55432. Set `PORTAL_PORT` or `POSTGRES_HOST_PORT` in `.env` and run `docker compose up -d`.
 - Logs: `docker compose logs --tail 100 <service>`.
