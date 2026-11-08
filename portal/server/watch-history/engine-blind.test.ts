@@ -57,6 +57,8 @@ const MAY_NAME_BLIND_TABLES = new Set([
   "portal/server/persistence/postgres/derived-lineage-store.ts",
   "portal/server/persistence/postgres/derived-scan-store.ts",
   "portal/server/persistence/postgres/derived-write-store.ts",
+  "portal/server/persistence/postgres/activity-retention-store.ts",
+  "portal/server/persistence/postgres/derived-source-gone-store.ts",
   "portal/server/persistence/postgres/extractor-state-store.ts",
   "portal/server/persistence/postgres/app-secrets-store.ts",
   "portal/server/secrets/read-secret.ts",

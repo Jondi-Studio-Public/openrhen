@@ -1,5 +1,10 @@
 import { tryLockActivityUser } from "@/server/persistence/postgres/activity-lock";
 import {
+  purgeExpiredForUserTx,
+  RETENTION_BATCHES_PER_TICK,
+  type RetentionPassResult
+} from "@/server/persistence/postgres/activity-retention-store";
+import {
   NIL_ID,
   readSourceRowsByIds,
   scanBackfill,
@@ -54,6 +59,8 @@ export interface DerivedTickOptions {
   backfillBatch?: number;
   settleMs?: number;
   extractors?: readonly Extractor[];
+  /** Batches of 5000 expired rows the retention pass may delete this tick. */
+  retentionBatches?: number;
 }
 
 export interface ExtractorTickResult {
@@ -76,7 +83,12 @@ export interface ExtractorTickResult {
   more: boolean;
 }
 
-export type DerivedTickResult = { status: "busy" } | { status: "ok"; extractors: ExtractorTickResult[]; more: boolean };
+/** The retention pass of a tick: a no-op (zero rows, no sources) unless a source has `retention_days` set. `error` when the pass failed and was rolled back alone. */
+export type RetentionTickResult = RetentionPassResult & { error?: string };
+
+export type DerivedTickResult =
+  | { status: "busy" }
+  | { status: "ok"; extractors: ExtractorTickResult[]; retention: RetentionTickResult; more: boolean };
 
 interface Retry {
   n: number;
@@ -198,7 +210,7 @@ async function runExtractor(
   userId: string,
   extractor: Extractor,
   now: Date,
-  options: Required<Omit<DerivedTickOptions, "now" | "extractors">>
+  options: Required<Omit<DerivedTickOptions, "now" | "extractors" | "retentionBatches">>
 ): Promise<ExtractorTickResult> {
   const result: ExtractorTickResult = {
     extractor: extractor.name,
@@ -314,6 +326,19 @@ async function runExtractor(
 }
 
 /**
+ * The retention pass, after the extractors and under the same lock. It runs in a savepoint so a failure undoes only the
+ * pass (never the extractors' work) and is reported, not thrown. Strictly a no-op when no source has a retention set.
+ */
+async function runRetention(tx: TxSql, userId: string, now: Date, maxBatches: number): Promise<RetentionTickResult> {
+  try {
+    return await tx.savepoint((sp) => purgeExpiredForUserTx(sp, userId, now, maxBatches));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "The retention pass failed.";
+    return { removed: 0, sources: [], more: false, error: message.slice(0, ERROR_MAX_CHARS) };
+  }
+}
+
+/**
  * Runs one tick for the person. Answers `busy`, doing nothing, when another tick (or a delete of source rows) holds the
  * activity lock. An unexpected database error rolls the whole tick back, so the cursor never moves past rows that were
  * not written, and is thrown for the route to report.
@@ -331,6 +356,7 @@ export async function runDerivedTick(sql: PoolSql, options: DerivedTickOptions =
     const extractors: ExtractorTickResult[] = [];
     for (const extractor of options.extractors ?? EXTRACTORS)
       extractors.push(await runExtractor(tx, userId, extractor, now, settings));
-    return { status: "ok", extractors, more: extractors.some((item) => item.more) };
+    const retention = await runRetention(tx, userId, now, options.retentionBatches ?? RETENTION_BATCHES_PER_TICK);
+    return { status: "ok", extractors, retention, more: extractors.some((item) => item.more) || retention.more };
   });
 }

@@ -17,7 +17,7 @@ export const PUT = withRoute(
       return Response.json(
         {
           error:
-            'Send {"contentEnabled": true|false} and/or {"retentionDays": a whole number of days, or null to keep permanently}.'
+            'Send {"contentEnabled": true|false} and/or {"retentionDays": a whole number of days from 1 to 36500, or null to keep permanently}.'
         },
         { status: 400 }
       );

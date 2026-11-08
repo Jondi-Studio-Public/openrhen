@@ -20,6 +20,7 @@ import {
 import { EXTRACTORS } from "@/server/derived/extractor-registry";
 import { runtimeEnv } from "@/server/runtime-env";
 import { lockActivityUser } from "./activity-lock";
+import { purgeExpiredForUserTx } from "./activity-retention-store";
 import { deleteDerivedForSources } from "./derived-lineage-store";
 import { countRowsAfter, countRowsBefore, type Mark } from "./derived-scan-store";
 import { ensureUser } from "./ensure-user";
@@ -61,6 +62,16 @@ interface SourceStateRow {
   source: string;
   content_enabled: boolean;
   retention_days: number | null;
+  cursor?: unknown;
+}
+
+/** The last retention purge that deleted something, kept in the source state's cursor by the retention pass. */
+function readLastPurge(cursor: unknown): { removed: number; at: string; skipped?: string } | null {
+  const held = (cursor as { lastPurge?: { removed?: unknown; at?: unknown; skipped?: unknown } } | null)?.lastPurge;
+  if (typeof held?.removed !== "number" || typeof held.at !== "string") return null;
+  return typeof held.skipped === "string"
+    ? { removed: held.removed, at: held.at, skipped: held.skipped }
+    : { removed: held.removed, at: held.at };
 }
 
 /**
@@ -248,7 +259,7 @@ export async function readActivitySummary(sql: Sql): Promise<ActivitySummary> {
     SELECT source, count(*)::int AS n, max(COALESCE(ts_end, ts_start)) AS last_start, max(ingested_at) AS last_ingested
     FROM activity_events WHERE user_id = ${userId} GROUP BY source`;
   const states = await sql<SourceStateRow[]>`
-    SELECT source, content_enabled, retention_days FROM activity_source_state WHERE user_id = ${userId}`;
+    SELECT source, content_enabled, retention_days, cursor FROM activity_source_state WHERE user_id = ${userId}`;
   const names = new Set<string>([
     ...ACTIVITY_SOURCE_NAMES,
     ...counts.map((row) => row.source),
@@ -265,7 +276,8 @@ export async function readActivitySummary(sql: Sql): Promise<ActivitySummary> {
       lastIngestedAt: count?.last_ingested?.toISOString() ?? null,
       contentEnabled: state?.content_enabled ?? activityContentDefault(),
       retentionDays: state?.retention_days ?? null,
-      retentionPurge: state?.retention_days == null ? ("not_set" as const) : ("not_running" as const)
+      retentionPurge: state?.retention_days == null ? ("not_set" as const) : ("scheduled" as const),
+      lastPurge: readLastPurge(state?.cursor)
     };
   });
   const { extractors, derivedBehind } = await extractorSummaries(sql, userId);
@@ -337,15 +349,12 @@ async function extractorSummaries(
   return { extractors: out, derivedBehind };
 }
 
-/**
- * Nothing runs `purgeExpiredActivity` yet (the worker tick that would is a later change), so a retention setting is
- * recorded but deletes nothing. Said in the response and the summary so a stored setting is never mistaken for a purge.
- */
-export const RETENTION_NOT_RUNNING_NOTE =
-  "Retention is saved, but the automatic purge does not run yet, so nothing is deleted automatically. Use DELETE /api/activity-sources/<source>/events to delete a source's events now.";
+/** Said when a retention is set, so it is clear what the setting does and what it leaves. */
+export const RETENTION_RUNNING_NOTE =
+  "Retention is saved. Expired events of this source are deleted automatically (checked on the worker's regular tick); what Mark derived from them (message classes, facts) is kept.";
 
 function retentionStatus(retentionDays: number | null) {
-  return { retentionRuns: false as const, note: retentionDays === null ? null : RETENTION_NOT_RUNNING_NOTE };
+  return { retentionRuns: retentionDays !== null, note: retentionDays === null ? null : RETENTION_RUNNING_NOTE };
 }
 
 /** Sets a source's content gate and/or retention. A field left out keeps its value; `retentionDays: null` means permanent. */
@@ -354,6 +363,11 @@ export async function setActivitySourceSettings(sql: PoolSql, source: string, se
     throw new ActivityInputError(
       `Source "${source}" is not known. Use one of: ${ACTIVITY_SOURCE_NAMES.join(", ")}.`,
       404
+    );
+  if (typeof settings.retentionDays === "number" && (source === "derived" || source === "derived-shadow"))
+    throw new ActivityInputError(
+      `Retention is not applied to derived rows, they are kept as history (message classes and facts are what Mark learned from your mail). Set retention on the raw source instead, such as "gmail", and send {"retentionDays": null} to "${source}" to clear any value.`,
+      400
     );
   const userId = await ensureUser(sql);
   return sql.begin(async (tx) => {
@@ -566,29 +580,29 @@ export async function purgeActivitySource(sql: PoolSql, source: string): Promise
 }
 
 /**
- * The retention purge: for every source with `retention_days` set, deletes events whose end (or start, for an instant)
- * is older than that many days, in batches of 5000. Sources with no setting are kept permanently. Import records are
- * left (the file stays "held"; re-importing it would only be purged again).
+ * The retention purge for every person, outside the derived tick: for every source with `retention_days` set, deletes
+ * events whose end (or start, for an instant) is older than that many days, one transaction of at most
+ * `ACTIVITY_PURGE_BATCH` rows at a time, under the per-person activity lock. Sources with no setting are kept permanently. Derived
+ * rows are never deleted by it (see `activity-retention-store.ts`). Import records are left (the file stays "held";
+ * re-importing it would only be purged again). The worker reaches the same code through the derived tick.
  */
 export async function purgeExpiredActivity(
   sql: PoolSql,
   now: Date = new Date()
 ): Promise<{ source: string; removed: number }[]> {
-  const states = await sql<{ user_id: string; source: string; retention_days: number }[]>`
-    SELECT user_id, source, retention_days FROM activity_source_state WHERE retention_days IS NOT NULL`;
-  const results: { source: string; removed: number }[] = [];
-  for (const state of states) {
-    const cutoff = new Date(now.getTime() - state.retention_days * 86_400_000);
-    const removed = await deleteInBatches(async () => {
-      const gone = await sql`
-        DELETE FROM activity_events WHERE id IN (
-          SELECT id FROM activity_events
-          WHERE user_id = ${state.user_id} AND source = ${state.source} AND ts_start < ${cutoff} AND COALESCE(ts_end, ts_start) < ${cutoff}
-          LIMIT ${ACTIVITY_PURGE_BATCH}
-        ) RETURNING 1`;
-      return gone.length;
-    });
-    results.push({ source: state.source, removed });
+  const people = await sql<{ user_id: string }[]>`
+    SELECT DISTINCT user_id FROM activity_source_state
+    WHERE retention_days IS NOT NULL AND source NOT IN ('derived', 'derived-shadow')`;
+  const totals = new Map<string, number>();
+  for (const person of people) {
+    for (;;) {
+      const pass = await sql.begin(async (tx) => {
+        await lockActivityUser(tx, person.user_id);
+        return purgeExpiredForUserTx(tx, person.user_id, now, 1);
+      });
+      for (const item of pass.sources) totals.set(item.source, (totals.get(item.source) ?? 0) + item.removed);
+      if (!pass.more) break;
+    }
   }
-  return results;
+  return [...totals].map(([source, removed]) => ({ source, removed }));
 }

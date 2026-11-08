@@ -436,8 +436,10 @@ export interface ActivitySourceSummary {
   lastIngestedAt: string | null;
   contentEnabled: boolean;
   retentionDays: number | null;
-  /** `not_running` while a retention is set: the setting is saved but nothing runs the purge yet. */
-  retentionPurge: "not_set" | "not_running";
+  /** `scheduled` while a retention is set: the derived tick deletes expired events. `not_set` keeps the source permanently. */
+  retentionPurge: "not_set" | "scheduled";
+  /** The last purge of this source that deleted something (rows deleted, when), or that skipped it with the reason; null if neither has happened. */
+  lastPurge: { removed: number; at: string; skipped?: string } | null;
 }
 
 /** One extractor version of the derived layer (source `derived`), so a stale layer is visible instead of silently trusted. */

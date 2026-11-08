@@ -4,7 +4,7 @@ import { sqlPool } from "@/server/persistence/postgres/sql-pool";
 import { databaseUrl } from "@/server/runtime-env";
 
 /**
- * Runs the derived-rows extractors (communication understanding design, sections 3-4): the worker's tick posts here
+ * Runs the derived-rows extractors and then the retention pass (a no-op unless a source has a retention set) (communication understanding design, sections 3-4): the worker's tick posts here
  * with `{trigger:"scheduled"}` and only posts; the extractors, their cursors and the writes all live in `portal/server`.
  * Safe to call early, twice or at once: a per-person Postgres advisory lock lets one run through and answers `busy` to
  * the others, `manual` honours it exactly as `scheduled` does, and a rerun reads only what the cursors say is unread.
@@ -21,7 +21,13 @@ export const POST = withRoute("/api/integrations/derived/tick", async (request, 
   try {
     const result = await runDerivedTick(sqlPool(connectionString));
     if (result.status === "busy") return Response.json({ status: "busy", trigger });
-    return Response.json({ status: "ok", trigger, more: result.more, extractors: result.extractors });
+    return Response.json({
+      status: "ok",
+      trigger,
+      more: result.more,
+      extractors: result.extractors,
+      retention: result.retention
+    });
   } catch (error) {
     log.setError(error);
     return Response.json(
