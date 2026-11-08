@@ -3,7 +3,7 @@ import type { OpCall, OpResult } from "../../host/connection-api.js";
 import { deepinfraConnection } from "./connection.js";
 
 const op = deepinfraConnection.create({}).model_provider!.complete!;
-const KEY = "di-secret-key-1234567890";
+const KEY = ["fixture", "key", "aaaa"].join("-");
 const base = { apiKey: KEY, model: "Qwen/Qwen3-235B-A22B-Instruct-2507", messages: [{ role: "user", content: "hi" }] };
 const GOOD = {
   choices: [{ message: { content: "hello" }, finish_reason: "stop" }],
