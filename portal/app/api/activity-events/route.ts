@@ -1,6 +1,6 @@
 import { ACTIVITY_MAX_BODY_BYTES, ACTIVITY_READ_MAX_LIMIT, type ActivityIngestResult } from "@openrhen/contracts";
 import { requestAgent } from "@/server/agent-actor";
-import { parseActivityBody } from "@/server/activity-ingest";
+import { activityBodyTooLarge, parseActivityBody } from "@/server/activity-ingest";
 import { BodyTooLargeError, readBodyCapped } from "@/server/imports/capped-body";
 import { withRoute } from "@/server/logging";
 import {
@@ -36,13 +36,7 @@ export const POST = withRoute("/api/activity-events", async (request, _context, 
   try {
     text = await readBodyCapped(request, ACTIVITY_MAX_BODY_BYTES);
   } catch (error) {
-    if (error instanceof BodyTooLargeError)
-      return Response.json(
-        {
-          error: `That request is over ${ACTIVITY_MAX_BODY_BYTES / (1024 * 1024)} MB. Send fewer events per request (at most 1000).`
-        },
-        { status: 413 }
-      );
+    if (error instanceof BodyTooLargeError) return activityBodyTooLarge();
     throw error;
   }
   let body: unknown = null;

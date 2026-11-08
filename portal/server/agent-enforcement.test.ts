@@ -899,6 +899,44 @@ describe("activity store", () => {
     }
   });
 
+  it("answers an oversize activity body with the handler's 413, valid JSON or not, and does not parse it", async () => {
+    const big = (text: string) =>
+      enforceAgentRequest(
+        new Request("http://portal.test/api/activity-events", { method: "POST", body: text }),
+        "/api/activity-events",
+        principal(["write:activity-event"]),
+        {},
+        { stored: async () => ({}) }
+      );
+    const pad = "x".repeat(2 * 1024 * 1024 + 1);
+    const validJson = JSON.stringify({ schema: 1, events: [{ source: "rhen-watch", kind: "window", pad }] });
+    for (const text of [validJson, pad]) {
+      const response = await big(text);
+      expect(response?.status).toBe(413);
+      expect(await response?.json()).toMatchObject({ error: expect.stringContaining("over 2 MB") });
+    }
+    // At the cap and below, the rule still reads the body as before.
+    expect(
+      await call("POST", "/api/activity-events", principal(["write:activity-event"]), { schema: 1, events: [] })
+    ).toBeNull();
+  });
+
+  it("refuses an empty batch from a token holding no activity scope (the scope list is never empty)", async () => {
+    const refused = await call("POST", "/api/activity-events", principal(["read:plan"]), { schema: 1, events: [] });
+    expect(refused?.status).toBe(403);
+    expect(await refused?.json()).toMatchObject({ missingScopes: ["write:activity-event"] });
+  });
+
+  it("lets one malformed row through to the handler, which rejects it alone", async () => {
+    const held = principal(["write:activity-event"]);
+    expect(
+      await call("POST", "/api/activity-events", held, {
+        schema: 1,
+        events: [{ source: "rhen-watch", kind: "window" }, null]
+      })
+    ).toBeNull();
+  });
+
   it("refuses a token a derived label or correction, whatever scopes it holds", async () => {
     const all = principal(["write:activity-event", "write:activity-derived", "read:activity-event"]);
     for (const kind of ["label", "correction"]) {

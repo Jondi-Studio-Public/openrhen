@@ -864,7 +864,7 @@ describe("scopesForRoute: the activity store", () => {
       ).toEqual(["write:activity-derived"]);
     });
 
-    it("falls back to the strictest scope for a malformed body", () => {
+    it("asks only the event scope for a row or body that can never be stored, so the handler rejects it alone", () => {
       for (const body of [
         {},
         undefined,
@@ -873,7 +873,29 @@ describe("scopesForRoute: the activity store", () => {
         { schema: 1, events: [{ kind: "fact" }] },
         { source: 5 }
       ])
-        expect(needs(scopesForRoute("POST", "/api/activity-events", body as never))).toBe("owner-only");
+        expect(needs(scopesForRoute("POST", "/api/activity-events", body as never)), JSON.stringify(body)).toEqual([
+          "write:activity-event"
+        ]);
+      // One bad row does not turn the good rows owner-only.
+      expect(
+        needs(
+          scopesForRoute("POST", "/api/activity-events", {
+            schema: 1,
+            events: [{ source: "rhen-watch", kind: "window" }, null, { kind: "x" }, 7]
+          })
+        )
+      ).toEqual(["write:activity-event"]);
+    });
+
+    it("still gives a derived row of an unreadable kind to the owner", () => {
+      expect(needs(post({ source: "derived", kind: 5 as never }))).toBe("owner-only");
+      expect(
+        needs(scopesForRoute("POST", "/api/activity-events", { schema: 1, events: [{ source: "derived" }] }))
+      ).toBe("owner-only");
+    });
+
+    it("never returns an empty scope list, which would authorise a token that holds nothing", () => {
+      expect(needs(post())).toEqual(["write:activity-event"]);
     });
   });
 

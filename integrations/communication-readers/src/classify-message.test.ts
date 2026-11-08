@@ -68,6 +68,22 @@ describe("classifyMessage", () => {
       expect(classifyMessage({ message_id: "<m@x>", jsonld: { "@type": type } }).class, type).toBe("transaction");
   });
 
+  it("lists the real schema.org Event and Reservation subtypes, spelt as schema.org spells them", () => {
+    for (const type of [
+      "DeliveryEvent",
+      "PublicationEvent",
+      "BroadcastEvent",
+      "OnDemandEvent",
+      "SaleEvent",
+      "Hackathon",
+      "EventSeries",
+      "ChildrensEvent"
+    ])
+      expect(JSONLD_EVENT_TYPES, type).toContain(type);
+    expect(JSONLD_EVENT_TYPES).not.toContain("ChildrenEvent");
+    expect(new Set(JSONLD_EVENT_TYPES).size).toBe(JSONLD_EVENT_TYPES.length);
+  });
+
   it("accepts the schema.org prefixed forms of a listed type, and no other prefix", () => {
     expect(classifyMessage({ message_id: "<m@x>", jsonld: { "@type": "http://schema.org/Event" } }).class).toBe(
       "calendar"

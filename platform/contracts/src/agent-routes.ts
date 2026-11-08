@@ -537,11 +537,14 @@ const DERIVED_OWNER_ONLY = (what: string): RouteDecision => ({
     `Do not retry this call. The person does it in the owner session (signed in to the portal or the app); tell the owner: "I cannot do this myself; please do it in the owner session."`
 });
 
-/** The scope one activity row needs, or null when only the owner session may write it. A row we cannot read is the strictest case. */
+/**
+ * The scope one activity row needs, or null when only the owner session may write it. A row that is not an object, or
+ * has no text `source`, can never be stored (the handler rejects that row alone), so it asks only for the event scope.
+ */
 function activityEventScope(event: unknown): string | null {
   const row = record(event);
   const source = str(row?.source);
-  if (row === undefined || source === undefined) return null;
+  if (row === undefined || source === undefined) return "write:activity-event";
   if (source === "derived-shadow") return "write:activity-derived";
   if (source !== "derived") return "write:activity-event";
   const kind = str(row.kind);
@@ -555,11 +558,13 @@ function activityEventScope(event: unknown): string | null {
  * sources need `write:activity-event`. Derived rows: `fact` and `msg_class` (and any `derived-shadow` row) need
  * `write:activity-derived`; `override` and `fact_status` need `write:activity-event`, so an extractor token cannot
  * outrank a person's confirmed status; `label` and every other derived kind (the generic `correction` included) are
- * the owner session's. A body that cannot be read falls to the strictest case, the owner session.
+ * the owner session's. A body or row that could never be stored needs only the event scope: the handler rejects it,
+ * alone, with its own message. The shorthand test here is looser than the handler's (any body with a `source` and no
+ * `events` list); the handler rejects the shapes that differ, so this can only over-demand.
  */
 function activityEventsWrite(body: Body): RouteDecision {
   const events = body !== undefined && !Array.isArray(body.events) && "source" in body ? [body] : body?.events;
-  if (!Array.isArray(events)) return DERIVED_OWNER_ONLY("A body that is not an event or a batch of events");
+  if (!Array.isArray(events)) return { kind: "scopes", scopes: ["write:activity-event"] };
   const scopes = new Set<string>();
   for (const event of events) {
     const scope = activityEventScope(event);

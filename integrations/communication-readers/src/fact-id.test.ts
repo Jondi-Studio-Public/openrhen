@@ -118,8 +118,7 @@ describe("eventKey rules", () => {
       "2026-11-08T01:00:00+00:00",
       "2026-11-08T12:00:00+11:00",
       "2026-11-07T20:00:00-05:00",
-      "2026-11-08T01:00:00.0Z",
-      "2026-11-08t01:00:00z"
+      "2026-11-08T01:00:00.0Z"
     ])
       expect(key(same), same).toBe(golden);
     expect(key("2026-11-08T01:00:00.001Z")).not.toBe(golden);
@@ -129,6 +128,24 @@ describe("eventKey rules", () => {
   it("canonicalises to UTC ISO with milliseconds", () => {
     expect(canonicalInstant("2026-11-08T12:00:00+11:00")).toBe("2026-11-08T01:00:00.000Z");
     expect(canonicalInstant("2026-11-08T01:00:00.5Z")).toBe("2026-11-08T01:00:00.500Z");
+  });
+
+  it("leaves unchanged anything the ingest validator rejects, so no invalid spelling shares a key with a real instant", () => {
+    for (const bad of [
+      "2026-11-08T24:00:00Z",
+      "2026-11-08T01:60:00Z",
+      "2026-11-08T01:00:60Z",
+      "2026-11-08T01:00:00+15:00",
+      "2026-11-08T01:00:00-14:01",
+      "2026-11-08T01:00:00+05:60",
+      "2026-11-08t01:00:00z",
+      "1969-12-31T23:59:59Z",
+      "2201-01-01T00:00:00Z",
+      "2026-13-01T00:00:00Z"
+    ])
+      expect(canonicalInstant(bad), bad).toBe(bad);
+    expect(canonicalInstant("2026-11-08T15:00:00+14:00")).toBe("2026-11-08T01:00:00.000Z");
+    expect(canonicalInstant("2026-11-07T11:00:00-14:00")).toBe("2026-11-08T01:00:00.000Z");
   });
 
   it("leaves a value that is not a valid RFC 3339 instant unchanged, so the validator (not the hash) rejects it", () => {

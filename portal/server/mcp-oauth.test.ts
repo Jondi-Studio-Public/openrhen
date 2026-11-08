@@ -35,6 +35,11 @@ describe("SCOPES_SUPPORTED", () => {
     expect(SCOPES_SUPPORTED.filter((scope) => /^(act|admin):/.test(scope))).toEqual([]);
   });
 
+  it("offers each activity-store scope, so a connector can be granted the extractor's", () => {
+    for (const scope of ["write:activity-event", "read:activity-event", "write:activity-derived"])
+      expect(SCOPES_SUPPORTED, scope).toContain(scope);
+  });
+
   it("offers every scope an Inbox action asks for at call time, outward replies aside", () => {
     expect(MCP_TOOL_MANIFEST.some((tool) => tool.command === "inbox-act")).toBe(true);
     const rooms = ["captured", "kept", "people", "map"];

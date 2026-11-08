@@ -1,4 +1,5 @@
 import {
+  ACTIVITY_MAX_BODY_BYTES,
   AGENT_PROPOSAL_SUMMARY_MAX,
   closeEntityPayloadSchema,
   isClosedStatus,
@@ -27,6 +28,8 @@ import type { WriteClaim } from "./agent-actor";
 import { companionCleared, omittedStoredFields, recordInState } from "@/shared/record-in-state";
 import { PROPOSALS_UNAVAILABLE, proposalErrorResponse } from "./agent-proposals/errors";
 import type { Sql } from "./persistence/postgres/sql-pool";
+import { activityBodyTooLarge } from "./activity-ingest";
+import { BodyTooLargeError, readBodyCapped } from "./imports/capped-body";
 
 /**
  * Scope enforcement for database tokens, run by `withRoute` after
@@ -561,6 +564,24 @@ async function readBody(request: Request): Promise<unknown> {
     .catch(() => undefined);
 }
 
+/** The activity ingest body is the one that can run to megabytes: read it under the handler's cap, so nothing is buffered or parsed past it. */
+async function readActivityBody(request: Request): Promise<{ body: unknown } | { tooLarge: true }> {
+  try {
+    const text = await readBodyCapped(request.clone(), ACTIVITY_MAX_BODY_BYTES);
+    try {
+      return { body: JSON.parse(text) as unknown };
+    } catch {
+      return { body: undefined };
+    }
+  } catch (error) {
+    if (error instanceof BodyTooLargeError) {
+      void request.body?.cancel().catch(() => undefined);
+      return { tooLarge: true };
+    }
+    throw error;
+  }
+}
+
 /**
  * What an agent does about a proposal it now regrets. There is no withdraw, so say so, and say which of the two cases
  * it is in: a save with a record id carries a coalesce key and a corrected save replaces the pending card; a settings
@@ -674,7 +695,12 @@ export async function enforceAgentRequest(
   const method = request.method.toUpperCase();
   const isWrite = !["GET", "HEAD", "OPTIONS"].includes(method);
   const needsBody = isWrite && routeNeedsBody(method, route);
-  const body = needsBody ? await readBody(request) : undefined;
+  let body: unknown;
+  if (needsBody && route === "/api/activity-events") {
+    const read = await readActivityBody(request);
+    if ("tooLarge" in read) return activityBodyTooLarge();
+    body = read.body;
+  } else body = needsBody ? await readBody(request) : undefined;
   // A decision that depends on the body is never made without one, and the handler never sees a body we could not read.
   if (needsBody && !asRecord(body))
     return Response.json({ error: "The request body must be a JSON object." }, { status: 400 });

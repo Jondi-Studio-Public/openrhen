@@ -19,7 +19,8 @@ export async function readBodyCapped(request: Request, maxBytes: number): Promis
     if (done) break;
     total += value.byteLength;
     if (total > maxBytes) {
-      await reader.cancel().catch(() => undefined);
+      // Not awaited: on a cloned request the cancel settles only when the other branch is cancelled too.
+      void reader.cancel().catch(() => undefined);
       throw new BodyTooLargeError();
     }
     text += decoder.decode(value, { stream: true });
