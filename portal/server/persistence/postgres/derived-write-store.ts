@@ -12,8 +12,15 @@ import type { PoolSql, TxSql } from "./sql-pool";
  * no route.
  *
  * Each row goes through `validateActivityEvent`, the same judge as the API, so the runner cannot store what a client
- * would be refused. A row it refuses is reported alone and the rest are written. Only source `derived`, and only the kinds an extractor writes (`msg_class`, `fact`), are written here: the rule that the runner never writes a status, override or label is held by this function, not just by the extractors.
+ * would be refused. A row it refuses is reported alone and the rest are written. Only the kinds an extractor writes (`msg_class`, `fact`), are written here: the rule that the runner never writes a status, override or label is held by this function, not just by the extractors.
+ *
+ * Two targets, never mixed in one call: `writeDerivedRows*` writes source `derived` (the output reads show for the
+ * active extractor version), `writeShadowRows*` writes source `derived-shadow` (rows of a version not yet promoted, kept
+ * so two versions can be compared on the eval set). Reads of `derived` never show shadow rows. Promotion is a record in
+ * `extractor_state`, not a copy of these rows, so a promoted version starts writing to `derived` from its next run.
  */
+
+type DerivedTarget = "derived" | "derived-shadow";
 
 const INSERT_CHUNK = 500;
 
@@ -37,16 +44,49 @@ export async function writeDerivedRows(
   return sql.begin((tx) => writeDerivedRowsTx(tx, userId, rows, via, now));
 }
 
-/**
- * Inside the caller's transaction. Takes the per-person activity lock first (re-entrant, so a caller that already holds
- * it is unaffected), so a delete of the source rows cannot slip between reading them and linking to them.
- */
-export async function writeDerivedRowsTx(
+/** As `writeDerivedRows`, for rows of source `derived-shadow` (a version compared before it is promoted). */
+export async function writeShadowRows(
+  sql: PoolSql,
+  rows: readonly DerivedRowInput[],
+  via: string,
+  now: Date = new Date()
+): Promise<DerivedRowResult[]> {
+  const userId = await ensureUser(sql);
+  return sql.begin((tx) => writeShadowRowsTx(tx, userId, rows, via, now));
+}
+
+/** Inside the caller's transaction: source `derived-shadow` only. Everything else is as for `writeDerivedRowsTx`. */
+export function writeShadowRowsTx(
   tx: TxSql,
   userId: string,
   rows: readonly DerivedRowInput[],
   via: string,
   now: Date = new Date()
+): Promise<DerivedRowResult[]> {
+  return writeRowsTx(tx, userId, rows, via, now, "derived-shadow");
+}
+
+/**
+ * Inside the caller's transaction. Takes the per-person activity lock first (re-entrant, so a caller that already holds
+ * it is unaffected), so a delete of the source rows cannot slip between reading them and linking to them.
+ */
+export function writeDerivedRowsTx(
+  tx: TxSql,
+  userId: string,
+  rows: readonly DerivedRowInput[],
+  via: string,
+  now: Date = new Date()
+): Promise<DerivedRowResult[]> {
+  return writeRowsTx(tx, userId, rows, via, now, "derived");
+}
+
+async function writeRowsTx(
+  tx: TxSql,
+  userId: string,
+  rows: readonly DerivedRowInput[],
+  via: string,
+  now: Date,
+  target: DerivedTarget
 ): Promise<DerivedRowResult[]> {
   await lockActivityUser(tx, userId);
   const results: (DerivedRowResult | null)[] = rows.map(() => null);
@@ -62,10 +102,10 @@ export async function writeDerivedRowsTx(
       return;
     }
     const event = verdict.event;
-    if (event.source !== "derived") {
+    if (event.source !== target) {
       results[index] = {
         ok: false,
-        reason: `The runner writes source "derived" only, not "${event.source}". Build the row with source "derived".`
+        reason: `This call writes source "${target}" only, not "${event.source}". Build the row with source "${target}"${target === "derived" ? ' (rows of a version not yet promoted go through writeShadowRows with source "derived-shadow")' : ' (rows of the active version go through writeDerivedRows with source "derived")'}.`
       };
       return;
     }
@@ -114,7 +154,7 @@ export async function writeDerivedRowsTx(
     if (held.length > 0) {
       const existing = await tx<{ id: string; event_key: string }[]>`
         SELECT id, event_key FROM activity_events
-        WHERE user_id = ${userId} AND source = 'derived' AND event_key IN ${tx(held)}`;
+        WHERE user_id = ${userId} AND source = ${target} AND event_key IN ${tx(held)}`;
       for (const row of existing) idOf.set(row.event_key, { id: row.id, added: false });
     }
   }

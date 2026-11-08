@@ -35,6 +35,26 @@ export const DERIVED_MSG_CLASS_REASONS = [
 /** The kinds an extractor writes: these rows name the extractor version that wrote them, and reads show the active version's only. */
 export const DERIVED_EXTRACTOR_KINDS = ["msg_class", "fact"] as const;
 export const DERIVED_FACT_TYPES = ["ask", "commitment", "event", "deadline"] as const;
+/**
+ * The attrs a label can answer. A label about a message (`source_event_id`) answers an attr of its `msg_class` row; one
+ * about a fact (`fact_id`) answers an attr of the `fact` row, or its resolved `status`. Fields are checked here so a
+ * misspelt one is refused with the list instead of silently never matching a prediction in the eval report.
+ */
+export const DERIVED_MESSAGE_LABEL_FIELDS = ["class", "reasons", "tier"] as const;
+export const DERIVED_FACT_LABEL_FIELDS = [
+  "fact_type",
+  "who",
+  "span",
+  "when",
+  "direction",
+  "conversation_key",
+  "ics_uid",
+  "confidence",
+  "tier",
+  "status"
+] as const;
+/** Which sample a label came from: the stratified draw (precision) or the random recall slice (recall). */
+export const DERIVED_LABEL_SLICES = ["random", "stratified"] as const;
 export const DERIVED_TIERS = ["t0", "t1", "t2", "t3"] as const;
 /** Attrs of a derived row are small facts and spans, never text, so the cap is half the general 8 KB. */
 export const ACTIVITY_DERIVED_ATTRS_MAX_BYTES = 4096;
@@ -151,8 +171,24 @@ function checkLabel(attrs: Record<string, unknown>): string | null {
     return "A label needs attrs.fact_id (a fact) or attrs.source_event_id (a message) to say what it answers.";
   const problem = attrs.fact_id === undefined ? requireSourceEventId(attrs) : requireFactId(attrs);
   if (problem) return problem;
-  if (attrs.answer === undefined || attrs.answer === null)
-    return "attrs.answer is missing. Send his ground-truth answer for this fact or message.";
+  if (attrs.answer === undefined)
+    return 'attrs.answer is missing. Send his ground-truth answer for this fact or message; send null for "there is no such value" (for example no fact in this message).';
+  const labelled = attrs.fact_id === undefined ? "message" : "fact";
+  const allowed = labelled === "fact" ? DERIVED_FACT_LABEL_FIELDS : DERIVED_MESSAGE_LABEL_FIELDS;
+  const field = attrs.field;
+  if (field === undefined)
+    return `attrs.field is missing. Name the attr your answer is about; for a ${labelled} it is one of: ${list(allowed)}. Send {"${labelled === "fact" ? "fact_id" : "source_event_id"}": "...", "field": "${allowed[0]}", "answer": ...}.`;
+  if (typeof field !== "string" || !(allowed as readonly string[]).includes(field))
+    return `attrs.field ${shown(field)} is not a field of a labelled ${labelled}. Use one of: ${list(allowed)}.`;
+  const slice = attrs.slice;
+  if (
+    slice !== undefined &&
+    (typeof slice !== "string" || !(DERIVED_LABEL_SLICES as readonly string[]).includes(slice))
+  )
+    return `attrs.slice ${shown(slice)} is not a sample slice. Use one of: ${list(DERIVED_LABEL_SLICES)}, or leave it out.`;
+  const stratum = attrs.stratum;
+  if (stratum !== undefined && (typeof stratum !== "string" || stratum.length === 0 || stratum.length > 60))
+    return `attrs.stratum ${shown(stratum)} is not a stratum name. Use 1 to 60 characters, such as "t0_flag", or leave it out.`;
   return null;
 }
 

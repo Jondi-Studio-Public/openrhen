@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   ACTIVITY_DERIVED_ATTRS_MAX_BYTES,
+  DERIVED_FACT_LABEL_FIELDS,
   DERIVED_FACT_STATUSES,
   DERIVED_FACT_TYPES,
+  DERIVED_MESSAGE_LABEL_FIELDS,
   DERIVED_MSG_CLASSES,
   DERIVED_MSG_CLASS_REASONS,
   describeDerivedProblem
@@ -56,7 +58,7 @@ describe("describeDerivedProblem", () => {
       )
     ).toBeNull();
     expect(describeDerivedProblem("override", { fact_id: FACT_ID, field: "when", new_value: "x" }, null)).toBeNull();
-    expect(describeDerivedProblem("label", { fact_id: FACT_ID, answer: "ask" }, null)).toBeNull();
+    expect(describeDerivedProblem("label", { fact_id: FACT_ID, field: "fact_type", answer: "ask" }, null)).toBeNull();
   });
 
   it("rejects an unknown fact_status and names the allowed values and the fix", () => {
@@ -161,6 +163,40 @@ describe("describeDerivedProblem", () => {
     expect(describeDerivedProblem("override", { fact_id: FACT_ID, new_value: 1 }, null)).toContain("field");
     expect(describeDerivedProblem("label", { answer: "x" }, null)).toContain("fact_id");
     expect(describeDerivedProblem("msg_class", { class: "bulk", reasons: [] }, null)).toContain("source_event_id");
+  });
+
+  it("takes null as an answer ('no such value') but not a missing answer", () => {
+    const ok = { fact_id: FACT_ID, field: "fact_type" };
+    expect(describeDerivedProblem("label", { ...ok, answer: null }, null)).toBeNull();
+    const missing = describeDerivedProblem("label", ok, null);
+    expect(missing).toContain("attrs.answer is missing");
+    expect(missing).toContain("null");
+  });
+
+  it("requires a label's field and checks it against the attrs of what is labelled, naming the allowed fields", () => {
+    const fact = { fact_id: FACT_ID, answer: "ask" };
+    const missing = describeDerivedProblem("label", fact, null);
+    expect(missing).toContain("attrs.field is missing");
+    expect(missing).toContain("fact_type");
+    expect(describeDerivedProblem("label", { ...fact, field: "fact_type" }, null)).toBeNull();
+    const badFact = describeDerivedProblem("label", { ...fact, field: "class" }, null);
+    expect(badFact).toContain('"class"');
+    for (const allowed of DERIVED_FACT_LABEL_FIELDS) expect(badFact).toContain(allowed);
+    const message = { source_event_id: "g1", answer: "bulk" };
+    expect(describeDerivedProblem("label", { ...message, field: "class" }, null)).toBeNull();
+    expect(describeDerivedProblem("label", { ...message, field: "reasons" }, null)).toBeNull();
+    const badMessage = describeDerivedProblem("label", { ...message, field: "fact_type" }, null);
+    for (const allowed of DERIVED_MESSAGE_LABEL_FIELDS) expect(badMessage).toContain(allowed);
+    expect(describeDerivedProblem("label", { ...message, field: 5 }, null)).toContain("attrs.field");
+  });
+
+  it("checks the optional slice and stratum of a label, naming the allowed values", () => {
+    const ok = { fact_id: FACT_ID, answer: "ask", field: "fact_type" };
+    expect(describeDerivedProblem("label", { ...ok, slice: "random", stratum: "t0_flag" }, null)).toBeNull();
+    const slice = describeDerivedProblem("label", { ...ok, slice: "all" }, null);
+    expect(slice).toContain("random, stratified");
+    expect(slice).toContain('"all"');
+    expect(describeDerivedProblem("label", { ...ok, stratum: "x".repeat(61) }, null)).toContain("attrs.stratum");
   });
 
   it("states the size rule and refuses a body", () => {
