@@ -1000,7 +1000,9 @@ describe("activity store", () => {
       ["DELETE", "/api/activity-imports/[id]"],
       ["PUT", "/api/activity-sources/[source]"],
       ["DELETE", "/api/activity-sources/[source]/events"],
-      ["GET", "/api/activity-events/summary"]
+      ["GET", "/api/activity-events/summary"],
+      ["GET", "/api/derived-settings"],
+      ["PUT", "/api/derived-settings"]
     ] as const) {
       const refused = await call(method, route, everyActivityScope, method === "GET" ? undefined : {});
       expect(refused?.status, `${method} ${route}`).toBe(403);

@@ -71,7 +71,15 @@ afterAll(async () => {
   await sql?.end();
 });
 
-const TABLES = ["activity_imports", "activity_events", "activity_source_state", "derived_lineage", "extractor_state"];
+const TABLES = [
+  "activity_imports",
+  "activity_events",
+  "activity_source_state",
+  "derived_lineage",
+  "extractor_state",
+  "derived_settings",
+  "derived_model_calls"
+];
 
 let dir: string;
 beforeEach(async () => {
@@ -88,11 +96,13 @@ const seedRows = async (rows: number, importId: string | null = null) =>
       FROM generate_series(1, ${rows}::int) g`;
 
 describe("the activity store in the backup", () => {
-  it("is covered by the backup lists, with imports before events and lineage after them, and at format 24", async () => {
+  it("is covered by the backup lists, with imports before events and lineage after them, and at format 25", async () => {
     for (const table of TABLES) expect(BACKUP_TABLES).toContain(table);
     expect(BACKUP_TABLES.indexOf("activity_imports")).toBeLessThan(BACKUP_TABLES.indexOf("activity_events"));
     expect(BACKUP_TABLES.indexOf("activity_events")).toBeLessThan(BACKUP_TABLES.indexOf("derived_lineage"));
-    expect(CURRENT_BACKUP_FORMAT_VERSION).toBe(24);
+    expect(BACKUP_TABLES.indexOf("users")).toBeLessThan(BACKUP_TABLES.indexOf("derived_settings"));
+    expect(BACKUP_TABLES.indexOf("users")).toBeLessThan(BACKUP_TABLES.indexOf("derived_model_calls"));
+    expect(CURRENT_BACKUP_FORMAT_VERSION).toBe(25);
     await expect(assertBackupCoverage(sql)).resolves.toBeUndefined();
   });
 
@@ -113,23 +123,31 @@ describe("the activity store in the backup", () => {
     await sql`INSERT INTO derived_lineage (user_id, derived_id, source_id) VALUES (${userId}, ${k2!.id}, ${k1!.id})`;
     await sql`INSERT INTO extractor_state (user_id, extractor, version, cursor, active)
               VALUES (${userId}, 'msg_class', 't0-1', '{"at":"2026-11-01T00:00:00Z"}', true)`;
+    await sql`INSERT INTO derived_settings (user_id, ollama_url, t2_model, t3_model, t3_daily_message_cap, backfill_days)
+              VALUES (${userId}, 'http://100.64.0.7:11434', 'qwen3:8b', 'meta/llama-3.3-70b', 12, 30)`;
+    await sql`INSERT INTO derived_model_calls (user_id, source_event_key, at, tier, model, tokens_in, tokens_out, reason)
+              VALUES (${userId}, 'gmail:abc', '2026-11-01T10:00:00Z', 't3', 'meta/llama-3.3-70b', 900, 120, 'ok')`;
     const before = await readAllTables(sql);
     expect(before.activity_events).toHaveLength(2);
+    expect(before.derived_settings).toHaveLength(1);
+    expect(before.derived_model_calls).toHaveLength(1);
 
     const written = await writeBackup(sql, { databaseUrl: testUrl.toString(), directory: dir });
     expect(written.sections).toHaveLength(1);
     expect(written.sections[0]).toMatchObject({ table: "activity_events", rows: 2 });
     expect((await readdir(dir)).sort()).toEqual([written.path.split("/").at(-1), written.sections[0]!.file].sort());
     const backup = validateBackup(JSON.parse(await readFile(written.path, "utf8")));
-    expect(backup.formatVersion).toBe(24);
+    expect(backup.formatVersion).toBe(25);
     expect(backup.tables.activity_events).toEqual([]);
     expect(backup.tables.activity_imports).toHaveLength(1);
     expect(backup.streamed!.activity_events).toMatchObject({ rows: 2, sha256: written.sections[0]!.sha256 });
     await verifySection(written.sections[0]!.path, backup.streamed!.activity_events!);
 
     expect(backup.tables.derived_lineage).toHaveLength(1);
+    expect(backup.tables.derived_settings).toHaveLength(1);
+    expect(backup.tables.derived_model_calls).toHaveLength(1);
     await sql.unsafe(
-      'TRUNCATE TABLE "activity_events", "activity_imports", "activity_source_state", "extractor_state" CASCADE'
+      'TRUNCATE TABLE "activity_events", "activity_imports", "activity_source_state", "extractor_state", "derived_settings", "derived_model_calls" CASCADE'
     );
     const outcome = await restoreBackup(sql, backup, written.path);
     expect(outcome.streamedRows).toEqual({ activity_events: 2 });
@@ -141,6 +159,57 @@ describe("the activity store in the backup", () => {
     expect(after.activity_source_state).toEqual(before.activity_source_state);
     expect(after.derived_lineage).toEqual(before.derived_lineage);
     expect(after.extractor_state).toEqual(before.extractor_state);
+    expect(after.derived_settings).toEqual(before.derived_settings);
+    expect(after.derived_model_calls).toEqual(before.derived_model_calls);
+  });
+
+  it("keeps each person's settings and model calls apart through a backup and restore", async () => {
+    const [other] = await sql<{ id: string }[]>`INSERT INTO users (display_name) VALUES ('Second') RETURNING id`;
+    await sql`INSERT INTO derived_settings (user_id, ollama_url, backfill_days) VALUES
+              (${userId}, 'http://10.0.0.1:11434', 10), (${other!.id}, 'http://10.0.0.2:11434', 20)`;
+    await sql`INSERT INTO derived_model_calls (user_id, source_event_key, tier, model, reason) VALUES
+              (${userId}, 'k-mine', 't2', 'm', 'ok'), (${other!.id}, 'k-theirs', 't3', 'm', 'ok')`;
+    const written = await writeBackup(sql, { databaseUrl: testUrl.toString(), directory: dir });
+    const backup = validateBackup(JSON.parse(await readFile(written.path, "utf8")));
+    await restoreBackup(sql, backup, written.path);
+    const settings = await sql<{ user_id: string; backfill_days: number }[]>`
+      SELECT user_id, backfill_days FROM derived_settings ORDER BY backfill_days`;
+    expect(settings.map((row) => [row.user_id, row.backfill_days])).toEqual([
+      [userId, 10],
+      [other!.id, 20]
+    ]);
+    const calls = await sql<{ user_id: string; source_event_key: string }[]>`
+      SELECT user_id, source_event_key FROM derived_model_calls ORDER BY source_event_key`;
+    expect(calls.map((row) => [row.user_id, row.source_event_key])).toEqual([
+      [userId, "k-mine"],
+      [other!.id, "k-theirs"]
+    ]);
+  });
+
+  it("restores a format 24 backup, which has neither table, leaving both empty and the foreign keys intact", async () => {
+    await seedRows(2);
+    await sql`INSERT INTO derived_settings (user_id) VALUES (${userId})`;
+    const written = await writeBackup(sql, { databaseUrl: testUrl.toString(), directory: dir });
+    const current = validateBackup(JSON.parse(await readFile(written.path, "utf8")));
+    // The same file as a format 24 build wrote it: no settings or model-call tables, the events in the same section.
+    const { derived_settings: _s, derived_model_calls: _c, ...format24Tables } = current.tables;
+    const { createHash } = await import("node:crypto");
+    const old = validateBackup(
+      JSON.parse(
+        JSON.stringify({
+          ...current,
+          formatVersion: 24,
+          tables: format24Tables,
+          sha256: createHash("sha256").update(JSON.stringify(format24Tables)).digest("hex")
+        })
+      )
+    );
+    const outcome = await restoreBackup(sql, old, written.path);
+    expect(outcome.absent).toEqual(["derived_settings", "derived_model_calls"]);
+    expect(outcome.streamedRows.activity_events).toBe(2);
+    expect(await sql`SELECT 1 FROM derived_settings`).toHaveLength(0);
+    expect(await sql`SELECT 1 FROM derived_model_calls`).toHaveLength(0);
+    expect(await sql`SELECT 1 FROM users WHERE id = ${userId}`).toHaveLength(1);
   });
 
   it("restores into a database that already holds other events: the restore replaces them", async () => {
