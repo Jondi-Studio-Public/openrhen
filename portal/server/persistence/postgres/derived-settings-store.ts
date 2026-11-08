@@ -52,6 +52,9 @@ export async function readDerivedSettings(sql: PoolSql): Promise<DerivedSettings
 export async function saveDerivedSettings(sql: PoolSql, patch: DerivedSettingsPatch): Promise<DerivedSettingsView> {
   const userId = await ensureUser(sql);
   return sql.begin(async (tx) => {
+    // Make the row exist first (a no-op when it does), so the FOR UPDATE below always has a row to lock and two first
+    // saves take turns instead of both seeing "no row" and the later overwriting the earlier's field.
+    await tx`INSERT INTO derived_settings (user_id) VALUES (${userId}) ON CONFLICT (user_id) DO NOTHING`;
     const [current] = await tx<SettingsRow[]>`
       SELECT ollama_url, t2_model, t3_model, t3_daily_message_cap, t3_daily_token_cap, backfill_days, updated_at
       FROM derived_settings WHERE user_id = ${userId} FOR UPDATE`;
@@ -65,14 +68,11 @@ export async function saveDerivedSettings(sql: PoolSql, patch: DerivedSettingsPa
       backfillDays: patch.backfillDays ?? held.backfillDays
     };
     const [saved] = await tx<SettingsRow[]>`
-      INSERT INTO derived_settings
-        (user_id, ollama_url, t2_model, t3_model, t3_daily_message_cap, t3_daily_token_cap, backfill_days, updated_at)
-      VALUES (${userId}, ${next.ollamaUrl}, ${next.t2Model}, ${next.t3Model}, ${next.t3DailyMessageCap},
-              ${next.t3DailyTokenCap}, ${next.backfillDays}, now())
-      ON CONFLICT (user_id) DO UPDATE SET
-        ollama_url = EXCLUDED.ollama_url, t2_model = EXCLUDED.t2_model, t3_model = EXCLUDED.t3_model,
-        t3_daily_message_cap = EXCLUDED.t3_daily_message_cap, t3_daily_token_cap = EXCLUDED.t3_daily_token_cap,
-        backfill_days = EXCLUDED.backfill_days, updated_at = EXCLUDED.updated_at
+      UPDATE derived_settings SET
+        ollama_url = ${next.ollamaUrl}, t2_model = ${next.t2Model}, t3_model = ${next.t3Model},
+        t3_daily_message_cap = ${next.t3DailyMessageCap}, t3_daily_token_cap = ${next.t3DailyTokenCap},
+        backfill_days = ${next.backfillDays}, updated_at = now()
+      WHERE user_id = ${userId}
       RETURNING ollama_url, t2_model, t3_model, t3_daily_message_cap, t3_daily_token_cap, backfill_days, updated_at`;
     return toView(saved);
   });

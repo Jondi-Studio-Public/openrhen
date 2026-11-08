@@ -24,7 +24,10 @@ CREATE TABLE "derived_settings" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "derived_settings_t3_message_cap_check" CHECK ("derived_settings"."t3_daily_message_cap" BETWEEN 0 AND 10000),
 	CONSTRAINT "derived_settings_t3_token_cap_check" CHECK ("derived_settings"."t3_daily_token_cap" BETWEEN 0 AND 100000000),
-	CONSTRAINT "derived_settings_backfill_days_check" CHECK ("derived_settings"."backfill_days" BETWEEN 1 AND 3650)
+	CONSTRAINT "derived_settings_backfill_days_check" CHECK ("derived_settings"."backfill_days" BETWEEN 1 AND 3650),
+	CONSTRAINT "derived_settings_ollama_url_check" CHECK (length("derived_settings"."ollama_url") <= 2048),
+	CONSTRAINT "derived_settings_t2_model_check" CHECK (length("derived_settings"."t2_model") <= 200),
+	CONSTRAINT "derived_settings_t3_model_check" CHECK (length("derived_settings"."t3_model") <= 200)
 );
 --> statement-breakpoint
 ALTER TABLE "derived_model_calls" ADD CONSTRAINT "derived_model_calls_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -32,6 +35,7 @@ ALTER TABLE "derived_settings" ADD CONSTRAINT "derived_settings_user_id_users_id
 CREATE INDEX "derived_model_calls_user_at_idx" ON "derived_model_calls" USING btree ("user_id","at");--> statement-breakpoint
 CREATE INDEX "activity_events_fact_id_idx" ON "activity_events" USING btree ("user_id",("attrs"->>'fact_id')) WHERE "activity_events"."kind" = 'fact';--> statement-breakpoint
 CREATE INDEX "activity_events_derived_idx" ON "activity_events" USING btree ("user_id","source","kind") WHERE "activity_events"."source" IN ('derived', 'derived-shadow');
+
 --> statement-breakpoint
 -- Append-only: an UPDATE of a model-call audit row is refused. DELETE stays possible (the user cascade) and so does
 -- TRUNCATE (restore and the test harness clear every backup table). Same shape as activity_events.

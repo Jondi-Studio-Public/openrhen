@@ -1,5 +1,5 @@
 {
-  "id": "1f2932bf-677e-4d61-8cff-cfa3d4980cba",
+  "id": "051be1a1-2f63-453d-abc9-94025b218e09",
   "prevId": "ef4d2072-8b8c-4f5d-ba16-df14350536ff",
   "version": "7",
   "dialect": "postgresql",
@@ -6687,6 +6687,18 @@
         "derived_settings_backfill_days_check": {
           "name": "derived_settings_backfill_days_check",
           "value": "\"derived_settings\".\"backfill_days\" BETWEEN 1 AND 3650"
+        },
+        "derived_settings_ollama_url_check": {
+          "name": "derived_settings_ollama_url_check",
+          "value": "length(\"derived_settings\".\"ollama_url\") <= 2048"
+        },
+        "derived_settings_t2_model_check": {
+          "name": "derived_settings_t2_model_check",
+          "value": "length(\"derived_settings\".\"t2_model\") <= 200"
+        },
+        "derived_settings_t3_model_check": {
+          "name": "derived_settings_t3_model_check",
+          "value": "length(\"derived_settings\".\"t3_model\") <= 200"
         }
       },
       "isRLSEnabled": false

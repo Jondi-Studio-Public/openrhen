@@ -59,6 +59,47 @@ describe("ollamaUrl", () => {
   });
 });
 
+describe("ollamaUrl is stored as the parsed origin and only when typed exactly so", () => {
+  it("refuses a control character or backslash, naming the fix, with no 500-making NUL reaching the database", () => {
+    for (const bad of [
+      "http://192.168.1.20:11434\u0000",
+      "http://192.168.1.20:\u000011434",
+      "http://192.168.1.20:11434\n",
+      "http://192.168.1.\t20:11434",
+      "http://192.168.1.20:11434\r\n",
+      "http://192.168.1.20:11434\\",
+      "http://192.168.1.20\\@evil:11434",
+      "http://192.168.1.20:11434\u007f"
+    ]) {
+      const text = problems({ ollamaUrl: bad });
+      expect(text, JSON.stringify(bad)).toContain("control character or backslash");
+      expect(text).toContain("http://192.168.1.20:11434");
+    }
+  });
+
+  it("refuses a value that is not exactly the origin (plus one optional trailing slash)", () => {
+    for (const bad of [
+      "http:///192.168.1.20:11434",
+      "http://@192.168.1.20:11434",
+      "HTTP://192.168.1.20:11434",
+      "http://LOCALHOST:11434",
+      "http://192.168.1.20:80",
+      "https://192.168.1.20:443",
+      "http://192.168.1.20:11434//",
+      "http:192.168.1.20:11434"
+    ]) {
+      const result = parseDerivedSettingsPatch({ ollamaUrl: bad });
+      expect(result.ok, bad).toBe(false);
+    }
+    expect(problems({ ollamaUrl: "HTTP://LocalHost:11434" })).toContain('"http://localhost:11434"');
+  });
+
+  it("stores the origin", () => {
+    expect(ok({ ollamaUrl: "http://192.168.1.20:11434/" })).toEqual({ ollamaUrl: "http://192.168.1.20:11434" });
+    expect(ok({ ollamaUrl: "https://host.example" })).toEqual({ ollamaUrl: "https://host.example" });
+  });
+});
+
 describe("model ids", () => {
   it("accepts ordinary ids, trims, and clears on null or empty", () => {
     expect(ok({ t2Model: " qwen3:8b ", t3Model: "meta-llama/Llama-3.3-70B-Instruct-Turbo" })).toEqual({
@@ -66,6 +107,13 @@ describe("model ids", () => {
       t3Model: "meta-llama/Llama-3.3-70B-Instruct-Turbo"
     });
     expect(ok({ t2Model: null, t3Model: "" })).toEqual({ t2Model: null, t3Model: null });
+  });
+
+  it("refuses path tricks: .. and // in an id", () => {
+    for (const bad of ["../qwen", "a/../b", "a//b", "a..b", "meta//llama"]) {
+      expect(problems({ t2Model: bad }), bad).toContain("t2Model");
+    }
+    expect(ok({ t3Model: "meta/llama-3.3-70b.v2" })).toEqual({ t3Model: "meta/llama-3.3-70b.v2" });
   });
 
   it("refuses spaces, control characters and a long id", () => {

@@ -263,6 +263,10 @@ async function readInTransaction(sql: Sql, userId: string, options: EvalReportOp
   };
 
   // Fact rows: only the newest `window` rows of each source are looked at (there is no index by fact id).
+  // The predicates that must match migration 0150's partial indexes (`source IN ('derived', 'derived-shadow')`,
+  // `kind = 'fact'`) are written as SQL literals, not bind parameters: a prepared statement can switch to a generic plan,
+  // which cannot prove a parameter implies a partial index's predicate and so cannot use the index. `source = ${source}`
+  // then only narrows within the literal.
   const factsBySource = new Map<string, { attrs: Record<string, unknown>; at: Date }[]>();
   const factCut = new Set<string>();
   if (factIds.length > 0)
@@ -270,7 +274,7 @@ async function readInTransaction(sql: Sql, userId: string, options: EvalReportOp
       const found = await sql<{ attrs: unknown; at: Date | null; scanned: number }[]>`
         WITH newest AS (
           SELECT kind, attrs, ingested_at FROM activity_events
-          WHERE user_id = ${userId} AND source = ${source}
+          WHERE user_id = ${userId} AND source IN ('derived', 'derived-shadow') AND source = ${source}
           ORDER BY ingested_at DESC LIMIT ${window})
         SELECT attrs, ingested_at AS at, (SELECT count(*)::int FROM newest) AS scanned
         FROM newest

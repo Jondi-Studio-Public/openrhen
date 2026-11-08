@@ -35,6 +35,7 @@ export const DERIVED_SETTINGS_LIMITS = {
 const OLLAMA_URL_MAX = 2048;
 const MODEL_ID_MAX = 200;
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$/;
+const MODEL_ID_PATH_TRICK = /\.\.|\/\//;
 const FIELDS = ["ollamaUrl", "t2Model", "t3Model", "t3DailyMessageCap", "t3DailyTokenCap", "backfillDays"] as const;
 const KEY_NAMES = new Set(["apiKey", "api_key", "key", "deepinfraApiKey", "deepinfra_api_key", "t3ApiKey", "token"]);
 
@@ -44,8 +45,16 @@ function parseUrl(value: unknown): { value: string | null } | { problem: string 
   if (value === null) return { value: null };
   if (typeof value !== "string")
     return { problem: 'ollamaUrl must be text such as "http://192.168.1.20:11434", or null to clear it.' };
-  const typed = value.trim();
+  // Only plain spaces are trimmed: a tab, newline or NUL at either end is refused below, not silently dropped (the URL
+  // parser would strip them and the stored text would differ from what was checked).
+  const typed = value.replace(/^ +| +$/g, "");
   if (typed === "") return { value: null };
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f-\u009f\\]/.test(typed))
+    return {
+      problem:
+        'ollamaUrl must not contain a control character or backslash (a NUL, tab, newline or "\\"). Retype it as plain text such as "http://192.168.1.20:11434".'
+    };
   if (typed.length > OLLAMA_URL_MAX)
     return { problem: `ollamaUrl is too long (at most ${OLLAMA_URL_MAX} characters). Send just the address and port.` };
   if (!/^https?:\/\//i.test(typed))
@@ -77,7 +86,14 @@ function parseUrl(value: unknown): { value: string | null } | { problem: string 
       problem:
         'ollamaUrl must be only the address and port, with no path, query or fragment, for example "http://192.168.1.20:11434"; the paths the portal calls are fixed.'
     };
-  return { value: typed.replace(/\/$/, "") };
+  // Store the parsed origin, and only accept text that is exactly it (plus one trailing slash): this refuses
+  // `http:///host`, `@host`, an upper-case scheme or host, a default port and anything else the parser would quietly
+  // rewrite, so what is stored is what was checked.
+  if (typed !== parsed.origin && typed !== `${parsed.origin}/`)
+    return {
+      problem: `ollamaUrl must be written as "${parsed.origin}" (lower-case scheme and host, no default port, nothing after the port). Send exactly that.`
+    };
+  return { value: parsed.origin };
 }
 
 function parseModel(field: "t2Model" | "t3Model", value: unknown): { value: string | null } | { problem: string } {
@@ -88,9 +104,9 @@ function parseModel(field: "t2Model" | "t3Model", value: unknown): { value: stri
   if (typed === "") return { value: null };
   if (typed.length > MODEL_ID_MAX)
     return { problem: `${field} is too long (at most ${MODEL_ID_MAX} characters). Send just the model id.` };
-  if (!MODEL_ID.test(typed))
+  if (!MODEL_ID.test(typed) || MODEL_ID_PATH_TRICK.test(typed))
     return {
-      problem: `${field} must be a model id with no spaces or control characters, using letters, digits and . _ : / @ + - (for example "qwen3:8b").`
+      problem: `${field} must be a model id with no spaces, control characters, ".." or "//", using letters, digits and . _ : / @ + - (for example "qwen3:8b").`
     };
   return { value: typed };
 }

@@ -9,7 +9,7 @@ import { databaseUrl } from "@/server/runtime-env";
  * card) never has to guess where it went.
  */
 const KEY_NOTE =
-  "The hosted (DeepInfra) API key is not stored here. It is a saved key under Settings > Passwords and keys, and a restore from a backup empties saved keys, so enter it again after one.";
+  "The hosted (DeepInfra) API key is not stored here. It is a saved key under Settings > Passwords and keys, and a restore from a backup empties saved keys, so enter it again after one. This setting only stores the address: the outbound proxy refuses loopback, link-local and metadata addresses, compose-service names and its own subnets when it makes the call, not here.";
 
 /**
  * Mail-understanding settings: the local model's address (`ollamaUrl`), the models the next extractor version is pinned

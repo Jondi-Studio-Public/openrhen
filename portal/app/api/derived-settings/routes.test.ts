@@ -41,6 +41,7 @@ describe("GET /api/derived-settings", () => {
     expect(body.settings).toEqual(saved);
     expect(body.note).toContain("Passwords and keys");
     expect(body.note).toContain("restore");
+    expect(body.note).toContain("outbound proxy refuses loopback");
     expect(JSON.stringify(body).toLowerCase()).not.toContain("sk-");
   });
 });

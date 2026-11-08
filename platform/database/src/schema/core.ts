@@ -3550,7 +3550,10 @@ export const derivedSettings = pgTable(
   (table) => [
     check("derived_settings_t3_message_cap_check", sql`${table.t3DailyMessageCap} BETWEEN 0 AND 10000`),
     check("derived_settings_t3_token_cap_check", sql`${table.t3DailyTokenCap} BETWEEN 0 AND 100000000`),
-    check("derived_settings_backfill_days_check", sql`${table.backfillDays} BETWEEN 1 AND 3650`)
+    check("derived_settings_backfill_days_check", sql`${table.backfillDays} BETWEEN 1 AND 3650`),
+    check("derived_settings_ollama_url_check", sql`length(${table.ollamaUrl}) <= 2048`),
+    check("derived_settings_t2_model_check", sql`length(${table.t2Model}) <= 200`),
+    check("derived_settings_t3_model_check", sql`length(${table.t3Model}) <= 200`)
   ]
 );
 

@@ -101,6 +101,36 @@ describe("derived settings store", () => {
     expect(await sql`SELECT 1 FROM derived_settings`).toHaveLength(1);
   });
 
+  it("keeps both fields when two first-time saves race", async () => {
+    for (let round = 0; round < 15; round++) {
+      await sql`DELETE FROM derived_settings`;
+      await Promise.all([
+        saveDerivedSettings(sql as never, { t2Model: "qwen3:8b" }),
+        saveDerivedSettings(sql as never, { backfillDays: 30 }),
+        saveDerivedSettings(sql as never, { t3DailyMessageCap: 7 })
+      ]);
+      expect(await readDerivedSettings(sql as never), `round ${round}`).toMatchObject({
+        t2Model: "qwen3:8b",
+        backfillDays: 30,
+        t3DailyMessageCap: 7
+      });
+    }
+  });
+
+  it("refuses over-long text at the database too", async () => {
+    await expect(
+      sql`INSERT INTO derived_settings (user_id, ollama_url) VALUES (${userId}, ${"http://" + "a".repeat(2050)})`
+    ).rejects.toThrow(/derived_settings_ollama_url_check/);
+    await expect(
+      sql`INSERT INTO derived_settings (user_id, t2_model) VALUES (${userId}, ${"m".repeat(201)})`
+    ).rejects.toThrow(/derived_settings_t2_model_check/);
+    await expect(
+      sql`INSERT INTO derived_settings (user_id, t3_model) VALUES (${userId}, ${"m".repeat(201)})`
+    ).rejects.toThrow(/derived_settings_t3_model_check/);
+    await sql`INSERT INTO derived_settings (user_id, ollama_url, t2_model, t3_model)
+              VALUES (${userId}, ${"h".repeat(2048)}, ${"m".repeat(200)}, ${"m".repeat(200)})`;
+  });
+
   it("keeps one person's settings from another's", async () => {
     await saveDerivedSettings(sql as never, { backfillDays: 10 });
     const [other] = await sql<{ id: string }[]>`INSERT INTO users (display_name) VALUES ('Second') RETURNING id`;
