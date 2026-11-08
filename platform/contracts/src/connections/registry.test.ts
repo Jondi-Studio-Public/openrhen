@@ -20,6 +20,7 @@ describe("built-in connections", () => {
       "google",
       "openai",
       "deepinfra",
+      "ollama",
       "pulse",
       "youtube_data"
     ]);
@@ -90,7 +91,8 @@ describe("registry", () => {
       ["travel_time", CAPABILITY_OPS.travel_time],
       ["geocoding", CAPABILITY_OPS.geocoding],
       ["status_publish", CAPABILITY_OPS.status_publish],
-      ["model_provider", CAPABILITY_OPS.model_provider]
+      // `complete` has two providers by design (DeepInfra and Ollama); callers name the connection.
+      ["model_provider", CAPABILITY_OPS.model_provider.filter((op) => op !== "complete")]
     ];
     for (const [capability, ops] of single) {
       for (const op of ops) {
@@ -101,6 +103,12 @@ describe("registry", () => {
         expect(declarers, `${capability}.${op}`).toHaveLength(1);
       }
     }
+  });
+
+  it("has the two complete providers, each named by the caller", () => {
+    const declarers = BUILTIN_CONNECTIONS.filter((c) => c.ops?.model_provider?.some((op) => op === "complete"));
+    expect(declarers.map((c) => c.id)).toEqual(["deepinfra", "ollama"]);
+    expect(connectionManifest("ollama")?.credentialSource).toBe("request");
   });
 
   it("resolves a connection by capability and op, and throws when none declares it", () => {

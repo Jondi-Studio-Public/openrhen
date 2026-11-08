@@ -57,9 +57,20 @@ export const BUILTIN_CONNECTIONS: readonly ConnectionManifest[] = [
     id: "deepinfra",
     label: "DeepInfra",
     capabilities: ["model_provider"],
-    ops: { model_provider: ["embed"] },
+    ops: { model_provider: ["embed", "complete"] },
     secrets: { anyOf: [["DEEPINFRA_API_KEY"]] },
     config: { DEEPINFRA_EMBEDDING_MODEL: { required: false } }
+  },
+  {
+    // A language model on the person's own machine (Ollama), reached over the LAN or tailnet. The address arrives in
+    // each request's body (`baseUrl`) and is checked by the proxy's address guard; there is no key.
+    id: "ollama",
+    label: "Ollama",
+    capabilities: ["model_provider"],
+    ops: { model_provider: ["complete"] },
+    secrets: { anyOf: [] },
+    credentialSource: "request",
+    config: {}
   },
   {
     id: "pulse",

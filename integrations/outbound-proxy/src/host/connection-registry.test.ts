@@ -11,6 +11,7 @@ describe("the connection host's lists", () => {
       "pulse",
       "openai",
       "deepinfra",
+      "ollama",
       "calendar_feed",
       "youtube_data"
     ]);
