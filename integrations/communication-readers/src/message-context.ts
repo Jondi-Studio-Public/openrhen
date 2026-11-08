@@ -8,6 +8,9 @@ export type MessageFactContext =
   | { ok: false; reason: MessageFactContextFailure };
 
 /** The address of a typed recipient, lower case: the part inside `<...>` when there is one. Used to drop repeats only. */
+// Dedupe here is by the address inside <...>, case-insensitive; the contracts validator (`attrs.who`) is stricter about
+// shape but only compares the whole typed string, case-insensitively. They differ on purpose: this drops repeats while
+// reading headers, the validator is the last guard on what is stored.
 const addressKey = (typed: string) => (/<([^<>]+)>/u.exec(typed)?.[1] ?? typed).trim().toLowerCase();
 const CONTROL_OR_SEPARATOR = /[\p{Cc}\p{Zl}\p{Zp}]/u;
 const usable = (value: unknown): value is string =>

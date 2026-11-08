@@ -320,6 +320,8 @@ function checkWho(attrs: Record<string, unknown>): string | null {
       entry.replace(INVISIBLE_OR_SPACE, "").length === 0
     )
       return `attrs.who[${index}] ${shown(entry)} is not an address as typed: send text of 1 to 254 characters with no control characters.`;
+  // Differs from messageFactContext on purpose: that drops repeats by the address inside <...>, case-insensitively, while
+  // reading headers; this last guard compares only the whole typed string (trimmed, case-insensitive).
   if (new Set(who.map((entry: string) => entry.trim().toLowerCase())).size !== who.length)
     return "attrs.who lists an address more than once (case aside). List each address once.";
   return null;

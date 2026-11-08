@@ -79,8 +79,13 @@ describe("the grounding gate", () => {
     expect(ground("Thanks", reply).ok).toBe(true);
   });
 
-  it("allows a quote that starts on an unquoted line and runs into a quoted one", () => {
-    expect(ground("Will do.\n> Can you", "Will do.\n> Can you send it?").ok).toBe(true);
+  it("refuses a span when any line it touches is quoted, not only the first", () => {
+    expect(ground("Will do.\n> Can you", "Will do.\n> Can you send it?")).toEqual({ ok: false, reason: "quoted_text" });
+    expect(ground("Thanks.\nBy Friday\n> old ask", "Hi\n\nThanks.\nBy Friday\n> old ask\n")).toEqual({
+      ok: false,
+      reason: "quoted_text"
+    });
+    expect(ground("Thanks.\nBy Friday", "Hi\n\nThanks.\nBy Friday\n> old ask\n").ok).toBe(true);
   });
 
   it("refuses a sentence with no letter or digit, such as emoji or punctuation alone", () => {
