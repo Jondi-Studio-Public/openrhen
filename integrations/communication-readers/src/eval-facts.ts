@@ -204,10 +204,57 @@ const validSpan = (span: FactSpan | null | undefined): span is FactSpan =>
   span.end > span.start;
 
 /**
+ * A candidate matches a labelled fact when their overlap is at least this fraction of the shorter span. Containment, not
+ * intersection over union: a model's quote moves with its wording (it may keep the clause and drop the sentence), so a
+ * quote inside the labelled one is the same fact, while a touch of a few code points on a long span is not.
+ */
+export const MIN_OVERLAP_OF_SHORTER = 0.25;
+const ASSIGN_LIMIT = 12;
+
+/**
+ * The one-to-one pairing of references with candidates that maximises the total overlap (then the most pairs, then the
+ * lowest ids). Exact by search when small; past `ASSIGN_LIMIT` on either side it takes the biggest overlaps first.
+ */
+function assign<R, C>(refs: readonly R[], cands: readonly C[], weight: (r: R, c: C) => number): [R, C][] {
+  if (refs.length > ASSIGN_LIMIT || cands.length > ASSIGN_LIMIT) {
+    const edges = refs.flatMap((r, i) => cands.map((c, j) => ({ r, c, i, j, w: weight(r, c) }))).filter((e) => e.w > 0);
+    edges.sort((a, b) => b.w - a.w || a.i - b.i || a.j - b.j);
+    const usedR = new Set<number>();
+    const usedC = new Set<number>();
+    const out: [R, C][] = [];
+    for (const e of edges) {
+      if (usedR.has(e.i) || usedC.has(e.j)) continue;
+      usedR.add(e.i);
+      usedC.add(e.j);
+      out.push([e.r, e.c]);
+    }
+    return out;
+  }
+  let best: { total: number; pairs: [R, C][] } = { total: 0, pairs: [] };
+  const search = (i: number, used: number, total: number, pairs: [R, C][]) => {
+    if (i === refs.length) {
+      if (total > best.total || (total === best.total && pairs.length > best.pairs.length))
+        best = { total, pairs: [...pairs] };
+      return;
+    }
+    for (let j = 0; j < cands.length; j++) {
+      const w = weight(refs[i]!, cands[j]!);
+      if ((used & (1 << j)) !== 0 || w <= 0) continue;
+      pairs.push([refs[i]!, cands[j]!]);
+      search(i + 1, used | (1 << j), total + w, pairs);
+      pairs.pop();
+    }
+    search(i + 1, used, total, pairs);
+  };
+  search(0, 0, 0, []);
+  return best.pairs;
+}
+
+/**
  * Predictions for labelled facts the version wrote under a different id. A reference whose own id the version wrote is
  * left to the exact join, and its row is not available to any other reference. Each other reference takes the
- * candidate row about the same message whose span overlaps most (ties by fact id), one row per reference and one
- * reference per row. A row or reference with no span is never matched: guessing would score a different fact.
+ * candidate row about the same message by the pairing with the most total overlap (one row per reference and one
+ * reference per row), counting a pair only when the overlap is at least `MIN_OVERLAP_OF_SHORTER` of the shorter span. A row or reference with no span is never matched: guessing would score a different fact.
  * The prediction carries the row's attrs (not its bookkeeping) under the labelled fact's id.
  */
 export function fallbackFactPredictions(
@@ -219,29 +266,31 @@ export function fallbackFactPredictions(
   const open = references.filter((reference) => !ownIds.has(reference.factId));
   const spare = rows.filter((row) => !wanted.has(row.factId));
 
-  const pairs: { reference: FactReference; row: FactRow; size: number }[] = [];
-  for (const reference of open) {
-    if (!validSpan(reference.span)) continue;
-    for (const row of spare) {
-      if (row.messageId !== reference.messageId || !validSpan(row.span)) continue;
-      const size = overlap(reference.span, row.span);
-      if (size > 0) pairs.push({ reference, row, size });
-    }
-  }
-  pairs.sort(
-    (a, b) => b.size - a.size || byText(a.reference.factId, b.reference.factId) || byText(a.row.factId, b.row.factId)
-  );
+  // Group by message: candidate lists are tiny, so each message is solved exactly.
+  const byMessage = new Map<string, FactReference[]>();
+  for (const reference of open)
+    if (validSpan(reference.span))
+      byMessage.set(reference.messageId, [...(byMessage.get(reference.messageId) ?? []), reference]);
 
   const usedReferences = new Set<string>();
-  const usedRows = new Set<string>();
   const predictions: EvalPrediction[] = [];
-  for (const { reference, row } of pairs) {
-    if (usedReferences.has(reference.factId) || usedRows.has(row.factId)) continue;
-    usedReferences.add(reference.factId);
-    usedRows.add(row.factId);
-    const attrs = { fact_type: row.factType, ...row.attrs };
-    for (const [field, value] of Object.entries(attrs).sort(([a], [b]) => byText(a, b)))
-      if (!BOOKKEEPING.has(field)) predictions.push({ subject: { kind: "fact", id: reference.factId }, field, value });
+  for (const [messageId, group] of [...byMessage].sort(([a], [b]) => byText(a, b))) {
+    const refs = group.sort((a, b) => byText(a.factId, b.factId));
+    const cands = spare
+      .filter((row) => row.messageId === messageId && validSpan(row.span))
+      .sort((a, b) => byText(a.factId, b.factId));
+    const weight = (reference: FactReference, row: FactRow): number => {
+      const size = overlap(reference.span!, row.span!);
+      const shorter = Math.min(reference.span!.end - reference.span!.start, row.span!.end - row.span!.start);
+      return size > 0 && size / shorter >= MIN_OVERLAP_OF_SHORTER ? size : 0;
+    };
+    for (const [reference, row] of assign(refs, cands, weight)) {
+      usedReferences.add(reference.factId);
+      const attrs = { fact_type: row.factType, ...row.attrs };
+      for (const [field, value] of Object.entries(attrs).sort(([a], [b]) => byText(a, b)))
+        if (!BOOKKEEPING.has(field))
+          predictions.push({ subject: { kind: "fact", id: reference.factId }, field, value });
+    }
   }
   const seen = new Set(open.map((reference) => reference.factId));
   return { predictions, matched: usedReferences.size, unmatched: seen.size - usedReferences.size };

@@ -203,6 +203,37 @@ describe("fallbackFactPredictions", () => {
   });
 });
 
+describe("fallbackFactPredictions: matching rules", () => {
+  const ref = (factId: string, span: [number, number]) => ({
+    factId,
+    messageId: "m1",
+    span: { start: span[0], end: span[1] }
+  });
+  const ownerOf = (result: ReturnType<typeof fallbackFactPredictions>, id: string) =>
+    result.predictions.find((p) => p.subject.id === id && p.field === "fact_type")?.value;
+
+  it("takes the assignment with the most overlap, not the biggest single pair first", () => {
+    // Greedy takes R1-A (10) and leaves R2 with only B, which does not touch it. Both can match.
+    const result = fallbackFactPredictions(
+      [fact("m1", "ask", "A", [10, 40]), fact("m1", "event", "B", [11, 20])],
+      [ref("R1", [0, 20]), ref("R2", [31, 60])]
+    );
+    expect(result.matched).toBe(2);
+    expect(ownerOf(result, "R1")).toBe("event");
+    expect(ownerOf(result, "R2")).toBe("ask");
+  });
+
+  it("does not match a one-code-point touch of a long span", () => {
+    const result = fallbackFactPredictions([fact("m1", "ask", "c", [99, 140])], [ref("R", [0, 100])]);
+    expect(result).toMatchObject({ matched: 0, unmatched: 1 });
+  });
+
+  it("matches a quote that sits inside the labelled one, however much shorter", () => {
+    const result = fallbackFactPredictions([fact("m1", "ask", "c", [40, 60])], [ref("R", [0, 200])]);
+    expect(result.matched).toBe(1);
+  });
+});
+
 describe("buildEvalReport with facts", () => {
   it("scores fact_types labels as fact metrics, not as a field, and a promoted version against labels made for the old one", () => {
     const labels: EvalLabel[] = [

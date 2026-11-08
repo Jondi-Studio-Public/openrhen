@@ -6,7 +6,7 @@ import postgres from "postgres";
 import { resolve } from "node:path";
 import { integrationDatabaseName } from "@openrhen/database";
 import { ensureUser } from "./ensure-user";
-import { readEvalReport } from "./eval-report-store";
+import { SHADOW_DONE_MAX, readEvalReport, reachedMessages } from "./eval-report-store";
 
 config({ path: resolve(process.cwd(), "../.env"), quiet: true });
 
@@ -589,5 +589,134 @@ describe("readEvalReport: facts", () => {
       labelled: 1,
       predicted: 0
     });
+  });
+
+  const wideCursor = () => ({
+    forward: { at: micro(at(60)), id: HIGH },
+    backfill: { at: micro(at(0)), id: LOW }
+  });
+  const factFor = (key: string, message: string, id: string, type: string, extra: Record<string, unknown> = {}) =>
+    row(
+      "derived",
+      "fact",
+      key,
+      at(30),
+      {
+        source_event_id: message,
+        fact_id: id,
+        fact_type: type,
+        extractor: "msg-class-t0",
+        extractor_version: "1",
+        ...extra
+      },
+      VIA
+    );
+
+  it("keeps one prediction per message when the same fact id is written for several messages", async () => {
+    await stateWith("1", true, wideCursor());
+    for (const key of ["m1", "m2", "m3"]) await messageAt(key, 10);
+    await typesLabel("m1", ["ask"]);
+    await typesLabel("m2", ["ask"]);
+    await typesLabel("m3", []);
+    for (const key of ["m1", "m2", "m3"]) await factFor(`f-${key}`, key, factId(1), "ask");
+    const report = await readEvalReport(sql);
+    expect(typeOf(report, "ask")).toMatchObject({ randomPositives: 2, hits: 2, predicted: 3, correct: 2 });
+    expect(report.versions[0]!.report.facts.falseAlarms).toMatchObject({ labelledEmpty: 1, flagged: 1 });
+  });
+
+  it("does not score a message the runner skipped or is retrying", async () => {
+    const skipped = await messageAt("m2", 10);
+    const retrying = await messageAt("m3", 10);
+    await messageAt("m1", 10);
+    await stateWith("1", true, {
+      ...wideCursor(),
+      skippedIds: [{ id: skipped, key: "m2", code: "extractor_error", at: "2026-11-08T00:00:00Z" }],
+      retries: { [retrying]: { n: 1 } }
+    });
+    await typesLabel("m1", []);
+    await typesLabel("m2", ["ask"]);
+    await typesLabel("m3", []);
+    const report = await readEvalReport(sql);
+    expect(report.versions[0]!.report.facts).toMatchObject({ scored: 1, notReached: 2 });
+    expect(typeOf(report, "ask")).toMatchObject({ randomPositives: 0 });
+    expect(report.versions[0]!.report.facts.falseAlarms.labelledEmpty).toBe(1);
+  });
+
+  it("joins a candidate to a labelled fact when only the fact is labelled, with no message label", async () => {
+    await stateWith("1", true, wideCursor());
+    await stateWith("2", false, { shadow: { done: ["m1"] } });
+    await messageAt("m1", 10);
+    await written(1, "m1", "ask", "1", at(30), { span: { start: 100, end: 140, hash: "0".repeat(12) } });
+    await label("lf", at(41), { fact_id: factId(1), field: "fact_type", answer: "ask" });
+    await row(
+      "derived-shadow",
+      "fact",
+      "n1",
+      at(31),
+      {
+        source_event_id: "m1",
+        fact_id: factId(9),
+        fact_type: "ask",
+        span: { start: 105, end: 140, hash: "1".repeat(12) },
+        extractor: "msg-class-t0",
+        extractor_version: "2"
+      },
+      VIA
+    );
+    const report = await readEvalReport(sql);
+    expect(report.versions[1]!.report.facts.fallback).toEqual({ matched: 1, unmatched: 0 });
+    expect(report.versions[1]!.report.fields.find((f) => f.field === "fact_type")).toMatchObject({ correct: 1 });
+  });
+
+  it("does not score a negative or a miss for a message whose rows could lie beyond a cut-short fact window", async () => {
+    await stateWith("1", true, wideCursor());
+    await messageAt("old", 10);
+    await messageAt("empty", 10);
+    await typesLabel("old", ["ask"]);
+    await typesLabel("empty", []);
+    await factFor("f-old", "old", factId(1), "ask");
+    for (let i = 0; i < 100; i++)
+      await row(
+        "derived",
+        "fact",
+        `fill${i}`,
+        at(100 + i),
+        {
+          source_event_id: "fill",
+          fact_id: i.toString(16).padStart(40, "0"),
+          fact_type: "ask",
+          extractor: "msg-class-t0",
+          extractor_version: "1"
+        },
+        VIA
+      );
+    const cut = await readEvalReport(sql, { window: 100 });
+    expect(cut.versions[0]!.report.facts).toMatchObject({ scored: 0, notReached: 2 });
+    expect(cut.versions[0]!.report.facts.falseAlarms.rate).toBeNull();
+    expect(typeOf(cut, "ask").recall).toBeNull();
+    const whole = await readEvalReport(sql);
+    expect(whole.versions[0]!.report.facts).toMatchObject({ scored: 2, notReached: 0 });
+    expect(typeOf(whole, "ask")).toMatchObject({ hits: 1 });
+  });
+
+  it("compares watermarks by time, so a millisecond-precision mark equals the same instant in microseconds", async () => {
+    await stateWith("1", true, {
+      forward: { at: at(11).toISOString(), id: HIGH },
+      backfill: { at: at(11).toISOString(), id: LOW }
+    });
+    await messageAt("m1", 11);
+    await typesLabel("m1", []);
+    const report = await readEvalReport(sql);
+    expect(report.versions[0]!.report.facts).toMatchObject({ scored: 1, notReached: 0 });
+  });
+
+  it("keeps the newest entries of an over-long shadow.done, not the oldest", () => {
+    const done = ["oldest", ...Array.from({ length: SHADOW_DONE_MAX }, (_, i) => `k${i}`), "newest"];
+    const held = new Map([
+      ["oldest", { id: "i1", mark: { at: "x", id: "i1" } }],
+      ["newest", { id: "i2", mark: { at: "x", id: "i2" } }]
+    ]);
+    const reached = reachedMessages(false, { shadow: { done } }, held);
+    expect([...reached]).toEqual(["newest"]);
   });
 });
