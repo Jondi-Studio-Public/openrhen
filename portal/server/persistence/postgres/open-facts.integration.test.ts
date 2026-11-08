@@ -64,7 +64,7 @@ async function fact(
   name: string,
   tsStart: Date,
   extra: Record<string, unknown> = {},
-  opts: { source?: string; version?: string; user?: string } = {}
+  opts: { source?: string; version?: string; user?: string; ingested?: Date } = {}
 ): Promise<void> {
   const attrs = {
     source_event_id: `m-${name}`,
@@ -77,17 +77,29 @@ async function fact(
     ...extra
   };
   await sql`INSERT INTO activity_events (user_id, source, kind, event_key, ts_start, attrs, ingested_at)
-    VALUES (${opts.user ?? userId}, ${opts.source ?? "derived"}, 'fact', ${`fact-${name}-${tsStart.getTime()}`}, ${tsStart}, ${sql.json(attrs as never)}, ${NOW})`;
+    VALUES (${opts.user ?? userId}, ${opts.source ?? "derived"}, 'fact', ${`fact-${name}-${tsStart.getTime()}`}, ${tsStart}, ${sql.json(attrs as never)}, ${opts.ingested ?? NOW})`;
 }
-async function message(thread: string, tsStart: Date, fromSelf: boolean): Promise<void> {
-  await sql`INSERT INTO activity_events (user_id, source, kind, event_key, ts_start, attrs)
+async function message(
+  thread: string,
+  tsStart: Date,
+  fromSelf: boolean,
+  extra: Record<string, unknown> = {},
+  ingested = NOW
+): Promise<void> {
+  await sql`INSERT INTO activity_events (user_id, source, kind, event_key, ts_start, attrs, ingested_at)
     VALUES (${userId}, 'gmail', 'message', ${`g-${thread}-${tsStart.getTime()}-${fromSelf}`}, ${tsStart},
-      ${sql.json({ thread_id: thread, from_self: fromSelf } as never)})`;
+      ${sql.json({ thread_id: thread, from_self: fromSelf, ...extra } as never)}, ${ingested})`;
 }
-async function status(name: string, s: string, validFrom: Date, via: string | null, ingested = NOW): Promise<void> {
+async function status(
+  name: string,
+  s: string,
+  validFrom: Date | string,
+  via: string | null,
+  ingested = NOW
+): Promise<void> {
   await sql`INSERT INTO activity_events (user_id, source, kind, event_key, ts_start, attrs, ingested_via, ingested_at)
-    VALUES (${userId}, 'derived', 'fact_status', ${`st-${name}-${s}-${validFrom.getTime()}-${via}`}, ${ingested},
-      ${sql.json({ fact_id: fid(name), status: s, valid_from: validFrom.toISOString() } as never)}, ${via}, ${ingested})`;
+    VALUES (${userId}, 'derived', 'fact_status', ${`st-${name}-${s}-${new Date(validFrom).getTime()}-${via}`}, ${ingested},
+      ${sql.json({ fact_id: fid(name), status: s, valid_from: typeof validFrom === "string" ? validFrom : validFrom.toISOString() } as never)}, ${via}, ${ingested})`;
 }
 async function override(
   name: string,
@@ -254,5 +266,55 @@ describe("readOpenFacts", () => {
     const read = await readOpenFacts(sql, { now: NOW });
     expect(read.facts.map((f) => f.factId)).toEqual([fid("a")]);
     expect(read.problems.join(" ")).toContain("1 fact row");
+  });
+
+  it("ignores an auto-reply when deciding whether he answered", async () => {
+    await fact("a", ago(3));
+    await fact("b", ago(3));
+    await message("th-a", ago(2), true, { auto_submitted: "auto-replied" });
+    await message("th-b", ago(2), true, { auto_submitted: "no" });
+    expect(await ids()).toEqual([fid("a")]);
+  });
+
+  it("clamps a status to when it was recorded, so a far-future valid_from cannot pin a fact open", async () => {
+    await fact("a", ago(4));
+    await status("a", "proposed", "2199-01-01T00:00:00Z", "mark", ago(3));
+    await status("a", "done", ago(1), null, ago(1));
+    expect(await ids()).toEqual([]);
+  });
+
+  it("dates a fact no later than it was recorded, so a future-dated message cannot reopen a closure", async () => {
+    await fact("a", ago(6));
+    await fact("a", new Date(NOW.getTime() + 23 * 3_600_000), {}, { ingested: ago(0.01) });
+    await status("a", "done", NOW, null, NOW);
+    expect(await ids()).toEqual([]);
+  });
+
+  it("a future-dated reply does not outlive its record: it is dated by when it arrived", async () => {
+    await fact("a", ago(3));
+    await message("th-a", new Date(NOW.getTime() + 20 * 3_600_000), true, {}, ago(2.5));
+    expect(await ids()).toEqual([]);
+  });
+
+  it("says plainly that facts whose message is older than the horizon are not read", async () => {
+    await fact("a", ago(1));
+    const read = await readOpenFacts(sql, { now: NOW, horizonDays: 30 });
+    expect(read.problems.join(" ")).toMatch(/older than 30 days are not read/);
+    expect(read.problems.join(" ")).toContain("horizonDays");
+  });
+
+  it("an orphan link row is listed and a link that names its target cancels only it", async () => {
+    const when = {
+      ref_time: ago(9).toISOString(),
+      tz: "UTC",
+      candidates: [{ start: ahead(4).toISOString() }],
+      ambiguous: false
+    };
+    await fact("m", ago(2), {
+      fact_type: "event",
+      links: [{ relation: "reschedule", target_fact_id: fid("gone") }],
+      when
+    });
+    expect(await ids()).toEqual([fid("m")]);
   });
 });

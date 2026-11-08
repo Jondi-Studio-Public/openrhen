@@ -34,6 +34,9 @@ import type { PoolSql, Sql } from "./sql-pool";
  *   - Messages come from `activity_events_thread_idx` (user, source, thread_id, ts_start), only for the conversations
  *     of facts whose reply or last message decides them (asks and commitments), and only from one day before the oldest
  *     fact read. No message content is read.
+ * Dates: a fact row is dated by the earlier of its message time and when it was recorded, a status takes effect no later
+ * than it was recorded, and a reply counts from the earlier of its time and its arrival, so a sender's clock cannot pin
+ * a status open or reopen a closure. An auto-reply (`auto_submitted` present and not `no`) is not an answer.
  * Correct without the fact_id index of the 2b-2 migration (it is never used here). Performance dependency: none beyond the
  * above; with the migration's `(user_id, source, kind) WHERE source IN ('derived', 'derived-shadow')` partial index the
  * candidate read would skip the class rows inside the range, which this read does not need for correctness.
@@ -99,11 +102,12 @@ function linksOf(value: unknown): FoldLink[] {
   const links: FoldLink[] = [];
   for (const item of value) {
     const entry = record(item);
-    if (
-      (entry.relation === "cancel" || entry.relation === "reschedule" || entry.relation === "repeat") &&
-      typeof entry.target_fact_id === "string"
-    )
-      links.push({ relation: entry.relation, targetFactId: entry.target_fact_id });
+    if (entry.relation === "cancel" || entry.relation === "reschedule" || entry.relation === "repeat")
+      links.push({
+        relation: entry.relation,
+        targetFactId:
+          typeof entry.target_fact_id === "string" && entry.target_fact_id !== "" ? entry.target_fact_id : null
+      });
   }
   return links;
 }
@@ -123,7 +127,7 @@ function whenOf(value: unknown): FoldWhen | null {
 }
 
 /** A fact row as the fold reads it, or null when it lacks a fact id, a known type or a readable time. */
-function factRowOf(row: { event_key: string; ts_start: Date; attrs: unknown }): FoldFactRow | null {
+function factRowOf(row: { event_key: string; ts_start: Date; ingested_at: Date; attrs: unknown }): FoldFactRow | null {
   const attrs = record(row.attrs);
   const factId = string(attrs.fact_id);
   const factType = attrs.fact_type;
@@ -133,6 +137,7 @@ function factRowOf(row: { event_key: string; ts_start: Date; attrs: unknown }): 
     factId,
     factType,
     tsStart: row.ts_start.toISOString(),
+    ingestedAt: Number.isNaN(row.ingested_at.getTime()) ? null : row.ingested_at.toISOString(),
     sourceEventId: string(attrs.source_event_id),
     conversationKey: string(attrs.conversation_key),
     icsUid: string(attrs.ics_uid),
@@ -177,8 +182,8 @@ async function readInTransaction(
   const problems: string[] = [];
 
   // Fact rows of the active versions in the horizon, newest first. One more than `maxRows` says whether it was cut.
-  const read = await sql<{ event_key: string; ts_start: Date; attrs: unknown }[]>`
-    SELECT e.event_key, e.ts_start, e.attrs FROM activity_events e
+  const read = await sql<{ event_key: string; ts_start: Date; ingested_at: Date; attrs: unknown }[]>`
+    SELECT e.event_key, e.ts_start, e.ingested_at, e.attrs FROM activity_events e
     WHERE e.user_id = ${userId} AND e.source = 'derived' AND e.kind = 'fact'
       AND e.ts_start >= ${from} AND e.ts_start <= ${to}
       AND EXISTS (
@@ -204,6 +209,12 @@ async function readInTransaction(
       `The horizon holds more than ${maxRows} fact rows, so the oldest were not read. Pass a smaller horizonDays (now ${days}) to read the whole of a shorter window, or a larger maxRows (at most ${OPEN_FACTS_MAX_ROWS_MAX}).`
     );
 
+  // Standing note: what the horizon leaves out. Counting the rows below it that still have a future time would walk
+  // fact rows with no index to serve it, so it is not done; the note says so.
+  problems.push(
+    `Facts whose source message is older than ${days} days are not read, so an event or deadline mentioned that long ago is missing and total may be low (counting them would scan fact rows with no index to serve it, so it is not done). Pass horizonDays up to ${OPEN_FACTS_HORIZON_DAYS_MAX} to look further back.`
+  );
+
   const scanned = { facts: candidates.length, statuses: 0, overrides: 0, messages: 0 };
   const horizon = { from: from.toISOString(), to: to.toISOString(), days };
   if (facts.length === 0) return { facts: [], total: 0, horizon, truncated, scanned, problems };
@@ -228,7 +239,14 @@ async function readInTransaction(
       const status = attrs.status;
       const validFrom = string(attrs.valid_from);
       if (typeof status !== "string" || validFrom === null) continue;
-      statuses.push({ factId, status: status as FoldStatus["status"], validFrom, actor, key: item.event_key });
+      statuses.push({
+        factId,
+        status: status as FoldStatus["status"],
+        validFrom,
+        actor,
+        key: item.event_key,
+        ingestedAt: item.at.toISOString()
+      });
       scanned.statuses += 1;
     } else if (typeof attrs.field === "string" && "new_value" in attrs) {
       overrides.push({
@@ -255,8 +273,10 @@ async function readInTransaction(
   const conversations: Record<string, FoldMessage[]> = {};
   if (threads.size > 0) {
     const messages = await sql<{ thread: string; last: Date; selfTimes: string[] }[]>`
-      SELECT attrs ->> 'thread_id' AS thread, max(ts_start) AS last,
-             coalesce(jsonb_agg(ts_start ORDER BY ts_start) FILTER (WHERE attrs ->> 'from_self' = 'true'), '[]'::jsonb) AS "selfTimes"
+      SELECT attrs ->> 'thread_id' AS thread, max(least(ts_start, ingested_at)) AS last,
+             coalesce(jsonb_agg(least(ts_start, ingested_at) ORDER BY ts_start) FILTER (
+               WHERE attrs ->> 'from_self' = 'true'
+                 AND coalesce(lower(btrim(attrs ->> 'auto_submitted')), 'no') IN ('no', '')), '[]'::jsonb) AS "selfTimes"
       FROM activity_events
       WHERE user_id = ${userId} AND source = 'gmail' AND attrs ? 'thread_id'
         AND attrs ->> 'thread_id' IN (SELECT jsonb_array_elements_text(${sql.json([...threads])}))

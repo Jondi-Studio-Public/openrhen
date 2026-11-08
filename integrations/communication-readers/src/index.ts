@@ -23,8 +23,11 @@ export type { FactStatus, ResolvedStatus, StatusActor, StatusRow } from "./fact-
 export {
   AMBIGUOUS_TIME_GRACE_HOURS,
   ASK_HORIZON_DAYS,
+  EVENT_DEFAULT_DURATION_HOURS,
   LINK_CHAIN_MAX,
   NO_TIME_HORIZON_DAYS,
+  REPEAT_LIFE_MAX_DAYS,
+  RESCHEDULE_MAX_DAYS,
   compareOpenFacts,
   foldFactStates,
   openFacts,

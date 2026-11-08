@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AMBIGUOUS_TIME_GRACE_HOURS,
+  EVENT_DEFAULT_DURATION_HOURS,
   ASK_HORIZON_DAYS,
   LINK_CHAIN_MAX,
   NO_TIME_HORIZON_DAYS,
@@ -9,6 +10,7 @@ import {
   openFacts,
   statusActorOf,
   type FoldFactRow,
+  type FoldLink,
   type FoldInput,
   type FoldOverride,
   type FoldStatus
@@ -166,7 +168,7 @@ describe("age-out", () => {
     const when = { candidates: [{ start: ago(0.5) }, { start: ago(0.2) }], ambiguous: true };
     const r = one({ facts: [fact("a", { factType: "event", tsStart: ago(5), when })] });
     expect(r.open).toBe(true);
-    expect(r.endsAt).toBe(new Date(Date.parse(ago(0.2)) + 24 * 3_600_000).toISOString());
+    expect(r.endsAt).toBe(new Date(Date.parse(ago(0.2)) + 27 * 3_600_000).toISOString());
     const gone = { candidates: [{ start: ago(2) }], ambiguous: true };
     expect(one({ facts: [fact("a", { factType: "event", tsStart: ago(5), when: gone })] }).state).toBe("expired");
   });
@@ -303,17 +305,23 @@ describe("links, resolved at read", () => {
     expect(one({ facts: [event("a", ago(2)), cancel("c", "a", ago(2))] }).open).toBe(true);
   });
 
-  it("ignores an orphan link (target absent)", () => {
-    const result = fold({ facts: [cancel("c", "zz", ago(2))] });
-    expect(result.get(id("c"))?.state).toBe("link");
-    expect(openFacts([...result.values()])).toEqual([]);
+  it("an orphan link row (its named target is absent) is a plain fact and is listed, so it never hides a real event", () => {
+    const result = fold({ facts: [cancel("c", "zz", ago(2), { when: undefined })] });
+    expect(result.get(id("c"))).toMatchObject({ state: "open", isLink: false });
+    expect(openFacts([...result.values()]).map((r) => r.factId)).toEqual([id("c")]);
+    const move: FoldFactRow = fact("m", {
+      factType: "event",
+      links: [{ relation: "reschedule", targetFactId: id("zz") }],
+      when: { candidates: [{ start: ahead(3) }], ambiguous: false }
+    });
+    expect(one({ facts: [move] }, "m")).toMatchObject({ open: true, dueAt: ahead(3) });
   });
 
   it("a person's or Mark's status beats the link, which shows as a note", () => {
     for (const actor of ["person", "mark"] as const) {
       const r = one({
         facts: [event("a", ago(6)), cancel("c", "a", ago(2))],
-        statuses: [status("a", "confirmed", ago(5), actor)]
+        statuses: [status("a", "confirmed", ago(1), actor)]
       });
       expect(r).toMatchObject({ state: "open", updateSeen: true, closedBy: null });
     }
@@ -322,6 +330,16 @@ describe("links, resolved at read", () => {
       statuses: [status("a", "done", ago(1), "person")]
     });
     expect(done).toMatchObject({ state: "closed", closedBy: "status", updateSeen: true });
+  });
+
+  it("a status older than the link does not neutralise a later cancel", () => {
+    for (const actor of ["person", "mark"] as const) {
+      const r = one({
+        facts: [event("a", ago(6)), cancel("c", "a", ago(2))],
+        statuses: [status("a", "confirmed", ago(5), actor)]
+      });
+      expect(r).toMatchObject({ state: "closed", closedBy: "link" });
+    }
   });
 
   it("an extractor status does not beat a link", () => {
@@ -340,23 +358,37 @@ describe("links, resolved at read", () => {
     expect(r.open).toBe(true);
   });
 
-  it("falls back to ics_uid, then to a single event in the conversation, when the target id is unknown", () => {
+  const noTarget = (relation: FoldLink["relation"] = "cancel") => [{ relation, targetFactId: null }];
+
+  it("falls back to ics_uid, then to a single event in the conversation, only when the link names no target", () => {
     const byUid = [
       event("a", ago(6), { icsUid: "uid-1" }),
-      cancel("c", "zz", ago(2), { icsUid: "uid-1", conversationKey: "gmail:other" })
+      cancel("c", "a", ago(2), { icsUid: "uid-1", links: noTarget() })
     ];
     expect(one({ facts: byUid }).closedBy).toBe("link");
-    const byConversation = [event("a", ago(6)), cancel("c", "zz", ago(2))];
+    const byConversation = [event("a", ago(6)), cancel("c", "a", ago(2), { links: noTarget() })];
     expect(one({ facts: byConversation }).closedBy).toBe("link");
     // Two candidate events in the conversation: ambiguous, so nothing is cancelled.
-    const two = fold({ facts: [event("a", ago(6)), event("b", ago(5)), cancel("c", "zz", ago(2))] });
+    const two = fold({
+      facts: [event("a", ago(6)), event("b", ago(5)), cancel("c", "a", ago(2), { links: noTarget() })]
+    });
     expect(two.get(id("a"))?.open).toBe(true);
     expect(two.get(id("b"))?.open).toBe(true);
   });
 
-  it("never falls back to another conversation without an ics_uid", () => {
-    const rows = [event("a", ago(6), { conversationKey: "gmail:x" }), cancel("c", "zz", ago(2))];
+  it("a named target that is not in the read set is orphaned: no fallback to the uid or the conversation", () => {
+    const rows = [event("a", ago(6), { icsUid: "uid-1" }), cancel("c", "zz", ago(2), { icsUid: "uid-1" })];
     expect(one({ facts: rows }).open).toBe(true);
+  });
+
+  it("the ics_uid fallback never crosses conversations, and neither does the conversation fallback", () => {
+    const rows = [
+      event("a", ago(6), { icsUid: "uid-1", conversationKey: "gmail:x" }),
+      cancel("c", "a", ago(2), { icsUid: "uid-1", links: noTarget() })
+    ];
+    expect(one({ facts: rows }).open).toBe(true);
+    const other = [event("a", ago(6), { conversationKey: "gmail:x" }), cancel("c", "a", ago(2), { links: noTarget() })];
+    expect(one({ facts: other }).open).toBe(true);
   });
 
   it("a reschedule keeps the target open at the new time and moves its expiry", () => {
@@ -368,7 +400,12 @@ describe("links, resolved at read", () => {
     });
     const target = event("a", ago(6), { when: { candidates: [{ start: ago(1) }], ambiguous: false } });
     const r = one({ facts: [target, move] });
-    expect(r).toMatchObject({ state: "open", status: "rescheduled", dueAt: ahead(9), endsAt: ahead(9) });
+    expect(r).toMatchObject({
+      state: "open",
+      status: "rescheduled",
+      dueAt: ahead(9),
+      endsAt: new Date(Date.parse(ahead(9)) + 3 * 3_600_000).toISOString()
+    });
     expect(r.movedBy).toBe(id("m"));
   });
 
@@ -418,7 +455,8 @@ describe("links, resolved at read", () => {
     const a: FoldFactRow = fact("a", { tsStart: ago(5), links: [{ relation: "reschedule", targetFactId: id("b") }] });
     const b: FoldFactRow = fact("b", { tsStart: ago(3), links: [{ relation: "reschedule", targetFactId: id("a") }] });
     const result = fold({ facts: [a, b] });
-    expect([...result.values()].every((r) => r.state === "link")).toBe(true);
+    // Neither link resolves, so neither hides anything: both are plain facts.
+    expect([...result.values()].every((r) => r.state === "open" && !r.isLink)).toBe(true);
   });
 
   it("the latest of several links decides", () => {
@@ -525,5 +563,135 @@ describe("ordering", () => {
     ];
     const listed = openFacts(foldFactStates({ now: NOW, facts, statuses: [status("b", "done", ago(1), "person")] }));
     expect(listed.map((r) => r.factId)).toEqual([id("c")]);
+  });
+});
+
+describe("hardening", () => {
+  const ev = (over: Partial<FoldFactRow> = {}) => fact("a", { factType: "event", tsStart: ago(1), ...over });
+
+  it("clamps a status's time to when it was recorded, so a far-future valid_from cannot pin an open status", () => {
+    const pinned: FoldStatus = {
+      ...status("a", "proposed", "2199-01-01T00:00:00Z", "mark"),
+      ingestedAt: ago(5)
+    };
+    const done: FoldStatus = { ...status("a", "done", ago(2), "person"), ingestedAt: ago(2) };
+    const r = one({ facts: [fact("a", { tsStart: ago(6) })], statuses: [pinned, done] });
+    expect(r).toMatchObject({ state: "closed", status: "done" });
+    // Without a recorded time the stated one stands (the pure fold's old behaviour).
+    expect(
+      one({ facts: [fact("a", { tsStart: ago(6) })], statuses: [{ ...pinned, ingestedAt: undefined }, done] }).state
+    ).toBe("open");
+  });
+
+  it("never throws on extreme or unreadable times and ignores them", () => {
+    const extreme = [
+      "9999-01-01T00:00:00Z",
+      "+275760-09-13T00:00:00.000Z",
+      "-000001-01-01T00:00:00Z",
+      "garbage",
+      "1969-12-31T23:59:59Z"
+    ];
+    for (const value of extreme) {
+      expect(() =>
+        foldFactStates({
+          now: NOW,
+          facts: [ev({ when: { candidates: [{ start: value, end: value }], ambiguous: true } })],
+          overrides: [
+            override("a", "when", { start: value }, ago(1), "person"),
+            override("a", "when", value, ago(1), "mark")
+          ],
+          statuses: [status("a", "confirmed", value, "person")]
+        })
+      ).not.toThrow();
+    }
+    const r = one({
+      facts: [ev()],
+      overrides: [override("a", "when", { start: "9999-01-01T00:00:00Z" }, ago(0.5), "person")]
+    });
+    expect(r.dueAt).toBeNull();
+    expect(() => foldFactStates({ now: NOW, facts: [fact("a", { tsStart: "nonsense" }), fact("b")] })).not.toThrow();
+    expect(fold({ facts: [fact("a", { tsStart: "nonsense" })] }).size).toBe(0);
+  });
+
+  it("reads a time with no offset as unreadable, whatever the server's zone", () => {
+    const before = process.env.TZ;
+    try {
+      for (const zone of ["America/New_York", "Pacific/Auckland", "UTC"]) {
+        process.env.TZ = zone;
+        const set = one({
+          facts: [ev({ tsStart: ago(5), when: { candidates: [{ start: ago(3) }], ambiguous: false } })],
+          overrides: [
+            override("a", "when", "2099-11-13T09:00:00", ago(1), "person"),
+            override("a", "when", { start: "2099-11-13T09:00:00" }, ago(1), "mark")
+          ]
+        });
+        // Both overrides are unreadable and ignored, so the row's own (past) time stands.
+        expect(set.state).toBe("expired");
+        const withOffset = one({
+          facts: [ev({ tsStart: ago(5) })],
+          overrides: [override("a", "when", "2099-11-13T09:00:00+11:00", ago(1), "person")]
+        });
+        expect(withOffset.dueAt).toBe("2099-11-12T22:00:00.000Z");
+        const rowCandidate = one({
+          facts: [ev({ tsStart: ago(5), when: { candidates: [{ start: "2099-11-13T09:00:00" }], ambiguous: false } })]
+        });
+        expect(rowCandidate.dueAt).toBeNull();
+      }
+    } finally {
+      if (before === undefined) delete process.env.TZ;
+      else process.env.TZ = before;
+    }
+  });
+
+  it("gives an event with a start and no end three hours, so a meeting that began minutes ago is open", () => {
+    const start = new Date(NOW.getTime() - 14 * 60_000).toISOString();
+    const r = one({ facts: [ev({ when: { candidates: [{ start }], ambiguous: false } })] });
+    expect(r.open).toBe(true);
+    expect(r.endsAt).toBe(new Date(Date.parse(start) + EVENT_DEFAULT_DURATION_HOURS * 3_600_000).toISOString());
+    const late = new Date(NOW.getTime() - 4 * 3_600_000).toISOString();
+    expect(one({ facts: [ev({ when: { candidates: [{ start: late }], ambiguous: false } })] }).state).toBe("expired");
+    // A deadline is a moment: it ends when it arrives.
+    const deadline = one({
+      facts: [ev({ factType: "deadline", when: { candidates: [{ start }], ambiguous: false } })]
+    });
+    expect(deadline.state).toBe("expired");
+  });
+
+  it("dates a fact by the earlier of its message time and when it was recorded, so a future-dated message cannot reopen a closure", () => {
+    const sentFuture = new Date(NOW.getTime() + 23 * 3_600_000).toISOString();
+    const rows = [
+      fact("a", { key: "first", tsStart: ago(6) }),
+      fact("a", { key: "future", tsStart: sentFuture, ingestedAt: ago(0.01) })
+    ];
+    const r = one({ facts: rows, statuses: [status("a", "done", NOW.toISOString(), "person")] });
+    expect(r).toMatchObject({ state: "closed", reopened: false });
+    // The same message honestly dated after the closure does reopen it.
+    const honest = [fact("a", { key: "first", tsStart: ago(6) }), fact("a", { key: "later", tsStart: ago(0.5) })];
+    expect(one({ facts: honest, statuses: [status("a", "done", ago(1), "person")] }).state).toBe("reopened");
+  });
+
+  it("does not move a fact more than a year past the reschedule's own message", () => {
+    const move = (days: number): FoldFactRow =>
+      fact("m", {
+        factType: "event",
+        tsStart: ago(2),
+        links: [{ relation: "reschedule", targetFactId: id("a") }],
+        when: { candidates: [{ start: ahead(days) }], ambiguous: false }
+      });
+    const target = ev({ tsStart: ago(6), when: { candidates: [{ start: ahead(5) }], ambiguous: false } });
+    const far = one({ facts: [target, move(400)] });
+    expect(far).toMatchObject({ state: "open", updateSeen: true, movedBy: null, dueAt: ahead(5) });
+    expect(far.status).not.toBe("rescheduled");
+    expect(one({ facts: [target, move(300)] })).toMatchObject({ status: "rescheduled", dueAt: ahead(300) });
+  });
+
+  it("lets repeats extend a fact's life to 90 days from its message and no further", () => {
+    const again = fact("r", { tsStart: ago(1), links: [{ relation: "repeat", targetFactId: id("a") }] });
+    const old = fact("a", { tsStart: ago(120) });
+    expect(one({ facts: [old, again] }).state).toBe("expired");
+    const young = fact("a", { tsStart: ago(80) });
+    const r = one({ facts: [young, again] });
+    expect(r.open).toBe(true);
+    expect(r.expiresAt).toBe(new Date(Date.parse(ago(1)) + 14 * DAY).toISOString());
   });
 });

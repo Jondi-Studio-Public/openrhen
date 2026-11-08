@@ -27,6 +27,12 @@ export const ASK_HORIZON_DAYS = 14;
 export const NO_TIME_HORIZON_DAYS = 14;
 export const AMBIGUOUS_TIME_GRACE_HOURS = 24;
 export const LINK_CHAIN_MAX = 3;
+/** An event with a start and no end runs this long, so a meeting that began minutes ago is not already over. */
+export const EVENT_DEFAULT_DURATION_HOURS = 3;
+/** `repeat` links extend a fact's life at most this far from its own message, in all. */
+export const REPEAT_LIFE_MAX_DAYS = 90;
+/** A `reschedule` moving a fact further than this past its own message is not applied. */
+export const RESCHEDULE_MAX_DAYS = 366;
 
 const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
@@ -39,7 +45,8 @@ export type FactClosedBy = "status" | "reply" | "link";
 
 export interface FoldLink {
   relation: "cancel" | "reschedule" | "repeat";
-  targetFactId: string;
+  /** The target's fact id. Only a link that names none falls back to the same ICS uid or the only event in the conversation. */
+  targetFactId?: string | null | undefined;
 }
 export interface FoldWhen {
   candidates: readonly { start: string; end?: string | null | undefined }[];
@@ -52,6 +59,8 @@ export interface FoldFactRow {
   factType: string;
   /** The source message's time (RFC 3339). */
   tsStart: string;
+  /** When the row was recorded (RFC 3339). The message time is clamped to it, so a sender-dated future message cannot reopen anything. */
+  ingestedAt?: string | null | undefined;
   /** The ICS SEQUENCE of the source message, when known: the tie-break between rows of one message time. */
   sequence?: number | null | undefined;
   sourceEventId?: string | null | undefined;
@@ -63,6 +72,8 @@ export interface FoldFactRow {
 }
 export interface FoldStatus extends StatusRow {
   factId: string;
+  /** When the row was recorded (RFC 3339). `validFrom` is clamped to it: a status cannot take effect before it is said. */
+  ingestedAt?: string | null | undefined;
 }
 export interface FoldOverride {
   factId: string;
@@ -130,9 +141,14 @@ export function statusActorOf(ingestedVia: string | null): StatusActor {
 }
 
 const NEG = Number.NEGATIVE_INFINITY;
+// RFC 3339 with an offset or Z only: a time without one would be read in the server's zone. Years 1970 to 2199 only.
+const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+const MIN_MS = Date.UTC(1970, 0, 1);
+const MAX_MS = Date.UTC(2200, 0, 1);
 const ms = (value: string | null | undefined): number => {
-  const parsed = value === null || value === undefined ? Number.NaN : Date.parse(value);
-  return Number.isNaN(parsed) ? NEG : parsed;
+  if (typeof value !== "string" || !RFC3339.test(value)) return NEG;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) || parsed < MIN_MS || parsed >= MAX_MS ? NEG : parsed;
 };
 const iso = (value: number): string => new Date(value).toISOString();
 const isFactType = (value: unknown): value is (typeof FACT_TYPES)[number] =>
@@ -176,16 +192,24 @@ function timingOf(value: unknown): Timing | undefined {
   return undefined;
 }
 
-function dueAndEnd(timing: Timing | null): { due: number | null; ends: number | null } {
+function dueAndEnd(timing: Timing | null, type: string): { due: number | null; ends: number | null } {
   if (timing === null || timing.readings.length === 0) return { due: null, ends: null };
   const due = Math.min(...timing.readings.map((r) => r.start));
-  const last = Math.max(...timing.readings.map((r) => r.end ?? r.start));
+  const open = type === "event" ? EVENT_DEFAULT_DURATION_HOURS * HOUR_MS : 0;
+  const last = Math.max(...timing.readings.map((r) => r.end ?? r.start + open));
   return { due, ends: last + (timing.ambiguous ? AMBIGUOUS_TIME_GRACE_HOURS * HOUR_MS : 0) };
 }
 
+/** The message time, no later than when the row was recorded (the sender's clock is not trusted). */
+const clampedTs = (row: FoldFactRow): number => {
+  const sent = ms(row.tsStart);
+  const recorded = ms(row.ingestedAt);
+  return recorded !== NEG && recorded < sent ? recorded : sent;
+};
+
 /** One row per fact id: the latest source message, then the higher ICS SEQUENCE, then the greater key. */
 function better(a: FoldFactRow, b: FoldFactRow): boolean {
-  const [x, y] = [ms(a.tsStart), ms(b.tsStart)];
+  const [x, y] = [clampedTs(a), clampedTs(b)];
   if (x !== y) return x > y;
   const [s, t] = [a.sequence ?? NEG, b.sequence ?? NEG];
   if (s !== t) return s > t;
@@ -229,12 +253,17 @@ export function foldFactStates(input: FoldInput): FactFold[] {
   const now = input.now.getTime();
   const winners = new Map<string, FoldFactRow>();
   for (const row of input.facts) {
+    if (ms(row.tsStart) === NEG) continue;
     const held = winners.get(row.factId);
     if (held === undefined || better(row, held)) winners.set(row.factId, row);
   }
   const statusesBy = new Map<string, FoldStatus[]>();
-  for (const status of input.statuses ?? [])
+  for (const raw of input.statuses ?? []) {
+    // A status takes effect no later than it was recorded, so a far-future valid_from cannot pin a fact's status.
+    const [said, recorded] = [ms(raw.validFrom), ms(raw.ingestedAt)];
+    const status = recorded !== NEG && said !== NEG && recorded < said ? { ...raw, validFrom: iso(recorded) } : raw;
     statusesBy.set(status.factId, [...(statusesBy.get(status.factId) ?? []), status]);
+  }
   const overridesBy = new Map<string, FoldOverride[]>();
   for (const item of input.overrides ?? [])
     overridesBy.set(item.factId, [...(overridesBy.get(item.factId) ?? []), item]);
@@ -248,7 +277,7 @@ export function foldFactStates(input: FoldInput): FactFold[] {
     const timing = whenOverride === undefined ? undefined : timingOf(whenOverride.newValue);
     effective.set(factId, {
       row,
-      ts: ms(row.tsStart),
+      ts: clampedTs(row),
       type: isFactType(typeOverride) ? typeOverride : row.factType,
       direction:
         directionOverride === "in" || directionOverride === "out" ? directionOverride : (row.direction ?? null),
@@ -272,27 +301,32 @@ export function foldFactStates(input: FoldInput): FactFold[] {
 
   // Where a link's target is: its id, else the same ICS uid, else the only event or deadline in the conversation.
   const targetsOf = (from: Effective, link: FoldLink): Effective[] => {
-    const named = effective.get(link.targetFactId);
-    if (named !== undefined) return named.row.factId === from.row.factId ? [] : [named];
+    // A link that names a target points there or nowhere: a target outside the read set is an orphan, never a guess.
+    if (link.targetFactId) {
+      const named = effective.get(link.targetFactId);
+      return named === undefined || named.row.factId === from.row.factId ? [] : [named];
+    }
     const earlier = [...effective.values()].filter(
-      (other) => !other.isLink && other.row.factId !== from.row.factId && other.ts < from.ts
+      (other) =>
+        !other.isLink &&
+        other.row.factId !== from.row.factId &&
+        other.ts < from.ts &&
+        other.row.conversationKey === from.row.conversationKey
     );
     if (from.row.icsUid) {
       const sameUid = earlier.filter((other) => other.row.icsUid === from.row.icsUid);
       if (sameUid.length > 0) return sameUid;
     }
     if (from.row.conversationKey) {
-      const sameConversation = earlier.filter(
-        (other) =>
-          other.row.conversationKey === from.row.conversationKey &&
-          (other.type === "event" || other.type === "deadline")
-      );
+      const sameConversation = earlier.filter((other) => other.type === "event" || other.type === "deadline");
       if (sameConversation.length === 1) return sameConversation;
     }
     return [];
   };
 
   const effects = new Map<string, Effect[]>();
+  // Link rows with at least one resolved target. The rest are plain facts: an unresolved link hides nothing.
+  const resolvedLinks = new Set<string>();
   // `relation` is the outermost link's: a cancel that names a reschedule row cancels the event that row moved.
   const walk = (outer: Effective, from: Effective, relation: FoldLink["relation"] | null, hop: number) => {
     for (const link of from.row.links ?? []) {
@@ -306,10 +340,17 @@ export function foldFactStates(input: FoldInput): FactFold[] {
         const list = effects.get(target.row.factId) ?? [];
         list.push({ relation: relation ?? link.relation, by: outer });
         effects.set(target.row.factId, list);
+        resolvedLinks.add(outer.row.factId);
       }
     }
   };
   for (const item of effective.values()) if (item.isLink && !voided(item)) walk(item, item, null, 1);
+
+  // A reschedule whose earliest new reading lies over RESCHEDULE_MAX_DAYS past the reschedule's own message is not applied.
+  const movesTooFar = (effect: Effect): boolean => {
+    const { due } = dueAndEnd(effect.by.timing, "event");
+    return due !== null && due > effect.by.ts + RESCHEDULE_MAX_DAYS * DAY_MS;
+  };
 
   const folds: FactFold[] = [];
   for (const [factId, item] of effective) {
@@ -323,7 +364,7 @@ export function foldFactStates(input: FoldInput): FactFold[] {
       direction: item.direction,
       tsStart: row.tsStart
     };
-    if (item.isLink) {
+    if (item.isLink && resolvedLinks.has(factId)) {
       folds.push({
         ...base,
         recentAt: row.tsStart,
@@ -348,12 +389,19 @@ export function foldFactStates(input: FoldInput): FactFold[] {
     const { resolved, reopened: droppedClosing } = statusFold(factId, item.ts);
     const winner = resolved.row;
     const explicit = winner !== null && (winner.actor === "person" || winner.actor === "mark");
+    // A statement beats a link only if it is newer than the link; an older one cannot neutralise a later cancel.
+    const beatsLink = (link: Effect | undefined) =>
+      explicit && link !== undefined && winner !== null && ms(winner.validFrom) > link.by.ts;
     const mine = [...(effects.get(factId) ?? [])].sort(
       (a, b) => a.by.ts - b.by.ts || (a.by.row.factId < b.by.row.factId ? -1 : 1)
     );
     const repeats = mine.filter((e) => e.relation === "repeat");
     const decisive = mine.filter((e) => e.relation !== "repeat").at(-1);
-    const repeatMs = repeats.length === 0 ? NEG : Math.max(...repeats.map((e) => e.by.ts));
+    // Repeats extend a fact's life, but never past REPEAT_LIFE_MAX_DAYS from its own message.
+    const repeatMs =
+      repeats.length === 0
+        ? NEG
+        : Math.min(Math.max(...repeats.map((e) => e.by.ts)), item.ts + REPEAT_LIFE_MAX_DAYS * DAY_MS);
     const effectiveTs = Math.max(item.ts, repeatMs);
     const recentAt = iso(effectiveTs);
 
@@ -370,14 +418,16 @@ export function foldFactStates(input: FoldInput): FactFold[] {
       state = "closed";
       closedBy = "status";
       closedAt = winner?.validFrom ?? null;
-      updateSeen = explicit && decisive !== undefined;
-    } else if (decisive !== undefined && explicit) {
+      updateSeen = beatsLink(decisive);
+    } else if (beatsLink(decisive)) {
       updateSeen = true;
     } else if (decisive?.relation === "cancel") {
       state = "closed";
       status = "cancelled";
       closedBy = "link";
       closedAt = decisive.by.row.tsStart;
+    } else if (decisive?.relation === "reschedule" && movesTooFar(decisive)) {
+      updateSeen = true;
     } else if (decisive?.relation === "reschedule") {
       // The target stays open at the time the reschedule row resolved to; with none, the old time is stale.
       movedBy = decisive.by.row.factId;
@@ -412,7 +462,7 @@ export function foldFactStates(input: FoldInput): FactFold[] {
       const lastMessage = messages.reduce((latest, m) => Math.max(latest, m.at), NEG);
       expiresMs = Math.max(effectiveTs, lastMessage) + ASK_HORIZON_DAYS * DAY_MS;
     } else {
-      const times = dueAndEnd(timing);
+      const times = dueAndEnd(timing, item.type);
       due = times.due;
       timedEnd = times.ends;
       expiresMs = timedEnd ?? Math.max(timeBase, repeatMs) + NO_TIME_HORIZON_DAYS * DAY_MS;
