@@ -1,9 +1,14 @@
 /** Reading and updating the momentary "where I am and what I have" record on user preferences. */
 import {
   currentSituationSchema,
+  personPresenceSchema,
+  requirementWaiverSchema,
+  stampPresence,
   stretchDeclineSchema,
   stretchRecordSchema,
   stretchStateSchema,
+  type PersonPresence,
+  type RequirementWaiver,
   type StretchState,
   transportModeSchema
 } from "@openrhen/contracts";
@@ -89,18 +94,98 @@ export function parseCurrentSituation(value: unknown): PortalState["currentSitua
   const storedModes = filterTransportModes(raw.transportModes);
   const transportModes = storedModes.length ? storedModes : [...ALL_TRANSPORT_MODES];
   const stretch = parseStretch(raw.stretch);
+  const presence = parseEntries(raw.presence, personPresenceSchema);
+  const waivers = parseEntries(raw.waivers, requirementWaiverSchema);
   return {
     locationId: typeof raw.locationId === "string" ? raw.locationId : null,
     ...(typeof raw.locationSetAt === "string" ? { locationSetAt: raw.locationSetAt } : {}),
     ...(parseEnergySetAt(raw.energySetAt) !== undefined ? { energySetAt: parseEnergySetAt(raw.energySetAt) } : {}),
     ...(stretch !== undefined ? { stretch } : {}),
     overrides,
+    ...(presence ? { presence } : {}),
+    ...(waivers ? { waivers } : {}),
     carrying,
     transportModes,
     travel: {},
     travelOff: typeof raw.travelOff === "boolean" ? raw.travelOff : false,
     ...(parseUnderway(raw.underway) !== undefined ? { underway: parseUnderway(raw.underway) } : {})
   };
+}
+
+/** Entry by entry, so one bad record costs only itself; `undefined` when nothing valid is left. */
+function parseEntries<T>(
+  value: unknown,
+  schema: { safeParse(input: unknown): { success: true; data: T } | { success: false } }
+): Record<string, T> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const kept: Record<string, T> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    const parsed = schema.safeParse(entry);
+    if (key && parsed.success) kept[key] = parsed.data;
+  }
+  return Object.keys(kept).length ? kept : undefined;
+}
+
+/**
+ * Safety expiry for a waiver ("do it without them"). It is one-time: it stops counting once the work it covers is
+ * completed after it was said (`waiver-consumption.ts`); this only clears one that was never used.
+ */
+export const WAIVER_DAYS = 7;
+/** Most people and waivers kept at once; the oldest give way. */
+const MAX_PRESENCE = 50;
+const MAX_WAIVERS = 50;
+
+/**
+ * Presence after a save. Only a verb (`"here"`, `"away"`, or `null` to clear) says anything: it is stamped by the
+ * server's clock to the end of the owner's local day. A stored-looking object in the payload is never read, so a
+ * whole situation resent by a client or the CLI can neither create nor extend one. What has run out is dropped.
+ */
+export function nextPresence(
+  previous: Record<string, PersonPresence> | undefined,
+  raw: Record<string, unknown>,
+  now: Date,
+  timeZone: string
+): Record<string, PersonPresence> | undefined {
+  const kept: Record<string, PersonPresence> = {};
+  for (const [id, entry] of Object.entries(previous ?? {}))
+    if (Date.parse(entry.until) > now.getTime()) kept[id] = entry;
+  const said = raw.presence && typeof raw.presence === "object" ? (raw.presence as Record<string, unknown>) : {};
+  for (const [id, verb] of Object.entries(said)) {
+    if (!id) continue;
+    if (verb === null) delete kept[id];
+    else if (verb === "here" || verb === "away") kept[id] = stampPresence(verb, now, timeZone);
+  }
+  const entries = Object.entries(kept).sort(([, a], [, b]) => a.setAt.localeCompare(b.setAt));
+  const limited = Object.fromEntries(entries.slice(-MAX_PRESENCE));
+  return Object.keys(limited).length ? limited : undefined;
+}
+
+/** Waivers after a save: a list of contact ids stamps one for that work, `null` removes it, an object is never read. */
+export function nextWaivers(
+  previous: Record<string, RequirementWaiver> | undefined,
+  raw: Record<string, unknown>,
+  now: Date
+): Record<string, RequirementWaiver> | undefined {
+  const kept: Record<string, RequirementWaiver> = {};
+  for (const [id, entry] of Object.entries(previous ?? {}))
+    if (Date.parse(entry.until) > now.getTime()) kept[id] = entry;
+  const said = raw.waivers && typeof raw.waivers === "object" ? (raw.waivers as Record<string, unknown>) : {};
+  for (const [workId, people] of Object.entries(said)) {
+    if (!workId) continue;
+    if (people === null) delete kept[workId];
+    else if (Array.isArray(people)) {
+      const ids = [...new Set(people.filter((id): id is string => typeof id === "string" && id.length > 0))];
+      if (ids.length)
+        kept[workId] = {
+          people: ids.slice(0, 12),
+          setAt: now.toISOString(),
+          until: new Date(now.getTime() + WAIVER_DAYS * DAY_MS).toISOString()
+        };
+    }
+  }
+  const entries = Object.entries(kept).sort(([, a], [, b]) => a.setAt.localeCompare(b.setAt));
+  const limited = Object.fromEntries(entries.slice(-MAX_WAIVERS));
+  return Object.keys(limited).length ? limited : undefined;
 }
 
 /** Strict like `parseUnderway`: only a real ISO datetime counts as when energy was said. */
@@ -179,9 +264,12 @@ function parseUnderway(value: unknown): PortalState["currentSituation"]["underwa
  */
 export function nextCurrentSituation(
   previous: PortalState["currentSituation"],
-  incomingRaw: unknown
+  incomingRaw: unknown,
+  options: { now?: Date; timeZone?: string } = {}
 ): PortalState["currentSituation"] {
   if (!incomingRaw || typeof incomingRaw !== "object") return previous;
+  const now = options.now ?? new Date();
+  const timeZone = options.timeZone ?? "UTC";
   const raw = incomingRaw as Record<string, unknown>;
   const parsed = parseCurrentSituation(raw);
   const nextLocationId = "locationId" in raw ? parsed.locationId : previous.locationId;
@@ -190,6 +278,8 @@ export function nextCurrentSituation(
   // Without this there is no way out of a stale location except changing away and back, and staleness
   // is what withdraws every location-derived capability.
   const locationAsserted = "locationId" in raw && parsed.locationId !== null;
+  const presence = nextPresence(previous.presence, raw, now, timeZone);
+  const waivers = nextWaivers(previous.waivers, raw, now);
   return {
     locationId: nextLocationId,
     locationSetAt:
@@ -199,6 +289,10 @@ export function nextCurrentSituation(
     // A partial update (e.g. just the location) must not silently wipe overrides/carrying the caller
     // never mentioned; only a key actually present in the payload replaces the stored value.
     overrides: locationChanged ? {} : "overrides" in raw ? parsed.overrides : previous.overrides,
+    // Who is with the owner, and what was waived, outlive a change of place: walking to the garage does not make
+    // Pete leave. Only a verb in this payload changes them (stamped here), and what has run out is dropped.
+    ...(presence ? { presence } : {}),
+    ...(waivers ? { waivers } : {}),
     carrying: "carrying" in raw ? parsed.carrying : previous.carrying,
     // Literal, not `parsed.transportModes`: a save that explicitly names this field is a deliberate
     // choice, including choosing none, and must persist exactly what was sent rather than have the
@@ -250,4 +344,16 @@ function nextUnderway(
   if (!previous) return null;
   if (locationAsserted && nextLocationId !== previous.fromLocationId) return null;
   return previous;
+}
+
+/**
+ * Called when an action is marked done: its waiver is used up there and then, so reopening it later is held
+ * again. (A completed occurrence has no such moment to hook, so the read above covers it.) No row changes when
+ * there is no waiver on it.
+ */
+export async function dropWaiverFor(tx: Sql, actionId: string): Promise<void> {
+  await tx`UPDATE user_preferences up SET current_situation = current_situation #- ARRAY['waivers', ${actionId}::text]
+    WHERE current_situation #> ARRAY['waivers', ${actionId}::text] IS NOT NULL
+      AND EXISTS (SELECT 1 FROM actions ac JOIN projects p ON p.id=ac.project_id JOIN outcomes o ON o.id=p.outcome_id
+        JOIN areas ar ON ar.id=o.area_id WHERE ac.id::text=${actionId} AND ar.user_id=up.user_id)`;
 }

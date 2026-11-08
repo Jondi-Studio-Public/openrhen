@@ -66,6 +66,17 @@ describe("condition usage counts", () => {
     expect(counts.get("desk")).toBe(1);
   });
 
+  it("counts a tagged requirement against the contact it tags, once per action", () => {
+    const counts = conditionRequirementCounts([
+      action([], [{ id: "a", contextIds: ["garage", "pete@with"] }]),
+      action([], [{ id: "b", contextIds: ["pete@remote"] }]),
+      action([], [{ id: "c", contextIds: ["pete", "pete@with"] }])
+    ]);
+    expect(counts.get("pete")).toBe(3);
+    expect(counts.get("garage")).toBe(1);
+    expect(counts.has("pete@with")).toBe(false);
+  });
+
   it("falls back to the legacy tags when an action has no pathways", () => {
     expect(conditionRequirementCounts([action(["home", "home"])]).get("home")).toBe(1);
   });

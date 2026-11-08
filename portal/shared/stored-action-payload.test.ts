@@ -52,6 +52,14 @@ describe("storedActionPayload", () => {
     });
   });
 
+  it("keeps a tagged person requirement exactly as stored, and the command still accepts it", () => {
+    const payload = storedActionPayload(
+      stored({ requirementPathways: [{ id: "p1", contextIds: ["garage", "pete@with"] }] })
+    );
+    expect(payload.requirementPathways).toEqual([{ id: "p1", contextIds: ["garage", "pete@with"] }]);
+    expect(saveActionCommandSchema.shape.action.safeParse(payload).success).toBe(true);
+  });
+
   it("applies overrides on top, and leaves prerequisites and prep to the server's keep-if-absent", () => {
     const payload = storedActionPayload(stored({ prepForCommitmentId: "c1" }), { status: "blocked" });
     expect(payload.status).toBe("blocked");

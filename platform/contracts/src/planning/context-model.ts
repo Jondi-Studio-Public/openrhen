@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { idUsesReservedSuffix } from "./requirement-key.js";
 
 /**
  * A condition is one of four semantically different things, and the distinction is the whole
@@ -125,6 +126,14 @@ const conditionDefinitionObjectSchema = z.object({
  * outside the one kind that resolves it.
  */
 export const conditionDefinitionSchema = conditionDefinitionObjectSchema.superRefine((definition, context) => {
+  // `pete@with` and `pete@remote` are tagged requirements on the contact `pete` (`requirement-key.ts`);
+  // an id that ended in either could not be told apart from one.
+  if (idUsesReservedSuffix(definition.id))
+    context.addIssue({
+      code: "custom",
+      path: ["id"],
+      message: "An id may not end in @with or @remote: those suffixes are reserved for requirements on a person."
+    });
   if (definition.kind === "live") {
     const set = [definition.recurrenceRuleId, definition.commitmentId].filter((value) => value !== undefined);
     if (set.length !== 1) {
@@ -211,6 +220,31 @@ export const stretchStateSchema = z.object({
 });
 export type StretchState = z.infer<typeof stretchStateSchema>;
 
+/**
+ * Whether a person is physically with the owner, said by the owner and dated. `until` is the end of the
+ * owner's local day it was said on (the server stamps both times, in the owner's timezone), after which it
+ * reads as unknown again; it never carries a "here" into the next day. Unlike `overrides` it survives a
+ * change of location, because walking to the garage does not make Pete leave.
+ */
+export const personPresenceSchema = z.object({
+  state: z.enum(["here", "away"]),
+  setAt: z.string().datetime({ offset: true }),
+  until: z.string().datetime({ offset: true })
+});
+export type PersonPresence = z.infer<typeof personPresenceSchema>;
+
+/**
+ * "Do it without them": the owner letting one action or step go ahead without the people it waits on. It is
+ * for that one piece of work only (the requirement stays on it, and its other conditions, including the place,
+ * still apply), and it lapses at `until` or when the work is finished. Written only on the owner's own words.
+ */
+export const requirementWaiverSchema = z.object({
+  people: z.array(z.string().min(1)).min(1).max(12),
+  setAt: z.string().datetime({ offset: true }),
+  until: z.string().datetime({ offset: true })
+});
+export type RequirementWaiver = z.infer<typeof requirementWaiverSchema>;
+
 export const currentSituationSchema = z.object({
   locationId: z.string().min(1).nullable().default(null),
   locationSetAt: z.string().datetime({ offset: true }).optional(),
@@ -223,6 +257,10 @@ export const currentSituationSchema = z.object({
   /** Stretch answers. Carried from the stored value by the server; a client-supplied value is ignored. */
   stretch: stretchStateSchema.optional(),
   overrides: z.record(z.string().min(1), z.enum(["available", "unavailable"])).default({}),
+  /** Contact id to whether that person is physically with the owner today. Server-stamped; see `personPresenceSchema`. */
+  presence: z.record(z.string().min(1), personPresenceSchema).optional(),
+  /** Action or step id to the people the owner waived for it. Server-stamped; see `requirementWaiverSchema`. */
+  waivers: z.record(z.string().min(1), requirementWaiverSchema).optional(),
   carrying: z.record(z.string().min(1), z.boolean()).default({}),
   /**
    * How you can travel right now. Empty means you cannot get anywhere, and nothing elsewhere is
@@ -286,6 +324,28 @@ export const liveHoldSchema = z.object({
 });
 export type LiveHold = z.infer<typeof liveHoldSchema>;
 
+/**
+ * What a pathway is waiting on when the only things in the way are people who are not known to be with
+ * the owner, mirroring `liveHoldSchema` for a commitment. `no` is a known absence (the owner said so) and
+ * blocks at once; `unknown` is nobody having said, which never schedules the work and never counts as no.
+ */
+export const personHoldSchema = z.object({
+  people: z
+    .array(
+      z.object({
+        contactId: z.string().min(1),
+        name: z.string().min(1),
+        state: z.enum(["unknown", "no"])
+      })
+    )
+    .min(1),
+  /** Ready-to-show copy, e.g. "Waiting on Pete." */
+  unavailableReason: z.string().min(1),
+  /** When a single required person is next due to be with the owner by a confirmed in-person commitment, if one is known. */
+  availableFrom: z.string().datetime({ offset: true }).optional()
+});
+export type PersonHold = z.infer<typeof personHoldSchema>;
+
 export const conditionMatchSchema = z.object({
   status: truthSchema,
   /** Set only when status is "yes". */
@@ -299,7 +359,9 @@ export const conditionMatchSchema = z.object({
   /** Present when the only thing standing in the way is being somewhere else. */
   reachableVia: conditionReachSchema.optional(),
   /** Present when the only thing standing in the way is a commitment not currently live. */
-  commitmentHold: liveHoldSchema.optional()
+  commitmentHold: liveHoldSchema.optional(),
+  /** Present when the only things in the way are people not known to be with the owner. */
+  personHold: personHoldSchema.optional()
 });
 export type ConditionMatch = z.infer<typeof conditionMatchSchema>;
 

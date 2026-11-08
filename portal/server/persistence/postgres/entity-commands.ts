@@ -66,6 +66,7 @@ import {
 } from "./command-values";
 import { assertCurrentLocationIsSavedPlace, optionalActiveLocationId } from "./location-context";
 import { nextCurrentSituation, parseCurrentSituation, reassertLocationOnWake } from "./current-situation";
+import { checkPeopleStatements } from "./presence-write";
 import { rollDeliverableSessionForward } from "./deliverable-session-rollover";
 import { writeDeliverableAggregate } from "./deliverable-write";
 import { ensureUser } from "./ensure-user";
@@ -83,7 +84,7 @@ import { completeStepActionOccurrence } from "./routine-step-window";
 import type { PoolSql, Sql } from "./sql-pool";
 import { watchContractReviewWrite, watchDeliverableWrite, watchEntityWrite } from "./entity-snapshot";
 import { WriteSnapshot } from "./write-snapshot";
-import { assertNotHomeLocation } from "./close-rules";
+import { assertNotHomeLocation, assertNotRequiredByOpenWork } from "./close-rules";
 
 /** The four disruption kinds `commitments`'s disruption_source CHECK constraint allows; only
  * their labels are ever user-editable, never the set itself. */
@@ -971,7 +972,10 @@ export async function saveEntity(sql: PoolSql, command: EntityCommandWithHash): 
       const allowedContextStatus: readonly string[] = ["active", "archived"];
       if (!allowedContextStatus.includes(status))
         throw invalidChoice("status", status, allowedContextStatus, { label: "Context status" });
-      if (status === "archived") await assertNotHomeLocation(tx, userId, id, rawId);
+      if (status === "archived") {
+        await assertNotHomeLocation(tx, userId, id, rawId);
+        await assertNotRequiredByOpenWork(tx, userId, id, rawId);
+      }
       const portability = optionalText(entity.portability) ?? "fixed";
       const allowedContextPortability: readonly string[] = ["fixed", "portable"];
       if (!allowedContextPortability.includes(portability))
@@ -1131,7 +1135,11 @@ export async function saveEntity(sql: PoolSql, command: EntityCommandWithHash): 
           { validValues: { transportModes: ["car", "bike", "walk"] } }
         );
       await assertCurrentLocationIsSavedPlace(tx, userId, entity.currentSituation, previousLocationId);
-      const placed = nextCurrentSituation(parseCurrentSituation(rows[0]?.current_situation), entity.currentSituation);
+      await checkPeopleStatements(tx, userId, entity.currentSituation);
+      const ownerZone = await tx<{ timezone: string }[]>`SELECT timezone FROM users WHERE id=${userId}`;
+      const placed = nextCurrentSituation(parseCurrentSituation(rows[0]?.current_situation), entity.currentSituation, {
+        timeZone: ownerZone[0]?.timezone ?? "UTC"
+      });
       // When energy was said: now if the value changed or the person
       // asserted it again (`energyAsserted`, from the energy chip), otherwise what was there. A write that
       // only moves the place resends energy unchanged and must not make it look newly said.

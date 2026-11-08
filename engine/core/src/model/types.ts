@@ -586,6 +586,12 @@ export interface Action {
    * while any remain; the forecast holds the work back on them the way it does for a blocked action.
    */
   waitingOn?: string[];
+  /**
+   * Names of the people this work needs (`pete@with`) who are not known to be with the owner. Unlike
+   * `waitingOn` it does not make a dependency incomplete, but the forecast holds the work out of the plan the same
+   * way: nobody is scheduled on a guess about who will be there.
+   */
+  waitingOnPeople?: string[];
   splittable?: boolean;
   setupMinutes?: number;
   lastWorkedAt?: Date;

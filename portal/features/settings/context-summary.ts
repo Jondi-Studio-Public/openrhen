@@ -1,3 +1,4 @@
+import { baseConditionId } from "@openrhen/contracts/readiness";
 import type { PortalState } from "@/state/portal-state";
 
 export type ConditionDefinition = PortalState["conditionDefinitions"][number];
@@ -113,9 +114,13 @@ export function withPlace<T extends { location: string; locationId: string }>(
 export function conditionRequirementCounts(actions: PortalState["actions"]): Map<string, number> {
   const counts = new Map<string, number>();
   for (const action of actions) {
-    const used = action.requirementPathways?.length
-      ? new Set(action.requirementPathways.flatMap((pathway) => pathway.contextIds))
-      : new Set(action.contexts);
+    // `pete@with` is a requirement on the contact `pete`, so it counts against that contact.
+    const used = new Set(
+      (action.requirementPathways?.length
+        ? action.requirementPathways.flatMap((pathway) => pathway.contextIds)
+        : action.contexts
+      ).map((key) => baseConditionId(key))
+    );
     for (const context of used) counts.set(context, (counts.get(context) ?? 0) + 1);
   }
   return counts;

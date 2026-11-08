@@ -489,7 +489,8 @@ export function buildNowModel({
             situation: state.currentSituation,
             conditionDefinitions: state.conditionDefinitions,
             now,
-            commitments: state.commitments
+            commitments: state.commitments,
+            timeZone: state.settings.timezone
           })
         )
       }

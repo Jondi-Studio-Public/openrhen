@@ -167,11 +167,13 @@ const CORE_WRITERS = {
   "portal/server/persistence/postgres/current-situation.ts": {
     class: "helper",
     reason:
-      "reassertLocationOnWake writes user_preferences only inside a caller's transaction. readers/preferences.ts imports only the pure parseCurrentSituation parser from here, not a writer.",
+      "reassertLocationOnWake and dropWaiverFor (a used-up person waiver) write user_preferences only inside a caller's transaction. readers/preferences.ts imports only the pure parseCurrentSituation parser from here, not a writer.",
     owners: [
       "portal/server/location/location-observation-store.ts",
       "portal/server/persistence/postgres/activity-commands.ts",
       "portal/server/persistence/postgres/entity-commands.ts",
+      "portal/server/persistence/postgres/project-commands.ts",
+      "portal/server/persistence/postgres/session-commands.ts",
       "portal/server/persistence/postgres/wake-command.ts"
     ]
   },

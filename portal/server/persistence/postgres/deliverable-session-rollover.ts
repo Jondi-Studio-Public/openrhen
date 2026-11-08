@@ -56,7 +56,8 @@ export async function rollDeliverableSessionForward(tx: Sql, deliverableId: stri
     situation: state.currentSituation,
     conditionDefinitions: state.conditionDefinitions,
     now: at,
-    commitments: state.commitments
+    commitments: state.commitments,
+    timeZone: state.settings.timezone
   });
   const nextStepId = nextExecutableStepId(deliverable, readiness);
 

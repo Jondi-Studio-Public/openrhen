@@ -203,7 +203,8 @@ export async function applyWorkspaceTool(
       situation: current.currentSituation,
       conditionDefinitions: current.conditionDefinitions,
       now: new Date(),
-      commitments: current.commitments
+      commitments: current.commitments,
+      timeZone: current.settings.timezone
     });
     if (!deliverable.criteria.length) throw new Error("the breakdown needs at least one completion criterion.");
     if (readiness.coverageFailures.length)

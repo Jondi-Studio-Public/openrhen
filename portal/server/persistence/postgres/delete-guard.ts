@@ -113,7 +113,7 @@ const NO_FOREIGN_KEY: Partial<Record<SnapshotTable, { found: string; where: stri
         AND t.id IN (r.location_id, r.contact_id))
       OR EXISTS (SELECT 1 FROM journey_samples j WHERE j.user_id = t.user_id
         AND t.id IN (j.origin_location_id, j.destination_location_id))
-      OR EXISTS (SELECT 1 FROM action_requirements q WHERE q.context_key = t.id)
+      OR EXISTS (SELECT 1 FROM action_requirements q WHERE q.context_key IN (t.id, t.id || '@with', t.id || '@remote'))
       OR EXISTS (SELECT 1 FROM action_preferences q WHERE q.context_key = t.id)
       OR EXISTS (SELECT 1 FROM routine_steps s WHERE s.user_id = t.user_id AND ${slugIn("s.contexts")})
       OR EXISTS (SELECT 1 FROM routine_preset_steps s JOIN routine_presets rp ON rp.id = s.preset_id

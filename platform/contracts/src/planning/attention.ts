@@ -397,6 +397,14 @@ export const ATTENTION_DOCTOR_TEMPLATES: Record<DoctorCheck, AttentionDoctorTemp
     title: "An action waits on unfinished prerequisites",
     why: "The engine holds it back until they are finished, so it is never offered."
   },
+  person_waiting_deadline: {
+    title: "Work with a deadline waits on a person",
+    why: "The engine will not offer it until the person is with you, and the deadline is close."
+  },
+  requirement_unresolvable: {
+    title: "A person requirement can never be met",
+    why: "It names someone who is undefined, archived, not a contact or without a remote channel, so the work is never offered."
+  },
   prerequisite_cycle: {
     title: "Prerequisites form a loop",
     why: "Nothing in the loop can ever start, so all of it is held back for good."
