@@ -211,6 +211,9 @@ export async function fetchCalendarFeed(rawUrl: string, options: FeedFetchOption
           lastError = error;
           if (controller.signal.aborted) throw aborted();
           if (!CONNECT_ERRORS.has((error as { code?: string }).code ?? "")) throw new FeedFetchError("network", host);
+          // attempt() got only the remaining budget, so its timer firing means the budget is spent. Do not
+          // re-derive that from Date.now(): the timer runs off the loop clock and can fire before it agrees.
+          if ((error as { code?: string }).code === "CONNECT_TIMEOUT") break;
         }
       }
       if (!hop) throw new FeedFetchError(lastError ? "connect_failed" : "timeout", host);
