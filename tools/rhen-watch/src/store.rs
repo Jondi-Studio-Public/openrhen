@@ -10,8 +10,13 @@ use serde_json::Value;
 
 use crate::model::{Ms, Op};
 
-/// 1: events, metrics, meta. 2: adds `input_buckets` (one-way: an older build refuses a v2 file).
+/// 1: events, metrics, meta. 2: adds `input_buckets` and a nullable `tz_offset_min` on `events` and
+/// `input_buckets` (one-way: an older build refuses a v2 file).
 const SCHEMA_VERSION: i64 = 2;
+
+/// An offset is stored only for a time this close to the moment it is written, so it is the offset in force
+/// then. Anything older (the gap a crash left, written at the next start) gets none rather than a guess.
+const OFFSET_FRESH_MS: Ms = 5 * 60_000;
 
 /// An interval that has started and not ended. Held in memory and mirrored to `meta.open_state` in the
 /// same transaction as every batch, so rows in `events` are written once, complete, and never changed.
@@ -22,11 +27,21 @@ pub struct OpenIv {
     pub kind: String,
     pub ts_start: Ms,
     pub attrs: serde_json::Map<String, Value>,
+    /// Minutes east of UTC when the interval opened; `None` when unknown (and for state saved by an older
+    /// build). Kept with the interval so the row carries the offset of its start, not of its close.
+    #[serde(default)]
+    pub tz_offset_min: Option<i32>,
 }
+
+/// A row's label (kind or exe) and its stored offset, for tests.
+#[cfg(test)]
+pub type Labelled = (String, Option<i32>);
 
 pub struct Store {
     conn: Connection,
     open: std::collections::BTreeMap<String, OpenIv>,
+    /// The local time zone, for the offset stored with each row. `None` stores no offset.
+    tz: Option<crate::tz::TzOffset>,
     /// Makes instant ids unique without scanning the table.
     salt: u64,
     seq: u64,
@@ -92,6 +107,7 @@ impl Store {
         Self {
             conn,
             open: Default::default(),
+            tz: None,
             salt,
             seq: 0,
             #[cfg(test)]
@@ -119,7 +135,8 @@ impl Store {
                ts_end   INTEGER NOT NULL,
                source   TEXT NOT NULL,
                kind     TEXT NOT NULL,
-               attrs    TEXT NOT NULL DEFAULT '{}'
+               attrs    TEXT NOT NULL DEFAULT '{}',
+               tz_offset_min INTEGER
              );
              CREATE INDEX IF NOT EXISTS events_by_start ON events (ts_start);
              CREATE TABLE IF NOT EXISTS metrics (
@@ -136,10 +153,18 @@ impl Store {
                run         INTEGER NOT NULL,
                observed_ms INTEGER NOT NULL,
                input_ms    INTEGER NOT NULL,
+               tz_offset_min INTEGER,
                PRIMARY KEY (minute_ts, exe, run)
              ) WITHOUT ROWID;",
         )?;
         conn.pragma_update(None, "secure_delete", "ON")?;
+        // A v1 file (or a v2 file from a build before the column) gains it; idempotent, so a half-applied
+        // upgrade finishes on the next open. Old rows keep NULL: their offset was never recorded.
+        for table in ["events", "input_buckets"] {
+            if !has_column(&conn, table, "tz_offset_min")? {
+                conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN tz_offset_min INTEGER"))?;
+            }
+        }
         let mut store = Self::bare(conn);
         if let Some(json) = store.meta("open_state")? {
             let list: Vec<OpenIv> = serde_json::from_str(&json).unwrap_or_default();
@@ -162,6 +187,11 @@ impl Store {
             Some(_) => {}
         }
         Ok(store)
+    }
+
+    /// Store each row's UTC offset from this time zone from now on.
+    pub fn set_tz(&mut self, tz: crate::tz::TzOffset) {
+        self.tz = Some(tz);
     }
 
     pub fn set_meta(&self, key: &str, value: &str) -> rusqlite::Result<()> {
@@ -192,6 +222,7 @@ impl Store {
                 _ => String::new(),
             })
             .collect();
+        let tz = self.tz.clone();
         let tx = self.conn.transaction()?;
         let mut open = self.open.clone();
         for (op, instant_id) in ops.iter().zip(instant_ids) {
@@ -211,6 +242,7 @@ impl Store {
                             kind: kind.clone(),
                             ts_start: *ts,
                             attrs: attrs.clone(),
+                            tz_offset_min: offset_for(&tz, *ts, now),
                         },
                     );
                 }
@@ -232,6 +264,7 @@ impl Store {
                         kind: kind.clone(),
                         ts_start: *ts,
                         attrs: attrs.clone(),
+                        tz_offset_min: offset_for(&tz, *ts, now),
                     };
                     insert_row(&tx, device, &iv, end.unwrap_or(*ts).max(*ts))?;
                 }
@@ -242,10 +275,11 @@ impl Store {
                     observed_ms,
                     input_ms,
                 } => {
+                    // The offset of the minute's first write stays: the update leaves it alone.
                     tx.execute(
-                        "INSERT INTO input_buckets (minute_ts, exe, run, observed_ms, input_ms) VALUES (?1,?2,?3,?4,?5)
+                        "INSERT INTO input_buckets (minute_ts, exe, run, observed_ms, input_ms, tz_offset_min) VALUES (?1,?2,?3,?4,?5,?6)
                          ON CONFLICT(minute_ts, exe, run) DO UPDATE SET observed_ms=excluded.observed_ms, input_ms=excluded.input_ms",
-                        params![minute_ts, exe, *run as i64, observed_ms, input_ms],
+                        params![minute_ts, exe, *run as i64, observed_ms, input_ms, offset_for(&tz, *minute_ts, now)],
                     )?;
                 }
                 Op::Meta { key, value } => {
@@ -403,6 +437,22 @@ impl Store {
         self.conn.execute("DELETE FROM input_buckets WHERE minute_ts < ?1", params![cutoff])
     }
 
+    /// `(kind, tz_offset_min)` of every event row, and `(exe, tz_offset_min)` of every bucket row.
+    #[cfg(test)]
+    pub fn raw_offsets_for_test(&self) -> (Vec<Labelled>, Vec<Labelled>) {
+        let pairs = |sql: &str| -> Vec<Labelled> {
+            let mut stmt = self.conn.prepare(sql).unwrap();
+            stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .map(Result::unwrap)
+                .collect()
+        };
+        (
+            pairs("SELECT kind, tz_offset_min FROM events ORDER BY ts_start, id"),
+            pairs("SELECT exe, tz_offset_min FROM input_buckets ORDER BY minute_ts, exe"),
+        )
+    }
+
     #[cfg(test)]
     pub fn drop_input_buckets_for_test(&self) {
         self.conn.execute_batch("DROP TABLE input_buckets").unwrap();
@@ -456,7 +506,7 @@ impl Store {
 
 fn insert_row(tx: &rusqlite::Transaction, device: &str, iv: &OpenIv, end: Ms) -> rusqlite::Result<()> {
     tx.execute(
-        "INSERT OR IGNORE INTO events (id, device, ts_start, ts_end, source, kind, attrs) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        "INSERT OR IGNORE INTO events (id, device, ts_start, ts_end, source, kind, attrs, tz_offset_min) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
         params![
             iv.id,
             device,
@@ -464,8 +514,27 @@ fn insert_row(tx: &rusqlite::Transaction, device: &str, iv: &OpenIv, end: Ms) ->
             end,
             iv.source,
             iv.kind,
-            Value::Object(iv.attrs.clone()).to_string()
+            Value::Object(iv.attrs.clone()).to_string(),
+            iv.tz_offset_min
         ],
     )?;
     Ok(())
+}
+
+fn has_column(conn: &Connection, table: &str, column: &str) -> rusqlite::Result<bool> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let names = stmt.query_map([], |r| r.get::<_, String>(1))?;
+    for name in names {
+        if name? == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// The offset to store for an event at `ts` written at `now`: only when `ts` is recent (see `OFFSET_FRESH_MS`)
+/// and a time zone is set.
+fn offset_for(tz: &Option<crate::tz::TzOffset>, ts: Ms, now: Ms) -> Option<i32> {
+    let tz = tz.as_ref()?;
+    ((now - ts).abs() <= OFFSET_FRESH_MS).then(|| tz.offset_at(ts))
 }
