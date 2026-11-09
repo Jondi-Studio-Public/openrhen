@@ -26,6 +26,9 @@ export type OllamaDeps = ResolveDeps & {
   fetch: typeof fetch;
   signal: AbortSignal;
   timeoutMs?: number;
+  /** The whole time the caller allows, named in a timeout message; absent: timeoutMs. It differs from
+   * timeoutMs when time spent queueing has already been taken off. */
+  allowedMs?: number;
   /** Ports the operator allows; absent: 11434 only. */
   allowedPorts?: ReadonlySet<number>;
 };
@@ -162,7 +165,7 @@ export async function completeWithOllama(input: OllamaInput, deps: OllamaDeps): 
     if (timedOut)
       return fail(
         "timeout",
-        `Ollama at ${shown} did not finish within ${spoken(deps.timeoutMs ?? OLLAMA_TIMEOUT_MS)}. A model that is still loading can take minutes the first time: wait and retry, or use a smaller model.`
+        `Ollama at ${shown} did not finish within ${spoken(deps.allowedMs ?? deps.timeoutMs ?? OLLAMA_TIMEOUT_MS)}. A model that is still loading can take minutes the first time: wait and retry, or use a smaller model.`
       );
     if (deps.signal.aborted) throw error;
     if (error instanceof InvalidUpstreamStatus)
