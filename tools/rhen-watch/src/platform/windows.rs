@@ -914,3 +914,21 @@ pub fn clear_autostart() -> Result<(), String> {
         }
     }
 }
+
+/// Stop this process's console handles from being inherited by a child it starts.
+///
+/// Rust starts every child with handle inheritance on, so a long-lived agent started by `install` would
+/// otherwise keep a copy of whatever stdout and stderr `install` was given. When a script captures
+/// `install`'s output through a pipe, that copy holds the pipe open and the script waits for ever.
+pub fn stop_std_handle_inheritance() {
+    for id in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+        // SAFETY: GetStdHandle has no preconditions; SetHandleInformation only changes a flag on a
+        // handle this process owns, and a null or invalid handle makes it fail harmlessly.
+        unsafe {
+            let h = GetStdHandle(id);
+            if !h.is_null() && h != INVALID_HANDLE_VALUE {
+                SetHandleInformation(h, HANDLE_FLAG_INHERIT, 0);
+            }
+        }
+    }
+}
