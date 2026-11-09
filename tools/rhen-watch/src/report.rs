@@ -3,8 +3,11 @@
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
+use crate::categories::{self, Catalogue};
+use crate::derive::{self, Availability, DayFacts, DeriveInput, InputBlock, Params};
 use crate::model::{Ms, SRC_AGENT, SRC_FOREGROUND, SRC_IDLE, SRC_POWER, SRC_SESSION};
-use crate::store::{EventRow, MetricRow, Store};
+use crate::store::{BucketRow, EventRow, MetricRow, Store};
+use crate::tz::TzOffset;
 
 type Span = (Ms, Ms);
 
@@ -38,7 +41,7 @@ pub fn fmt_duration(ms: Ms) -> String {
     }
 }
 
-fn fmt_clock(ts: Ms, offset_min: i32) -> String {
+pub fn fmt_clock(ts: Ms, offset_min: i32) -> String {
     let secs = (ts / 1000) + i64::from(offset_min) * 60;
     let day_secs = secs.rem_euclid(86_400);
     format!("{:02}:{:02}", day_secs / 3600, (day_secs % 3600) / 60)
@@ -63,18 +66,235 @@ pub struct ReportInput<'a> {
     pub to: Ms,
     /// Where open intervals are cut off: the last heartbeat, or now.
     pub open_until: Ms,
-    pub offset_min: i32,
+    pub tz: TzOffset,
+    /// The current category map: categories are re-resolved from it, so labelling an exe relabels history here.
+    pub catalogue: &'a Catalogue,
+    pub params: &'a Params,
+    /// `collectors.idle`; with it off there is no input data and the report says that rather than print zeros.
+    pub idle_collector: bool,
+}
+
+/// Everything `render` reads, loaded once.
+pub struct Rows<'a> {
+    /// Events overlapping the day.
+    pub day_events: &'a [EventRow],
+    /// Events overlapping the day plus the lookaround, for derived facts that run over midnight.
+    pub all_events: &'a [EventRow],
+    pub buckets: &'a [BucketRow],
+    pub has_buckets_table: bool,
+    /// End of the oldest stored event (see `DeriveInput::events_floor`).
+    pub events_floor: Option<Ms>,
+    pub metrics: &'a [MetricRow],
+    pub db_bytes: i64,
 }
 
 pub fn build(store: &Store, input: &ReportInput) -> Result<String, String> {
-    let mut events = store.events_between(input.from, input.to).map_err(|e| e.to_string())?;
-    events.extend(store.open_rows().into_iter().filter(|e| e.ts_start < input.to));
-    events.sort_by_key(|e| e.ts_start);
+    let look = input.params.lookaround_ms();
+    let (lo, hi) = (input.from - look, input.to + look);
+    let mut all = store.events_between(lo, hi).map_err(|e| e.to_string())?;
+    all.extend(store.open_rows().into_iter().filter(|e| e.ts_start < hi));
+    all.sort_by_key(|e| e.ts_start);
+    let day: Vec<EventRow> = all
+        .iter()
+        .filter(|e| e.ts_start < input.to && e.ts_end.is_none_or(|end| end >= input.from))
+        .cloned()
+        .collect();
+    let buckets = store.buckets_between(lo, hi).map_err(|e| e.to_string())?;
     let metrics = store.metrics_between(input.from, input.to).map_err(|e| e.to_string())?;
-    Ok(render(&events, &metrics, input, store.db_bytes()))
+    Ok(render(
+        &Rows {
+            day_events: &day,
+            all_events: &all,
+            buckets: &buckets,
+            has_buckets_table: store.has_input_buckets(),
+            events_floor: store.earliest_event_end().map_err(|e| e.to_string())?,
+            metrics: &metrics,
+            db_bytes: store.db_bytes(),
+        },
+        input,
+    ))
 }
 
-pub fn render(events: &[EventRow], metrics: &[MetricRow], input: &ReportInput, db_bytes: i64) -> String {
+const WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+fn clock(ts: Ms, tz: &TzOffset) -> String {
+    fmt_clock(ts, tz.offset_at(ts))
+}
+
+/// The offset of the day, or both when clocks changed during it.
+fn offset_label(input: &ReportInput) -> String {
+    let (start, end) = (input.tz.offset_at(input.from), input.tz.offset_at(input.to - 1));
+    if start == end {
+        fmt_offset(start)
+    } else {
+        format!("{} then {}", fmt_offset(start), fmt_offset(end))
+    }
+}
+
+fn plural(n: u32, one: &str) -> String {
+    if n == 1 { format!("{n} {one}") } else { format!("{n} {one}s") }
+}
+
+fn block_text(b: &InputBlock, tz: &TzOffset) -> String {
+    let mut out = format!("{}-{} {}m active", clock(b.start, tz), clock(b.end, tz), b.active_minutes);
+    if b.detours > 0 {
+        out.push_str(&format!(", {} ({}m)", plural(b.detours, "detour"), b.detour_minutes));
+    }
+    if b.loose() {
+        out.push_str(", loose");
+    }
+    if b.remote {
+        out.push_str(", remote");
+    }
+    if b.continues_from_previous_day {
+        out.push_str(", continues from the day before");
+    }
+    if b.continues_after_midnight {
+        out.push_str(", continues after midnight");
+    }
+    out
+}
+
+/// "Your day at the PC": facts derived from the rows, labelled as such, in neutral words. No sentence here
+/// claims anything about a person, only about input.
+fn day_section(facts: &DayFacts, rows: &Rows, input: &ReportInput, uncategorised: &[(String, Ms)]) -> String {
+    let tz = &input.tz;
+    let mut out = String::new();
+    let weekday = WEEKDAYS[(tz.day_of(input.from) + 4).rem_euclid(7) as usize];
+    let offset = offset_label(input);
+    let _ = writeln!(
+        out,
+        "Your day at the PC, {weekday} {} ({offset})   [derived from the rows below; not stored]",
+        input.label
+    );
+    match facts.availability {
+        Availability::NoInputData => {
+            let why = if !rows.has_buckets_table {
+                "agent older than this report"
+            } else if !input.idle_collector {
+                "idle collector off"
+            } else {
+                // The table exists and the collector is on: nothing was tallied that day.
+                let _ = writeln!(out, "  no input data for this day");
+                return out;
+            };
+            let _ = writeln!(out, "  no input data ({why})");
+            return out;
+        }
+        Availability::EventsPurged => {
+            let _ = writeln!(
+                out,
+                "  partial: events purged; no facts for this day (the rows they are read against are gone)"
+            );
+            return out;
+        }
+        Availability::Ok => {}
+    }
+    if facts.partial {
+        let _ = writeln!(out, "  (partial: {} min unknown)", facts.unknown_minutes);
+    }
+    match (&facts.first_input, &facts.last_input_of_day) {
+        (Some(first), Some(last)) => {
+            let _ = writeln!(
+                out,
+                "  First input {}, last input {}   (first and last input of the day; not a claim about presence)",
+                clock(first.at, tz),
+                clock(last.at, tz)
+            );
+        }
+        _ => {
+            let _ = writeln!(out, "  No minute of the day had enough input to count");
+        }
+    }
+    let coverage = facts.coverage_percent.map_or("n/a".to_string(), |c| format!("{c}%"));
+    let _ = writeln!(
+        out,
+        "  Input: {} in 5 s slots, {} in front, observed coverage {coverage}",
+        fmt_duration(facts.input_ms),
+        fmt_duration(facts.foreground_ms)
+    );
+    if let Some(l) = &facts.longest {
+        let _ = writeln!(
+            out,
+            "  Longest unbroken stretch: {}-{} ({}; gaps of up to {} min count as unbroken){}{}",
+            clock(l.start, tz),
+            clock(l.end, tz),
+            fmt_duration(l.end - l.start),
+            input.params.session_gap_minutes,
+            if l.continues_from_previous_day {
+                ", continues from the day before"
+            } else {
+                ""
+            },
+            if l.continues_after_midnight {
+                ", continues after midnight"
+            } else {
+                ""
+            },
+        );
+    }
+    let mut by_group: BTreeMap<&str, Vec<&InputBlock>> = BTreeMap::new();
+    for b in &facts.blocks {
+        by_group.entry(b.group.as_str()).or_default().push(b);
+    }
+    if by_group.is_empty() {
+        let _ = writeln!(out, "  Input blocks: none of at least {} minutes", input.params.min_block_minutes);
+    }
+    for (group, blocks) in by_group {
+        let list: Vec<String> = blocks.iter().map(|b| block_text(b, tz)).collect();
+        let _ = writeln!(out, "  Input blocks ({group}): {}", list.join("; "));
+    }
+    if !facts.other_stretches.is_empty() {
+        let list: Vec<String> = facts
+            .other_stretches
+            .iter()
+            .map(|b| format!("{} {}", b.group, block_text(b, tz)))
+            .collect();
+        let _ = writeln!(out, "  Input stretches by group: {}", list.join("; "));
+    }
+    match &facts.switches {
+        Some(s) => {
+            let rate = |v: f64| if v >= 10.0 { format!("{v:.0}") } else { format!("{v:.1}") };
+            let _ = writeln!(
+                out,
+                "  Switches: {} per observed foreground hour between apps, {} between groups",
+                rate(s.per_hour_apps),
+                rate(s.per_hour_groups)
+            );
+        }
+        None => {
+            let _ = writeln!(out, "  Switches: n/a (under half of the foreground time was observed)");
+        }
+    }
+    if !uncategorised.is_empty() {
+        let _ = writeln!(
+            out,
+            "  Not categorised yet (add to [exe] in categories.toml, or run: rhen-watch categories set EXE CATEGORY):"
+        );
+        for (exe, ms) in uncategorised {
+            let _ = writeln!(out, "    {exe}  {}   {}", fmt_duration(*ms), categories::paste_line(exe));
+        }
+    }
+    for category in input.catalogue.groupless() {
+        let _ = writeln!(
+            out,
+            "  Category \"{category}\" has no group, so it counts as other (add it under [group] in categories.toml)"
+        );
+    }
+    if facts.blocks.iter().any(|b| b.group == "browser") {
+        let _ = writeln!(
+            out,
+            "  Browser time is kept apart from work: what a browser is used for cannot be told from its exe."
+        );
+    }
+    let _ = writeln!(out, "  Input includes synthetic input (remote tools, jigglers, scheduled tasks).");
+    out
+}
+
+pub fn render(rows: &Rows, input: &ReportInput) -> String {
+    let events = rows.day_events;
+    let metrics = rows.metrics;
+    let db_bytes = rows.db_bytes;
     let span = |e: &EventRow| {
         clip(
             e.ts_start,
@@ -96,8 +316,10 @@ pub fn render(events: &[EventRow], metrics: &[MetricRow], input: &ReportInput, d
         match (e.source.as_str(), e.kind.as_str()) {
             (SRC_FOREGROUND, "app") => {
                 let exe = e.attrs["exe"].as_str().unwrap_or("?").to_string();
+                let exe_key = exe.clone();
                 let entry = apps.entry(exe).or_default();
-                entry.category = e.attrs["category"].as_str().unwrap_or("other").to_string();
+                // The category is read from the current map, not the one stored when the row was written.
+                entry.category = input.catalogue.lookup(&exe_key).unwrap_or("other").to_string();
                 entry.total += len;
                 entry.idle += overlap(s, &idle_spans);
             }
@@ -129,8 +351,28 @@ pub fn render(events: &[EventRow], metrics: &[MetricRow], input: &ReportInput, d
         c.1 += a.idle;
     }
 
-    let mut out = String::new();
-    let _ = writeln!(out, "Activity for {} ({})", input.label, fmt_offset(input.offset_min));
+    let group_of = |exe: &str| -> String {
+        if exe.is_empty() {
+            "other".to_string()
+        } else {
+            input.catalogue.group_of_exe(exe).to_string()
+        }
+    };
+    let facts = derive::derive(&DeriveInput {
+        from: input.from,
+        to: input.to,
+        events: rows.all_events,
+        buckets: rows.buckets,
+        group_of: &group_of,
+        params: input.params,
+        open_until: input.open_until,
+        events_floor: rows.events_floor,
+    });
+    let totals: Vec<(String, Ms)> = apps.iter().map(|(exe, a)| (exe.clone(), a.total)).collect();
+    let uncategorised = categories::uncategorised(&totals, input.catalogue, 15);
+    let mut out = day_section(&facts, rows, input, &uncategorised);
+    out.push('\n');
+    let _ = writeln!(out, "Activity for {} ({})", input.label, offset_label(input));
     if events.is_empty() {
         let _ = writeln!(
             out,
@@ -143,10 +385,10 @@ pub fn render(events: &[EventRow], metrics: &[MetricRow], input: &ReportInput, d
         fmt_duration(fg_total),
         fmt_duration(idle_in_fg)
     );
-    let _ = writeln!(out, "Active in front: {}", fmt_duration(fg_total - idle_in_fg));
+    let _ = writeln!(out, "In front and not in an idle interval: {}", fmt_duration(fg_total - idle_in_fg));
     for (label, ms) in [
         ("Screen locked", locked),
-        ("Asleep/suspended", asleep),
+        ("Suspended", asleep),
         ("Display off", display_off),
         ("Remote session", remote),
         ("Suppressed (game in front)", suppressed),
@@ -160,7 +402,7 @@ pub fn render(events: &[EventRow], metrics: &[MetricRow], input: &ReportInput, d
     if !categories.is_empty() {
         let mut rows: Vec<_> = categories.iter().collect();
         rows.sort_by_key(|(_, v)| std::cmp::Reverse(v.0));
-        let _ = writeln!(out, "\nBy category (total, active):");
+        let _ = writeln!(out, "\nBy category (total, not in an idle interval):");
         for (c, (total, idle)) in rows {
             let _ = writeln!(out, "  {c:<12} {:>8}  {:>8}", fmt_duration(*total), fmt_duration(total - idle));
         }
@@ -168,7 +410,7 @@ pub fn render(events: &[EventRow], metrics: &[MetricRow], input: &ReportInput, d
     if !apps.is_empty() {
         let mut rows: Vec<_> = apps.iter().collect();
         rows.sort_by_key(|(_, v)| std::cmp::Reverse(v.total));
-        let _ = writeln!(out, "\nBy app (total, active), top 25:");
+        let _ = writeln!(out, "\nBy app (total, not in an idle interval), top 25:");
         for (exe, a) in rows.into_iter().take(25) {
             let _ = writeln!(
                 out,
@@ -182,12 +424,7 @@ pub fn render(events: &[EventRow], metrics: &[MetricRow], input: &ReportInput, d
     if !gaps.is_empty() {
         let _ = writeln!(out, "\nGaps where nothing is known:");
         for ((s, e), reason) in gaps.iter().take(20) {
-            let _ = writeln!(
-                out,
-                "  {}-{}  {reason}",
-                fmt_clock(*s, input.offset_min),
-                fmt_clock(*e, input.offset_min)
-            );
+            let _ = writeln!(out, "  {}-{}  {reason}", clock(*s, &input.tz), clock(*e, &input.tz));
         }
         if gaps.len() > 20 {
             let _ = writeln!(out, "  ... and {} more", gaps.len() - 20);

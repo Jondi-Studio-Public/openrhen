@@ -11,11 +11,13 @@ use serde_json::json;
 
 use crate::categories::{Catalogue, is_shell_window};
 use crate::config::Config;
+use crate::derive::Params;
 use crate::engine::{Engine, Fg, PowerEvt, SessionEvt, Settings, Signal};
 use crate::model::{Op, SRC_AGENT, attrs};
 use crate::report::{ReportInput, build};
 use crate::runner::{Raw, Runner, Sys};
 use crate::store::Store;
+use crate::tz::TzOffset;
 
 fn engine() -> Engine {
     let mut n = 0u32;
@@ -34,6 +36,11 @@ fn fg(exe: &str) -> Signal {
         class: "Chrome_WidgetWin_1".into(),
         exe: Some(exe.into()),
     })
+}
+
+/// An idle sample taken at `t`, with the monotonic clock reading the same.
+fn idle_at(t: i64, idle_ms: u64) -> Signal {
+    Signal::Idle { idle_ms, mono_ms: t }
 }
 
 fn opens(ops: &[Op]) -> Vec<String> {
@@ -98,7 +105,7 @@ fn a_game_in_front_is_suppressed_and_never_named() {
     assert!(!attrs.values().any(|v| v.to_string().contains("valorant")));
     assert!(e.suppressed());
     // idle sampling does nothing while suppressed
-    assert!(e.step(10_000, Signal::Idle(500_000)).ops.is_empty());
+    assert!(e.step(10_000, idle_at(10_000, 500_000)).ops.is_empty());
     e.step(20_000, fg("code.exe"));
     assert!(!e.suppressed());
 }
@@ -128,13 +135,13 @@ fn idle_starts_at_last_input_and_ends_at_next_input() {
         e.step(t0 + i * 10_000, Signal::Tick);
     }
     // 130 s on, the sample says input was last seen 125 s ago: idle began at t0 + 5 s
-    let s = e.step(t0 + 130_000, Signal::Idle(125_000));
+    let s = e.step(t0 + 130_000, idle_at(t0 + 130_000, 125_000));
     let Op::Open { ts, kind, .. } = &s.ops[0] else { panic!() };
     assert_eq!((kind.as_str(), *ts), ("idle", t0 + 5_000));
     for i in 14..=19 {
         e.step(t0 + i * 10_000, Signal::Tick);
     }
-    let s = e.step(t0 + 200_000, Signal::Idle(1_000));
+    let s = e.step(t0 + 200_000, idle_at(t0 + 200_000, 1_000));
     assert_eq!(
         s.ops,
         vec![Op::Close {
@@ -218,13 +225,14 @@ fn off_collectors_write_nothing() {
     assert!(e.step(1, fg("code.exe")).ops.is_empty());
     assert!(e.step(2, Signal::Session(SessionEvt::Lock)).ops.is_empty());
     assert!(e.step(3, Signal::Power(PowerEvt::Suspend)).ops.is_empty());
-    assert!(e.step(4, Signal::Idle(10_000_000)).ops.is_empty());
+    assert!(e.step(4, idle_at(4, 10_000_000)).ops.is_empty());
 }
 
 #[test]
-fn extra_games_and_categories_come_from_config() {
-    let cfg = Config::parse("extra_games = [\"MyGame.exe\"]\n[categories]\n\"Foo.exe\" = \"editor\"\n").unwrap();
-    let c = Catalogue::new(&cfg.categories, &cfg.extra_games);
+fn extra_games_come_from_config_and_categories_from_the_categories_file() {
+    let cfg = Config::parse("extra_games = [\"MyGame.exe\"]\n").unwrap();
+    let file = crate::categories::CategoryFile::parse("[exe]\n\"Foo.exe\" = \"editor\"\n").unwrap();
+    let c = Catalogue::with_file(&file, &cfg.extra_games);
     assert!(c.is_game("mygame.exe"));
     assert_eq!(c.category("foo.exe"), "editor");
 }
@@ -370,7 +378,7 @@ fn purge_deletes_old_rows_only_when_asked() {
     )
     .unwrap();
     let permanent = Config::parse("").unwrap();
-    assert_eq!(crate::retention::purge(&s, &permanent, 101 * day).unwrap(), (0, 0));
+    assert_eq!(crate::retention::purge(&s, &permanent, 101 * day).unwrap(), (0, 0, 0));
     let thirty = Config::parse("[retention]\nevents = 30\n").unwrap();
     assert_eq!(crate::retention::purge(&s, &thirty, 101 * day).unwrap().0, 1);
     assert_eq!(s.count_events().unwrap(), 1);
@@ -386,6 +394,9 @@ struct Fake {
 
 impl Sys for Fake {
     fn now_ms(&self) -> i64 {
+        self.now.get()
+    }
+    fn mono_ms(&self) -> i64 {
         self.now.get()
     }
     fn idle_ms(&self) -> Option<u64> {
@@ -444,6 +455,8 @@ fn a_day_through_the_runner_reports_honestly() {
     r.tick().unwrap();
     r.stop().unwrap();
     let from = t0 - t0 % 86_400_000;
+    let catalogue = Catalogue::new(&HashMap::new(), &[]);
+    let params = Params::from(&Config::default().derive);
     let text = build(
         r.store(),
         &ReportInput {
@@ -451,7 +464,10 @@ fn a_day_through_the_runner_reports_honestly() {
             from,
             to: from + 86_400_000,
             open_until: now.get(),
-            offset_min: 0,
+            tz: TzOffset::fixed(0),
+            catalogue: &catalogue,
+            params: &params,
+            idle_collector: true,
         },
     )
     .unwrap();
@@ -476,6 +492,8 @@ fn civil_date_round_trip() {
 #[test]
 fn report_on_an_empty_database_says_so() {
     let s = Store::in_memory().unwrap();
+    let catalogue = Catalogue::new(&HashMap::new(), &[]);
+    let params = Params::from(&Config::default().derive);
     let text = build(
         &s,
         &ReportInput {
@@ -483,7 +501,10 @@ fn report_on_an_empty_database_says_so() {
             from: 0,
             to: 86_400_000,
             open_until: 0,
-            offset_min: 60,
+            tz: TzOffset::fixed(60),
+            catalogue: &catalogue,
+            params: &params,
+            idle_collector: true,
         },
     )
     .unwrap();
@@ -550,7 +571,7 @@ fn idle_does_not_run_through_a_game() {
     for i in 1..=20 {
         e.step(t0 + i * 10_000, Signal::Tick);
     }
-    let s = e.step(t0 + 200_000, Signal::Idle(150_000));
+    let s = e.step(t0 + 200_000, idle_at(t0 + 200_000, 150_000));
     let idle_id = match &s.ops[0] {
         Op::Open { id, kind, .. } if kind == "idle" => id.clone(),
         other => panic!("{other:?}"),
@@ -565,7 +586,7 @@ fn idle_does_not_run_through_a_game() {
         s.ops
     );
     assert!(
-        e.step(t0 + 206_000, Signal::Idle(155_000)).ops.is_empty(),
+        e.step(t0 + 206_000, idle_at(t0 + 206_000, 155_000)).ops.is_empty(),
         "and it does not reopen while suppressed"
     );
 }
@@ -709,6 +730,9 @@ struct NoIdle(Fake);
 impl Sys for NoIdle {
     fn now_ms(&self) -> i64 {
         self.0.now_ms()
+    }
+    fn mono_ms(&self) -> i64 {
+        self.0.mono_ms()
     }
     fn idle_ms(&self) -> Option<u64> {
         None

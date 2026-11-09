@@ -34,6 +34,7 @@ use windows_sys::core::{BOOL, GUID};
 use crate::engine::{Fg, PowerEvt, SessionEvt};
 use crate::model::Ms;
 use crate::runner::{Control, Raw, Sys};
+use crate::tray::{ID_FOLDER, ID_QUIT, ID_SETTINGS, ID_STATUS, ID_TOGGLE, TrayAction, action_for};
 
 /// Keeps helper programs from flashing a console when the no-console build starts them.
 pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -155,6 +156,14 @@ impl Sys for WinSys {
             .unwrap_or(0)
     }
 
+    fn mono_ms(&self) -> Ms {
+        // `Instant` is QueryPerformanceCounter on Windows. Whether it counts time asleep is checked once on a
+        // real machine (README checklist); the meter does not depend on it, because its stall limit and its
+        // wall-versus-monotonic check discard a slot either way.
+        static START: OnceLock<std::time::Instant> = OnceLock::new();
+        START.get_or_init(std::time::Instant::now).elapsed().as_millis() as Ms
+    }
+
     fn idle_ms(&self) -> Option<u64> {
         let mut info = LASTINPUTINFO {
             cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32,
@@ -165,7 +174,7 @@ impl Sys for WinSys {
         }
         // Both counters are 32-bit and wrap every 49.7 days; the wrapping difference is still right.
         let tick = unsafe { GetTickCount() };
-        Some(u64::from(tick.wrapping_sub(info.dwTime)))
+        Some(crate::activity::idle_from_ticks(tick, info.dwTime))
     }
 
     fn resolve(&self, hwnd: usize) -> Fg {
@@ -224,10 +233,6 @@ impl Sys for WinSys {
 
 const WM_TRAY: u32 = WM_APP + 1;
 const WM_TRAY_REFRESH: u32 = WM_APP + 2;
-const ID_STATUS: usize = 1;
-const ID_TOGGLE: usize = 2;
-const ID_FOLDER: usize = 3;
-const ID_QUIT: usize = 4;
 
 static TRAY_HWND: AtomicIsize = AtomicIsize::new(0);
 static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
@@ -304,6 +309,7 @@ unsafe fn show_menu(hwnd: HWND) {
         AppendMenuW(menu, MF_SEPARATOR, 0, null());
         let toggle = if state == 1 { "Resume recording" } else { "Pause recording" };
         AppendMenuW(menu, MF_STRING, ID_TOGGLE, wide(toggle).as_ptr());
+        AppendMenuW(menu, MF_STRING, ID_SETTINGS, wide("Open settings").as_ptr());
         AppendMenuW(menu, MF_STRING, ID_FOLDER, wide("Open data folder").as_ptr());
         AppendMenuW(menu, MF_SEPARATOR, 0, null());
         AppendMenuW(menu, MF_STRING, ID_QUIT, wide("Quit").as_ptr());
@@ -314,22 +320,23 @@ unsafe fn show_menu(hwnd: HWND) {
         let cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd, null()) as usize;
         PostMessageW(hwnd, WM_NULL, 0, 0);
         DestroyMenu(menu);
-        match cmd {
-            ID_TOGGLE => {
+        match action_for(cmd) {
+            TrayAction::TogglePause => {
                 // A click must not be lost to a full queue, so this one waits for room.
                 if let Some(tx) = SENDER.get() {
                     let _ = tx.send(Raw::Control(if state == 1 { Control::Resume } else { Control::Pause }));
                 }
             }
-            ID_FOLDER => {
-                // explorer.exe needs no COM setup on this thread, unlike ShellExecute.
+            TrayAction::OpenDataFolder => {
+                // Settings (config.toml, categories.toml) live in the data folder. explorer.exe needs no COM
+                // setup on this thread, unlike ShellExecute.
                 if let Some(dir) = DATA_DIR.get() {
                     let path = String::from_utf16_lossy(&dir[..dir.len().saturating_sub(1)]);
                     let _ = std::process::Command::new("explorer.exe").arg(path).spawn();
                 }
             }
-            ID_QUIT => STOP.store(true, Ordering::SeqCst),
-            _ => {}
+            TrayAction::Quit => STOP.store(true, Ordering::SeqCst),
+            TrayAction::None => {}
         }
     }
 }
@@ -625,6 +632,35 @@ pub fn local_offset_minutes() -> i32 {
         let bias = tz.Bias + if id == 2 { tz.DaylightBias } else { tz.StandardBias };
         -bias
     }
+}
+
+/// Minutes east of UTC at a UTC instant, by the user's time zone rules (so a day in the other DST regime
+/// gets its own offset). Falls back to the offset now if the conversion fails.
+fn offset_at(utc: Ms) -> i32 {
+    // FILETIME counts 100 ns ticks since 1601-01-01.
+    let ticks = ((utc + 11_644_473_600_000).max(0) as u64) * 10_000;
+    let ft = FILETIME {
+        dwLowDateTime: ticks as u32,
+        dwHighDateTime: (ticks >> 32) as u32,
+    };
+    unsafe {
+        let mut utc_st: SYSTEMTIME = std::mem::zeroed();
+        let mut local_st: SYSTEMTIME = std::mem::zeroed();
+        if FileTimeToSystemTime(&ft, &mut utc_st) == 0 || SystemTimeToTzSpecificLocalTime(null(), &utc_st, &mut local_st) == 0 {
+            return local_offset_minutes();
+        }
+        let minutes = |s: &SYSTEMTIME| {
+            crate::cli::days_from_civil(i64::from(s.wYear), i64::from(s.wMonth), i64::from(s.wDay)) * 1440
+                + i64::from(s.wHour) * 60
+                + i64::from(s.wMinute)
+        };
+        (minutes(&local_st) - minutes(&utc_st)) as i32
+    }
+}
+
+/// The user's time zone as a function of the instant.
+pub fn local_tz() -> crate::tz::TzOffset {
+    crate::tz::TzOffset::from_fn(offset_at)
 }
 
 /// The current user's SID string, from `whoami /user`.
