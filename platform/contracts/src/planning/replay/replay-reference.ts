@@ -1,5 +1,6 @@
 import { wallClockFormat } from "../../zoned-time.js";
 import { matchCommitment, type SourceCandidate, type SourceCommitment } from "../source-match.js";
+import { breakTieByContact, contactForSender } from "../contact-map.js";
 import { matchDeadline, RESCHEDULE_CUE } from "../deadline-match.js";
 import { normalizeTitle, titleSimilarity } from "../title-similarity.js";
 import {
@@ -264,7 +265,20 @@ export const referenceReconciler: Reconciler = (input, { chooser }) => {
   const byId = new Map(scored.map((s) => [s.id, s]));
   const targetOf = (id: string): ReplayTarget => byId.get(id)!.target;
 
-  if (tie) {
+  // A tie between strong matches is settled when the sender is one known contact who owns exactly one of them.
+  let tieBrokenBy: "contact" | undefined;
+  let winnerId: string | undefined;
+  if (tie && top >= RANK_STRONG) {
+    winnerId =
+      breakTieByContact(
+        atTop.map((c) => c.id),
+        input.plan.commitments,
+        contactForSender(input.message.from, input.plan.contacts)
+      ) ?? undefined;
+    if (winnerId !== undefined) tieBrokenBy = "contact";
+  }
+
+  if (tie && winnerId === undefined) {
     // Several records fit equally: no pick, by code or by chooser. A chooser's answer between equals would be a
     // guess code cannot re-validate, so a tie is a question for the owner (`matchCommitment` returns it as
     // a tie; the deadline and ask lanes tie on equal rank until their own matchers land).
@@ -272,14 +286,17 @@ export const referenceReconciler: Reconciler = (input, { chooser }) => {
   }
 
   if (top >= RANK_STRONG) {
-    const winner = scored.find((s) => s.rank === top)!;
+    const winner = (winnerId !== undefined ? byId.get(winnerId) : undefined) ?? scored.find((s) => s.rank === top)!;
     const target = winner.target;
+    const brokenBy = tieBrokenBy ? { tieBrokenBy } : {};
     // The same deadline on another date is an update, not a restatement.
     if (winner.moved && !fact.cancelled) {
-      return { endState: "applied", op: "update", target, candidates, tie, usedChooser: false };
+      return { endState: "applied", op: "update", target, candidates, tie, usedChooser: false, ...brokenBy };
     }
-    if (fact.cancelled) return { endState: "applied", op: "cancel", target, candidates, tie, usedChooser: false };
-    return { endState: "duplicate", target, candidates, tie, usedChooser: false };
+    if (fact.cancelled) {
+      return { endState: "applied", op: "cancel", target, candidates, tie, usedChooser: false, ...brokenBy };
+    }
+    return { endState: "duplicate", target, candidates, tie, usedChooser: false, ...brokenBy };
   }
 
   if (top === RANK_POSSIBLE) {
