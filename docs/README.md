@@ -12,7 +12,7 @@ Start with the guide that matches what you want to do. Open only what you need.
 | Understand how the parts fit together | [Architecture overview](architecture/overview.md) |
 | Connect an outside service | [Writing a connection](architecture/writing-a-connection.md) |
 | Extend it with your own pages, services and settings | [Writing an add-on](architecture/writing-an-addon.md) |
-| Build against the agent surface or the seams | [Protocol](protocol/README.md): [versions](protocol/versions.md), [auth](protocol/auth.md), [proposing changes](protocol/changes.md) |
+| Build against the agent surface or the seams | [Protocol](protocol/README.md): [versions](protocol/versions.md), [auth](protocol/auth.md), [proposing changes](protocol/changes.md), [seam list](protocol/seams.generated.md) |
 | Record what you did on a Windows PC | [Desktop activity agent](architecture/desktop-activity-agent.md), [rhen-watch](../tools/rhen-watch/README.md) |
 | Store and read back what a PC, phone or export recorded | [Activity store](architecture/activity-store.md) |
 | Load a Google Takeout, Spotify, Discord or Apple Health export | [Importing your data](operations/importing-your-data.md) |

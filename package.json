@@ -11,6 +11,7 @@
     "format": "prettier --write \"{engine,integrations,platform,portal,tools,scripts}/**/*.{ts,tsx,mjs}\"",
     "format:check": "prettier --check \"{engine,integrations,platform,portal,tools,scripts}/**/*.{ts,tsx,mjs}\"",
     "cli": "pnpm --filter @openrhen/cli start",
+    "seams:generate": "node scripts/repository/seam-inventory.mjs --fix-pending --generate",
     "structure:check": "node scripts/repository/check-structure.mjs",
     "test-files:check": "node scripts/test/coverage.mjs",
     "dev": "pnpm --filter @openrhen/portal dev",

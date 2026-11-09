@@ -1,0 +1,11 @@
+{
+  "lane": "G",
+  "registries": {
+    "total": 1,
+    "files": {
+      "scripts/repository/write-path-extensions.mjs": [
+        "registerWriters"
+      ]
+    }
+  }
+}

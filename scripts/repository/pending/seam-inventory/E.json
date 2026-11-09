@@ -1,0 +1,19 @@
+{
+  "lane": "E",
+  "registries": {
+    "total": 7,
+    "files": {
+      "engine/core/src/model/zoned-formats.ts": [
+        "localDateFormat"
+      ],
+      "engine/core/src/scheduling/slots.ts": [
+        "currentCompatibleWindow",
+        "indexSlotOffers",
+        "normalizePlanningSlots",
+        "slotCapacityForAction",
+        "slotFitsAction",
+        "usableFractionForAction"
+      ]
+    }
+  }
+}
