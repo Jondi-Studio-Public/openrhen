@@ -156,6 +156,14 @@ impl Sys for WinSys {
             .unwrap_or(0)
     }
 
+    fn mono_ms(&self) -> Ms {
+        // `Instant` is QueryPerformanceCounter on Windows. Whether it counts time asleep is checked once on a
+        // real machine (README checklist); the meter does not depend on it, because its stall limit and its
+        // wall-versus-monotonic check discard a slot either way.
+        static START: OnceLock<std::time::Instant> = OnceLock::new();
+        START.get_or_init(std::time::Instant::now).elapsed().as_millis() as Ms
+    }
+
     fn idle_ms(&self) -> Option<u64> {
         let mut info = LASTINPUTINFO {
             cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32,
@@ -166,7 +174,7 @@ impl Sys for WinSys {
         }
         // Both counters are 32-bit and wrap every 49.7 days; the wrapping difference is still right.
         let tick = unsafe { GetTickCount() };
-        Some(u64::from(tick.wrapping_sub(info.dwTime)))
+        Some(crate::activity::idle_from_ticks(tick, info.dwTime))
     }
 
     fn resolve(&self, hwnd: usize) -> Fg {

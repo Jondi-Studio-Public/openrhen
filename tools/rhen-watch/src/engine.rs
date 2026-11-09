@@ -12,6 +12,7 @@ use std::collections::HashSet;
 
 use serde_json::{Value, json};
 
+use crate::activity::Meter;
 use crate::categories::{Catalogue, is_shell_window};
 use crate::model::{Ms, Op, SRC_AGENT, SRC_FOREGROUND, SRC_IDLE, SRC_POWER, SRC_SESSION, attrs};
 
@@ -46,8 +47,14 @@ pub enum PowerEvt {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Signal {
     Foreground(Fg),
-    /// Milliseconds since the last keyboard or mouse input, as sampled now.
-    Idle(u64),
+    /// Milliseconds since the last keyboard or mouse input, as sampled now, with a monotonic clock read at the
+    /// same moment (the input meter works from the input instant `mono_ms - idle_ms`).
+    Idle {
+        idle_ms: u64,
+        mono_ms: i64,
+    },
+    /// The OS would not say how long ago the last input was; the meter forgets its baseline.
+    IdleUnavailable,
     Session(SessionEvt),
     Power(PowerEvt),
     /// A periodic wake with nothing to report; detects stalls and clock jumps.
@@ -111,6 +118,8 @@ pub struct Engine {
     paused: Option<String>,
     /// Lock and suspend each hold the foreground closed; both must clear before it reopens.
     holds: HashSet<&'static str>,
+    /// Per-minute input tally. Reset from named paths below, never inferred from `floor`.
+    meter: Meter,
 }
 
 impl Engine {
@@ -129,7 +138,25 @@ impl Engine {
             remote: None,
             paused: None,
             holds: HashSet::new(),
+            meter: Meter::new(0),
         }
+    }
+
+    /// The highest tally generation already stored; the first reset (at start) moves past it.
+    pub fn set_run_base(&mut self, run: u64) {
+        self.meter.set_run_base(run);
+    }
+
+    /// False while locked, suspended, paused or a game is in front, and when the idle collector is off: the
+    /// runner must not even read the input clock then.
+    pub fn polling_allowed(&self) -> bool {
+        self.settings.idle && self.paused.is_none() && !self.suppressed() && self.holds.is_empty()
+    }
+
+    /// How often the runner should poll: 5 s, backed off to 15 s while an idle interval is open (that is, once
+    /// the configured idle threshold has passed).
+    pub fn idle_cadence_ms(&self) -> Ms {
+        if self.idle.is_some() { 15_000 } else { 5_000 }
     }
 
     /// True while a denylisted game is in front: the runner must skip every optional probe.
@@ -141,6 +168,7 @@ impl Engine {
         let mut out = Step::default();
         if self.last_tick.is_none() {
             self.floor = now;
+            self.meter.reset(); // start
         }
         if self.paused.is_some() {
             // Paused: nothing is recorded, not even gaps; only Resume does anything.
@@ -156,7 +184,8 @@ impl Engine {
             Signal::Resume => {}
             Signal::Tick => {}
             Signal::Foreground(fg) => self.on_foreground(now, fg, &mut out),
-            Signal::Idle(idle_ms) => self.on_idle(now, idle_ms, &mut out),
+            Signal::Idle { idle_ms, mono_ms } => self.on_idle(now, idle_ms, mono_ms, &mut out),
+            Signal::IdleUnavailable => self.meter.reset(),
             Signal::Session(evt) => self.on_session(now, evt, &mut out),
             Signal::Power(evt) => self.on_power(now, evt, &mut out),
         }
@@ -169,6 +198,8 @@ impl Engine {
     }
 
     fn pause(&mut self, now: Ms, out: &mut Step) {
+        out.ops.extend(self.meter.flush());
+        self.meter.reset();
         self.close_all(now, &mut out.ops);
         self.holds.clear();
         let id = self.open(SRC_AGENT, "paused", now, Default::default(), &mut out.ops);
@@ -180,12 +211,13 @@ impl Engine {
             out.ops.push(Op::Close { id, ts: now });
         }
         self.floor = now;
+        self.meter.reset();
         out.refresh_foreground = true;
     }
 
     /// Close every open interval at `now` (a clean shutdown).
     pub fn finish(&mut self, now: Ms) -> Vec<Op> {
-        let mut ops = Vec::new();
+        let mut ops = self.meter.flush();
         self.close_all(now, &mut ops);
         ops
     }
@@ -196,6 +228,7 @@ impl Engine {
         if gap > self.settings.stall_ms {
             // Sleep, hibernate or a frozen machine. A suspend or lock that was announced explains the gap and
             // stays open until its own end event; otherwise what happened in between is not known.
+            self.meter.reset(); // stall
             let explained = self.suspended.is_some() || self.locked.is_some();
             if let Some(fg) = self.fg.take() {
                 out.ops.push(Op::Close { id: fg.id, ts: last });
@@ -222,6 +255,8 @@ impl Engine {
             self.floor = now;
         } else if gap < -2_000 {
             // The wall clock moved backwards. Close at the old time and start again; do not invent time.
+            // The tally gets a new run, so the minutes it revisits are added to, not overwritten.
+            self.meter.reset(); // clock jump
             self.close_all(last.min(now), &mut out.ops);
             out.ops.push(Op::Instant {
                 source: SRC_AGENT,
@@ -286,6 +321,9 @@ impl Engine {
                 return;
             }
         }
+        if suppressed || self.suppressed() {
+            self.meter.reset(); // entering or leaving a suppressed game
+        }
         if let Some(prev) = self.fg.take() {
             out.ops.push(Op::Close { id: prev.id, ts: now });
         }
@@ -329,10 +367,14 @@ impl Engine {
         });
     }
 
-    fn on_idle(&mut self, now: Ms, idle_ms: u64, out: &mut Step) {
-        if !self.settings.idle || self.suppressed() || !self.holds.is_empty() {
+    fn on_idle(&mut self, now: Ms, idle_ms: u64, mono_ms: i64, out: &mut Step) {
+        if !self.polling_allowed() {
             return;
         }
+        // The slot goes to what is in front now; an unreadable window is the empty exe.
+        let exe = self.fg.as_ref().and_then(|f| f.exe.clone()).unwrap_or_default();
+        out.ops
+            .extend(self.meter.sample(now, mono_ms, idle_ms, &exe, self.settings.stall_ms));
         let idle = idle_ms as i64;
         if idle_ms >= self.settings.idle_threshold_ms {
             if self.idle.is_none() {
@@ -427,6 +469,7 @@ impl Engine {
 
     fn hold(&mut self, reason: &'static str, now: Ms, out: &mut Step) {
         self.holds.insert(reason);
+        self.meter.reset(); // lock or suspend begins
         if let Some(fg) = self.fg.take() {
             out.ops.push(Op::Close { id: fg.id, ts: now });
         }
@@ -437,6 +480,7 @@ impl Engine {
 
     fn release(&mut self, reason: &'static str, now: Ms, out: &mut Step) {
         self.holds.remove(reason);
+        self.meter.reset(); // lock or suspend ends
         if self.holds.is_empty() {
             self.floor = self.floor.max(now);
             // Whatever was in front when the hold began may be gone; ask the OS rather than guess.

@@ -36,6 +36,11 @@ fn fg(exe: &str) -> Signal {
     })
 }
 
+/// An idle sample taken at `t`, with the monotonic clock reading the same.
+fn idle_at(t: i64, idle_ms: u64) -> Signal {
+    Signal::Idle { idle_ms, mono_ms: t }
+}
+
 fn opens(ops: &[Op]) -> Vec<String> {
     ops.iter()
         .filter_map(|o| {
@@ -98,7 +103,7 @@ fn a_game_in_front_is_suppressed_and_never_named() {
     assert!(!attrs.values().any(|v| v.to_string().contains("valorant")));
     assert!(e.suppressed());
     // idle sampling does nothing while suppressed
-    assert!(e.step(10_000, Signal::Idle(500_000)).ops.is_empty());
+    assert!(e.step(10_000, idle_at(10_000, 500_000)).ops.is_empty());
     e.step(20_000, fg("code.exe"));
     assert!(!e.suppressed());
 }
@@ -128,13 +133,13 @@ fn idle_starts_at_last_input_and_ends_at_next_input() {
         e.step(t0 + i * 10_000, Signal::Tick);
     }
     // 130 s on, the sample says input was last seen 125 s ago: idle began at t0 + 5 s
-    let s = e.step(t0 + 130_000, Signal::Idle(125_000));
+    let s = e.step(t0 + 130_000, idle_at(t0 + 130_000, 125_000));
     let Op::Open { ts, kind, .. } = &s.ops[0] else { panic!() };
     assert_eq!((kind.as_str(), *ts), ("idle", t0 + 5_000));
     for i in 14..=19 {
         e.step(t0 + i * 10_000, Signal::Tick);
     }
-    let s = e.step(t0 + 200_000, Signal::Idle(1_000));
+    let s = e.step(t0 + 200_000, idle_at(t0 + 200_000, 1_000));
     assert_eq!(
         s.ops,
         vec![Op::Close {
@@ -218,7 +223,7 @@ fn off_collectors_write_nothing() {
     assert!(e.step(1, fg("code.exe")).ops.is_empty());
     assert!(e.step(2, Signal::Session(SessionEvt::Lock)).ops.is_empty());
     assert!(e.step(3, Signal::Power(PowerEvt::Suspend)).ops.is_empty());
-    assert!(e.step(4, Signal::Idle(10_000_000)).ops.is_empty());
+    assert!(e.step(4, idle_at(4, 10_000_000)).ops.is_empty());
 }
 
 #[test]
@@ -371,7 +376,7 @@ fn purge_deletes_old_rows_only_when_asked() {
     )
     .unwrap();
     let permanent = Config::parse("").unwrap();
-    assert_eq!(crate::retention::purge(&s, &permanent, 101 * day).unwrap(), (0, 0));
+    assert_eq!(crate::retention::purge(&s, &permanent, 101 * day).unwrap(), (0, 0, 0));
     let thirty = Config::parse("[retention]\nevents = 30\n").unwrap();
     assert_eq!(crate::retention::purge(&s, &thirty, 101 * day).unwrap().0, 1);
     assert_eq!(s.count_events().unwrap(), 1);
@@ -387,6 +392,9 @@ struct Fake {
 
 impl Sys for Fake {
     fn now_ms(&self) -> i64 {
+        self.now.get()
+    }
+    fn mono_ms(&self) -> i64 {
         self.now.get()
     }
     fn idle_ms(&self) -> Option<u64> {
@@ -551,7 +559,7 @@ fn idle_does_not_run_through_a_game() {
     for i in 1..=20 {
         e.step(t0 + i * 10_000, Signal::Tick);
     }
-    let s = e.step(t0 + 200_000, Signal::Idle(150_000));
+    let s = e.step(t0 + 200_000, idle_at(t0 + 200_000, 150_000));
     let idle_id = match &s.ops[0] {
         Op::Open { id, kind, .. } if kind == "idle" => id.clone(),
         other => panic!("{other:?}"),
@@ -566,7 +574,7 @@ fn idle_does_not_run_through_a_game() {
         s.ops
     );
     assert!(
-        e.step(t0 + 206_000, Signal::Idle(155_000)).ops.is_empty(),
+        e.step(t0 + 206_000, idle_at(t0 + 206_000, 155_000)).ops.is_empty(),
         "and it does not reopen while suppressed"
     );
 }
@@ -710,6 +718,9 @@ struct NoIdle(Fake);
 impl Sys for NoIdle {
     fn now_ms(&self) -> i64 {
         self.0.now_ms()
+    }
+    fn mono_ms(&self) -> i64 {
+        self.0.mono_ms()
     }
     fn idle_ms(&self) -> Option<u64> {
         None

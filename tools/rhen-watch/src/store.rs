@@ -1,5 +1,7 @@
-//! Local append-only store. Rows are inserted and intervals are closed; nothing is rewritten except by
-//! the retention purge, which the config controls and which defaults to keeping everything.
+//! Local store. `events` is append-only: rows are inserted and intervals are closed, nothing is rewritten
+//! except by the retention purge, which the config controls and which defaults to keeping everything.
+//! `input_buckets` is the one exception: a per-minute tally table, written by idempotent upserts keyed by
+//! (minute, exe, run) and removed only by retention.
 
 use std::path::Path;
 
@@ -8,7 +10,8 @@ use serde_json::Value;
 
 use crate::model::{Ms, Op};
 
-const SCHEMA_VERSION: i64 = 1;
+/// 1: events, metrics, meta. 2: adds `input_buckets` (one-way: an older build refuses a v2 file).
+const SCHEMA_VERSION: i64 = 2;
 
 /// An interval that has started and not ended. Held in memory and mirrored to `meta.open_state` in the
 /// same transaction as every batch, so rows in `events` are written once, complete, and never changed.
@@ -39,6 +42,15 @@ pub struct EventRow {
     pub source: String,
     pub kind: String,
     pub attrs: Value,
+}
+
+/// One minute of one exe, summed over runs.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BucketRow {
+    pub minute_ts: Ms,
+    pub exe: String,
+    pub observed_ms: i64,
+    pub input_ms: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -117,7 +129,15 @@ impl Store {
                db_bytes  INTEGER NOT NULL,
                events    INTEGER NOT NULL,
                dropped   INTEGER NOT NULL
-             );",
+             );
+             CREATE TABLE IF NOT EXISTS input_buckets (
+               minute_ts   INTEGER NOT NULL,
+               exe         TEXT    NOT NULL,
+               run         INTEGER NOT NULL,
+               observed_ms INTEGER NOT NULL,
+               input_ms    INTEGER NOT NULL,
+               PRIMARY KEY (minute_ts, exe, run)
+             ) WITHOUT ROWID;",
         )?;
         conn.pragma_update(None, "secure_delete", "ON")?;
         let mut store = Self::bare(conn);
@@ -137,6 +157,8 @@ impl Store {
                     "database schema {v} is newer than this build ({SCHEMA_VERSION})"
                 )));
             }
+            // 1 -> 2: the table was just created above; record the new version.
+            Some(v) if v < SCHEMA_VERSION => store.set_meta("schema_version", &SCHEMA_VERSION.to_string())?,
             Some(_) => {}
         }
         Ok(store)
@@ -212,6 +234,25 @@ impl Store {
                         attrs: attrs.clone(),
                     };
                     insert_row(&tx, device, &iv, end.unwrap_or(*ts).max(*ts))?;
+                }
+                Op::Bucket {
+                    minute_ts,
+                    exe,
+                    run,
+                    observed_ms,
+                    input_ms,
+                } => {
+                    tx.execute(
+                        "INSERT INTO input_buckets (minute_ts, exe, run, observed_ms, input_ms) VALUES (?1,?2,?3,?4,?5)
+                         ON CONFLICT(minute_ts, exe, run) DO UPDATE SET observed_ms=excluded.observed_ms, input_ms=excluded.input_ms",
+                        params![minute_ts, exe, *run as i64, observed_ms, input_ms],
+                    )?;
+                }
+                Op::Meta { key, value } => {
+                    tx.execute(
+                        "INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                        params![key, value],
+                    )?;
                 }
             }
         }
@@ -318,6 +359,62 @@ impl Store {
             })
         })?;
         rows.collect()
+    }
+
+    pub fn schema_version(&self) -> rusqlite::Result<Option<i64>> {
+        Ok(self.meta("schema_version")?.and_then(|v| v.parse().ok()))
+    }
+
+    /// False on a database an older agent wrote (schema 1), which `report` must tolerate.
+    pub fn has_input_buckets(&self) -> bool {
+        self.conn
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='input_buckets'",
+                [],
+                |_| Ok(()),
+            )
+            .is_ok()
+    }
+
+    /// Per-minute, per-exe input tallies in `[from, to)`, summed over runs. Empty when the table does not exist.
+    pub fn buckets_between(&self, from: Ms, to: Ms) -> rusqlite::Result<Vec<BucketRow>> {
+        if !self.has_input_buckets() {
+            return Ok(Vec::new());
+        }
+        let mut stmt = self.conn.prepare(
+            "SELECT minute_ts, exe, SUM(observed_ms), SUM(input_ms) FROM input_buckets
+             WHERE minute_ts >= ?1 AND minute_ts < ?2 GROUP BY minute_ts, exe ORDER BY minute_ts, exe",
+        )?;
+        let rows = stmt.query_map(params![from, to], |r| {
+            Ok(BucketRow {
+                minute_ts: r.get(0)?,
+                exe: r.get(1)?,
+                observed_ms: r.get(2)?,
+                input_ms: r.get(3)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn purge_buckets_before(&self, cutoff: Ms) -> rusqlite::Result<usize> {
+        if !self.has_input_buckets() {
+            return Ok(0);
+        }
+        self.conn.execute("DELETE FROM input_buckets WHERE minute_ts < ?1", params![cutoff])
+    }
+
+    #[cfg(test)]
+    pub fn drop_input_buckets_for_test(&self) {
+        self.conn.execute_batch("DROP TABLE input_buckets").unwrap();
+    }
+
+    #[cfg(test)]
+    pub fn raw_bucket_runs_for_test(&self) -> Vec<u64> {
+        let mut stmt = self.conn.prepare("SELECT DISTINCT run FROM input_buckets ORDER BY run").unwrap();
+        stmt.query_map([], |r| r.get::<_, i64>(0))
+            .unwrap()
+            .map(|r| r.unwrap() as u64)
+            .collect()
     }
 
     /// (exe, milliseconds in front) over everything stored, for `categories list --uncategorised`.

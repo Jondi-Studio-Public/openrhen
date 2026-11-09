@@ -12,6 +12,8 @@ use crate::store::{MetricRow, Store};
 
 pub trait Sys {
     fn now_ms(&self) -> Ms;
+    /// A monotonic clock, in milliseconds from any fixed origin; the input meter measures slots with it.
+    fn mono_ms(&self) -> Ms;
     /// Milliseconds since the last input, or `None` if the OS would not say.
     fn idle_ms(&self) -> Option<u64>;
     fn resolve(&self, hwnd: usize) -> Fg;
@@ -35,7 +37,6 @@ pub enum Control {
     Resume,
 }
 
-const IDLE_EVERY_MS: Ms = 5_000;
 const HEARTBEAT_EVERY_MS: Ms = 30_000;
 
 pub struct Runner<S: Sys> {
@@ -100,6 +101,9 @@ impl<S: Sys> Runner<S> {
 
     pub fn start(&mut self) -> Result<(), String> {
         let now = self.sys.now_ms();
+        // Tally generations only grow: the highest one stored is the base the engine moves past at start.
+        let run_seq = self.store.meta("run_seq").map_err(|e| e.to_string())?;
+        self.engine.set_run_base(run_seq.and_then(|v| v.parse().ok()).unwrap_or(0));
         self.apply(
             now,
             vec![Op::Instant {
@@ -178,17 +182,25 @@ impl<S: Sys> Runner<S> {
                 self.feed(Signal::Foreground(fg))?;
             }
         }
-        if now - self.last_idle >= IDLE_EVERY_MS {
+        // A wall clock stepped back must not silence the probe until it catches up: negative means due.
+        let since_poll = now - self.last_idle;
+        if !(0..self.engine.idle_cadence_ms()).contains(&since_poll) {
             self.last_idle = now;
-            if !self.engine.suppressed() && !self.engine.paused() {
+            if self.engine.polling_allowed() {
                 match self.sys.idle_ms() {
-                    Some(idle) => return self.feed_then_beat(Signal::Idle(idle), now),
-                    None if !self.idle_unavailable => {
-                        // Say so once: silence must not read as "not idle".
-                        self.idle_unavailable = true;
-                        self.degraded(&["idle".to_string()])?;
+                    Some(idle_ms) => {
+                        let mono_ms = self.sys.mono_ms();
+                        return self.feed_then_beat(Signal::Idle { idle_ms, mono_ms }, now);
                     }
-                    None => {}
+                    None => {
+                        if !self.idle_unavailable {
+                            // Say so once: silence must not read as "not idle".
+                            self.idle_unavailable = true;
+                            self.degraded(&["idle".to_string()])?;
+                        }
+                        // Whatever the unreadable stretch covered is not credited.
+                        self.feed(Signal::IdleUnavailable)?;
+                    }
                 }
             }
         }
@@ -198,7 +210,7 @@ impl<S: Sys> Runner<S> {
     fn feed_then_beat(&mut self, signal: Signal, now: Ms) -> Result<(), String> {
         self.daily_purge(now)?;
         self.feed(signal)?;
-        if now - self.last_beat >= HEARTBEAT_EVERY_MS {
+        if !(0..HEARTBEAT_EVERY_MS).contains(&(now - self.last_beat)) {
             self.last_beat = now;
             self.apply(now, vec![])?;
         }
@@ -248,7 +260,7 @@ impl<S: Sys> Runner<S> {
     }
 
     fn apply(&mut self, now: Ms, ops: Vec<Op>) -> Result<(), String> {
-        self.metric_events += ops.len() as i64;
+        self.metric_events += ops.iter().filter(|o| o.is_event_op()).count() as i64;
         self.pending.extend(ops);
         match self.store.apply(&self.device, &self.pending, now) {
             Ok(()) => {
@@ -288,8 +300,8 @@ impl<S: Sys> Runner<S> {
             return Ok(());
         }
         self.last_purge_day = day;
-        let (events, metrics) = crate::retention::purge(&self.store, &self.cfg, now)?;
-        if events + metrics > 0 {
+        let (events, metrics, buckets) = crate::retention::purge(&self.store, &self.cfg, now)?;
+        if events + metrics + buckets > 0 {
             let _ = self.store.checkpoint();
         }
         Ok(())

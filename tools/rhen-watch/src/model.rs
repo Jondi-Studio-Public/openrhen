@@ -34,6 +34,27 @@ pub enum Op {
         end: Option<Ms>,
         attrs: Map<String, Value>,
     },
+    /// The running tally of one minute for one exe in one run: an absolute upsert, so replaying it is harmless.
+    /// Not an event: it goes to `input_buckets`, a tally table apart from the write-once `events`.
+    Bucket {
+        minute_ts: Ms,
+        exe: String,
+        run: u64,
+        observed_ms: i64,
+        input_ms: i64,
+    },
+    /// A value for the `meta` table, written in the same transaction as the ops around it.
+    Meta {
+        key: String,
+        value: String,
+    },
+}
+
+impl Op {
+    /// True for the ops that become (or close) rows in `events`.
+    pub fn is_event_op(&self) -> bool {
+        !matches!(self, Op::Bucket { .. } | Op::Meta { .. })
+    }
 }
 
 pub fn attrs<const N: usize>(pairs: [(&str, Value); N]) -> Map<String, Value> {
