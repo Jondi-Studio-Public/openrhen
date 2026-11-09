@@ -127,16 +127,21 @@ export function classifySourceEvent(
     candidates,
     context.aliases
   );
-  if (match.kind === "exact") return { kind: "skip" };
-  if ((match.kind === "strong" || match.kind === "possible") && match.commitmentId) {
+  // Two commitments both claiming this event is a corrupt-link signal: skipping would hide it, so it is held.
+  if (match.kind === "exact" && !match.tie) return { kind: "skip" };
+  if ((match.kind === "exact" || match.kind === "strong" || match.kind === "possible") && match.commitmentId) {
     const commitment = candidates.find((item) => item.id === match.commitmentId);
     // Several commitments fit equally: never an auto-link. `commitmentId` is the earliest of them, held as
     // a question ("Same event" / "Keep both") so the owner decides.
     if (commitment)
       return {
-        kind: match.tie ? "possible" : match.kind,
+        kind: match.tie ? "possible" : (match.kind as "strong" | "possible"),
         commitment,
-        reason: match.tie ? "Two commitments fit equally" : match.reason,
+        reason: match.tie
+          ? match.kind === "exact"
+            ? "Two commitments claim this event"
+            : "Two commitments fit equally"
+          : match.reason,
         planLocation: context.locations?.[commitment.id] ?? null,
         planVersion: context.versions?.[commitment.id] ?? null
       };

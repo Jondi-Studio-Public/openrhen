@@ -40,6 +40,24 @@ describe("classifySourceEvent", () => {
     });
   });
 
+  it("holds two commitments that both claim the event as a possible match, never a silent skip", () => {
+    const marked = { ...event, description: "OpenRhen:c1 OpenRhen:c2" };
+    const result = classifySourceEvent(marked, {
+      commitments: [commitment({ id: "c2", title: "Other" }), commitment({ title: "Another" })],
+      aliases: []
+    });
+    expect(result).toMatchObject({
+      kind: "possible",
+      reason: "Two commitments claim this event",
+      commitment: { id: "c1" }
+    });
+  });
+
+  it("still skips one exact match", () => {
+    const marked = { ...event, description: "OpenRhen:c1" };
+    expect(classifySourceEvent(marked, { commitments: [commitment()], aliases: [] })).toEqual({ kind: "skip" });
+  });
+
   it("holds two equal possible matches the same way", () => {
     const result = classifySourceEvent(
       { ...event, title: "Dentist" },
