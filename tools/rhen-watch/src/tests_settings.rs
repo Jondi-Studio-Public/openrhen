@@ -446,3 +446,188 @@ fn utf16_without_a_bom_is_detected_in_either_byte_order() {
     assert!(config::decode_text(&le, "config.toml").unwrap_err().contains("UTF-8"));
     assert!(config::decode_text(&be, "config.toml").unwrap_err().contains("UTF-8"));
 }
+
+// ---- cleanup batch: config set / categories rough edges ----
+
+fn temp_dir(name: &str) -> std::path::PathBuf {
+    let d = std::env::temp_dir().join(format!("rhen-watch-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(&d).unwrap();
+    d
+}
+
+#[test]
+fn a_problem_elsewhere_in_the_file_is_not_blamed_on_the_key_being_set() {
+    let text = "idle_threshold_secs = \"x\"\n";
+    let e = config::set_key(text, "derive.detour_minutes", "1").unwrap_err();
+    assert!(e.starts_with("config.toml already has a problem:"), "{e}");
+    assert!(
+        e.contains("line 1, column") && e.contains("fix it first"),
+        "the position is kept: {e}"
+    );
+    assert!(!e.contains("derive.detour_minutes"), "{e}");
+    let e = config::set_key("[collectors]\nfoo = 1\n", "collectors.idle", "false").unwrap_err();
+    assert!(e.contains("already has a problem") && e.contains("foo"), "{e}");
+}
+
+#[test]
+fn a_set_that_repairs_a_bad_file_still_works_and_a_bad_value_still_names_its_key() {
+    // The file breaks a rule; the set fixes it, so it must be allowed.
+    let bad = "idle_threshold_secs = 0\n";
+    assert!(config::set_key(bad, "idle_threshold_secs", "60").is_ok());
+    let e = config::set_key(config::TEMPLATE, "derive.min_block_minutes", "1").unwrap_err();
+    assert!(e.starts_with("derive.min_block_minutes"), "{e}");
+    assert!(e.contains("(1)") && e.contains("(2)"), "the values are in the message: {e}");
+}
+
+#[test]
+fn config_set_warns_when_a_leftover_categories_table_will_stop_the_agent() {
+    let dir = temp_dir("legacy-set");
+    let path = dir.join("config.toml");
+    std::fs::write(&path, "[categories]\n\"foo.exe\" = \"editor\"\n").unwrap();
+    let note = config::set_and_write(&path, "idle_threshold_secs", "180").unwrap();
+    assert!(
+        note.contains("will not start") && note.contains("categories init --from-config"),
+        "{note}"
+    );
+    let e = config::show_file(&path).unwrap_err();
+    assert!(e.contains("[categories]"), "show refuses it as run does: {e}");
+    let clean = dir.join("clean.toml");
+    let note = config::set_and_write(&clean, "idle_threshold_secs", "180").unwrap();
+    assert_eq!(note, "idle_threshold_secs set; takes effect when the agent restarts");
+    assert!(config::show_file(&clean).is_ok());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn atomic_writes_replace_the_file_and_leave_no_temp_file() {
+    let dir = temp_dir("atomic");
+    let path = dir.join("config.toml");
+    config::write_atomic(&path, "a = 1\n").unwrap();
+    config::write_atomic(&path, "a = 2\n").unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "a = 2\n");
+    assert!(!dir.join("config.toml.tmp").exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn categories_set_changes_a_hand_written_mixed_case_key_in_place() {
+    let existing = "[exe]\n# my editor\n\"Code.exe\" = \"editor\"\n";
+    let (out, _) = categories::set_entry(Some(existing), "code.exe", "notes").unwrap();
+    assert!(out.contains("# my editor"), "{out}");
+    assert_eq!(CategoryFile::parse(&out).unwrap().exe["code.exe"], "notes");
+    assert_eq!(out.matches(".exe").count(), 1, "no second entry: {out}");
+}
+
+#[test]
+fn an_unquoted_exe_name_gets_a_message_that_says_to_quote_it() {
+    let e = CategoryFile::parse("[exe]\nnotepad.exe = \"editor\"\n").unwrap_err();
+    assert!(e.contains("put the exe name in quotes") && e.contains("\"notepad.exe\""), "{e}");
+}
+
+#[test]
+fn category_names_are_not_case_sensitive() {
+    let f = CategoryFile::parse("[exe]\n\"foo.exe\" = \"Editor\"\n[group]\nMine = \"work\"\n").unwrap();
+    assert_eq!(f.exe["foo.exe"], "editor");
+    assert_eq!(f.group["mine"], "work");
+    let (out, _) = categories::set_entry(None, "foo.exe", "Editor").unwrap();
+    assert!(out.contains("\"editor\""), "{out}");
+}
+
+#[test]
+fn retention_errors_say_what_is_allowed() {
+    for bad in [
+        "events = -3",
+        "events = true",
+        "events = 1.5",
+        "events = { days = 3 }",
+        "events = [3]",
+        "events = \"forever\"",
+    ] {
+        let e = Config::parse(&format!("[retention]\n{bad}\n")).unwrap_err();
+        assert!(e.contains("\"permanent\" or a number of days"), "{bad}: {e}");
+    }
+    let zero = Config::parse("[retention]\nevents = 0\n").unwrap_err();
+    assert!(zero.contains("would delete everything"), "{zero}");
+    assert!(Config::parse("[retention]\nevents = 30\nmetrics = \"permanent\"\n").is_ok());
+}
+
+#[test]
+fn idle_needs_the_foreground_collector() {
+    let c = Config::parse("[collectors]\nforeground = false\n").unwrap();
+    assert!(!c.idle_enabled(), "no way to spot a game, so no idle sampling");
+    assert!(Config::default().idle_enabled());
+    assert!(!Config::parse("[collectors]\nidle = false\n").unwrap().idle_enabled());
+}
+
+// ---- run lock and stop event ----
+
+#[test]
+fn a_probe_does_not_make_the_agent_look_running_or_block_it_for_long() {
+    use std::time::Duration;
+    let dir = temp_dir("lock");
+    let lock_path = dir.join("run.lock");
+    let open = || {
+        std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(&lock_path)
+            .unwrap()
+    };
+    assert!(!crate::cli::agent_running(&dir));
+    // Another probe holding the file is not an agent.
+    let other_probe = open();
+    other_probe.try_lock_shared().unwrap();
+    assert!(
+        !crate::cli::agent_running(&dir),
+        "two probes at once must not report a running agent"
+    );
+    drop(other_probe);
+    // A real agent is seen.
+    let agent = open();
+    agent.try_lock().unwrap();
+    assert!(crate::cli::agent_running(&dir));
+    drop(agent);
+    // A lock held for a moment is waited out; one held for good is refused.
+    let blocker = open();
+    blocker.try_lock().unwrap();
+    let releaser = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(250));
+        drop(blocker);
+    });
+    let mine = open();
+    crate::cli::lock_with_retry(&mine, 10, Duration::from_millis(100)).expect("waits for the brief holder");
+    releaser.join().unwrap();
+    let second = open();
+    let e = crate::cli::lock_with_retry(&second, 3, Duration::from_millis(10)).unwrap_err();
+    assert!(e.contains("already running"), "{e}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_stop_event_is_per_data_directory() {
+    let a = temp_dir("stop-a");
+    let b = temp_dir("stop-b");
+    let na = crate::paths::stop_event_name(&a);
+    assert_eq!(na, crate::paths::stop_event_name(&a), "stable for one directory");
+    assert_ne!(na, crate::paths::stop_event_name(&b), "a test directory has its own event");
+    assert!(na.starts_with("Local\\rhen-watch-stop-"), "{na}");
+    assert_eq!(
+        na,
+        crate::paths::stop_event_name(&a.join("..").join(a.file_name().unwrap())),
+        "the canonical path is hashed"
+    );
+    let _ = std::fs::remove_dir_all(&a);
+    let _ = std::fs::remove_dir_all(&b);
+}
+
+#[test]
+fn stop_also_tries_the_pre_hash_event_name_so_an_upgrade_can_stop_the_old_agent() {
+    let d = temp_dir("stop-legacy");
+    let names = crate::paths::stop_event_names(&d);
+    assert_eq!(names[0], crate::paths::stop_event_name(&d));
+    assert_eq!(names[1], "Local\\rhen-watch-stop");
+    assert_ne!(names[0], names[1]);
+    let _ = std::fs::remove_dir_all(&d);
+}

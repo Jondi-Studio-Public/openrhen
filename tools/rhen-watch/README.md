@@ -1,6 +1,6 @@
 # rhen-watch
 
-A small Windows program that records which app was in front, when you were idle, and when the screen was locked or the machine slept, into a database on your own computer. It never sends anything anywhere and it has no network code (CI fails if a network crate is added). The design and its rules are in [Desktop activity agent](../../docs/architecture/desktop-activity-agent.md).
+A small Windows program that records which app was in front, when you were idle, and when the screen was locked or the machine slept, into a database on your own computer. It never sends anything anywhere and it has no network code (CI fails if a network crate, a network API call or a networking feature is added). The design and its rules are in [Desktop activity agent](../../docs/architecture/desktop-activity-agent.md).
 
 It is visible and stoppable: a tray icon shows whenever it runs, with Pause and Quit; `rhen-watch stop` ends it; `install` makes it start at logon (listed in Task Manager > Startup) and `uninstall` removes that. `rhen-watch wipe --yes` deletes everything it recorded. It never installs a service.
 

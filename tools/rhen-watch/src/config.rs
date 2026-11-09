@@ -7,10 +7,24 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-#[serde(untagged)]
+#[serde(try_from = "toml::Value", untagged)]
 pub enum Retention {
     Word(String),
     Days(u32),
+}
+
+impl TryFrom<toml::Value> for Retention {
+    type Error = String;
+
+    fn try_from(v: toml::Value) -> Result<Self, String> {
+        match v {
+            toml::Value::String(w) => Ok(Retention::Word(w)),
+            toml::Value::Integer(n) => u32::try_from(n)
+                .map(Retention::Days)
+                .map_err(|_| format!("retention must be \"permanent\" or a number of days, not {n}")),
+            other => Err(format!("retention must be \"permanent\" or a number of days, not {other}")),
+        }
+    }
 }
 
 impl Retention {
@@ -113,6 +127,14 @@ pub struct Config {
 /// The idle threshold when the config does not set one; the template shows the same number.
 pub const DEFAULT_IDLE_THRESHOLD_SECS: u64 = 120;
 
+impl Config {
+    /// Idle intervals and the input tally run only with the foreground collector: without it the agent cannot
+    /// tell that a denylisted game is in front, and games must never be sampled.
+    pub fn idle_enabled(&self) -> bool {
+        self.collectors.idle && self.collectors.foreground
+    }
+}
+
 pub const TEMPLATE: &str = r#"# rhen-watch configuration. Every setting shown is the default.
 # Change one with `rhen-watch config set <key> <value>`; `rhen-watch config show` lists them all.
 # The per-exe category map is a separate file: `rhen-watch categories init` writes categories.toml.
@@ -126,7 +148,7 @@ extra_games = []
 
 [collectors]
 foreground = true   # which app is in front (executable name only)
-idle = true         # idle intervals, and the per-minute input tally (how long ago the last input was)
+idle = true         # idle intervals, and the per-minute input tally; needs foreground = true (games are spotted by it)
 session = true      # lock, unlock, logon, logoff, remote sessions
 power = true        # suspend, resume, display on/off, AC/battery
 # Not built yet; setting either to true stops the agent with an error.
@@ -284,7 +306,10 @@ impl Config {
             }
         }
         if d.min_block_minutes < d.detour_minutes {
-            return Err("derive.min_block_minutes must be at least derive.detour_minutes".into());
+            return Err(format!(
+                "derive.min_block_minutes ({}) must be at least derive.detour_minutes ({})",
+                d.min_block_minutes, d.detour_minutes
+            ));
         }
         Ok(())
     }
@@ -377,6 +402,46 @@ pub fn show(cfg: &Config) -> String {
     out
 }
 
+/// A parse error on one line: the TOML position (line and column) when there is one, then the reason.
+fn short_error(e: &str) -> String {
+    let e = e.strip_prefix("config.toml: ").unwrap_or(e);
+    let lines: Vec<&str> = e.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    match (lines.first(), lines.last()) {
+        (Some(first), Some(last)) if lines.len() > 1 && first.starts_with("TOML parse error") => format!("{first}: {last}"),
+        (_, Some(last)) => (*last).to_string(),
+        _ => e.to_string(),
+    }
+}
+
+/// Write a file so a crash leaves the old or the new one, never a half-written one: write a temp file beside it,
+/// flush it to disk, then rename it over the target.
+pub fn write_atomic(path: &Path, text: &str) -> Result<(), String> {
+    use std::io::Write;
+    let tmp = path.with_extension("toml.tmp");
+    let written = (|| {
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(text.as_bytes())?;
+        // Without this a power loss just after the rename can leave the file present but empty or zero-filled.
+        f.sync_all()
+    })();
+    if let Err(e) = written {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("cannot write {}: {e}", tmp.display()));
+    }
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("cannot replace {}: {e}", path.display()));
+    }
+    Ok(())
+}
+
+/// `config show` against a file: a leftover `[categories]` table is an error here too, as it is for `run`.
+pub fn show_file(path: &Path) -> Result<String, String> {
+    let cfg = Config::load(path)?;
+    cfg.reject_legacy_categories()?;
+    Ok(show(&cfg))
+}
+
 /// Set one key in the text of `config.toml`, keeping its comments and layout. The result is validated the same
 /// way a loaded file is; on any failure the caller's text is untouched and the error is one line naming the key.
 pub fn set_key(text: &str, key: &str, value: &str) -> Result<String, String> {
@@ -429,12 +494,14 @@ pub fn set_key(text: &str, key: &str, value: &str) -> Result<String, String> {
     }
     *item = toml_edit::Item::Value(new_value);
     let out = doc.to_string();
-    Config::parse(&out).map_err(|e| {
-        // A TOML error spans several lines with a source excerpt; keep the reason, which is the last line.
-        let e = e.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or(&e).trim().to_string();
-        let e = e.strip_prefix("config.toml: ").unwrap_or(&e).to_string();
-        if e.contains(key) { e } else { format!("{key}: {e}") }
-    })?;
+    if let Err(e) = Config::parse(&out) {
+        // If the file was already bad, the problem is not the key being set: say where it really is.
+        if let Err(before) = Config::parse(text) {
+            return Err(format!("config.toml already has a problem: {}; fix it first", short_error(&before)));
+        }
+        let e = short_error(&e);
+        return Err(if e.contains(key) { e } else { format!("{key}: {e}") });
+    }
     Ok(out)
 }
 
@@ -443,15 +510,15 @@ pub fn set_key(text: &str, key: &str, value: &str) -> Result<String, String> {
 pub fn set_and_write(path: &Path, key: &str, value: &str) -> Result<String, String> {
     let text = read_text(path, "config.toml")?.unwrap_or_else(|| TEMPLATE.to_string());
     let out = set_key(&text, key, value)?;
-    let tmp = path.with_extension("toml.tmp");
-    std::fs::write(&tmp, &out).map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
-    if let Err(e) = std::fs::rename(&tmp, path) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(format!("cannot replace {}: {e}", path.display()));
-    }
-    Ok(if read_at_start(key) {
+    write_atomic(path, &out)?;
+    let mut note = if read_at_start(key) {
         format!("{key} set; takes effect when the agent restarts")
     } else {
         format!("{key} set; applies to the next report")
-    })
+    };
+    // The set itself is valid, but a leftover table still stops `run`: do not promise a restart works.
+    if Config::parse(&out).is_ok_and(|c| c.reject_legacy_categories().is_err()) {
+        note.push_str(", but the agent will not start until the [categories] table is moved (rhen-watch categories init --from-config)");
+    }
+    Ok(note)
 }
