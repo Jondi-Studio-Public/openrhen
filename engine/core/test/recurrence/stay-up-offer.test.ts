@@ -154,6 +154,10 @@ describe("computeStayUpOffer", () => {
     expect(computeStayUpOffer(baseArgs({ actions: [action({ status: "blocked" })] }))).toBeUndefined();
   });
 
+  it("condition 4: no offer when the behind project's only action is cancelled", () => {
+    expect(computeStayUpOffer(baseArgs({ actions: [action({ status: "cancelled" })] }))).toBeUndefined();
+  });
+
   it("condition 4: no offer when the behind project's only action has unmet dependencies", () => {
     expect(computeStayUpOffer(baseArgs({ actions: [action({ dependenciesComplete: false })] }))).toBeUndefined();
   });
