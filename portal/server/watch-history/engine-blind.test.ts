@@ -21,7 +21,9 @@ const ACTIVITY_TABLES = [
   "activity_imports",
   "activity_source_state",
   "derived_lineage",
-  "extractor_state"
+  "extractor_state",
+  "derived_settings",
+  "derived_model_calls"
 ];
 const BLIND_TABLES = [...WATCH_TABLES, ...ACTIVITY_TABLES, "app_secrets", "youtube_quota_use", "offer_log"];
 
@@ -61,6 +63,7 @@ const MAY_NAME_BLIND_TABLES = new Set([
   "portal/server/persistence/postgres/derived-source-gone-store.ts",
   "portal/server/persistence/postgres/eval-report-store.ts",
   "portal/server/persistence/postgres/extractor-state-store.ts",
+  "portal/server/persistence/postgres/derived-settings-store.ts",
   "portal/server/persistence/postgres/app-secrets-store.ts",
   "portal/server/secrets/read-secret.ts",
   "platform/database/src/schema/core.ts",
@@ -136,7 +139,14 @@ describe("watch history is blind to the engine", () => {
   it("keeps the activity store's code and drizzle names out of every file but its own routes and store", () => {
     // snake_case names are covered above; this catches the module and the drizzle table objects, which a file could
     // import without ever writing a table name.
-    const NAMES = [/activity-store(?!\.md)/, /\bactivityEvents\b/, /\bactivityImports\b/, /\bactivitySourceState\b/];
+    const NAMES = [
+      /activity-store(?!\.md)/,
+      /\bactivityEvents\b/,
+      /\bactivityImports\b/,
+      /\bactivitySourceState\b/,
+      /\bderivedSettings\b/,
+      /\bderivedModelCalls\b/
+    ];
     const MAY_USE_ACTIVITY_CODE = new Set([
       "portal/server/persistence/postgres/activity-store.ts",
       "portal/server/activity-ingest.ts",

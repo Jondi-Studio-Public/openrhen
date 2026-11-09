@@ -3469,7 +3469,16 @@ export const activityEvents = pgTable(
     // Reply state is read at query time: a later from_self event with the same attrs.thread_id.
     index("activity_events_thread_idx")
       .on(table.userId, table.source, sql`(${table.attrs}->>'thread_id')`, table.tsStart)
-      .where(sql`${table.attrs} ? 'thread_id'`)
+      .where(sql`${table.attrs} ? 'thread_id'`),
+    // Fact reads look a fact up by its id across reruns. Partial on `kind = 'fact'`: a plain expression index would
+    // carry a NULL entry for every raw mail row (millions).
+    index("activity_events_fact_id_idx")
+      .on(table.userId, sql`(${table.attrs}->>'fact_id')`)
+      .where(sql`${table.kind} = 'fact'`),
+    // Derived reads and the daily re-offer scan only derived sources; the predicate keeps raw rows out of the index.
+    index("activity_events_derived_idx")
+      .on(table.userId, table.source, table.kind)
+      .where(sql`${table.source} IN ('derived', 'derived-shadow')`)
   ]
 );
 
@@ -3546,6 +3555,69 @@ export const extractorState = pgTable(
     uniqueIndex("extractor_state_one_active_idx")
       .on(table.userId, table.extractor)
       .where(sql`${table.active}`)
+  ]
+);
+
+/**
+ * Mail understanding settings (one row per person; an absent row means the defaults). Where the local model runs
+ * (`ollama_url`, an http(s) URL with no credentials), which models the NEXT extractor version is pinned to, the
+ * hosted tier's daily caps and how far back the model tier backfills. A data-flow setting, so the routes are the
+ * owner's only (`OWNER_ROUTES`). The hosted API key is not here: it is a sealed secret in `app_secrets`. Never a plan
+ * input. Authored, so backed up.
+ */
+export const derivedSettings = pgTable(
+  "derived_settings",
+  {
+    userId: uuid("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    ollamaUrl: text("ollama_url"),
+    t2Model: text("t2_model"),
+    t3Model: text("t3_model"),
+    t3DailyMessageCap: integer("t3_daily_message_cap").notNull().default(50),
+    t3DailyTokenCap: integer("t3_daily_token_cap").notNull().default(200_000),
+    backfillDays: integer("backfill_days").notNull().default(90),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    check("derived_settings_t3_message_cap_check", sql`${table.t3DailyMessageCap} BETWEEN 0 AND 10000`),
+    check("derived_settings_t3_token_cap_check", sql`${table.t3DailyTokenCap} BETWEEN 0 AND 100000000`),
+    check("derived_settings_backfill_days_check", sql`${table.backfillDays} BETWEEN 1 AND 3650`),
+    check("derived_settings_ollama_url_check", sql`length(${table.ollamaUrl}) <= 2048`),
+    check("derived_settings_t2_model_check", sql`length(${table.t2Model}) <= 200`),
+    check("derived_settings_t3_model_check", sql`length(${table.t3Model}) <= 200`)
+  ]
+);
+
+/**
+ * The audit of every model send from the derived layer: which message (its event key, never its content), when, which
+ * tier and model, the tokens each way and why. Append-only: a trigger in migration 0151 rejects UPDATE; DELETE stays
+ * possible for the user cascade. No message content and no key is ever stored here. The hosted tier's daily caps and
+ * the settings card's "today's sends" read it. Never a plan input.
+ */
+export const derivedModelCalls = pgTable(
+  "derived_model_calls",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sourceEventKey: text("source_event_key").notNull(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+    tier: text("tier").notNull(),
+    model: text("model").notNull(),
+    tokensIn: integer("tokens_in").notNull().default(0),
+    tokensOut: integer("tokens_out").notNull().default(0),
+    reason: text("reason").notNull()
+  },
+  (table) => [
+    check("derived_model_calls_tier_check", sql`${table.tier} IN ('t2', 't3')`),
+    check("derived_model_calls_tokens_check", sql`${table.tokensIn} >= 0 AND ${table.tokensOut} >= 0`),
+    check(
+      "derived_model_calls_short_text_check",
+      sql`length(${table.sourceEventKey}) <= 512 AND length(${table.model}) <= 200 AND length(${table.reason}) <= 200`
+    ),
+    index("derived_model_calls_user_at_idx").on(table.userId, table.at)
   ]
 );
 

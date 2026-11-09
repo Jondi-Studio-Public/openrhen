@@ -147,7 +147,14 @@ const CORE_BACKUP_TABLES = [
   // answers their group), which are earlier in this list. A format 20 to 24 backup has neither table and restores with
   // them empty (`legacy-backups.ts`); the engine never reads them.
   "consequence_groups_issued",
-  "consequence_comparisons"
+  "consequence_comparisons",
+  // Mail-understanding settings and the model-call audit (format 26). Both reference only `users`. The settings are
+  // authored (where the local model runs, the hosted caps); the audit is append-only history of what was sent to a
+  // model and nothing regenerates it. The hosted API key is NOT here: it is a sealed `app_secrets` row, which a
+  // backup leaves out and a restore empties. A format 20 to 25 backup has neither table and restores with them empty
+  // (`legacy-backups.ts`).
+  "derived_settings",
+  "derived_model_calls"
 ] as const;
 
 export const BACKUP_TABLES: readonly BackupTable[] = [...CORE_BACKUP_TABLES, ...groupBackupTables("current")];
@@ -243,7 +250,7 @@ export type BackupTables = Record<CoreBackupTable, Record<string, unknown>[]> &
   Record<string, Record<string, unknown>[]>;
 
 /** The format a new backup is written in. A format bump changes this one constant and nothing else. */
-export const CURRENT_BACKUP_FORMAT_VERSION = 25 as const;
+export const CURRENT_BACKUP_FORMAT_VERSION = 26 as const;
 
 /** Only a current-format backup is held to a row-for-row content check on restore (S8-11). */
 export function isContentVerifiedFormat(formatVersion: number): boolean {

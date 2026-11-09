@@ -70,6 +70,7 @@ export const CORE_MCP_ROUTE_TABLE: Record<string, () => Promise<RouteModule>> = 
   "/api/deliverables/[id]/pack": () => import("@/app/api/deliverables/[id]/pack/route"),
   "/api/deliverables/[id]/sources": () => import("@/app/api/deliverables/[id]/sources/route"),
   "/api/deliverables/[id]/workspace": () => import("@/app/api/deliverables/[id]/workspace/route"),
+  "/api/derived-settings": () => import("@/app/api/derived-settings/route"),
   "/api/device/action": () => import("@/app/api/device/action/route"),
   "/api/device/now": () => import("@/app/api/device/now/route"),
   "/api/doctor": () => import("@/app/api/doctor/route"),
