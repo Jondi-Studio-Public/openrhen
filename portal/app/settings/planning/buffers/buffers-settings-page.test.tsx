@@ -17,7 +17,9 @@ describe("Buffers settings page", () => {
     context.saveEntityCommand.mockResolvedValue(undefined);
     const { default: BuffersSettingsPage } = await import("./page");
     render(<BuffersSettingsPage />);
-    fireEvent.change(screen.getByLabelText("Default setup before (minutes)"), { target: { value: "25" } });
+    fireEvent.change(screen.getByLabelText("Starting value for new commitments: setup before (minutes)"), {
+      target: { value: "25" }
+    });
     fireEvent.click(screen.getByRole("button", { name: "Save buffers" }));
     await act(async () => {});
     expect(context.saveEntityCommand).toHaveBeenCalledTimes(1);

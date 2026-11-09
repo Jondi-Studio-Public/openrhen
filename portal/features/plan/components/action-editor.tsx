@@ -20,6 +20,7 @@ import { StatusField } from "@/components/status-field";
 import { PrerequisitePicker } from "@/features/plan/components/prerequisite-picker";
 import { ActionContextFields } from "@/features/plan/components/action-context-fields";
 import { ActionRecurrenceFields } from "@/features/plan/components/action-recurrence-fields";
+import { Chip } from "@/components/ui/chip";
 import { AssumedTag } from "@/features/plan/components/assumed-tag";
 
 /**
@@ -32,6 +33,7 @@ export function ActionEditor({
   actions,
   deliverables = [],
   conditionDefinitions,
+  estimateBucketsMinutes = [],
   outcomes,
   areas,
   onChange,
@@ -46,6 +48,8 @@ export function ActionEditor({
   /** For the Prerequisites picker; absent offers projects and actions only. */
   deliverables?: StoredDeliverable[];
   conditionDefinitions: PortalState["conditionDefinitions"];
+  /** `settings.estimateBucketsMinutes`, offered as quick picks beside Remaining minutes; none shows no chips. */
+  estimateBucketsMinutes?: number[] | undefined;
   /** Only for the Private switch's "Private through <name>" display — see `pulse-privacy.ts`. */
   outcomes?: StoredOutcome[];
   areas?: StoredArea[];
@@ -168,6 +172,21 @@ export function ActionEditor({
             onChange={(event) => onChange({ ...draft, remainingMinutes: Number(event.target.value) })}
           />
         </Field>
+        {estimateBucketsMinutes.length > 0 && (
+          <Field label="Quick remaining minutes" group>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {estimateBucketsMinutes.map((minutes) => (
+                <Chip
+                  key={minutes}
+                  pressed={draft.remainingMinutes === minutes}
+                  onClick={() => onChange({ ...draft, remainingMinutes: minutes })}
+                >
+                  {minutes} min
+                </Chip>
+              ))}
+            </div>
+          </Field>
+        )}
         <Field label={labelled("Energy", "energy")}>
           <select
             value={draft.energy}

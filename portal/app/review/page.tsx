@@ -1030,6 +1030,7 @@ export default function ReviewPage() {
         actions={state.actions}
         deliverables={state.deliverables}
         conditionDefinitions={state.conditionDefinitions}
+        estimateBucketsMinutes={state.settings.estimateBucketsMinutes}
         timezone={state.settings.timezone}
       />
       <Sheet open={sheet === "week"} onClose={() => setSheet(null)} title="Week ahead">

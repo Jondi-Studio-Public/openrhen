@@ -172,7 +172,6 @@ export const SETUP_SETTINGS = {
   preferredBedtime: "22:30",
   preferredWakeTime: "06:15",
   timezone: TIMEZONE,
-  assertedConditions: ["home", "phone"],
   lastWokeAt: "2026-10-26T06:15:00-04:00",
   // What the /setup page posts; the stored value is the timestamp `setupCompletedAt`.
   setupCompleted: true
