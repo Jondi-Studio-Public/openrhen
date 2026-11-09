@@ -28,7 +28,7 @@ export const PLAN_INPUT_TABLES = planInputTables;
 // never reads, and check-in answers are deliberately record-only (invariant 5). The inbox tables
 // (`captures`, `sources` and the messages of other people) hold unresolved intake, not
 // plan input. `travel_lookup_budget` is
-// the daily Google lookup spend counter, not plan input itself — it is recomputable bookkeeping the
+// the daily travel lookup spend counter, not plan input itself — it is recomputable bookkeeping the
 // engine never reads. `journey_samples` *is* plan input (`readJourneySummary` feeds
 // `request.journeys`), so every writer of it is registered below.
 
@@ -39,6 +39,10 @@ export const PLAN_INPUT_TABLES = planInputTables;
 // - `write-back`: engine output written back into an input table (invariant 3); never logs or
 //   enqueues by design.
 // - `bootstrap`: one-time user setup, outside the planning transaction flow.
+// - `store`: a table owner (modularity W0): `platform/database/src/stores/`, `portal/server/persistence/postgres/stores/`
+//   and `.../entities/` as folders, plus the two single-purpose store files that already hold most of their tables'
+//   writes. A store holds the SQL for the tables `TABLE_OWNERS` names it for; it never decides when to log a change, so
+//   a store that owns a plan-input table is called only from a registered writer (`rules/write-owners.mjs`).
 // - `operations`: `platform/database/src/operations/`, a directory prefix covering backup, restore,
 //   migration and seed scripts, none of which run against a live plan.
 // - `retention`: a scheduled sweep that deletes rows already outside every query the engine reads
@@ -308,6 +312,27 @@ const CORE_WRITERS = {
     class: "bootstrap",
     reason: "One-time legacy user migration, outside the planning transaction flow."
   },
+  "platform/database/src/stores/": {
+    class: "store",
+    reason:
+      "Table owners that platform/database runtime code also writes through (planning, push, consequence, offer-log)."
+  },
+  "portal/server/persistence/postgres/stores/": {
+    class: "store",
+    reason: "Table owners for the portal's persistence layer."
+  },
+  "portal/server/persistence/postgres/entities/": {
+    class: "store",
+    reason: "One saveEntity handler per entity kind, each the owner of that kind's tables."
+  },
+  "portal/server/persistence/postgres/activity-store.ts": {
+    class: "store",
+    reason: "Already holds most writes of activity_events and activity_source_state, so it is their owner."
+  },
+  "portal/server/persistence/postgres/plan-map-store.ts": {
+    class: "store",
+    reason: "Already holds most writes of plan_findings and plan_links, so it is their owner."
+  },
   "platform/database/src/operations/": {
     class: "operations",
     reason: "Backup, restore, migration and seed scripts; not part of the live write path."
@@ -320,3 +345,135 @@ const CORE_WRITERS = {
  * under the core's, so an add-on cannot change what core says about its own files.
  */
 export const WRITERS = { ...loadAddonWriters().writers, ...CORE_WRITERS, ...extensionWriters() };
+
+/**
+ * The one writer of every core table (modularity W0, metric S9): one row per `pgTable` in
+ * `platform/database/src/schema/core.ts`, naming the **end-state** owner by its full repository path, as the W slices
+ * of the plan create them. An owner file that does not exist yet is fine while every writer of its table is still in a
+ * `scripts/repository/pending/write-owners/<lane>.json` shard; a W slice creates it and deletes the shard rows.
+ * `owner: null` is allowed only for a table no file writes. `exempt` pins the one write that cannot move.
+ * A new `pgTable` names its owner here in the pull request that adds it. Checked by `rules/write-owners.mjs`.
+ */
+export const TABLE_OWNERS = {
+  users: { owner: "portal/server/persistence/postgres/stores/users.ts" }, // W15
+  portal_state: { owner: "portal/server/persistence/postgres/ensure-user.ts" },
+  user_preferences: { owner: "portal/server/persistence/postgres/stores/user-preferences.ts" }, // W15
+  areas: { owner: "portal/server/persistence/postgres/entities/area.ts" }, // W6
+  outcomes: { owner: "portal/server/persistence/postgres/entities/outcome.ts" }, // W6
+  projects: { owner: "platform/database/src/stores/projects.ts" }, // W6
+  actions: { owner: "platform/database/src/stores/actions.ts" }, // W10
+  action_recurrence_rules: { owner: "portal/server/persistence/postgres/stores/action-rules.ts" }, // W10
+  action_recurrence_windows: { owner: "portal/server/persistence/postgres/stores/action-rules.ts" }, // W10
+  action_occurrences: { owner: "platform/database/src/stores/action-occurrences.ts" }, // W10
+  action_requirement_pathways: { owner: "portal/server/persistence/postgres/stores/action-rules.ts" }, // W10
+  action_requirements: { owner: "portal/server/persistence/postgres/stores/action-rules.ts" }, // W10
+  action_preferences: { owner: "portal/server/persistence/postgres/stores/action-rules.ts" }, // W10
+  action_dependencies: { owner: "portal/server/persistence/postgres/stores/action-rules.ts" }, // W10
+  deliverables: { owner: "portal/server/persistence/postgres/entities/deliverable.ts" }, // W9
+  entity_prerequisites: { owner: "portal/server/persistence/postgres/prerequisites.ts" },
+  deliverable_dependencies: { owner: "portal/server/persistence/postgres/entities/deliverable.ts" }, // W9
+  deliverable_criteria: { owner: "portal/server/persistence/postgres/entities/deliverable.ts" }, // W9
+  deliverable_criterion_actions: { owner: "portal/server/persistence/postgres/entities/deliverable.ts" }, // W9
+  deliverable_blockers: { owner: "portal/server/persistence/postgres/entities/deliverable.ts" }, // W9
+  deliverable_blocker_actions: { owner: "portal/server/persistence/postgres/entities/deliverable.ts" }, // W9
+  deliverable_chat_messages: { owner: "portal/server/persistence/postgres/deliverable-chat-store.ts" },
+  deliverable_sources: { owner: "portal/server/persistence/postgres/stores/inbox.ts" }, // W4
+  sources: { owner: "portal/server/persistence/postgres/stores/inbox.ts" }, // W4
+  source_files: { owner: "portal/server/persistence/postgres/deliverable-proposal-store.ts" },
+  captures: { owner: "portal/server/persistence/postgres/stores/inbox.ts" }, // W4
+  commitment_recurrence_rules: { owner: "platform/database/src/stores/commitments.ts" }, // W11
+  commitments: { owner: "platform/database/src/stores/commitments.ts" }, // W11
+  check_in: { owner: "platform/database/src/stores/check-in.ts" }, // W2
+  calendar_event_links: { owner: "portal/server/persistence/postgres/stores/calendar-links.ts" }, // W3
+  calendar_source_selections: { owner: "portal/server/persistence/postgres/calendar-source-selections.ts" },
+  calendar_event_dismissals: { owner: "portal/server/persistence/postgres/stores/calendar-links.ts" }, // W3
+  source_match_aliases: { owner: "portal/server/persistence/postgres/stores/calendar-links.ts" }, // W3
+  calendar_publications: { owner: "portal/server/persistence/postgres/stores/calendar-publications.ts" }, // D3
+  routine_steps: { owner: "platform/database/src/stores/routine-steps.ts" }, // W7
+  routine_step_dependencies: { owner: "platform/database/src/stores/routine-steps.ts" }, // W7
+  routine_presets: { owner: "portal/server/persistence/postgres/entities/routine-preset.ts" }, // W7
+  routine_preset_steps: { owner: "portal/server/persistence/postgres/entities/routine-preset.ts" }, // W7
+  routine_preset_step_dependencies: { owner: "portal/server/persistence/postgres/entities/routine-preset.ts" }, // W7
+  condition_definitions: { owner: "platform/database/src/stores/condition-definitions.ts" }, // W15
+  journey_samples: { owner: "platform/database/src/stores/journey-samples.ts" }, // W12
+  travel_lookup_budget: { owner: "portal/server/travel/travel-spend.ts" },
+  push_subscriptions: { owner: "portal/server/push/push-subscriptions.ts" },
+  push_outbox: { owner: "platform/database/src/stores/push-outbox.ts" }, // W2
+  agent_wakes: { owner: "platform/database/src/stores/agent-wakes.ts" }, // W2
+  sleep_plans: { owner: "platform/database/src/stores/sleep-plans.ts" }, // W8
+  sessions: { owner: "portal/server/persistence/postgres/stores/sessions.ts" }, // W8
+  session_segments: { owner: "portal/server/persistence/postgres/stores/sessions.ts" }, // W8
+  action_cadence_completions: { owner: "portal/server/persistence/postgres/cadence-completion.ts" },
+  forecast_snapshots: { owner: "platform/database/src/stores/plan-forecast.ts" }, // W12
+  recommendations: { owner: "platform/database/src/stores/plan-forecast.ts" }, // W12
+  planning_runs: { owner: "platform/database/src/stores/plan-forecast.ts" }, // W12
+  recommendation_candidates: { owner: "platform/database/src/stores/plan-forecast.ts" }, // W12
+  writes: { owner: "portal/server/persistence/postgres/stores/command-log.ts" }, // W13
+  write_rows: { owner: "platform/database/src/stores/write-log.ts" }, // W12
+  agent_proposals: { owner: "portal/server/agent-proposals/store.ts" },
+  agent_tokens: { owner: "portal/server/agent-token-store.ts" },
+  owner_credentials: { owner: "portal/server/owner-credential-store.ts" },
+  agent_access_tokens: { owner: "portal/server/mcp-access-tokens.ts" },
+  oauth_clients: { owner: "portal/server/mcp-oauth-store.ts" },
+  oauth_authorization_codes: { owner: "portal/server/mcp-oauth-store.ts" },
+  oauth_refresh_tokens: { owner: "portal/server/mcp-oauth-store.ts" },
+  agent_sessions: { owner: "portal/server/agent-session-store.ts" },
+  provider_call_telemetry: { owner: "platform/database/src/stores/provider-calls.ts" }, // W12
+  daily_plans: { owner: "portal/server/persistence/postgres/entities/daily-plan.ts" }, // W15
+  daily_plan_desired_actions: { owner: "portal/server/persistence/postgres/entities/daily-plan.ts" }, // W15
+  daily_plan_deferred_actions: { owner: "portal/server/persistence/postgres/entities/daily-plan.ts" }, // W15
+  planning_focus_periods: { owner: "portal/server/persistence/postgres/entities/planning-focus.ts" }, // W6
+  planning_focus_projects: { owner: "portal/server/persistence/postgres/entities/planning-focus.ts" }, // W6
+  jobs: { owner: "platform/database/src/stores/plan-forecast.ts" }, // W12
+  import_batches: { owner: "portal/server/persistence/postgres/stores/import-records.ts" }, // W3
+  import_records: { owner: "portal/server/persistence/postgres/stores/import-records.ts" }, // W3
+  import_entity_keys: { owner: "portal/server/persistence/postgres/stores/import-records.ts" }, // W3
+  integration_sync_runs: {
+    owner: "portal/server/persistence/postgres/run-log.ts",
+    exempt: {
+      "scripts/backup/record-run.mjs":
+        "The backup sidecar runs plain node in its own image (scripts/backup/Dockerfile), so it cannot import a TypeScript owner, and moving its insert would edit a deploy file."
+    }
+  },
+  issue_snapshots: { owner: "portal/server/persistence/postgres/issue-snapshot-store.ts" },
+  pulse_segments: { owner: "platform/database/src/stores/pulse-segments.ts" }, // W13
+  pulse_state: { owner: "portal/server/persistence/postgres/stores/pulse.ts" }, // W13
+  pulse_disruptions: { owner: "portal/server/persistence/postgres/stores/pulse.ts" }, // W13
+  plan_subjects: { owner: "portal/server/persistence/postgres/plan-map-store.ts" },
+  plan_links: { owner: "portal/server/persistence/postgres/plan-map-store.ts" }, // W14
+  plan_findings: { owner: "portal/server/persistence/postgres/plan-map-store.ts" }, // W14
+  plan_shadow_log: { owner: "platform/database/src/stores/plan-shadow-log.ts" }, // W14
+  plan_map_switches: { owner: "portal/server/persistence/postgres/plan-map-store.ts" },
+  catch_up_runs: { owner: "portal/server/persistence/postgres/catch-up.ts" },
+  photo_checkin_settings: { owner: "portal/server/persistence/postgres/photo-checkin-store.ts" },
+  photo_checkin: { owner: "portal/server/persistence/postgres/photo-checkin-store.ts" },
+  photo_checkin_stage: { owner: null },
+  place_reference_photo: { owner: "portal/server/persistence/postgres/photo-checkin-store.ts" },
+  spans: { owner: "portal/server/persistence/postgres/entities/span.ts" }, // W6
+  watch_imports: { owner: "portal/server/persistence/postgres/watch-history-store.ts" },
+  watch_events: { owner: "portal/server/persistence/postgres/watch-history-store.ts" },
+  activity_imports: { owner: "portal/server/persistence/postgres/activity-store.ts" },
+  activity_events: { owner: "portal/server/persistence/postgres/activity-store.ts" }, // W14
+  activity_source_state: { owner: "portal/server/persistence/postgres/activity-store.ts" }, // W14
+  derived_lineage: { owner: "portal/server/persistence/postgres/derived-lineage-store.ts" },
+  extractor_state: { owner: "portal/server/persistence/postgres/extractor-state-store.ts" },
+  derived_settings: { owner: "portal/server/persistence/postgres/derived-settings-store.ts" },
+  derived_model_calls: { owner: "portal/server/persistence/postgres/derived-model-calls-store.ts" },
+  video_info: { owner: "portal/server/persistence/postgres/video-lengths-store.ts" },
+  app_secrets: { owner: "portal/server/persistence/postgres/app-secrets-store.ts" },
+  youtube_quota_use: { owner: "portal/server/persistence/postgres/video-lengths-store.ts" },
+  offer_log: { owner: "platform/database/src/offer-log/offer-log.ts" },
+  consequence_comparisons: { owner: "platform/database/src/consequence/comparisons.ts" },
+  consequence_groups_issued: { owner: "platform/database/src/consequence/comparisons.ts" }
+};
+
+/**
+ * The files under `platform/database/src/operations/` that hold a write today. `operations/` is exempt from the
+ * one-writer rule by prefix (backup, restore, migration and seed write every table by design), so a file there that
+ * is not listed is refused, and a core runtime file outside `operations/` may not import one of these.
+ */
+export const OPERATIONS_WRITERS = [
+  "platform/database/src/operations/migrate-on-deploy.ts",
+  "platform/database/src/operations/restore-run.ts",
+  "platform/database/src/operations/smoke-seed-late-commitment.ts"
+];

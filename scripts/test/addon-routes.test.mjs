@@ -73,7 +73,7 @@ test("a tree with no add-on group has no add-on routes and no collisions", () =>
   const root = tree({ "portal/app/today/page.tsx": "" });
   try {
     assert.deepEqual(findCollisions(listRoutes(root)), []);
-    assert.deepEqual(loadAddonWriters(root), { writers: {}, errors: [] });
+    assert.deepEqual(loadAddonWriters(root), { writers: {}, owns: [], errors: [] });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

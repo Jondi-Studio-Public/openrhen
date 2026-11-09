@@ -1,0 +1,40 @@
+{
+  "lane": "W",
+  "rows": {
+    "total": 30,
+    "files": {
+      "platform/database/src/planning/agent-wake-sender.ts": ["agent_wakes"],
+      "platform/database/src/planning/agent-wake.ts": ["agent_wakes"],
+      "platform/database/src/planning/check-in-scheduler.ts": ["check_in"],
+      "platform/database/src/planning/completion-ratios.ts": ["projects"],
+      "platform/database/src/planning/plan-forecast-runtime.ts": [
+        "action_occurrences",
+        "commitments",
+        "condition_definitions",
+        "forecast_snapshots",
+        "jobs",
+        "planning_runs",
+        "recommendation_candidates",
+        "recommendations",
+        "routine_steps",
+        "sleep_plans"
+      ],
+      "platform/database/src/planning/plan-nudge-shadow.ts": ["plan_shadow_log"],
+      "platform/database/src/planning/plan-retention.ts": [
+        "forecast_snapshots",
+        "jobs",
+        "journey_samples",
+        "planning_runs",
+        "provider_call_telemetry",
+        "pulse_segments",
+        "push_outbox",
+        "recommendation_candidates",
+        "recommendations",
+        "write_rows"
+      ],
+      "platform/database/src/planning/plan-reviewer.ts": ["plan_shadow_log", "push_outbox"],
+      "platform/database/src/planning/routine-inheritance.ts": ["routine_step_dependencies", "routine_steps"],
+      "platform/database/src/planning/routine-step-mootness.ts": ["routine_steps"]
+    }
+  }
+}
