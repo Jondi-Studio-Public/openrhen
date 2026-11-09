@@ -56,15 +56,30 @@ export function probeFingerprint(probe: Pick<MessageCopyProbe, "attrs">): string
   return typeof fp === "string" && fp !== "" ? fp : undefined;
 }
 
+const ATEXT = "[\\p{L}\\p{N}!#$%&'*+/=?^_`{|}~-]+";
+const LOCAL_PART = new RegExp(`^${ATEXT}(?:\\.${ATEXT})*$`, "u");
+const DOMAIN_LABEL = "[\\p{L}\\p{N}](?:[\\p{L}\\p{N}-]*[\\p{L}\\p{N}])?";
+const DOMAIN = new RegExp(`^${DOMAIN_LABEL}(?:\\.${DOMAIN_LABEL})+$`, "u");
+const OCTET = "(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)";
+const IPV4_LITERAL = new RegExp(`^\\[${OCTET}(?:\\.${OCTET}){3}\\]$`);
+
 /**
- * Whether an id has the RFC 5322 `Message-ID` shape that makes it globally unique: after one pair of angle brackets is
- * stripped, exactly one `@`, a non-empty local part and domain, and no whitespace. An id such as "@alice-17" (an empty
- * local part, as a chat handle) or "a@b@c" is not that, and is only unique inside its own source.
+ * Whether an id has the RFC 5322 `Message-ID` shape (`id-left "@" id-right`) that makes it globally unique, judged on
+ * the id as stored (after the server has stripped one pair of angle brackets; one pair is also accepted here). The
+ * rule: exactly one `@`; a local part of dot-atoms (letters, digits and the RFC `atext` symbols, with single dots only
+ * between them, no leading, trailing or doubled dot; non-ASCII letters allowed as in RFC 6532); and a domain that is
+ * either a name of at least two dot-separated labels (letters, digits and inner hyphens) or an IPv4 domain literal such
+ * as `[192.0.2.1]`. Refused: nested or unbalanced brackets, whitespace, quoted local parts, a dot-less domain such as
+ * `user@host/12` or `user@localhost` (a host-local name is not unique), an empty side, and a handle such as
+ * `@alice-17`. An id that fails is only unique inside its own source.
  */
 export function isRfcMessageId(id: string): boolean {
   const bare = id.startsWith("<") && id.endsWith(">") ? id.slice(1, -1) : id;
-  const parts = bare.split("@");
-  return parts.length === 2 && parts[0] !== "" && parts[1] !== "" && !/\s/u.test(bare);
+  const at = bare.indexOf("@");
+  if (at <= 0 || at !== bare.lastIndexOf("@")) return false;
+  const local = bare.slice(0, at);
+  const domain = bare.slice(at + 1);
+  return LOCAL_PART.test(local) && (DOMAIN.test(domain) || IPV4_LITERAL.test(domain));
 }
 
 /** Whether the event's `mid:` key may be matched across sources: its own id has the RFC `Message-ID` shape. */

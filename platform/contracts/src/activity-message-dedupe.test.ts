@@ -65,9 +65,9 @@ describe("findMessageDuplicates", () => {
   });
 
   it("matches a canonical mid: key across sources only when the id has an @", () => {
-    const withAt = probe(0, "b", "mid:abc@host", 500, { message_id: "abc@host" });
-    expect(findMessageDuplicates([withAt], [held("a", "mid:abc@host", 0, null)])).toMatchObject([
-      { by: "message_id", of: { source: "a", key: "mid:abc@host" } }
+    const withAt = probe(0, "b", "mid:abc@host.example", 500, { message_id: "abc@host.example" });
+    expect(findMessageDuplicates([withAt], [held("a", "mid:abc@host.example", 0, null)])).toMatchObject([
+      { by: "message_id", of: { source: "a", key: "mid:abc@host.example" } }
     ]);
     // A bare chat id is only unique inside its own source.
     const bare = probe(0, "b", "mid:12", 0, { message_id: "12" });
@@ -77,8 +77,8 @@ describe("findMessageDuplicates", () => {
 
   it("prefers the message id over the fingerprint", () => {
     const out = findMessageDuplicates(
-      [probe(0, "b", "mid:abc@host", 0, { message_id: "abc@host", fp: "f1" })],
-      [held("c", "x", 0, "f1"), held("a", "mid:abc@host", 0, "f1")]
+      [probe(0, "b", "mid:abc@host.example", 0, { message_id: "abc@host.example", fp: "f1" })],
+      [held("c", "x", 0, "f1"), held("a", "mid:abc@host.example", 0, "f1")]
     );
     expect(out[0]).toMatchObject({ by: "message_id", of: { source: "a" } });
   });
@@ -123,11 +123,50 @@ describe("findMessageDuplicates", () => {
   });
 
   it("treats only an RFC shaped id as shareable across sources", () => {
-    for (const id of ["abc@host", "<abc@host>", "a.b+c@mail.example.com"]) expect(isRfcMessageId(id)).toBe(true);
+    for (const id of ["abc@host.example", "<abc@host.example>", "a.b+c@mail.example.com"])
+      expect(isRfcMessageId(id)).toBe(true);
     for (const id of ["@alice-17", "alice@", "a@b@c", "12", "a b@host", "<@host>", "<a@>"])
       expect(isRfcMessageId(id)).toBe(false);
     const handle = probe(0, "b", "mid:@alice-17", 0, { message_id: "@alice-17" });
     expect(isMessageCopyCandidate(handle)).toBe(false);
     expect(findMessageDuplicates([handle], [held("a", "mid:@alice-17", 0, null)])).toEqual([]);
+  });
+
+  it("accepts only the RFC 5322 id-left@id-right shapes as shareable", () => {
+    const valid = [
+      "abc@host.example",
+      "<abc@host.example>",
+      "a.b+c@mail.example.com",
+      "CAF=1x_2/3@mail.example.com",
+      "0123.456@[192.0.2.1]",
+      "<user@[192.0.2.1]>",
+      "jörg@mail.example.com"
+    ];
+    const invalid = [
+      "<<a@b.example>>",
+      "<a@b.example",
+      "a@b.example>",
+      "<a@b>c.example>",
+      "user@host/12",
+      "user@host",
+      "user@localhost",
+      "a@.example.com",
+      "a@example..com",
+      "a@example.com.",
+      "a@-example.com",
+      "a@exa_mple.com",
+      ".a@host.example",
+      "a.@host.example",
+      "a..b@host.example",
+      "a<b@host.example",
+      '"a b"@host.example',
+      "a@[host.example]",
+      "a@[999.0.2.1]",
+      "@alice-17",
+      "alice@",
+      "a@b@c.example"
+    ];
+    for (const id of valid) expect(isRfcMessageId(id), id).toBe(true);
+    for (const id of invalid) expect(isRfcMessageId(id), id).toBe(false);
   });
 });
