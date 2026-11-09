@@ -114,10 +114,7 @@ const NOT_REGISTRIES = [
     "a non-exported function that writes and is never reached from an export",
     "const items = new Map();\nfunction store(id) { items.set(id, 1); }\nexport const size = () => items.size;\n"
   ],
-  [
-    "an exported class (not a function or const arrow)",
-    "const items = [];\nexport class Bag { add(x) { items.push(x); } }\n"
-  ],
+  ["a class with only per-instance state", "export class Bag { items = []; add(x) { this.items.push(x); } }\n"],
   ["an imported binding", "import { items } from './items.js';\nexport function read() { return items.length; }\n"],
   [
     "a function-scoped array that is returned",
@@ -134,15 +131,50 @@ for (const [label, source] of NOT_REGISTRIES) {
   });
 }
 
-test("a @seam tag on the declaration exempts a registry", () => {
+test("a @seam tag does not exempt a plain collection-writing export", () => {
   const tagged =
     "const items = new Map();\n/**\n * Things.\n * @seam things\n */\nexport function attach(id) { items.set(id, 1); }\n";
-  assert.deepEqual(names("src/example.ts", tagged), []);
+  assert.deepEqual(names("src/example.ts", tagged), ["attach"]);
   const taggedExport = "const items = new Map();\n/** @seam */\nexport const attach = (id) => { items.add(id); };\n";
-  assert.deepEqual(names("src/example.ts", taggedExport), []);
-  const farAway =
-    "/** @seam */\nconst unrelated = 1;\nconst items = new Map();\nexport function attach(id) { items.set(id, 1); }\n";
-  assert.deepEqual(names("src/example.ts", farAway), ["attach"]);
+  assert.deepEqual(names("src/example.ts", taggedExport), ["attach"]);
+});
+
+test("the C5 forms beyond plain functions", () => {
+  // a class whose static collection an exported method writes (this. and ClassName. forms)
+  assert.deepEqual(
+    names(
+      "a.ts",
+      "export class Hooks {\n  static items = new Map<string, number>();\n  static add(k: string) { this.items.set(k, 1); }\n  static put(k: string) { Hooks.items.set(k, 2); }\n  static size() { return Hooks.items.size; }\n}\n"
+    ),
+    ["Hooks.add", "Hooks.put"]
+  );
+  // an instance method writing the module-level collection
+  assert.deepEqual(names("a.ts", "const m = new Map();\nexport class Bag { add(k) { m.set(k, 1); } }\n"), ["Bag.add"]);
+  // an instance field is per-instance, not a registry
+  assert.deepEqual(names("a.ts", "export class Bag { items = new Map(); add(k) { this.items.set(k, 1); } }\n"), []);
+  // an object-literal API: method, arrow and function-expression members
+  assert.deepEqual(
+    names(
+      "a.ts",
+      "const m = new Map();\nexport const api = { register(k, v) { m.set(k, v); }, put: (k) => m.set(k, 1), take: function (k) { m.delete(k); delete m[k]; }, size: () => m.size };\n"
+    ),
+    ["api.register", "api.put", "api.take"]
+  );
+  assert.deepEqual(
+    names("a.ts", "const m = new Map();\nexport const api = { register(k) { m.set(k, 1); } } as const;\n"),
+    ["api.register"]
+  );
+  // an imported collection written from an exported function, in each import form
+  assert.deepEqual(names("a.ts", 'import { m } from "./x";\nexport function add(k) { m.set(k, 1); }\n'), ["add"]);
+  assert.deepEqual(names("a.ts", 'import { m as table } from "./x";\nexport const add = (k) => { table[k] = 1; };\n'), [
+    "add"
+  ]);
+  assert.deepEqual(names("a.ts", 'import m from "./x";\nexport function add(k) { m.push(k); }\n'), ["add"]);
+  assert.deepEqual(names("a.ts", 'import * as x from "./x";\nexport function add(k) { x.m.set(k, 1); }\n'), ["add"]);
+  // a type-only import is not a collection
+  assert.deepEqual(names("a.ts", 'import type { m } from "./x";\nexport function add(k) { m.set(k, 1); }\n'), []);
+  // a shadowed import is not
+  assert.deepEqual(names("a.ts", 'import { m } from "./x";\nexport function add(m, k) { m.set(k, 1); }\n'), []);
 });
 
 test("reports line numbers", () => {
@@ -178,6 +210,62 @@ test("a tagged createRegistry call is a seam with its name, module and key", () 
   assert.deepEqual(found.seams, [{ name: "diff-profiles", module: "portal/server/profiles.ts", key: "profile id" }]);
   assert.deepEqual(found.errors, []);
   assert.deepEqual(found.registries, []);
+});
+
+const SEAM_ONE = (call, head = 'import { createRegistry } from "@openrhen/contracts/extension";\n') =>
+  `${head}/** @seam */\nexport const profiles = ${call}({ name: "diff-profiles", key: "profile id" });\n`;
+const THE_SEAM = [{ name: "diff-profiles", module: "a.ts", key: "profile id" }];
+
+test("an aliased import of createRegistry is still a seam", () => {
+  const found = scanSource(
+    "a.ts",
+    SEAM_ONE("cr", 'import { createRegistry as cr } from "@openrhen/contracts/extension";\n')
+  );
+  assert.deepEqual(found.errors, []);
+  assert.deepEqual(found.seams, THE_SEAM);
+});
+
+test("a namespace call of createRegistry is still a seam", () => {
+  const found = scanSource(
+    "a.ts",
+    SEAM_ONE("c.createRegistry", 'import * as c from "@openrhen/contracts/extension";\n')
+  );
+  assert.deepEqual(found.errors, []);
+  assert.deepEqual(found.seams, THE_SEAM);
+});
+
+test("a relative import of createRegistry (inside contracts) is still a seam", () => {
+  for (const head of [
+    'import { createRegistry } from "./extension/registry.js";\n',
+    'import { createRegistry as make } from "../extension/registry";\n'
+  ]) {
+    const call = head.includes(" as make") ? "make" : "createRegistry";
+    const found = scanSource("a.ts", SEAM_ONE(call, head));
+    assert.deepEqual(found.errors, [], head);
+    assert.deepEqual(found.seams, THE_SEAM, head);
+  }
+  const found = scanSource("a.ts", SEAM_ONE("c.createRegistry", 'import * as c from "../extension/registry.js";\n'));
+  assert.deepEqual(found.seams, THE_SEAM);
+});
+
+test("an aliased createRegistry call without a @seam tag is an error too", () => {
+  const source =
+    'import { createRegistry as cr } from "@openrhen/contracts/extension";\nexport const profiles = cr({ name: "n", key: "k" });\n';
+  assert.equal(scanSource("a.ts", source).errors.length, 1);
+});
+
+test("the @seam tag is matched as a token, not as a prefix", () => {
+  for (const tag of ["@seam-less", "@seams", "@seam_x", "@seamless"]) {
+    const source = `/** ${tag} */\nexport const p = createRegistry({ name: "n", key: "k" });\n`;
+    const found = scanSource("a.ts", source);
+    assert.equal(found.errors.length, 1, tag);
+    assert.deepEqual(found.seams, [], tag);
+  }
+  for (const comment of ["/** @seam */", "/**\n * Docs.\n * @seam\n */", "// @seam", "/** @seam things */"]) {
+    const found = scanSource("a.ts", `${comment}\nexport const p = createRegistry({ name: "n", key: "k" });\n`);
+    assert.deepEqual(found.errors, [], comment);
+    assert.equal(found.seams.length, 1, comment);
+  }
 });
 
 test("a createRegistry call without a @seam tag is an error", () => {
@@ -276,9 +364,14 @@ test("a new registry that is renamed to dodge a name rule still fails", () => {
   assert.match(errors[0], /src\/reg\.ts:\d+ exports wire/);
 });
 
-test("a registry tagged @seam needs no shard entry", () => {
-  const tagged = "const items = new Map();\n/** @seam */\nexport function attach(id) { items.set(id, 1); }\n";
-  assert.deepEqual(run({ files: { "src/tagged.ts": tagged } }), []);
+test("a registry on createRegistry with a @seam tag needs no shard entry; a bare @seam tag is no way out", () => {
+  const onRegistry =
+    'import { createRegistry } from "@openrhen/contracts/extension";\n/** @seam */\nexport const things = createRegistry({ name: "things", key: "thing id" });\n';
+  assert.deepEqual(run({ files: { "src/on-registry.ts": onRegistry } }), []);
+  const bare = "const items = new Map();\n/** @seam */\nexport function attach(id) { items.set(id, 1); }\n";
+  const errors = run({ files: { "src/bare.ts": bare } });
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /src\/bare\.ts:\d+ exports attach/);
 });
 
 test("a test file is not scanned", () => {

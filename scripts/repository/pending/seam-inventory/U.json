@@ -1,13 +1,16 @@
 {
   "lane": "U",
   "registries": {
-    "total": 7,
+    "total": 8,
     "files": {
       "portal/components/nav-extensions.ts": [
         "registerNavExtension"
       ],
       "portal/features/agent-proposals/agent-proposals-store.ts": [
         "resolveAgentProposalRequest"
+      ],
+      "portal/features/closed/close-toast-store.ts": [
+        "closeToasts.subscribe"
       ],
       "portal/features/connections/connection-extensions.ts": [
         "registerConnectionExtension"

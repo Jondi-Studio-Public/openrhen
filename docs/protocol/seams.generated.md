@@ -10,7 +10,7 @@ None yet: no registry is on `createRegistry`.
 
 ## Pending
 
-110 registries in 66 files still fill a module-level collection directly. The list, per file and lane, is in `scripts/repository/pending/seam-inventory/`; it only shrinks, and a registry leaves it when it moves onto `createRegistry`.
+113 registries in 68 files still fill a module-level collection directly. The list, per file and lane, is in `scripts/repository/pending/seam-inventory/`; it only shrinks, and a registry leaves it when it moves onto `createRegistry`.
 
 | Lane | Files | Registries |
 |---|---|---|
@@ -20,9 +20,9 @@ None yet: no registry is on `createRegistry`.
 | G | 1 | 1 |
 | H | 23 | 28 |
 | I | 5 | 10 |
-| K | 9 | 20 |
+| K | 10 | 22 |
 | P | 8 | 17 |
 | S | 3 | 10 |
-| U | 7 | 7 |
+| U | 8 | 8 |
 | W | 1 | 1 |
 | other | 1 | 1 |

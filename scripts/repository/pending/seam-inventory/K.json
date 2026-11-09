@@ -1,7 +1,7 @@
 {
   "lane": "K",
   "registries": {
-    "total": 20,
+    "total": 22,
     "files": {
       "platform/contracts/src/activity-events.ts": [
         "activityEventsJsonSchema",
@@ -21,6 +21,10 @@
       ],
       "platform/contracts/src/connections/manifest-store.ts": [
         "registerConnectionManifest"
+      ],
+      "platform/contracts/src/core-only.ts": [
+        "enterCoreOnly",
+        "withoutContractsExtensions"
       ],
       "platform/contracts/src/extensions.ts": [
         "registerContractsExtension",

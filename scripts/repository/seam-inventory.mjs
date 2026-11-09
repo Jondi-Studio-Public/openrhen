@@ -1,10 +1,12 @@
 // Seam inventory (modularity plan A3; metrics C5 and S2). A registry is found by what it does, not by what it is called:
 // any exported function, or exported const holding an arrow or function expression, whose body changes a module-level
 // collection (`.set`, `.add`, `.push`, `.splice`, `delete`, an index assignment, or `Object.assign` on a top-level
-// binding), directly or through a helper in the same file. Renaming `registerX` to `attach` does not dodge it.
+// binding), directly or through a helper in the same file. The collection may be a module-level binding, an imported
+// binding, or a static field of the exported class whose method writes it; the function may be a member of an exported
+// class or object literal (`api.register`). Renaming `registerX` to `attach` does not dodge it.
 //
 // A registry passes when it is built on `createRegistry` (platform/contracts/src/extension/registry.ts) with a `@seam`
-// tag on its declaration, or carries the `@seam` tag itself, or is listed `pending` in a per-lane shard under
+// tag on its declaration (the tag counts only there, as a whole token), or is listed `pending` in a per-lane shard under
 // scripts/repository/pending/seam-inventory/<lane>.json. The shards only shrink and are deleted at zero. Lane
 // assignment, the base comparison, the non-git (composed tree) handling and `--fix-pending` follow vendor-terms.mjs,
 // whose helpers this file reuses.
@@ -57,15 +59,22 @@ const unwrap = (node) => {
   return current;
 };
 
-// The identifier a member/call chain starts from: `a.b[c].get(d)!` -> a.
-function rootName(node) {
+// The start of a member/call chain: `a.b[c].get(d)!` -> root a, first property b. `viaCall` says a call sat in the chain
+// (`dayjs().add(1)`), which is not a write to the root binding itself.
+function chainOf(node) {
   let current = unwrap(node);
+  let first = null;
+  let viaCall = false;
   for (;;) {
-    if (!current) return null;
-    if (current.type === "Identifier") return current.name;
-    if (current.type === "MemberExpression") current = unwrap(current.object);
-    else if (current.type === "CallExpression") current = unwrap(current.callee);
-    else return null;
+    if (!current) return { root: null };
+    if (current.type === "Identifier" || current.type === "ThisExpression") return { root: current, first, viaCall };
+    if (current.type === "MemberExpression") {
+      first = current.computed ? null : (current.property.name ?? null);
+      current = unwrap(current.object);
+    } else if (current.type === "CallExpression") {
+      viaCall = true;
+      current = unwrap(current.callee);
+    } else return { root: null };
   }
 }
 
@@ -116,12 +125,18 @@ function declaredInside(fn) {
   return names;
 }
 
-// What a function body does to the module: which top-level bindings it writes and which top-level functions it calls.
-function effectsOf(fn, topLevel, functions) {
+// What a function body does to the module: which collections it writes and which top-level functions it calls. `scope`
+// = { topLevel, imported, className?, staticNames?, isStatic? }: module bindings, imported bindings, and the static
+// fields of the class the function is a method of.
+function effectsOf(fn, scope, functions) {
   const shadowed = declaredInside(fn);
   const collection = (node) => {
-    const name = rootName(node);
-    return name !== null && topLevel.has(name) && !shadowed.has(name);
+    const { root, first, viaCall } = chainOf(node);
+    if (!root) return false;
+    if (root.type === "ThisExpression") return Boolean(scope.isStatic && first && scope.staticNames?.has(first));
+    if (scope.className && root.name === scope.className && first && scope.staticNames?.has(first)) return true;
+    if (shadowed.has(root.name)) return false;
+    return scope.topLevel.has(root.name) || (scope.imported.has(root.name) && !viaCall);
   };
   let writes = false;
   const calls = new Set();
@@ -152,7 +167,9 @@ function effectsOf(fn, topLevel, functions) {
   return { writes, calls };
 }
 
-// True when the comment run directly above `statement` (only whitespace between) holds a `@seam` tag.
+// True when the comment run directly above `statement` (only whitespace between) holds the `@seam` tag as a token
+// (`@seam-less` and `@seams` are not the tag). Only a createRegistry call can use it; it exempts nothing else.
+const SEAM_TAG = /(?:^|[^\w@-])@seam(?![\w-])/;
 function seamTagged(parsed, statement) {
   const { source, comments } = parsed;
   let cursor = statement.start;
@@ -160,7 +177,7 @@ function seamTagged(parsed, statement) {
     const comment = comments[i];
     if (comment.end > cursor) continue;
     if (source.slice(comment.end, cursor).trim() !== "") break;
-    if (/@seam\b/.test(comment.value)) return true;
+    if (SEAM_TAG.test(comment.value)) return true;
     cursor = comment.start;
   }
   return false;
@@ -174,67 +191,133 @@ const literalString = (node) => {
   return null;
 };
 
+const keyName = (property) => (property.computed ? null : (property.key.name ?? property.key.value ?? null));
+
 // scanSource(file, source?) -> { registries: [{name, line}], seams: [{name, module, key}], errors }.
 export function scanSource(file, source) {
   const parsed = parse(file, source);
   const { body } = parsed;
   const errors = [];
 
-  // Top-level collections and functions, with the statement each sits in (for the @seam tag).
-  const topLevel = new Set();
-  const functions = new Map(); // local name -> { node, statement }
-  const noteVariable = (declaration, statement) => {
-    for (const declarator of declaration.declarations) {
-      patternNames(declarator.id, topLevel);
-      const init = unwrap(declarator.init);
-      if (declarator.id.type === "Identifier" && isFunction(init))
-        functions.set(declarator.id.name, { node: init, statement });
-    }
-  };
-  const exported = []; // { exportedName, local, statement }
+  // Imports: bindings that may be shared collections, and the local names createRegistry goes by.
+  const imported = new Set();
+  const createNames = new Set(["createRegistry"]);
   for (const statement of body) {
-    const inner =
-      statement.type === "ExportNamedDeclaration" || statement.type === "ExportDefaultDeclaration"
-        ? statement.declaration
-        : statement;
+    if (statement.type !== "ImportDeclaration" || statement.importKind === "type") continue;
+    for (const specifier of statement.specifiers) {
+      if (specifier.importKind === "type") continue;
+      const imports =
+        specifier.type === "ImportSpecifier" ? (specifier.imported.name ?? specifier.imported.value) : null;
+      if (imports === "createRegistry") {
+        createNames.add(specifier.local.name);
+        continue;
+      }
+      imported.add(specifier.local.name);
+    }
+  }
+
+  // Top-level collections, functions, classes and object-literal APIs, with the statement each sits in.
+  const topLevel = new Set();
+  const functions = new Map(); // key -> { node, statement, scope }
+  const classes = new Map(); // local name -> { node, statement }
+  const objects = new Map(); // local name -> { node, statement }
+  const exported = []; // { exportedName, local, statement }
+  const baseScope = { topLevel, imported };
+  for (const statement of body) {
+    const isExport = statement.type === "ExportNamedDeclaration";
+    const isDefault = statement.type === "ExportDefaultDeclaration";
+    const inner = isExport || isDefault ? statement.declaration : statement;
     if (inner?.type === "VariableDeclaration") {
-      noteVariable(inner, statement);
-      if (statement.type === "ExportNamedDeclaration")
-        for (const declarator of inner.declarations)
-          if (declarator.id.type === "Identifier" && functions.has(declarator.id.name))
-            exported.push({ exportedName: declarator.id.name, local: declarator.id.name, statement });
+      for (const declarator of inner.declarations) {
+        patternNames(declarator.id, topLevel);
+        if (declarator.id.type !== "Identifier") continue;
+        const name = declarator.id.name;
+        const init = unwrap(declarator.init);
+        if (isFunction(init)) {
+          functions.set(name, { node: init, statement, scope: baseScope });
+          if (isExport) exported.push({ exportedName: name, local: name, statement });
+        } else if (init?.type === "ObjectExpression") {
+          objects.set(name, { node: init, statement });
+          if (isExport) exported.push({ exportedName: name, local: name, statement, object: true });
+        }
+      }
     } else if (inner?.type === "FunctionDeclaration" && inner.id) {
-      functions.set(inner.id.name, { node: inner, statement });
-      if (statement.type === "ExportNamedDeclaration")
-        exported.push({ exportedName: inner.id.name, local: inner.id.name, statement });
-      else if (statement.type === "ExportDefaultDeclaration")
-        exported.push({ exportedName: "default", local: inner.id.name, statement });
-    } else if (statement.type === "ExportDefaultDeclaration" && isFunction(inner)) {
-      // An anonymous default function: analysed under a synthetic name.
-      functions.set("default", { node: inner, statement });
+      functions.set(inner.id.name, { node: inner, statement, scope: baseScope });
+      if (isExport) exported.push({ exportedName: inner.id.name, local: inner.id.name, statement });
+      else if (isDefault) exported.push({ exportedName: "default", local: inner.id.name, statement });
+    } else if (isDefault && isFunction(inner)) {
+      functions.set("default", { node: inner, statement, scope: baseScope });
       exported.push({ exportedName: "default", local: "default", statement });
+    } else if (inner?.type === "ClassDeclaration" && inner.id) {
+      classes.set(inner.id.name, { node: inner, statement });
+      if (isExport) exported.push({ exportedName: inner.id.name, local: inner.id.name, statement, klass: true });
+      else if (isDefault) exported.push({ exportedName: "default", local: inner.id.name, statement, klass: true });
+    } else if (isDefault && inner?.type === "ObjectExpression") {
+      objects.set("default", { node: inner, statement });
+      exported.push({ exportedName: "default", local: "default", statement, object: true });
     }
   }
   for (const statement of body) {
     if (statement.type === "ExportNamedDeclaration" && !statement.declaration && !statement.source) {
       for (const specifier of statement.specifiers) {
         const local = specifier.local.name;
-        if (functions.has(local))
-          exported.push({
-            exportedName: specifier.exported.name ?? specifier.exported.value,
-            local,
-            statement: functions.get(local).statement
-          });
+        const exportedName = specifier.exported.name ?? specifier.exported.value;
+        if (functions.has(local)) exported.push({ exportedName, local, statement: functions.get(local).statement });
+        else if (classes.has(local))
+          exported.push({ exportedName, local, statement: classes.get(local).statement, klass: true });
+        else if (objects.has(local))
+          exported.push({ exportedName, local, statement: objects.get(local).statement, object: true });
       }
     } else if (statement.type === "ExportDefaultDeclaration" && statement.declaration?.type === "Identifier") {
       const local = statement.declaration.name;
       if (functions.has(local))
         exported.push({ exportedName: "default", local, statement: functions.get(local).statement });
+      else if (classes.has(local))
+        exported.push({ exportedName: "default", local, statement: classes.get(local).statement, klass: true });
+      else if (objects.has(local))
+        exported.push({ exportedName: "default", local, statement: objects.get(local).statement, object: true });
     }
   }
 
-  // Which functions write a module-level collection, directly or through the helpers they call.
-  const effects = new Map([...functions].map(([name, { node }]) => [name, effectsOf(node, topLevel, functions)]));
+  // Class methods and object-literal members are candidates too, under `Name.member`.
+  const candidates = []; // { exportedName, key, statement }
+  for (const entry of exported) {
+    if (entry.klass) {
+      const { node, statement } = classes.get(entry.local);
+      const staticNames = new Set(
+        node.body.body
+          .filter((member) => member.type === "PropertyDefinition" && member.static)
+          .map((member) => keyName(member))
+          .filter(Boolean)
+      );
+      for (const member of node.body.body) {
+        if (member.type !== "MethodDefinition" || !member.value) continue;
+        const method = keyName(member);
+        if (!method) continue;
+        const key = `${entry.exportedName}.${method}#${entry.local}`;
+        functions.set(key, {
+          node: member.value,
+          statement,
+          scope: { ...baseScope, className: node.id.name, staticNames, isStatic: Boolean(member.static) }
+        });
+        candidates.push({ exportedName: `${entry.exportedName}.${method}`, key, statement });
+      }
+    } else if (entry.object) {
+      const { node, statement } = objects.get(entry.local);
+      for (const property of node.properties) {
+        if (property.type !== "Property") continue;
+        const member = keyName(property);
+        const value = unwrap(property.value);
+        if (!member || !isFunction(value)) continue;
+        const key = `${entry.exportedName}.${member}#${entry.local}`;
+        functions.set(key, { node: value, statement, scope: baseScope });
+        candidates.push({ exportedName: `${entry.exportedName}.${member}`, key, statement });
+      }
+    } else candidates.push({ exportedName: entry.exportedName, key: entry.local, statement: entry.statement });
+  }
+
+  // Which functions write a collection, directly or through the helpers they call.
+  const effects = new Map([...functions].map(([name, { node, scope }]) => [name, effectsOf(node, scope, functions)]));
   const writes = new Map([...effects].map(([name, effect]) => [name, effect.writes]));
   for (let changed = true; changed;) {
     changed = false;
@@ -249,27 +332,27 @@ export function scanSource(file, source) {
 
   const registries = [];
   const seen = new Set();
-  for (const { exportedName, local, statement } of exported) {
-    if (!writes.get(local) || seen.has(exportedName)) continue;
+  for (const { exportedName, key } of candidates) {
+    if (!writes.get(key) || seen.has(exportedName)) continue;
     seen.add(exportedName);
-    if (seamTagged(parsed, statement)) continue;
-    registries.push({ name: exportedName, line: lineOf(parsed.source, functions.get(local).node) });
+    registries.push({ name: exportedName, line: lineOf(parsed.source, functions.get(key).node) });
   }
 
-  // createRegistry calls: each needs a literal name and key and a @seam tag on the statement that holds it.
+  // createRegistry calls: each needs a literal name and key and a @seam tag on the statement that holds it. This is the
+  // only place the tag counts.
   const seams = [];
+  const isCreateRegistry = (callee) =>
+    (callee.type === "Identifier" && createNames.has(callee.name)) ||
+    (callee.type === "MemberExpression" && !callee.computed && callee.property.name === "createRegistry");
   for (const statement of body) {
     walk(statement, (node) => {
-      if (node.type !== "CallExpression" || node.callee.type !== "Identifier" || node.callee.name !== "createRegistry")
-        return;
+      if (node.type !== "CallExpression" || !isCreateRegistry(unwrap(node.callee))) return;
       const where = `${file}:${lineOf(parsed.source, node)}`;
       const options = unwrap(node.arguments[0]);
       const field = (name) =>
         options?.type === "ObjectExpression"
           ? literalString(
-              options.properties.find(
-                (property) => property.type === "Property" && (property.key.name ?? property.key.value) === name
-              )?.value
+              options.properties.find((property) => property.type === "Property" && keyName(property) === name)?.value
             )
           : null;
       const name = field("name");
@@ -417,7 +500,7 @@ export function checkInventory(ctx) {
         if (pending.has(name)) continue;
         const line = scan.registries.get(path)?.find((registry) => registry.name === name)?.line ?? 1;
         errors.push(
-          `${path}:${line} exports ${name}, which changes a module-level collection (a registry) and is not pending, @seam tagged or on createRegistry. Build it on createRegistry from @openrhen/contracts/extension and put a @seam tag on its declaration. If it moved here from another file in lane ${lane} and the lane total did not rise, ${FIX}.`
+          `${path}:${line} exports ${name}, which changes a module-level collection (a registry) and is not pending or on createRegistry. Build it on createRegistry from @openrhen/contracts/extension with a @seam tag on its declaration (a @seam tag on anything else exempts nothing). If it moved here from another file in lane ${lane} and the lane total did not rise, ${FIX}.`
         );
       }
       for (const name of pending) {
@@ -501,6 +584,15 @@ export function checkGenerated(ctx) {
 function main() {
   const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
   const args = process.argv.slice(2);
+  if (args.includes("--generate")) {
+    // A scan error (an untagged or non-literal createRegistry call) means the seam list would be wrong: write nothing.
+    const scanErrors = scanTree(root, { skip: composedSkips(root) }).errors;
+    if (scanErrors.length) {
+      console.error(scanErrors.map((error) => `- ${error}`).join("\n"));
+      process.exitCode = 1;
+      return;
+    }
+  }
   const errors = checkInventory({ root, args: args.includes("--fix-pending") ? ["--fix-pending"] : [] });
   if (args.includes("--generate")) {
     const { json, md } = renderGenerated(root);

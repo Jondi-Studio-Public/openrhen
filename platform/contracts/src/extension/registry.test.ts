@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resetRegistry } from "./testing.js";
+import * as publicEntry from "./registry.js";
 import { createRegistry } from "./registry.js";
 
 const make = () => createRegistry<string>({ name: "example-things", key: "thing id" });
@@ -118,6 +119,26 @@ describe("resetRegistry (the /testing subpath)", () => {
     const registry = make();
     expect(Object.keys(registry).sort()).toEqual(["entries", "freeze", "frozen", "key", "name", "register"]);
     expect("reset" in registry).toBe(false);
+  });
+
+  it("cannot be reached from the public entry: no exported hook, no symbol on the registry", () => {
+    const registry = make();
+    expect(Object.keys(publicEntry)).toEqual(["createRegistry"]);
+    expect(Object.getOwnPropertySymbols(registry)).toEqual([]);
+    expect(Reflect.ownKeys(registry).filter((key) => typeof key === "symbol")).toEqual([]);
+    // The old hook was a global symbol any consumer could name.
+    const guess = (registry as unknown as Record<symbol, unknown>)[Symbol.for("openrhen.registry.reset")];
+    expect(guess).toBeUndefined();
+    // Nor through the constructor: no static or prototype member empties or unfreezes it.
+    const statics = Object.getOwnPropertyNames(registry.constructor).filter(
+      (name) => !["length", "name", "prototype"].includes(name)
+    );
+    expect(statics).toEqual([]);
+    expect(Object.getOwnPropertyNames(Object.getPrototypeOf(registry))).toEqual(["constructor"]);
+    registry.register({ key: "a", owner: "core", value: "one" });
+    registry.freeze();
+    expect(registry.frozen).toBe(true);
+    expect(registry.entries()).toHaveLength(1);
   });
 
   it("makes an earlier teardown a no-op rather than a removal of the new entry", () => {
