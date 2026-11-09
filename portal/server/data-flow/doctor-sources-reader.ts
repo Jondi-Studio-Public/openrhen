@@ -1,4 +1,11 @@
-import { doctorSyncCadence, type DoctorSourceInput, type DoctorSourcesSlice } from "@openrhen/contracts";
+import {
+  ACTIVITY_MESSAGE_FAMILY,
+  activitySourceEntry,
+  coverageScopeRequiredFor,
+  doctorSyncCadence,
+  type DoctorSourceInput,
+  type DoctorSourcesSlice
+} from "@openrhen/contracts";
 import { dataFlowGraph, dataFlowRegistry, type FlowEntry } from "@openrhen/contracts/data-flow";
 import { log } from "@/server/logging";
 import type { Sql } from "@/server/persistence/postgres/sql-pool";
@@ -46,16 +53,35 @@ async function latestImports(
   return out;
 }
 
+/** A message source whose messages can change the plan: flagged on the entry, or of the message family. */
+const changesPlan = (entry: FlowEntry) =>
+  entry.changesPlan === true ||
+  (entry.activitySource !== undefined && activitySourceEntry(entry.activitySource)?.family === ACTIVITY_MESSAGE_FAMILY);
+
 export async function readSourcesSlice(sql: Sql, now: Date, userId: string): Promise<DoctorSourcesSlice> {
   const startedAt = Date.now();
   try {
     const registry = dataFlowRegistry();
     const graph = dataFlowGraph(SCHEMA_TABLES, {}, registry);
     const present = registry.entries.filter((entry) => entry.planned === undefined);
+    const messageSources = new Map<string, string>();
+    for (const entry of present)
+      if (
+        entry.activitySource !== undefined &&
+        !messageSources.has(entry.activitySource) &&
+        (changesPlan(entry) || coverageScopeRequiredFor(activitySourceEntry(entry.activitySource)))
+      )
+        messageSources.set(entry.activitySource, entry.name);
     const [health, imports] = await Promise.all([
-      readHealth(sql, { now, entries: registry.entries, userId }),
+      readHealth(sql, {
+        now,
+        entries: registry.entries,
+        userId,
+        processingFor: [...messageSources].map(([source, name]) => ({ source, name }))
+      }),
       latestImports(sql, now, userId)
     ]);
+    const processing = health.processing ?? [];
     const unused = graph.unused();
     const unusedIds = new Set(unused.entries.filter((item) => item.bucket === "unused").map((item) => item.id));
     const cadence = doctorSyncCadence();
@@ -72,6 +98,24 @@ export async function readSourcesSlice(sql: Sql, now: Date, userId: string): Pro
         keepsSyncChecks: entry.category === "calendar" || (provider !== undefined && provider in cadence),
         ...(entry.device !== undefined ? { device: entry.device } : {}),
         engineReads: graph.engineUse(entry.id).reads,
+        ...(changesPlan(entry) ? { changesPlan: true as const } : {}),
+        ...(entry.activitySource !== undefined && coverageScopeRequiredFor(activitySourceEntry(entry.activitySource))
+          ? { messageSource: true as const }
+          : {}),
+        ...(node.coverage
+          ? {
+              coverage: {
+                coveredTo: node.coverage.coveredTo,
+                heartbeat: node.coverage.heartbeat,
+                holes14d: node.coverage.holes14d,
+                scopes: node.coverage.scopes.map((scope) => ({
+                  scope: scope.scope,
+                  coveredTo: scope.coveredTo,
+                  ...(scope.retired ? { retired: true as const } : {})
+                }))
+              }
+            }
+          : {}),
         configured: node.configured,
         ...(node.credentialPresent ? { credentialPresent: true } : {}),
         freshness: node.freshness,
@@ -93,7 +137,8 @@ export async function readSourcesSlice(sql: Sql, now: Date, userId: string): Pro
       // A token can only be bound by an extension's data-flow amend; with none registered the item has no fix to name.
       issues: health.issues.filter((issue) => issue.code !== "token_not_bound" || registry.extensionIds.length > 0),
       unused: unusedIds.size,
-      nothingSends: unused.entries.filter((item) => item.bucket === "nothing-sends").length
+      nothingSends: unused.entries.filter((item) => item.bucket === "nothing-sends").length,
+      ...(processing.length > 0 ? { processing } : {})
     };
   } catch (error) {
     // The driver's text can carry host and query detail, so it stays in the server log and the report is fixed.

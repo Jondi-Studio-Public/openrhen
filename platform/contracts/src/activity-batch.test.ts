@@ -68,6 +68,14 @@ const reasonOf = (raw: unknown, device?: string, live = true) => {
   return v.ok ? null : v.reason;
 };
 
+describe("coverage rows: the future-claim cap", () => {
+  it("accepts a window ending exactly 5 minutes ahead and refuses one a millisecond later", () => {
+    const at = (iso: string) => cov({ start: "2026-11-07T11:00:00Z", end: iso }, { scope: "inbox" });
+    expect(reasonOf(at("2026-11-07T12:05:00.000Z"))).toBeNull();
+    expect(reasonOf(at("2026-11-07T12:05:00.001Z"))).toContain("more than 5 minutes in the future");
+  });
+});
+
 describe("coverage rows", () => {
   it("accepts a canonical window and gives Z and +00:00 the same key", () => {
     const z = validateActivityEvent(cov(), now, { registry });

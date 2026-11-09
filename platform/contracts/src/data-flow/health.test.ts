@@ -139,3 +139,52 @@ describe("classifyFreshness", () => {
     ).toBe("fresh");
   });
 });
+
+describe("thresholdFor for a source that reports coverage", () => {
+  const mail = entry({ id: "msgs", activitySource: "msgs", method: "api-pull" });
+  it("puts the owner's number first, then the collector's declared cadence, with late at T and stale at 2T", () => {
+    expect(
+      thresholdFor(mail, { coverage: { ownerStaleAfterMinutes: 240, collector: { silentAfterMinutes: 90 } } })
+    ).toEqual({ warnHours: 4, errorHours: 8, from: "owner" });
+    expect(thresholdFor(mail, { coverage: { collector: { silentAfterMinutes: 90 } } })).toEqual({
+      warnHours: 1.5,
+      errorHours: 3,
+      from: "collector"
+    });
+    expect(thresholdFor(mail, { coverage: { collector: { expectedEveryMinutes: 60 } } })).toEqual({
+      warnHours: 3,
+      errorHours: 6,
+      from: "collector"
+    });
+  });
+  it("ignores an owner value of null or zero and falls back", () => {
+    expect(
+      thresholdFor(mail, { coverage: { ownerStaleAfterMinutes: null, collector: { silentAfterMinutes: 60 } } })
+    ).toMatchObject({
+      from: "collector"
+    });
+    expect(thresholdFor(mail, { coverage: { ownerStaleAfterMinutes: 0 } })).toMatchObject({ from: "default" });
+  });
+  it("then uses the entry's own number, a learned rhythm, the entry's cold start, and last 12 h and 24 h", () => {
+    expect(
+      thresholdFor(entry({ ...mail, freshness: { warnAfterHours: 5, errorAfterHours: 9 } }), { coverage: {} })
+    ).toMatchObject({ warnHours: 5, errorHours: 9 });
+    expect(thresholdFor(mail, { coverage: {}, learned: { warnHours: 3, errorHours: 6, days: 12 } })).toEqual({
+      warnHours: 3,
+      errorHours: 6,
+      days: 12,
+      from: "learned"
+    });
+    expect(
+      thresholdFor(entry({ ...mail, coldStart: { warnAfterHours: 12, errorAfterHours: 48 } }), { coverage: {} })
+    ).toEqual({
+      warnHours: 12,
+      errorHours: 48,
+      from: "default"
+    });
+    expect(thresholdFor(mail, { coverage: {} })).toEqual({ warnHours: 12, errorHours: 24, from: "default" });
+  });
+  it("changes nothing for a source that reports no coverage", () => {
+    expect(thresholdFor(mail, {})).toBeNull();
+  });
+});

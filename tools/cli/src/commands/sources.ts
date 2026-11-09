@@ -145,6 +145,19 @@ function detailLines(body: Body, id: string): string[] {
       lines.push(
         `threshold: warn ${node.threshold.warnHours} h, error ${node.threshold.errorHours ?? "none"} h (${node.threshold.from})`
       );
+    if (node.coverage) {
+      const { coverage } = node;
+      lines.push(`covered up to: ${coverage.coveredTo ?? "nothing reported yet"}`);
+      for (const scope of coverage.scopes)
+        lines.push(
+          `  scope ${scope.scope ?? "(whole source)"}: up to ${scope.coveredTo}${scope.holes14d > 0 ? `, ${scope.holes14d} ${scope.holes14d === 1 ? "hole" : "holes"} in the last 14 days` : ""}${scope.retired ? " (retired: no longer reported)" : ""}`
+        );
+      lines.push(
+        coverage.heartbeat
+          ? `heartbeat: ${coverage.heartbeat.status} at ${coverage.heartbeat.at}${coverage.heartbeat.error ? ` (${coverage.heartbeat.error})` : ""}`
+          : "heartbeat: none"
+      );
+    }
     if (node.count7d !== undefined)
       lines.push(
         `rows: ${node.count24h ?? 0} in 24 h, ${node.count7d} in 7 d${node.kindsSeen ? `; kinds ${node.kindsSeen.join(", ")}` : ""}`
