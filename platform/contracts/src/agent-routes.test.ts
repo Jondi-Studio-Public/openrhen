@@ -642,6 +642,21 @@ describe("scopesForRoute: passwords and keys", () => {
   });
 });
 
+describe("scopesForRoute: mail understanding settings", () => {
+  it("keeps reading and saving the model address, models and caps to the owner", () => {
+    expect(scopesForRoute("GET", "/api/derived-settings")).toMatchObject({ kind: "refused", reason: "owner-only" });
+    expect(scopesForRoute("PUT", "/api/derived-settings", {})).toMatchObject({
+      kind: "refused",
+      reason: "owner-only"
+    });
+  });
+
+  it("offers no settings route to an agent under any other method", () => {
+    for (const method of ["POST", "PATCH", "DELETE"])
+      expect(scopesForRoute(method, "/api/derived-settings", {}).kind, method).toBe("refused");
+  });
+});
+
 describe("scopesForRoute: re-entry", () => {
   it("lets a token holding only write:catch-up read what re-entry needs and re-enter", () => {
     expect(scopesForRoute("GET", "/api/commands/reenter")).toMatchObject({

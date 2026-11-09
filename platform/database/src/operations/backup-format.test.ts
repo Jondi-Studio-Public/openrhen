@@ -240,18 +240,25 @@ describe("isContentVerifiedFormat (S8-11)", () => {
   });
 });
 
-/** What a format 22 or 23 backup lacks: the derived-reader tables (format 24) and the comparison tables (format 25). */
-const NEWER_THAN_22 = ["derived_lineage", "extractor_state", "consequence_groups_issued", "consequence_comparisons"];
+/** What a format 22 or 23 backup lacks: the derived-reader tables (format 24) the comparison tables (format 25) and the settings and model-call audit (format 26). */
+const NEWER_THAN_22 = [
+  "derived_lineage",
+  "extractor_state",
+  "consequence_groups_issued",
+  "consequence_comparisons",
+  "derived_settings",
+  "derived_model_calls"
+];
 
 describe("backup table count", () => {
   // Adding a table to BACKUP_TABLES changes this count; that is the prompt to bump `formatVersion`, freeze
   // the previous list as a literal and update the number here, in that order.
   it("pins BACKUP_TABLES.length to the current formatVersion so an added table forces a bump", () => {
-    expect(BACKUP_TABLES.length).toBe(76 + groupBackupTables("current").length);
+    expect(BACKUP_TABLES.length).toBe(78 + groupBackupTables("current").length);
   });
 });
 
-describe("backup format 25", () => {
+describe("backup format 26", () => {
   it("pins the format strings: the one written, and the one the reader also accepts", () => {
     expect(BACKUP_FORMAT).toBe("priorities-postgresql-logical-backup");
     expect(ACCEPTED_BACKUP_FORMATS).toContain("openrhen-postgresql-logical-backup");
@@ -292,7 +299,7 @@ describe("backup format 25", () => {
 
   it("rejects a format newer than this build reads", () => {
     expect(() => validateBackup(backupOf(CURRENT_BACKUP_FORMAT_VERSION + 1, BACKUP_TABLES))).toThrow(
-      /^Unsupported backup formatVersion 26$/
+      /^Unsupported backup formatVersion 27$/
     );
   });
 });
@@ -310,15 +317,15 @@ describe("older backup formats", () => {
     return import("./backup-format.js");
   };
 
-  it("refuses an older format, saying this build restores format 25 only, when no reader recognises it", async () => {
+  it("refuses an older format, saying this build restores format 26 only, when no reader recognises it", async () => {
     const { validateBackup: validate, BACKUP_TABLES: tables } = await withSeam(() => undefined);
-    for (const version of [1, 5, 19, 20, 21, 22, 23, 24]) {
+    for (const version of [1, 5, 19, 20, 21, 22, 23, 24, 25]) {
       expect(() => validate(backupOf(version, tables))).toThrow(
-        `Unsupported backup formatVersion ${version}: this build restores format 25 backups only`
+        `Unsupported backup formatVersion ${version}: this build restores format 26 backups only`
       );
     }
     expect(() => validate(backupOf(0, tables))).toThrow(/^Unsupported backup formatVersion 0$/);
-    expect(() => validate(backupOf(25, tables))).not.toThrow();
+    expect(() => validate(backupOf(26, tables))).not.toThrow();
   });
 
   it("restores a format 22 backup through the shipped reader, with its rows in the JSON, with or without a skip marker", async () => {
@@ -326,7 +333,7 @@ describe("older backup formats", () => {
     const { legacyRequiredTables } = await import("./private/legacy-backups.js");
     const format22 = legacyRequiredTables(22);
     expect(format22).toBeDefined();
-    // Format 23 changed where activity_events rows live; format 24 added the two derived-reader tables and 25 the two comparison tables.
+    // Format 23 changed where activity_events rows live; format 24 added the two derived-reader tables, 25 the two comparison tables and 26 the settings and model-call audit.
     expect([...tables].filter((table) => !format22!.includes(table))).toEqual(NEWER_THAN_22);
     expect(format22!.filter((table) => !tables.includes(table))).toEqual([]);
     const plain = validate(backupOf(22, format22!));
@@ -350,22 +357,38 @@ describe("older backup formats", () => {
     expect(() => validate(bare)).toThrow(/streamed section is missing from the manifest/);
   });
 
-  it("restores a format 24 backup with the comparison tables empty, and orders them after users and each other", async () => {
+  it("restores a format 24 backup with the comparison, settings and model-call tables empty, and orders them after users", async () => {
     const { validateBackup: validate, BACKUP_TABLES: tables, tablesAbsentFrom } = await import("./backup-format.js");
     const { legacyRequiredTables } = await import("./private/legacy-backups.js");
     const format24 = legacyRequiredTables(24);
     expect(format24).toBeDefined();
-    expect([...tables].filter((table) => !format24!.includes(table))).toEqual([
-      "consequence_groups_issued",
-      "consequence_comparisons"
-    ]);
+    const newer = ["consequence_groups_issued", "consequence_comparisons", "derived_settings", "derived_model_calls"];
+    expect([...tables].filter((table) => !format24!.includes(table))).toEqual(newer);
     expect(format24!.filter((table) => !tables.includes(table))).toEqual([]);
     const backup = validate(backupOf(24, format24!));
-    expect(tablesAbsentFrom(backup)).toEqual(["consequence_groups_issued", "consequence_comparisons"]);
-    // Foreign-key order: the answers reference their group, and both reference users.
+    expect(tablesAbsentFrom(backup)).toEqual(newer);
+    // Foreign-key order: the answers reference their group, and all of them reference users.
     const index = (table: string) => tables.indexOf(table as never);
     expect(index("users")).toBeLessThan(index("consequence_groups_issued"));
     expect(index("consequence_groups_issued")).toBeLessThan(index("consequence_comparisons"));
+    expect(index("users")).toBeLessThan(index("derived_settings"));
+    expect(index("users")).toBeLessThan(index("derived_model_calls"));
+  });
+
+  it("restores a format 25 backup, which has the comparison tables but not the settings or the model-call audit", async () => {
+    const { validateBackup: validate, BACKUP_TABLES: tables, tablesAbsentFrom } = await import("./backup-format.js");
+    const { legacyRequiredTables } = await import("./private/legacy-backups.js");
+    const format25 = legacyRequiredTables(25);
+    expect(format25).toBeDefined();
+    expect([...tables].filter((table) => !format25!.includes(table))).toEqual([
+      "derived_settings",
+      "derived_model_calls"
+    ]);
+    expect(format25!.filter((table) => !tables.includes(table))).toEqual([]);
+    const backup = validate(backupOf(25, format25!));
+    expect(tablesAbsentFrom(backup)).toEqual(["derived_settings", "derived_model_calls"]);
+    expect(backup.streamed?.activity_events).toBeDefined();
+    expect(() => validate(backupOf(25, format25!.slice(1)))).toThrow(/missing table/);
   });
 
   it("restores a format 21 backup, which has no activity tables, through the shipped reader", async () => {
@@ -417,7 +440,7 @@ describe("older backup formats", () => {
     expect(() => validate(backupOf(20, tables))).not.toThrow();
     expect(() => validate(backupOf(20, format20!.slice(1)))).toThrow(/missing table/);
     expect(() => validate(backupOf(19, format20!))).toThrow(
-      "Unsupported backup formatVersion 19: this build restores format 25 backups and format 24 ones only"
+      "Unsupported backup formatVersion 19: this build restores format 26 backups and format 25 ones only"
     );
   });
 
@@ -429,8 +452,8 @@ describe("older backup formats", () => {
     });
     expect(() => validate(backupOf(7, ["portal_state", "users"]))).not.toThrow();
     expect(() => validate(backupOf(7, ["portal_state"]))).toThrow("Backup is missing table users");
-    expect(() => validate(backupOf(6, ["portal_state", "users"]))).toThrow(/format 25 backups only/);
-    expect(asked).toEqual([7, 7, 6, 24]);
+    expect(() => validate(backupOf(6, ["portal_state", "users"]))).toThrow(/format 26 backups only/);
+    expect(asked).toEqual([7, 7, 6, 25]);
   });
 
   it("does not ask the reader about a current-format backup", async () => {
@@ -439,7 +462,7 @@ describe("older backup formats", () => {
       asked.push(version);
       return undefined;
     });
-    validate(backupOf(25, tables));
+    validate(backupOf(26, tables));
     expect(asked).toEqual([]);
   });
 });
