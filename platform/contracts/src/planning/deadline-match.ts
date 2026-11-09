@@ -15,6 +15,8 @@ export interface DeadlineProbe {
   dueOn: string | null;
   /** Unit codes found in the title (`extractUnitCodes`); the caller owns the code pattern. */
   unitCodes?: readonly string[];
+  /** The caller found `RESCHEDULE_CUE` in the message: it says this is a move, not a new instance. */
+  rescheduled?: boolean;
 }
 
 export interface DeadlineTarget {
@@ -47,6 +49,8 @@ export interface DeadlineMatch {
 }
 
 export const MAX_DEADLINE_TIE_CANDIDATES = 5;
+/** Words in a message that say a date moved; callers set `DeadlineProbe.rescheduled` from this. */
+export const RESCHEDULE_CUE = /\b(moved|rescheduled|postponed|delayed|extended|pushed back|brought forward)\b/i;
 /** A deadline the same title names within this many days is the same one, moved. */
 export const MOVED_WINDOW_DAYS = 14;
 /** Same date and at least this title similarity is a possible match when the titles do not match outright. */
@@ -92,6 +96,12 @@ function matchOne(probe: DeadlineProbe, target: DeadlineTarget): DeadlineMatch {
   }
   const apart = daysBetween(probe.dueOn, target.dueOn);
   if (titles && apart === 0) return { kind: "strong", reason: "Same title on the same date" };
+  // The same unnumbered title a whole number of weeks away is what a weekly series looks like: a new instance
+  // as much as a move. Without a reschedule cue it is a question, not an update.
+  const weekly = apart % 7 === 0 && numbersIn(probe.title).size === 0 && numbersIn(target.title).size === 0;
+  if (titles && apart <= MOVED_WINDOW_DAYS && weekly && !probe.rescheduled) {
+    return { kind: "possible", reason: "Same title a whole number of weeks apart, no sign of a move", moved: moved! };
+  }
   if (titles && apart <= MOVED_WINDOW_DAYS) {
     return { kind: "strong", reason: `Same title, date moved by ${apart} days`, moved: moved! };
   }

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { matchDeadline, MOVED_WINDOW_DAYS, type DeadlineProbe, type DeadlineTarget } from "./deadline-match.js";
+import {
+  matchDeadline,
+  MOVED_WINDOW_DAYS,
+  RESCHEDULE_CUE,
+  type DeadlineProbe,
+  type DeadlineTarget
+} from "./deadline-match.js";
 
 const target = (overrides: Partial<DeadlineTarget> = {}): DeadlineTarget => ({
   id: "a1",
@@ -34,9 +40,41 @@ describe("matchDeadline", () => {
     });
   });
 
+  it("asks when the same unnumbered title is a whole number of weeks away and nothing says it moved", () => {
+    for (const dueOn of ["2026-11-27", "2026-12-04", "2026-11-13"]) {
+      const result = matchDeadline(probe({ dueOn }), [target()]);
+      expect(result, dueOn).toMatchObject({ kind: "possible", targetId: "a1" });
+      expect(result.moved?.to).toBe(dueOn);
+    }
+  });
+
+  it("still reads a weekly gap as a move when the message says so", () => {
+    expect(matchDeadline(probe({ dueOn: "2026-11-27", rescheduled: true }), [target()])).toMatchObject({
+      kind: "strong",
+      moved: { from: "2026-11-20", to: "2026-11-27" }
+    });
+  });
+
+  it("keeps other gaps as moves without a cue, and numbered titles as the same instance", () => {
+    expect(matchDeadline(probe({ dueOn: "2026-11-23" }), [target()])).toMatchObject({ kind: "strong" });
+    expect(matchDeadline(probe({ dueOn: "2026-11-30" }), [target()]).kind).toBe("strong");
+    expect(matchDeadline(probe({ title: "Quiz 3 due", dueOn: "2026-11-27" }), [target({ title: "Quiz 3" })]).kind).toBe(
+      "strong"
+    );
+  });
+
+  it("recognises the reschedule cue words", () => {
+    for (const text of ["Report due moved", "rescheduled to Friday", "Deadline postponed", "extended by a week"]) {
+      expect(RESCHEDULE_CUE.test(text), text).toBe(true);
+    }
+    expect(RESCHEDULE_CUE.test("Report due")).toBe(false);
+  });
+
   it("holds the window at fourteen days: a fortnight is moved, fifteen is only possible", () => {
     expect(MOVED_WINDOW_DAYS).toBe(14);
-    expect(matchDeadline(probe({ dueOn: "2026-12-04" }), [target()])).toMatchObject({ kind: "strong" });
+    expect(matchDeadline(probe({ dueOn: "2026-12-04", rescheduled: true }), [target()])).toMatchObject({
+      kind: "strong"
+    });
     const far = matchDeadline(probe({ dueOn: "2026-12-05" }), [target()]);
     expect(far).toMatchObject({ kind: "possible", targetId: "a1", moved: { from: "2026-11-20", to: "2026-12-05" } });
   });

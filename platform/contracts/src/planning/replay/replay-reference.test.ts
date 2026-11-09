@@ -48,7 +48,9 @@ describe("reference reconciler", () => {
   });
 
   it("reads a moved deadline as an update of that deadline, and a rescheduled event still as new", () => {
-    expect(run("deadline-moved")).toMatchObject({ endState: "applied", op: "update", target: { id: "a1" } });
+    expect(run("deadline-moved-three-days")).toMatchObject({ endState: "applied", op: "update", target: { id: "a1" } });
+    // A week later with no cue is also what a weekly series looks like, so it is a question.
+    expect(run("deadline-moved")).toMatchObject({ endState: "asked", usedChooser: false });
     expect(run("deadline-moved-project-fortnight")).toMatchObject({
       endState: "applied",
       op: "update",
