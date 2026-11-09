@@ -15,6 +15,7 @@ use std::sync::mpsc::SyncSender;
 use std::thread::JoinHandle;
 
 use windows_sys::Win32::Foundation::*;
+use windows_sys::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation};
 use windows_sys::Win32::System::Console::*;
 use windows_sys::Win32::System::Diagnostics::ToolHelp::*;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -27,14 +28,17 @@ use windows_sys::Win32::System::Threading::*;
 use windows_sys::Win32::System::Time::*;
 use windows_sys::Win32::UI::Accessibility::*;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
-use windows_sys::Win32::UI::Shell::{NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW, Shell_NotifyIconW};
+use windows_sys::Win32::UI::Shell::{
+    NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_NOSOUND, NIIF_WARNING, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
+    Shell_NotifyIconW,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 use windows_sys::core::{BOOL, GUID};
 
 use crate::engine::{Fg, PowerEvt, SessionEvt};
 use crate::model::Ms;
 use crate::runner::{Control, Raw, Sys};
-use crate::tray::{ID_FOLDER, ID_QUIT, ID_SETTINGS, ID_STATUS, ID_TOGGLE, TrayAction, action_for};
+use crate::tray::{ID_FOLDER, ID_QUIT, ID_SETTINGS, ID_STATUS, ID_TOGGLE, TrayAction, TrayIcon, action_for, icon_for, should_balloon};
 
 /// Keeps helper programs from flashing a console when the no-console build starts them.
 pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -237,6 +241,8 @@ const WM_TRAY_REFRESH: u32 = WM_APP + 2;
 static TRAY_HWND: AtomicIsize = AtomicIsize::new(0);
 static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
 static UI_STATE: AtomicU32 = AtomicU32::new(0);
+/// The state the tray last showed, to notice the change to degraded.
+static SHOWN_STATE: AtomicU32 = AtomicU32::new(0);
 static DATA_DIR: OnceLock<Vec<u16>> = OnceLock::new();
 
 pub fn set_data_dir(dir: &std::path::Path) {
@@ -273,22 +279,90 @@ fn tray_data(hwnd: HWND) -> NOTIFYICONDATAW {
     nid.uID = 1;
     nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     nid.uCallbackMessage = WM_TRAY;
-    nid.hIcon = unsafe { LoadIconW(null_mut(), IDI_APPLICATION) };
-    let tip = wide(&format!("rhen-watch: {}", state_name(UI_STATE.load(Ordering::SeqCst))));
-    for (slot, c) in nid.szTip.iter_mut().zip(tip.iter().take(127)) {
-        *slot = *c;
-    }
+    let state = state_name(UI_STATE.load(Ordering::SeqCst));
+    // Built-in icons only, so the state shows at a glance and no image file ships.
+    nid.hIcon = unsafe {
+        LoadIconW(
+            null_mut(),
+            match icon_for(state) {
+                TrayIcon::Recording => IDI_APPLICATION,
+                TrayIcon::Paused => IDI_INFORMATION,
+                TrayIcon::Degraded => IDI_WARNING,
+            },
+        )
+    };
+    copy_wide(&mut nid.szTip, &format!("rhen-watch: {state}"));
     nid
 }
 
-unsafe fn tray_add(hwnd: HWND) {
-    let nid = tray_data(hwnd);
-    unsafe { Shell_NotifyIconW(NIM_ADD, &nid) };
+fn copy_wide(slot: &mut [u16], text: &str) {
+    let w = wide(text);
+    let n = w.len().min(slot.len() - 1);
+    slot[..n].copy_from_slice(&w[..n]);
+    slot[n] = 0;
 }
 
-unsafe fn tray_update(hwnd: HWND) {
+const TRAY_RETRY_TIMER: usize = 1;
+const TRAY_RETRY_MS: u32 = 2000;
+static TRAY_WARNED: AtomicBool = AtomicBool::new(false);
+
+unsafe fn tray_add(hwnd: HWND) -> bool {
     let nid = tray_data(hwnd);
-    unsafe { Shell_NotifyIconW(NIM_MODIFY, &nid) };
+    unsafe { Shell_NotifyIconW(NIM_ADD, &nid) != 0 }
+}
+
+/// Add the icon. At logon the shell can be busy and NIM_ADD fails; no TaskbarCreated follows then, so retry
+/// on a timer until it works, and log the first failure. A timed-out add can still have created the icon, in
+/// which case NIM_MODIFY succeeds and counts as added.
+unsafe fn tray_add_or_retry(hwnd: HWND) -> bool {
+    unsafe {
+        let nid = tray_data(hwnd);
+        if tray_add(hwnd) || Shell_NotifyIconW(NIM_MODIFY, &nid) != 0 {
+            KillTimer(hwnd, TRAY_RETRY_TIMER);
+            return true;
+        }
+        tray_retry_later(hwnd);
+        false
+    }
+}
+
+/// Log the first failure to add the icon and try again in a couple of seconds.
+unsafe fn tray_retry_later(hwnd: HWND) {
+    unsafe {
+        if !TRAY_WARNED.swap(true, Ordering::SeqCst) {
+            crate::log::warn(&format!(
+                "could not add the tray icon (error {}); retrying every {} s",
+                GetLastError(),
+                TRAY_RETRY_MS / 1000
+            ));
+        }
+        SetTimer(hwnd, TRAY_RETRY_TIMER, TRAY_RETRY_MS, None);
+    }
+}
+
+/// Show the new state on the icon. A balloon (no sound, no focus change) says so when writes start failing.
+unsafe fn tray_update(hwnd: HWND, balloon: bool) {
+    let mut nid = tray_data(hwnd);
+    if balloon {
+        nid.uFlags |= NIF_INFO;
+        nid.dwInfoFlags = NIIF_WARNING | NIIF_NOSOUND;
+        copy_wide(&mut nid.szInfoTitle, "rhen-watch");
+        copy_wide(
+            &mut nid.szInfo,
+            "Writes to the database are failing. Recording is degraded; see rhen-watch.log.",
+        );
+    }
+    unsafe {
+        if Shell_NotifyIconW(NIM_MODIFY, &nid) != 0 {
+            return;
+        }
+        // The icon is gone (a failed add, or the shell lost it): add it again with the same data, balloon included.
+        if Shell_NotifyIconW(NIM_ADD, &nid) != 0 {
+            KillTimer(hwnd, TRAY_RETRY_TIMER);
+        } else {
+            tray_retry_later(hwnd);
+        }
+    }
 }
 
 unsafe fn tray_remove(hwnd: HWND) {
@@ -360,10 +434,14 @@ unsafe extern "system" fn foreground_cb(
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     // Explorer restarted: the tray is empty again, so put the icon back.
     if msg != 0 && msg == TASKBAR_CREATED.load(Ordering::Relaxed) {
-        unsafe { tray_add(hwnd) };
+        unsafe { tray_add_or_retry(hwnd) };
         return 0;
     }
     match msg {
+        WM_TIMER if wparam == TRAY_RETRY_TIMER => {
+            unsafe { tray_add_or_retry(hwnd) };
+            0
+        }
         WM_TRAY => {
             let event = (lparam as u32) & 0xffff;
             if event == WM_RBUTTONUP || event == WM_LBUTTONUP || event == WM_CONTEXTMENU {
@@ -372,7 +450,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             0
         }
         WM_TRAY_REFRESH => {
-            unsafe { tray_update(hwnd) };
+            let now = UI_STATE.load(Ordering::SeqCst);
+            let before = SHOWN_STATE.swap(now, Ordering::SeqCst);
+            unsafe { tray_update(hwnd, should_balloon(state_name(before), state_name(now))) };
             0
         }
         WM_WTSSESSION_CHANGE => {
@@ -492,7 +572,7 @@ unsafe fn hook_thread(foreground: bool, session: bool, power: bool, ready: std::
         }
         TRAY_HWND.store(hwnd as isize, Ordering::SeqCst);
         TASKBAR_CREATED.store(RegisterWindowMessageW(wide("TaskbarCreated").as_ptr()), Ordering::SeqCst);
-        tray_add(hwnd);
+        tray_add_or_retry(hwnd);
         let mut hook = null_mut();
         if foreground {
             hook = SetWinEventHook(
@@ -611,17 +691,64 @@ impl Drop for StopEvent {
     }
 }
 
-/// Ask a running agent in this logon session to stop. Returns false if none is running.
-pub fn signal_stop() -> bool {
+/// What `signal_stop` found.
+pub enum StopSignal {
+    Sent,
+    NotRunning,
+    /// The stop event exists but this prompt may not open it: the agent runs with a higher token.
+    AccessDenied,
+}
+
+/// Ask a running agent in this logon session to stop.
+pub fn signal_stop() -> StopSignal {
     unsafe {
         let h = OpenEventW(EVENT_MODIFY_STATE, 0, wide(STOP_EVENT_NAME).as_ptr());
         if h.is_null() {
-            return false;
+            return if GetLastError() == ERROR_ACCESS_DENIED {
+                StopSignal::AccessDenied
+            } else {
+                StopSignal::NotRunning
+            };
         }
         let ok = SetEvent(h) != 0;
         CloseHandle(h);
-        ok
+        if ok { StopSignal::Sent } else { StopSignal::NotRunning }
     }
+}
+
+/// True when this process runs with an elevated (administrator) token.
+pub fn is_elevated() -> bool {
+    unsafe {
+        let mut token: HANDLE = null_mut();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
+            return false;
+        }
+        let mut elevation = TOKEN_ELEVATION { TokenIsElevated: 0 };
+        let mut len = 0u32;
+        let ok = GetTokenInformation(
+            token,
+            TokenElevation,
+            &mut elevation as *mut _ as *mut _,
+            std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+            &mut len,
+        ) != 0;
+        CloseHandle(token);
+        ok && elevation.TokenIsElevated != 0
+    }
+}
+
+/// How long the no-console build leaves an error box up before it gives up and exits.
+const MESSAGE_BOX_SECS: u64 = 60;
+
+/// Show an error in a plain message box (documented flags only; no foreground or topmost flag, so it should
+/// not grab the keyboard, but whether it interrupts typing has not been checked on a real PC). By the time
+/// this runs the run lock is free, so a new agent can start; the box closes itself after `MESSAGE_BOX_SECS`
+/// so an unattended one cannot keep the program file locked for an install, and the error stays in the log.
+pub fn message_box(title: &str, text: &str) {
+    let (title, text) = (wide(title), wide(text));
+    crate::cli::wait_at_most(std::time::Duration::from_secs(MESSAGE_BOX_SECS), move || unsafe {
+        MessageBoxW(null_mut(), text.as_ptr(), title.as_ptr(), MB_OK | MB_ICONERROR);
+    });
 }
 
 /// Minutes east of UTC right now.

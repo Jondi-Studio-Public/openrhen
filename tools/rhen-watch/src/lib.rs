@@ -19,6 +19,8 @@ pub mod store;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_cli;
+#[cfg(test)]
 mod tests_derive;
 #[cfg(test)]
 mod tests_meter;

@@ -13,6 +13,9 @@ use crate::model::{Ms, Op};
 /// 1: events, metrics, meta. 2: adds `input_buckets` and a nullable `tz_offset_min` on `events` and
 /// `input_buckets` (one-way: an older build refuses a v2 file).
 const SCHEMA_VERSION: i64 = 2;
+/// How long event writes wait for a lock, and how long best-effort work (metrics, purge) waits.
+const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+const QUICK_BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(100);
 
 /// An offset is stored only for a time this close to the moment it is written, so it is the offset in force
 /// then. Anything older (the gap a crash left, written at the next start) gets none rather than a guess.
@@ -47,6 +50,21 @@ pub struct Store {
     seq: u64,
     #[cfg(test)]
     pub fail_next: u32,
+    /// Test hooks: fail the next N metric writes / purge calls, as a busy or full database would.
+    #[cfg(test)]
+    pub fail_metric_next: std::cell::Cell<u32>,
+    #[cfg(test)]
+    pub fail_purge_next: std::cell::Cell<u32>,
+}
+
+/// Consume one failure from a test hook.
+#[cfg(test)]
+fn trip(counter: &std::cell::Cell<u32>) -> rusqlite::Result<()> {
+    if counter.get() > 0 {
+        counter.set(counter.get() - 1);
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -79,12 +97,21 @@ pub struct MetricRow {
 }
 
 impl Store {
+    /// Run best-effort work (the per-minute metrics, the daily purge) with a short busy timeout, so a locked
+    /// database costs a tick a fraction of a second instead of the full wait the event writes get.
+    pub fn best_effort<T>(&self, f: impl FnOnce(&Store) -> T) -> T {
+        let _ = self.conn.busy_timeout(QUICK_BUSY_TIMEOUT);
+        let out = f(self);
+        let _ = self.conn.busy_timeout(BUSY_TIMEOUT);
+        out
+    }
+
     pub fn open(path: &Path) -> rusqlite::Result<Self> {
         let conn = Connection::open(path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         // FULL is not needed for an activity log; NORMAL in WAL cannot corrupt, it can lose the last moments.
         conn.pragma_update(None, "synchronous", "NORMAL")?;
-        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        conn.busy_timeout(BUSY_TIMEOUT)?;
         Self::init(conn)
     }
 
@@ -92,7 +119,7 @@ impl Store {
     pub fn open_read_only(path: &Path) -> rusqlite::Result<Self> {
         use rusqlite::OpenFlags;
         let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
-        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        conn.busy_timeout(BUSY_TIMEOUT)?;
         let mut store = Self::bare(conn);
         if let Some(json) = store.meta("open_state")? {
             let list: Vec<OpenIv> = serde_json::from_str(&json).unwrap_or_default();
@@ -112,6 +139,10 @@ impl Store {
             seq: 0,
             #[cfg(test)]
             fail_next: 0,
+            #[cfg(test)]
+            fail_metric_next: Default::default(),
+            #[cfg(test)]
+            fail_purge_next: Default::default(),
         }
     }
 
@@ -358,6 +389,8 @@ impl Store {
     }
 
     pub fn put_metric(&self, m: &MetricRow) -> rusqlite::Result<()> {
+        #[cfg(test)]
+        trip(&self.fail_metric_next)?;
         self.conn.execute(
             "INSERT INTO metrics (minute_ts, cpu_ms, rss_bytes, db_bytes, events, dropped) VALUES (?1,?2,?3,?4,?5,?6)
              ON CONFLICT(minute_ts) DO UPDATE SET cpu_ms=excluded.cpu_ms, rss_bytes=MAX(rss_bytes, excluded.rss_bytes),
@@ -497,6 +530,8 @@ impl Store {
 
     /// Delete events that ended before `cutoff`. Open intervals are not in the table, so are never purged.
     pub fn purge_events_before(&self, cutoff: Ms) -> rusqlite::Result<usize> {
+        #[cfg(test)]
+        trip(&self.fail_purge_next)?;
         self.conn.execute("DELETE FROM events WHERE ts_end < ?1", params![cutoff])
     }
 

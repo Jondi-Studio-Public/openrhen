@@ -25,3 +25,47 @@ pub fn action_for(id: usize) -> TrayAction {
         _ => TrayAction::None,
     }
 }
+
+/// Which built-in icon the tray shows.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TrayIcon {
+    Recording,
+    Paused,
+    Degraded,
+}
+
+/// The icon for a runner state (`recording`, `paused` or a `degraded` name).
+pub fn icon_for(state: &str) -> TrayIcon {
+    if state == "paused" {
+        TrayIcon::Paused
+    } else if state.starts_with("degraded") {
+        TrayIcon::Degraded
+    } else {
+        TrayIcon::Recording
+    }
+}
+
+/// One balloon, when the state becomes degraded; none for a repeat or for recovery.
+pub fn should_balloon(before: &str, now: &str) -> bool {
+    icon_for(now) == TrayIcon::Degraded && icon_for(before) != TrayIcon::Degraded
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_state_has_its_own_icon() {
+        let icons = [icon_for("recording"), icon_for("paused"), icon_for("degraded (writes are failing)")];
+        assert_eq!(icons, [TrayIcon::Recording, TrayIcon::Paused, TrayIcon::Degraded]);
+    }
+
+    #[test]
+    fn the_balloon_shows_once_when_the_state_becomes_degraded() {
+        assert!(should_balloon("recording", "degraded"));
+        assert!(should_balloon("paused", "degraded (writes are failing)"));
+        assert!(!should_balloon("degraded", "degraded"));
+        assert!(!should_balloon("degraded", "recording"));
+        assert!(!should_balloon("recording", "paused"));
+    }
+}

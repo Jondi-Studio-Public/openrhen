@@ -30,10 +30,9 @@
     }
   },
   "owner": {
-    "total": 3,
+    "total": 2,
     "files": {
       "docs/architecture/activity-store.md": 1,
-      "docs/architecture/desktop-activity-agent.md": 1,
       "docs/architecture/overview.md": 1
     }
   },

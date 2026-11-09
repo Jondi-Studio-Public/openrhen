@@ -27,14 +27,62 @@ USAGE
   rhen-watch wipe --yes              delete the database, its sidecar files and the config
 ";
 
+/// Set once `run` is recording; an error after that goes to the log only.
+static RECORDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The console program.
 pub fn main() {
+    run_main(false);
+}
+
+/// The no-console program (`rhen-watchw`): a `run` that fails, before or after it is recording, also shows a message box,
+/// because nothing else on screen would say why the tray icon never appeared.
+pub fn main_windowless() {
+    run_main(true);
+}
+
+/// The shown error for a panic outside the recording loop (opening the store, starting the hooks, ...).
+const PANIC_OUTSIDE_LOOP: &str = "internal error (panic); see rhen-watch.log in the data folder";
+
+/// Run `f`, turning a panic into an error so the no-console build can still say why it ended.
+pub fn guarded(f: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_else(|_| Err(PANIC_OUTSIDE_LOOP.to_string()))
+}
+
+/// Run `f` on its own thread and wait at most `limit` for it. Returns false if it was still running; the
+/// caller then exits the process, which ends the thread. Used so a message box that nobody dismisses cannot
+/// keep the process (and its program file) alive for ever.
+pub fn wait_at_most(limit: std::time::Duration, f: impl FnOnce() + Send + 'static) -> bool {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        f();
+        let _ = tx.send(());
+    });
+    rx.recv_timeout(limit).is_ok()
+}
+
+/// The error for a lock that could not be taken: only a lock another process holds is a duplicate start.
+pub fn lock_error(e: std::fs::TryLockError) -> String {
+    match e {
+        std::fs::TryLockError::WouldBlock => ALREADY_RUNNING.to_string(),
+        std::fs::TryLockError::Error(e) => format!("cannot lock run.lock in the data folder: {e}"),
+    }
+}
+
+fn run_main(windowless: bool) {
     // The no-console build has nowhere to show a panic, so put it in the log.
     std::panic::set_hook(Box::new(|info| crate::log::error(&format!("internal error: {info}"))));
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let code = match real_main(&args) {
+    let code = match guarded(|| real_main(&args)) {
         Ok(()) => 0,
         Err(e) => {
             crate::log::error(&e);
+            #[cfg(windows)]
+            if windowless && let Some(title) = error_box_title(&args, RECORDING.load(std::sync::atomic::Ordering::SeqCst), &e) {
+                platform::windows::message_box(title, &e);
+            }
+            #[cfg(not(windows))]
+            let _ = windowless;
             1
         }
     };
@@ -100,6 +148,55 @@ pub fn load_run_settings(dir: &std::path::Path) -> Result<(Config, categories::C
     Ok((cfg, catalogue, problem))
 }
 
+/// `install` proves the agent could start before it copies anything or touches the Run key.
+pub fn check_settings_for_install(dir: &std::path::Path) -> Result<(), String> {
+    load_run_settings(dir)
+        .map(|_| ())
+        .map_err(|e| format!("{e}\nnothing was installed; fix the settings and run install again"))
+}
+
+/// The error `run` returns when another agent holds the lock. A duplicate start needs no message box.
+pub const ALREADY_RUNNING: &str = "another rhen-watch is already running (use `rhen-watch stop`)";
+
+/// The title of the message box the no-console build shows for a failed command, or `None` for no box.
+/// Only `run` gets one: "did not start" before recording began, "stopped" after (for example when writes
+/// kept failing). A duplicate start is not an error the user needs to see.
+pub fn error_box_title(args: &[String], recording: bool, error: &str) -> Option<&'static str> {
+    if args.first().map(String::as_str) != Some("run") || error == ALREADY_RUNNING {
+        return None;
+    }
+    Some(if recording {
+        "rhen-watch stopped"
+    } else {
+        "rhen-watch did not start"
+    })
+}
+
+/// The settings lines `status` prints: whether `run` would accept the settings, and what it would degrade.
+fn settings_lines(dir: &std::path::Path) -> Vec<String> {
+    match load_run_settings(dir) {
+        Err(e) => vec![format!("settings: ERROR {e} (the agent will not start)")],
+        Ok((_, _, None)) => vec!["settings: ok".to_string()],
+        Ok((_, _, Some(problem))) => vec![
+            "settings: ok".to_string(),
+            format!("{problem} (the agent records with the built-in categories)"),
+        ],
+    }
+}
+
+/// What `config show` prints: every setting, then the error `run` would stop on, if any.
+pub fn config_show_text(dir: &std::path::Path) -> Result<String, String> {
+    match load_config(dir) {
+        Ok(cfg) => Ok(config::show(&cfg)),
+        Err(e) => {
+            // Still list what parses, then say the agent would not start.
+            let mut out = Config::load(&dir.join("config.toml")).map(|c| config::show(&c)).unwrap_or_default();
+            out.push_str(&format!("settings: ERROR {e} (the agent will not start)\n"));
+            Ok(out)
+        }
+    }
+}
+
 fn cmd_config(args: &[String]) -> Result<(), String> {
     let d = dir()?;
     let path = d.join("config.toml");
@@ -117,7 +214,7 @@ fn cmd_config(args: &[String]) -> Result<(), String> {
             Ok(())
         }
         Some("show") => {
-            print!("{}", config::show(&Config::load(&path)?));
+            print!("{}", config_show_text(&d)?);
             Ok(())
         }
         Some("set") => match (args.get(1), args.get(2)) {
@@ -239,25 +336,55 @@ pub fn agent_running(dir: &std::path::Path) -> bool {
 }
 
 fn cmd_status() -> Result<(), String> {
-    let d = dir()?;
-    println!("data directory: {}", d.display());
-    println!("agent: {}", if agent_running(&d) { "running" } else { "not running" });
+    let mut out = String::new();
+    let result = status_report(&dir()?, &mut out);
+    // Print what was collected even when the database could not be read.
+    print!("{out}");
+    result
+}
+
+/// What `status` prints.
+pub fn status_text(d: &std::path::Path) -> Result<String, String> {
+    let mut out = String::new();
+    status_report(d, &mut out)?;
+    Ok(out)
+}
+
+/// Fills `out` as it goes, so the caller can print what was collected even when a later step fails.
+pub fn status_report(d: &std::path::Path, out: &mut String) -> Result<(), String> {
+    use std::fmt::Write;
+    let _ = writeln!(out, "data directory: {}", d.display());
+    let _ = writeln!(out, "agent: {}", if agent_running(d) { "running" } else { "not running" });
+    for line in settings_lines(d) {
+        out.push_str(&line);
+        out.push('\n');
+    }
     let db = d.join("activity.db");
     if !db.exists() {
-        println!("no database yet; run `rhen-watch run`");
+        out.push_str("no database yet; run `rhen-watch run`\n");
         return Ok(());
     }
-    let store = store::Store::open(&db).map_err(|e| e.to_string())?;
-    println!(
+    // Read-only: a diagnostic must never migrate the file or contend with a running agent.
+    let store = store::Store::open_read_only(&db).map_err(|e| e.to_string())?;
+    match store.schema_version().map_err(|e| e.to_string())? {
+        Some(v) => {
+            let _ = writeln!(out, "schema version: {v}");
+        }
+        None => out.push_str("schema version: unknown\n"),
+    }
+    let _ = writeln!(
+        out,
         "database: {:.2} MB, {} events",
         store.db_bytes() as f64 / 1_048_576.0,
         store.count_events().map_err(|e| e.to_string())?
     );
     match store.last_heartbeat().map_err(|e| e.to_string())? {
-        Some(t) => println!("last heartbeat: {} s ago", (now_ms() - t) / 1000),
-        None => println!("no heartbeat recorded"),
+        Some(t) => {
+            let _ = writeln!(out, "last heartbeat: {} s ago", (now_ms() - t) / 1000);
+        }
+        None => out.push_str("no heartbeat recorded\n"),
     }
-    println!("open intervals: {}", store.open_rows().len());
+    let _ = writeln!(out, "open intervals: {}", store.open_rows().len());
     Ok(())
 }
 
@@ -361,12 +488,22 @@ fn cmd_run(_args: &[String]) -> Result<(), String> {
 }
 
 #[cfg(windows)]
+const ELEVATED_AGENT: &str = "an agent is running as administrator; use tray Quit or an elevated prompt";
+#[cfg(windows)]
+const ELEVATED_INSTALL_WARNING: &str = "rhen-watch: warning: this prompt is running as administrator, so the agent will too. \
+A normal prompt will not be able to stop or uninstall it: use tray Quit or an administrator prompt, \
+or uninstall and install again from a normal PowerShell.";
+
+#[cfg(windows)]
 fn cmd_stop() -> Result<(), String> {
-    if platform::windows::signal_stop() {
-        println!("stop requested; the agent flushes and exits within a few seconds");
-        Ok(())
-    } else {
-        Err("no running agent found in this logon session".into())
+    use platform::windows::StopSignal;
+    match platform::windows::signal_stop() {
+        StopSignal::Sent => {
+            println!("stop requested; the agent flushes and exits within a few seconds");
+            Ok(())
+        }
+        StopSignal::AccessDenied => Err(ELEVATED_AGENT.into()),
+        StopSignal::NotRunning => Err("no running agent found in this logon session".into()),
     }
 }
 
@@ -405,8 +542,7 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
         .truncate(false)
         .open(d.join("run.lock"))
         .map_err(|e| e.to_string())?;
-    lock.try_lock()
-        .map_err(|_| "another rhen-watch is already running (use `rhen-watch stop`)".to_string())?;
+    lock.try_lock().map_err(lock_error)?;
 
     let stop_event = win::StopEvent::create()?;
     win::install_ctrl_handler();
@@ -462,6 +598,7 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
     let started = Instant::now();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(), String> {
         run.start()?;
+        RECORDING.store(true, Ordering::SeqCst);
         if let Some(e) = &category_error {
             crate::log::warn(&format!("{e}; recording with the built-in categories"));
             run.degraded(&["categories.toml".to_string()])?;
@@ -539,9 +676,12 @@ fn wait_released(files: &[PathBuf]) -> Result<(), String> {
 /// Ask a running agent to stop and wait until its lock is free.
 #[cfg(windows)]
 fn stop_and_wait() -> Result<(), String> {
+    use platform::windows::StopSignal;
     use std::time::{Duration, Instant};
-    if !platform::windows::signal_stop() {
-        return Ok(());
+    match platform::windows::signal_stop() {
+        StopSignal::Sent => {}
+        StopSignal::NotRunning => return Ok(()),
+        StopSignal::AccessDenied => return Err(ELEVATED_AGENT.into()),
     }
     let lock = paths::data_dir()?.join("run.lock");
     let started = Instant::now();
@@ -559,6 +699,14 @@ fn stop_and_wait() -> Result<(), String> {
 fn cmd_install() -> Result<(), String> {
     use std::os::windows::process::CommandExt;
 
+    // An elevated install starts an agent that a normal prompt can neither stop nor uninstall.
+    // Say so before anything changes; `stop` names the same cause when it meets one. It is a
+    // warning, not a refusal, because some setups (CI runners among them) have no normal prompt.
+    if platform::windows::is_elevated() {
+        eprintln!("{ELEVATED_INSTALL_WARNING}");
+    }
+    // Prove the new binary would start before anything is copied or the Run key is touched.
+    check_settings_for_install(&dir()?)?;
     let here = std::env::current_exe().map_err(|e| e.to_string())?;
     let src_dir = here.parent().ok_or("cannot find the folder this program is in")?.to_path_buf();
     let dest = install_dir()?;
