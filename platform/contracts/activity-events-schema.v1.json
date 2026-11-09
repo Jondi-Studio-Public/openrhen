@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://openrhen.example/schemas/activity-events.v1.json",
   "title": "OpenRhen activity events, version 1",
-  "description": "The batch body of POST /api/activity-events. It does not describe the single-event shorthand body ({source, kind, start, id?, device?, end?, attrs?, content?}) or the rules that compare fields (end not before start, start not more than 24 hours ahead, attrs under 8 KB, content under 64 KB, offsets within -14:00 to +14:00, no NUL or lone surrogate in text, one source per import); the server states each of those in the rejection text. A time with an offset sets tz_offset_min to that offset (so +00:00 gives 0; Z leaves it unknown). Events of source physiology are also held to physiology-schema.v1.json and its canonical key rule.",
+  "description": "The batch body of POST /api/activity-events. It does not describe the single-event shorthand body ({source, kind, start, id?, device?, end?, attrs?, content?}) or the rules that compare fields (end not before start, start not more than 24 hours ahead, attrs under 8 KB, content under 64 KB, offsets within -14:00 to +14:00, no NUL or lone surrogate in text, one source per import); the server states each of those in the rejection text. A time with an offset sets tz_offset_min to that offset (so +00:00 gives 0; Z leaves it unknown). Events of source physiology are also held to physiology-schema.v1.json and its canonical key rule. Events of a source whose family is message@1 are held to the message rules (closed attrs, the mid: or fp: key, a server-computed attrs.fp).",
   "type": "object",
   "properties": {
     "schema": {

@@ -1,7 +1,7 @@
 {
   "lane": "I",
   "terms": {
-    "total": 633,
+    "total": 631,
     "files": {
       "integrations/activity-importers/src/archive.ts": 6,
       "integrations/activity-importers/src/index.ts": 15,
@@ -34,7 +34,7 @@
       "integrations/communication-readers/src/hosted-eligibility.test.ts": 1,
       "integrations/communication-readers/src/hosted-eligibility.ts": 1,
       "integrations/communication-readers/src/ics-event.test.ts": 2,
-      "integrations/communication-readers/src/ics-event.ts": 3,
+      "integrations/communication-readers/src/ics-event.ts": 1,
       "integrations/communication-readers/src/link-candidates.test.ts": 3,
       "integrations/communication-readers/src/message-context.test.ts": 21,
       "integrations/communication-readers/src/message-context.ts": 6,

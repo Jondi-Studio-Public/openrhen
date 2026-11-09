@@ -21,7 +21,7 @@ const usable = (value: unknown): value is string =>
   value.replace(/[\s\p{Cf}]/gu, "").length > 0;
 
 /**
- * What a fact row records about its message that no model decides: `direction` from the bridge's `from_self` (true is
+ * What a fact row records about its message that no model decides: `direction` from the collector's `from_self` (true is
  * out; the `direction` attr and anything a model says are ignored), `who` (the sender as written for `in`; up to 3
  * recipients as typed, repeats dropped by address ignoring case, for `out`) and the conversation key `gmail:<thread_id>`. A message that cannot give
  * all three yields a reason and no fact. Only `gmail` rows are read: other sources reuse the attrs shape but are not in scope.

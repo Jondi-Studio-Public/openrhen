@@ -429,7 +429,7 @@ describe("the fact attrs a 2b extractor writes", () => {
   });
 
   describe("direction and who", () => {
-    it("rejects an unknown direction, naming the values and that the bridge decides", () => {
+    it("rejects an unknown direction, naming the values and that the collector decides", () => {
       const problem = fact({ direction: "inbound" });
       expect(problem).toContain('"inbound"');
       for (const direction of DERIVED_DIRECTIONS) expect(problem).toContain(direction);
