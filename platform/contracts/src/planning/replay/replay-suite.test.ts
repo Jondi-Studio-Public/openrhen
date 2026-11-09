@@ -176,7 +176,7 @@ describe("generated replay suite against its baseline", () => {
     const tieKinds = ["twin", "twin-contact", "deadline-twin", "ask-twin", "numbered"];
     const at20 = generatedRuns.deterministic.filter((r) => r.testCase.tags.includes("20x"));
     for (const kind of tieKinds) {
-      const ofKind = at20.filter((r) => r.testCase.id.endsWith(`-${kind}`));
+      const ofKind = at20.filter((r) => r.testCase.tags.includes(kind));
       expect(ofKind.length, kind).toBeGreaterThanOrEqual(2);
     }
     const twins = at20.filter((r) => r.outcome.tie);
