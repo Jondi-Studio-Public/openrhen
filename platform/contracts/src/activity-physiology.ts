@@ -42,7 +42,7 @@ export const PHYSIOLOGY_MAX_IRREGULAR_SAMPLES = 240;
 export const PHYSIOLOGY_HEART_RATE_MIN_STEP_S = 15;
 export const PHYSIOLOGY_DENSE_MAX_STEP_S = 14;
 export const PHYSIOLOGY_MAX_SEGMENTS = 200;
-/** How far `avg` may sit from the true mean of the values (rounding). */
+/** The least `avg` may differ from the true mean: more when avg is posted to fewer decimals (half a unit of its precision). */
 export const PHYSIOLOGY_AVG_TOLERANCE = 0.05;
 export const PHYSIOLOGY_MAX_SLEEP_SECONDS = 86_400;
 export const PHYSIOLOGY_MOVEMENT_STATES = [
@@ -366,9 +366,12 @@ function checkSamples(kind: string, attrs: Attrs, period: number): string | null
   if (Math.abs(max - largest) > 1e-9)
     return `attrs.max ${max} is not the largest value (${largest}). min and max must be the true extremes of attrs.values.`;
   const mean = sum / nonNull;
-  if (Math.abs(avg - mean) > PHYSIOLOGY_AVG_TOLERANCE + 1e-9)
-    return `attrs.avg ${avg} differs from the mean ${Math.round(mean * 100) / 100} of the values by more than ${PHYSIOLOGY_AVG_TOLERANCE}. Send the mean, rounded.`;
-  if (!(min <= avg && avg <= max))
+  // A collector may round avg to a whole number or one decimal: allow half a unit of the precision it posted.
+  const avgDecimals = decimalsOver(avg, 0) ? (decimalsOver(avg, 1) ? 2 : 1) : 0;
+  const avgTolerance = Math.max(PHYSIOLOGY_AVG_TOLERANCE, 0.5 * 10 ** -avgDecimals);
+  if (Math.abs(avg - mean) > avgTolerance + 1e-9)
+    return `attrs.avg ${avg} differs from the mean ${Math.round(mean * 100) / 100} of the values by more than ${avgTolerance} (half a unit of avg's own precision, and at least ${PHYSIOLOGY_AVG_TOLERANCE}). Send the mean, rounded.`;
+  if (!(min - avgTolerance <= avg && avg <= max + avgTolerance))
     return `attrs.min, attrs.avg and attrs.max must satisfy min <= avg <= max (got ${min}, ${avg}, ${max}).`;
   const coverage = attrs.coverage_s;
   if (!isInt(coverage) || coverage < 0)
@@ -496,7 +499,13 @@ function checkWorkout(attrs: Attrs): string | null {
 
 const SLOT_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const SECOND_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
-const realTime = (text: string) => !Number.isNaN(Date.parse(text));
+/** A real calendar instant: Date.parse alone accepts a Feb 30, so the text must survive a round trip through the date. */
+const realTime = (text: string) => {
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return false;
+  const iso = parsed.toISOString();
+  return text.length === 20 ? iso.slice(0, 19) + "Z" === text : iso === text;
+};
 
 /** Why a correction's target is not a well-formed physiology key (kind, device label, period for the kind, version), or null. */
 function targetKeyProblem(key: string): string | null {
@@ -797,7 +806,7 @@ function attrsSchema(kind: string): Record<string, unknown> {
   } else if (kind === "daily") {
     properties.local_date = { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" };
     properties.steps = { type: "integer", minimum: 0 };
-    properties.resting_hr = { type: "integer", minimum: 0, maximum: 300 };
+    properties.resting_hr = { type: "integer", minimum: 20, maximum: 260 };
     properties.stress_avg = { type: "number", minimum: 0 };
     properties.active_min = { type: "number", minimum: 0, maximum: 1440 };
     properties.kcal_active = { type: "number", minimum: 0 };
@@ -817,8 +826,8 @@ function attrsSchema(kind: string): Record<string, unknown> {
     properties.duration_min = { type: "number", minimum: 0 };
     properties.distance_m = { type: "number", minimum: 0 };
     properties.energy_kcal = { type: "number", minimum: 0 };
-    properties.avg_hr = { type: "integer", minimum: 0, maximum: 300 };
-    properties.max_hr = { type: "integer", minimum: 0, maximum: 300 };
+    properties.avg_hr = { type: "integer", minimum: 20, maximum: 260 };
+    properties.max_hr = { type: "integer", minimum: 20, maximum: 260 };
     required.push("activity_type");
   }
   return { type: "object", required, additionalProperties: false, properties };

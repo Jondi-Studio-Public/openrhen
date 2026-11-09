@@ -737,6 +737,44 @@ function schemaErrors(schema: Schema, value: unknown, root: Schema, path = "$"):
   return errors;
 }
 
+describe("review nits", () => {
+  const hrv = (patch: Record<string, unknown>, readings = [10.5, 20.5, 31.5]) =>
+    reason(build("hrv", { unit: "ms", method: "sdnn", ...series(300, readings), ...patch }));
+
+  it("accepts an avg rounded to the precision the collector posts, and refuses a wrong one", () => {
+    // True mean 20.8333.
+    expect(hrv({ avg: 21 })).toBeNull();
+    expect(hrv({ avg: 20.8 })).toBeNull();
+    expect(hrv({ avg: 20.83 })).toBeNull();
+    expect(hrv({ avg: 20.9 })).toMatch(/attrs\.avg 20\.9.*0\.05/);
+    expect(hrv({ avg: 20.89 })).toMatch(/attrs\.avg/);
+    expect(hrv({ avg: 22 })).toMatch(/attrs\.avg 22.*0\.5/);
+  });
+
+  it("lets a whole-number avg sit just outside min and max by its rounding", () => {
+    expect(hrv({ avg: 70 }, [70.4])).toBeNull();
+    expect(hrv({ avg: 71 }, [70.4])).toMatch(/attrs\.avg/);
+  });
+
+  it("checks calendar dates and times strictly, not with Date.parse", () => {
+    const check = (corrects: string) =>
+      reason({
+        id: `correction|${corrects}|0`,
+        source: "physiology",
+        kind: "correction",
+        start: HOUR,
+        attrs: { corrects, void: true }
+      });
+    expect(check("heart_rate|band-1|2026-02-30T10:00:00.000Z|v0")).toMatch(/attrs\.corrects.*period/);
+    expect(check("steps|band-1|2026-04-31T10:00:00.000Z|v0")).toMatch(/attrs\.corrects.*period/);
+    expect(check("workout|band-1|2026-02-30T10:00:00Z|v0")).toMatch(/attrs\.corrects.*period/);
+    expect(check("score|band-1|readiness@2026-02-30T10:00:00.000Z|v0")).toMatch(/attrs\.corrects.*period/);
+    expect(check("score|band-1|readiness@2026-02-30|v0")).toMatch(/attrs\.corrects.*period/);
+    expect(check("heart_rate|band-1|2026-02-28T10:00:00.000Z|v0")).toBeNull();
+    expect(check("workout|band-1|2028-02-29T10:00:00Z|v0")).toBeNull();
+  });
+});
+
 describe("the published schema and the validator agree", () => {
   // portal/server/physiology-schema.test.ts pins the published file to this function, so this is the published schema.
   const published = JSON.parse(JSON.stringify(physiologyJsonSchema())) as Schema;
@@ -783,7 +821,11 @@ describe("the published schema and the validator agree", () => {
       ["sleep", { segments: [{ start_s: 0, end_s: 10, stage: "nap" }] }],
       ["daily", { floors: 1.5 }],
       ["score", { scale: undefined }],
-      ["workout", { activity_type: undefined }]
+      ["workout", { activity_type: undefined }],
+      ["daily", { resting_hr: 5 }],
+      ["daily", { resting_hr: 300 }],
+      ["workout", { avg_hr: 19 }],
+      ["workout", { max_hr: 261 }]
     ];
     for (const [kind, patch] of cases) {
       expect(violations(bad(kind, patch)), `${kind} ${JSON.stringify(patch)}`).not.toEqual([]);
