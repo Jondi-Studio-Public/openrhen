@@ -305,11 +305,12 @@ pub fn civil_from_days(z: i64) -> (i64, i64, i64) {
 
 fn cmd_report(args: &[String]) -> Result<(), String> {
     let d = dir()?;
+    // Settings first: a leftover [categories] table or a bad categories.toml is the more useful thing to hear.
+    let (cfg, catalogue) = load_report_settings(&d)?;
     let db = d.join("activity.db");
     if !db.exists() {
         return Err("no database yet; run `rhen-watch run` first".into());
     }
-    let (cfg, catalogue) = load_report_settings(&d)?;
     // A fixed offset overrides the zone; otherwise each end of the day gets its own offset.
     let tz = match flag_value(args, "--utc-offset-minutes")? {
         Some(v) => TzOffset::fixed(v.parse().map_err(|_| "--utc-offset-minutes must be a whole number".to_string())?),
