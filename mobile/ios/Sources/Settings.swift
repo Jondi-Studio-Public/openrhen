@@ -48,7 +48,7 @@ final class AppSettings: ObservableObject {
             return
         }
         portalURLString = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let bound = tokenOrigin, HostPolicy.origin(of: url) != bound {
+        if Policies.addressChange(boundOrigin: tokenOrigin, newAddress: url) == .clearToken {
             clearToken()
             reportLocation = false
             addressNotice = "Address changed: location reporting is off and the token was cleared."
@@ -92,7 +92,7 @@ enum Keychain {
         guard !value.isEmpty else { return true }
         var item = base
         item[kSecValueData as String] = Data(value.utf8)
-        // Readable after the first unlock so a background relaunch can send, and never copied to another device.
+        // Readable after the first unlock (a relaunch while the phone is locked is unverified), and never copied to another device.
         item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
     }

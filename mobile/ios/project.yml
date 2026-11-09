@@ -24,7 +24,6 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         NSCameraUsageDescription: Take photos for check-ins.
-        NSMicrophoneUsageDescription: Record a spoken line with a check-in.
         NSLocationWhenInUseUsageDescription: Tell OpenRhen where you are so it can plan the day.
         NSLocationAlwaysAndWhenInUseUsageDescription: Tell OpenRhen when you arrive or leave a place, even when the app is closed.
         # App Transport Security stays at its default: https only, no exceptions. The portal is reached
