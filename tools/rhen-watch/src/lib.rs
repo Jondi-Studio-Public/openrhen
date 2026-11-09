@@ -31,6 +31,8 @@ mod tests_report;
 #[cfg(test)]
 mod tests_settings;
 #[cfg(test)]
+mod tests_state;
+#[cfg(test)]
 mod tests_tz;
 pub mod tray;
 pub mod tz;

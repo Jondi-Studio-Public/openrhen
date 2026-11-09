@@ -158,7 +158,7 @@ fn valid_word(w: &str) -> bool {
 pub fn normalise_exe(exe: &str) -> Result<String, String> {
     let e = exe.trim().to_ascii_lowercase();
     let stem = e.strip_suffix(".exe").unwrap_or("");
-    if stem.is_empty() || e.chars().any(|c| c.is_control() || matches!(c, '"' | '\\' | '/')) {
+    if stem.is_empty() || e.chars().any(|c| c.is_control() || matches!(c, '"' | '\\' | '/' | ':')) {
         return Err(format!("\"{exe}\": an executable name must be a file name ending in .exe"));
     }
     Ok(e)
@@ -244,7 +244,7 @@ impl Catalogue {
             groups.insert(category.clone(), group.clone());
         }
         let mut games: Vec<String> = DEFAULT_GAMES.iter().map(|g| g.to_string()).collect();
-        games.extend(extra_games.iter().map(|g| g.to_ascii_lowercase()));
+        games.extend(extra_games.iter().map(|g| g.trim().to_ascii_lowercase()));
         Self { categories, groups, games }
     }
 
@@ -400,7 +400,12 @@ pub const SHELL_PAIRS: &[(&str, &str)] = &[
     ("windows.ui.core.corewindow", "textinputhost.exe"),
 ];
 
+/// Executables that are chrome whatever their window class: the lock screen is part of the lock, not app time.
+pub const SHELL_EXES: &[&str] = &["lockapp.exe"];
+
 pub fn is_shell_window(class: &str, exe: Option<&str>) -> bool {
     let class = class.to_ascii_lowercase();
-    SHELL_CLASSES.contains(&class.as_str()) || exe.is_some_and(|e| SHELL_PAIRS.iter().any(|(c, x)| *c == class && *x == e))
+    SHELL_CLASSES.contains(&class.as_str())
+        || exe.is_some_and(|e| SHELL_EXES.contains(&e))
+        || exe.is_some_and(|e| SHELL_PAIRS.iter().any(|(c, x)| *c == class && *x == e))
 }
