@@ -10,11 +10,13 @@ import { ensureUser } from "./ensure-user";
 import { readDoctorReport } from "./doctor";
 import { PostgresImportStore } from "./import-store";
 import { registerDiffProfile } from "./imports/calendar-diff";
+import { isDiffProfileRegistered } from "./imports/calendar-diff-registry";
 import { calendarProfile } from "./imports/calendar-profiles/calendar";
 
-// The example sources declare profiles this suite does not exercise; the store refuses to build without them.
-registerDiffProfile("roster", () => calendarProfile);
-registerDiffProfile("shared_calendar", () => calendarProfile);
+// The example sources declare profiles this suite does not exercise; the store refuses to build without them. A
+// composed build has already registered its own under these names, and a second factory would throw.
+for (const name of ["roster", "shared_calendar"])
+  if (!isDiffProfileRegistered(name)) registerDiffProfile(name, () => calendarProfile);
 
 /** Doctor and the daily roster source: held changes surface, and a run that awaits review is not a failing sync. */
 config({ path: resolve(process.cwd(), "../.env"), quiet: true });
