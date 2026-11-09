@@ -34,6 +34,7 @@ use windows_sys::core::{BOOL, GUID};
 use crate::engine::{Fg, PowerEvt, SessionEvt};
 use crate::model::Ms;
 use crate::runner::{Control, Raw, Sys};
+use crate::tray::{ID_FOLDER, ID_QUIT, ID_SETTINGS, ID_STATUS, ID_TOGGLE, TrayAction, action_for};
 
 /// Keeps helper programs from flashing a console when the no-console build starts them.
 pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -224,10 +225,6 @@ impl Sys for WinSys {
 
 const WM_TRAY: u32 = WM_APP + 1;
 const WM_TRAY_REFRESH: u32 = WM_APP + 2;
-const ID_STATUS: usize = 1;
-const ID_TOGGLE: usize = 2;
-const ID_FOLDER: usize = 3;
-const ID_QUIT: usize = 4;
 
 static TRAY_HWND: AtomicIsize = AtomicIsize::new(0);
 static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
@@ -304,6 +301,7 @@ unsafe fn show_menu(hwnd: HWND) {
         AppendMenuW(menu, MF_SEPARATOR, 0, null());
         let toggle = if state == 1 { "Resume recording" } else { "Pause recording" };
         AppendMenuW(menu, MF_STRING, ID_TOGGLE, wide(toggle).as_ptr());
+        AppendMenuW(menu, MF_STRING, ID_SETTINGS, wide("Open settings").as_ptr());
         AppendMenuW(menu, MF_STRING, ID_FOLDER, wide("Open data folder").as_ptr());
         AppendMenuW(menu, MF_SEPARATOR, 0, null());
         AppendMenuW(menu, MF_STRING, ID_QUIT, wide("Quit").as_ptr());
@@ -314,22 +312,23 @@ unsafe fn show_menu(hwnd: HWND) {
         let cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd, null()) as usize;
         PostMessageW(hwnd, WM_NULL, 0, 0);
         DestroyMenu(menu);
-        match cmd {
-            ID_TOGGLE => {
+        match action_for(cmd) {
+            TrayAction::TogglePause => {
                 // A click must not be lost to a full queue, so this one waits for room.
                 if let Some(tx) = SENDER.get() {
                     let _ = tx.send(Raw::Control(if state == 1 { Control::Resume } else { Control::Pause }));
                 }
             }
-            ID_FOLDER => {
-                // explorer.exe needs no COM setup on this thread, unlike ShellExecute.
+            TrayAction::OpenDataFolder => {
+                // Settings (config.toml, categories.toml) live in the data folder. explorer.exe needs no COM
+                // setup on this thread, unlike ShellExecute.
                 if let Some(dir) = DATA_DIR.get() {
                     let path = String::from_utf16_lossy(&dir[..dir.len().saturating_sub(1)]);
                     let _ = std::process::Command::new("explorer.exe").arg(path).spawn();
                 }
             }
-            ID_QUIT => STOP.store(true, Ordering::SeqCst),
-            _ => {}
+            TrayAction::Quit => STOP.store(true, Ordering::SeqCst),
+            TrayAction::None => {}
         }
     }
 }

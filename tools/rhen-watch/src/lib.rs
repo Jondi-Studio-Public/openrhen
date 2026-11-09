@@ -14,8 +14,11 @@ pub mod report;
 pub mod retention;
 pub mod runner;
 pub mod store;
-pub mod tz;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_settings;
+#[cfg(test)]
 mod tests_tz;
+pub mod tray;
+pub mod tz;
