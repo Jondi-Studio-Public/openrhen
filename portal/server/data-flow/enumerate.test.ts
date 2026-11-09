@@ -51,7 +51,10 @@ describe("parseImports", () => {
 
 describe("tablesWrittenIn", () => {
   const known = new Set(["offer_log", "notes", "actions"]);
-  const drizzle = new Map([["notesTable", "notes"]]);
+  const drizzle = new Map([
+    ["notesTable", "notes"],
+    ["actionsTable", "actions"]
+  ]);
   it("finds SQL writes and drizzle writes of known tables only, and ignores comments", () => {
     const text = `
       // INSERT INTO actions is only mentioned here
@@ -59,10 +62,12 @@ describe("tablesWrittenIn", () => {
       sql\`UPDATE notes SET x = 1\`;
       sql\`DELETE FROM unknown_table\`;
       await db.insert(notesTable).values({});
+      await db.update(schema.notesTable).set({});
+      await tx.delete(schema.actionsTable);
       /* UPDATE actions */
       const update = "update of nothing";
     `;
-    expect([...tablesWrittenIn(text, known, drizzle)].sort()).toEqual(["notes", "offer_log"]);
+    expect([...tablesWrittenIn(text, known, drizzle)].sort()).toEqual(["actions", "notes", "offer_log"]);
   });
 });
 

@@ -59,7 +59,9 @@ function sourceFiles(directory: string): string[] {
 const read = (file: string) => readFileSync(join(root, file), "utf8");
 
 // The scripts are plain .mjs that cannot be imported across the package boundary, so load them the way check-structure does.
-const { listRoutes } = (await import(pathToFileURL(resolve(root, "scripts/repository/addon-routes.mjs")).href)) as {
+const { listRoutes } = (await import(
+  /* @vite-ignore */ pathToFileURL(resolve(root, "scripts/repository/addon-routes.mjs")).href
+)) as {
   listRoutes(root: string): { url: string; file: string; addon: boolean }[];
 };
 

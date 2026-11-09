@@ -79,6 +79,19 @@ const MAY_NAME_BLIND_TABLES = new Set([
   "platform/database/src/offer-log/offer-log.ts"
 ]);
 
+/** Everything planning is made of: the portal's state reader, the database planning folder, and the engine. */
+function planningSources(): { path: string; text: string }[] {
+  return [
+    {
+      path: "state-read.ts",
+      text: readFileSync(join(repo, "portal", "server", "persistence", "postgres", "state-read.ts"), "utf8")
+    },
+    ...sources(join(repo, "portal", "server", "persistence", "postgres", "readers")),
+    ...sources(join(repo, "platform", "database", "src", "planning")),
+    ...sources(join(repo, "engine"))
+  ];
+}
+
 describe("watch history is blind to the engine", () => {
   it("is absent from PLAN_INPUT_TABLES", () => {
     // The list moved to JSON in the contracts package; `write-path-registry.mjs` imports the same file.
@@ -200,14 +213,9 @@ describe("watch history is blind to the engine", () => {
       }
     }
     // Planning must not depend on the registry or on the health reader that joins it to live rows.
-    const planning = [
-      {
-        path: "state-read.ts",
-        text: readFileSync(join(repo, "portal", "server", "persistence", "postgres", "state-read.ts"), "utf8")
-      },
-      ...sources(join(repo, "portal", "server", "persistence", "postgres", "readers")),
-      ...sources(join(repo, "platform", "database", "src", "planning"))
-    ];
+    const planning = planningSources();
+    // The guard covers the engine too, so engine code cannot import the registry.
+    expect(planning.some((file) => file.path.includes(`${sep}engine${sep}`))).toBe(true);
     for (const file of planning) {
       expect(file.text, `${file.path} imports the data-flow registry`).not.toMatch(/data-flow/);
       expect(file.text, `${file.path} imports the health reader`).not.toMatch(/health-reader/);

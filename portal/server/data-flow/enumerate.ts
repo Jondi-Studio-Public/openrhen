@@ -111,7 +111,7 @@ export function tablesWrittenIn(
   const found = new Set<string>();
   for (const match of text.matchAll(/\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"?([a-z_][a-z0-9_]*)"?/g))
     if (known.has(match[1]!)) found.add(match[1]!);
-  for (const match of text.matchAll(/\.(?:insert|update|delete)\(\s*([A-Za-z_$][\w$]*)\s*\)/g)) {
+  for (const match of text.matchAll(/\.(?:insert|update|delete)\(\s*(?:[A-Za-z_$][\w$]*\.)?([A-Za-z_$][\w$]*)\s*\)/g)) {
     const table = drizzleNames.get(match[1]!);
     if (table !== undefined) found.add(table);
   }
