@@ -62,7 +62,8 @@ const KIND_LABEL: Record<SnapshotKind, string> = {
   wake: "This wake",
   reenter: "This re-entry",
   stretch: "This stretch answer",
-  disruption: "This disruption"
+  disruption: "This disruption",
+  fact_mark: "This mail mark"
 };
 
 /** The tables whose `status` a close writes (the eight closeable kinds). */
@@ -331,6 +332,19 @@ async function revertOne(tx: TxSql, userId: string, command: RevertCommand, walk
         }
       );
   }
+  // A mark on a mail item is the owner's to put back once it is undone: an agent that could redo its own undone mark
+  // would defeat the hourly closing limit, and one that could redo an undo by the owner would overrule them.
+  if (caller !== null && snapshot.kind === "fact_mark" && command.direction === "redo")
+    throw new ForbiddenCommandError(
+      `Write ${command.target} is a mark on a mail item. Once it is undone only the owner can put it back, from Review > Agent changes. To mark the item again, make a new rhen_inbox_act call in room facts with a new command-id (the limits still count the earlier mark).`,
+      {
+        nextCall: {
+          tool: "rhen_inbox",
+          arguments: { room: "facts" },
+          note: "lists the open mail items and the calls that mark them"
+        }
+      }
+    );
   // Forcing overwrites whatever the person changed since, so only the person may (Review -> Agent changes).
   if (caller !== null && command.force === true)
     throw new ForbiddenCommandError(

@@ -20,6 +20,9 @@ import type { Sql } from "./sql-pool";
  */
 export const CORE_SNAPSHOT_TABLES = [
   "users",
+  // The derived rows an agent's fact mark writes (2b-9): an undo deletes the row, a redo inserts it back. The table is
+  // append-only (no update), so a row either stands as it was written or is gone.
+  "activity_events",
   "sources",
   "captures",
   "areas",
@@ -96,6 +99,7 @@ const CONSEQUENCE_REFINED_COLUMNS = [
  */
 const CORE_SYSTEM_COLUMNS: Readonly<Record<CoreSnapshotTable, readonly string[]>> = {
   users: ["updated_at"],
+  activity_events: [],
   sources: [],
   captures: ["updated_at"],
   areas: ["updated_at"],
@@ -463,10 +467,16 @@ export type SnapshotKind =
   | "wake"
   | "reenter"
   | "stretch"
-  | "disruption";
+  | "disruption"
+  | "fact_mark";
 
 /** The most snapshots kept per user; older ones are dropped on insert, so their writes can no longer be undone. */
 export const SNAPSHOT_LIMIT = 500;
+/**
+ * Marks on mail facts (kind `fact_mark`) keep their own, larger allowance and are not counted in `SNAPSHOT_LIMIT`: an
+ * ordinary burst of agent writes must not push a hidden mail item out of the owner's reach. They are small (one row).
+ */
+export const FACT_MARK_SNAPSHOT_LIMIT = 2000;
 
 function assertTable(table: string): asserts table is SnapshotTable {
   if (!(SNAPSHOT_TABLES as readonly string[]).includes(table)) throw new Error(`${table} cannot be snapshotted.`);
@@ -600,7 +610,11 @@ export class WriteSnapshot {
     // Past the newest SNAPSHOT_LIMIT the header stays and only the images go (the write can no longer be undone).
     await this.tx`
       UPDATE writes SET images=NULL, state=NULL WHERE user_id=${this.userId} AND id IN (
-        SELECT id FROM writes WHERE user_id=${this.userId} AND images IS NOT NULL
+        SELECT id FROM writes WHERE user_id=${this.userId} AND images IS NOT NULL AND kind IS DISTINCT FROM 'fact_mark'
         ORDER BY created_at DESC, id DESC OFFSET ${SNAPSHOT_LIMIT})`;
+    await this.tx`
+      UPDATE writes SET images=NULL, state=NULL WHERE user_id=${this.userId} AND id IN (
+        SELECT id FROM writes WHERE user_id=${this.userId} AND images IS NOT NULL AND kind = 'fact_mark'
+        ORDER BY created_at DESC, id DESC OFFSET ${FACT_MARK_SNAPSHOT_LIMIT})`;
   }
 }

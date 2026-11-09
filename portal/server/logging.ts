@@ -463,7 +463,8 @@ export function withRoute<Context = unknown>(
         undefined,
         claim.claim,
         identity.principal?.source === "db" ? (identity.principal.scopes ?? []) : undefined,
-        identity.principal?.source === "db" ? (identity.principal.directWrites ?? {}) : undefined
+        identity.principal?.source === "db" ? (identity.principal.directWrites ?? {}) : undefined,
+        identity.principal !== undefined
       );
       const slidCookie = owner.slid ? cookieValue(request, OWNER_COOKIE) : undefined;
       const answered = slidCookie

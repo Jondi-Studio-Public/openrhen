@@ -23,6 +23,7 @@ import { toJson } from "../output.js";
 import { buildWriteRequest, findEntityType } from "./save.js";
 import { newCommandId, parseAssignments, postCommand } from "../write.js";
 import { registeredInboxActRooms, registeredInboxRooms } from "../command-modules.js";
+import { FACT_ACTIONS, actOnFactRoom } from "./inbox-facts.js";
 
 /**
  * Acts on the Inbox rooms (the mail add-on owns Emails), with the same writes the portal's own buttons send
@@ -32,7 +33,7 @@ import { registeredInboxActRooms, registeredInboxRooms } from "../command-module
  * when it is missing or in the wrong state, so the portal never has to be the one to say so.
  */
 
-const CORE_ROOMS = ["captured", "kept", "map", "calendar"] as const;
+const CORE_ROOMS = ["captured", "kept", "map", "calendar", "facts"] as const;
 
 /**
  * True while a command module provides the Emails room (the mail add-on). The core has no email commands, so it must not
@@ -42,15 +43,16 @@ function mailRoomInstalled(): boolean {
   return registeredInboxRooms().some((room) => room.id === "emails");
 }
 
-const ACTIONS: Record<"captured" | "kept" | "map", string[]> = {
+const ACTIONS: Record<"captured" | "kept" | "map" | "facts", string[]> = {
   captured: ["confirm", "ignore"],
   kept: ["reopen", "drop"],
-  map: ["link", "links-bulk", "finding"]
+  map: ["link", "links-bulk", "finding"],
+  facts: [...FACT_ACTIONS]
 };
 
 /** The rooms that act, in help order: the core's first two, then a module's, then the plan map. */
 function actingRooms(): string[] {
-  return ["captured", "kept", ...registeredInboxActRooms().map((room) => room.id), "map"];
+  return ["captured", "kept", ...registeredInboxActRooms().map((room) => room.id), "map", "facts"];
 }
 
 const PROPOSAL_TYPES = ["outcome", "project", "action", "fixed_commitment", "deliverable", "someday", "reference"];
@@ -501,7 +503,8 @@ export const inboxActCommand: CommandSpec = {
       "`reopen <id>` sends it back to Needs review, `drop <id>` ignores it. " +
       rooms.map((room) => room.description).join("") +
       "map (Plan map): `link <id> confirm|reject|remove`, `links-bulk --proposer X --kind Y`, `finding <id> " +
-      "accept|dismiss` (--answer field=text). calendar: use `import show|commit|delete` (an import's Apply anyway " +
+      "accept|dismiss` (--answer field=text). facts (open mail items): `confirm|done|ignore|redate|reopen <id>` (--set " +
+      "days=N or when=<ISO>; done, ignore and redate need --basis stated --evidence with the owner's words). calendar: use `import show|commit|delete` (an import's Apply anyway " +
       "/ Don't add clash decisions are edits to the batch: `import update`). " +
       (mailRoomInstalled() ? "emails: use `email-act`. " : "") +
       "Find ids " +
@@ -518,7 +521,8 @@ export const inboxActCommand: CommandSpec = {
       "captured: confirm|ignore",
       "kept: reopen|drop",
       ...registeredInboxActRooms().map((room) => room.actionHelp),
-      "map: link|links-bulk|finding"
+      "map: link|links-bulk|finding",
+      "facts: confirm|done|ignore|redate|reopen"
     ].join("; ");
     return [
       {
@@ -581,6 +585,7 @@ export const inboxActCommand: CommandSpec = {
     if (added) return added.run(context, args, action);
     if (room === "captured") return captured(context, args, action);
     if (room === "kept") return kept(context, args, action);
+    if (room === "facts") return actOnFactRoom(context, args, action);
     return planMap(context, args, action);
   }
 };

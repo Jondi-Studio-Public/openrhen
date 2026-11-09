@@ -157,6 +157,9 @@ ${ARCHIVE_OR_CANCEL_FULL.map((line) => `- ${line}`).join("\n")}
 - \`rhen_inbox\` lists everything open in the Inbox by room (From people, Captured, Calendar & imports,
   Plan map, Someday & reference), each item with the command that acts on it. Start there when asked what is
   waiting, then go room by room with the person.
+- Open mail items are the \`facts\` room: \`rhen_inbox\` with \`room: "facts"\` lists them and the exact calls. Mark one
+  (hold, done, ignore, redate) only while the person is here and has said so; done, ignore and redate need
+  \`basis: "stated"\` with their words in \`evidence\`. \`reopen\` takes back your own mark.
 - Use \`rhen_inbox_act\` for its rooms (captured, kept, people, map), once the person agrees to
   the specific item or a confirm is plainly right (\`rhen_undo\` puts a confirm back; an ignore cannot be undone).
 <stdio>

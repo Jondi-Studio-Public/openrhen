@@ -115,6 +115,45 @@ async function override(
 const ids = async (options: Parameters<typeof readOpenFacts>[1] = {}) =>
   (await readOpenFacts(sql, { now: NOW, ...options })).facts.map((f) => f.factId);
 
+async function rawFact(key: string, factId: string, tsStart: Date, extra: Record<string, unknown>): Promise<void> {
+  const attrs = {
+    source_event_id: "m-tier",
+    fact_id: factId,
+    fact_type: "deadline",
+    direction: "in",
+    conversation_key: "gmail:th-tier",
+    extractor: "fact-llm",
+    extractor_version: "1",
+    ...extra
+  };
+  await sql`INSERT INTO activity_events (user_id, source, kind, event_key, ts_start, attrs, ingested_at)
+    VALUES (${userId}, 'derived', 'fact', ${key}, ${tsStart}, ${sql.json(attrs as never)}, ${NOW})`;
+}
+
+describe("tier ranking and the daily cap (2b-6 readers)", () => {
+  const when = (days: number) => ({ ambiguous: false, candidates: [{ start: ahead(days).toISOString() }] });
+
+  it("a t3 row beats a t2 row of the same sentence whatever their keys, and the cap-held row is not shown", async () => {
+    const id = fid("tier");
+    for (const [t2key, t3key] of [
+      ["a-key", "z-key"],
+      ["z-key", "a-key"]
+    ] as [string, string][]) {
+      await sql`DELETE FROM activity_events WHERE user_id = ${userId} AND kind = 'fact'`;
+      await rawFact(t2key, id, ago(1), { tier: "t2", when: when(3) });
+      await rawFact(t3key, id, ago(1), { tier: "t3", when: when(5) });
+      const read = await readOpenFacts(sql, { now: NOW });
+      expect(read.facts.find((f) => f.factId === id)!.dueAt).toBe(ahead(5).toISOString());
+    }
+  });
+
+  it("does not list a fact whose only row was held back by the cap, and lists low_signal", async () => {
+    await rawFact("capped", fid("capped"), ago(1), { tier: "t3", review_reason: "over_cap", when: when(2) });
+    await rawFact("low", fid("low"), ago(1), { tier: "t2", review_reason: "low_signal", when: when(2) });
+    expect(await ids()).toEqual([fid("low")]);
+  });
+});
+
 describe("readOpenFacts", () => {
   it("lists an unanswered ask, with the conversation's later messages deciding closure", async () => {
     await fact("a", ago(3));

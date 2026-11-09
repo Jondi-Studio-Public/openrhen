@@ -449,6 +449,22 @@ describe("basis and evidence values", () => {
     expect(parseEvidence("a\nb").ok).toBe(false);
     expect(parseEvidence("a\u0000b").ok).toBe(false);
   });
+  it("refuses invisible formatting characters (zero-width and bidi controls) but keeps emoji and accents", () => {
+    for (const bad of ["a\u200bb", "a\u202eb", "a\u2066b", "a\ufeffb"]) expect(parseEvidence(bad).ok, bad).toBe(false);
+    expect(parseEvidence("Café 🙂").ok).toBe(true);
+    for (const bad of ["a\u2060b", "a\u202ab", "a\u2069b", "a\u{e0041}b"])
+      expect(parseEvidence(bad).ok, bad).toBe(false);
+  });
+  it("keeps the joiners and directional marks that Persian, Arabic and Hebrew need", () => {
+    const persian = "می\u200cخواهم"; // ZWNJ between the stem and the prefix
+    expect(parseEvidence(persian)).toEqual({ ok: true, value: persian });
+    for (const ok of ["a\u200db", "שלום\u200f", "abc\u200e", "مرحبا\u200f 123"])
+      expect(parseEvidence(ok).ok, ok).toBe(true);
+    expect(parseEvidenceHeader(encodeEvidenceHeader(persian))).toEqual({ ok: true, value: persian });
+    const refusal = parseEvidence("a\u200bb");
+    expect(refusal.ok).toBe(false);
+    if (!refusal.ok) expect(refusal.reason).toContain("plain text");
+  });
   it("round-trips non-Latin-1 evidence through the header encoding", () => {
     const quote = "Friday’s fine — 金曜日 🙂";
     expect(parseEvidenceHeader(encodeEvidenceHeader(quote))).toEqual({ ok: true, value: quote });

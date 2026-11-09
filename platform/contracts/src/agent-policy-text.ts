@@ -84,8 +84,12 @@ export function agentPolicyLines(owner = "the person"): AgentPolicyLine[] {
     },
     {
       id: "confirm",
-      full: `You may confirm ${confirmNouns} (${confirmTools}) when ${owner} has said so or it is plainly right.`,
-      brief: `You may confirm ${confirmNouns} when ${owner} has said so or it is plainly right.`
+      full:
+        `You may confirm ${confirmNouns} (${confirmTools}) when ${owner} has said so or it is plainly right. ` +
+        `Mail items (rhen_inbox room facts) are different: hold, close, dismiss or move one only on ${own} own words, and take your mark back with reopen.`,
+      brief:
+        `You may confirm ${confirmNouns} when ${owner} has said so or it is plainly right. ` +
+        `Mail items (room facts): hold, close, dismiss or move one only on ${own} own words.`
     },
     {
       id: "confirm-exceptions",
