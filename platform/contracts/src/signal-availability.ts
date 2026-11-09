@@ -161,3 +161,25 @@ export interface EvidenceItem {
   /** Fusion ignores it; the item mapping drops items it should not count. Absent means `self`. */
   subject?: EvidenceSubject;
 }
+
+/** A source entry with no `availability` is a projection (for example `derived`), not a delivery route; it is never judged silent. */
+export function isRoute(entry: { availability?: SourceAvailability }): boolean {
+  return entry.availability !== undefined;
+}
+
+/** Problems with a feed's own fields; empty when the feed is well formed. `refreshed-held` needs `staleAfterMinutes > 0`. */
+export function describeFeedProblems(feed: SignalFeed): string[] {
+  const problems: string[] = [];
+  if (feed.freshness === "refreshed-held") {
+    if (!(
+      typeof feed.staleAfterMinutes === "number" &&
+      Number.isFinite(feed.staleAfterMinutes) &&
+      feed.staleAfterMinutes > 0
+    )) {
+      problems.push(
+        'freshness "refreshed-held" needs staleAfterMinutes, a finite number above 0: set it to how many minutes after a re-post the state still counts.'
+      );
+    }
+  }
+  return problems;
+}
