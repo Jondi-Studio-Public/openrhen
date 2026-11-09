@@ -8,7 +8,7 @@ import { fakeFetch, type RecordedCall } from "./fake-fetch.js";
 import { fixtureNow, fixtureRawState } from "./fixture-state.js";
 
 /** Pinned from the new-data-sources slice 1.1: no new MCP tool without changing this on purpose. */
-const EXPECTED_TOOL_COUNT = 49;
+const EXPECTED_TOOL_COUNT = 51;
 
 interface JsonRpcResponse {
   jsonrpc: string;
