@@ -29,4 +29,10 @@ describe("work label client", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("oops", { status: 500 })));
     await expect(fetchWorkLabels()).rejects.toThrow(/answered 500/);
   });
+
+  it("says the portal could not be reached when the request itself fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    await expect(putWorkLabel("a1", "work", "req-12345678")).rejects.toThrow("Could not reach the portal. Try again.");
+    await expect(fetchWorkLabels()).rejects.toThrow("Could not reach the portal. Try again.");
+  });
 });
