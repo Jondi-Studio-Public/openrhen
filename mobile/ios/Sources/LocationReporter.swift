@@ -3,8 +3,9 @@ import CoreLocation
 import Foundation
 import UIKit
 
-/// Sends place changes to `POST /api/location/ping` (docs/operations/location-ping.md). Significant-change monitoring needs only "Always" permission, and iOS
-/// relaunches the app for it, so this object is created at launch (see OpenRhenApp.init).
+/// Sends place changes to `POST /api/location/ping` (docs/operations/location-ping.md). Significant-change monitoring needs only "Always" permission. Whether iOS
+/// relaunches the app for it is unverified on a phone (no background modes are set), so this object is
+/// created at launch (see OpenRhenApp.init) in case it does.
 /// The portal decides what a reading means; this only reports it. Coordinates are never logged.
 /// A failed POST is dropped, not retried; the next place change sends a fresh reading.
 final class LocationReporter: NSObject, ObservableObject, CLLocationManagerDelegate {
@@ -13,7 +14,6 @@ final class LocationReporter: NSObject, ObservableObject, CLLocationManagerDeleg
     private let settings: AppSettings
     private var subscription: AnyCancellable?
     private var lastSent = Date.distantPast
-    private let minimumInterval: TimeInterval = 30
     /// Redirects are refused, so the bearer token never follows a 3xx to another host.
     private let session = URLSession(configuration: .ephemeral, delegate: RefuseRedirects(), delegateQueue: nil)
 
@@ -43,22 +43,23 @@ final class LocationReporter: NSObject, ObservableObject, CLLocationManagerDeleg
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let fix = locations.last else { return }
         let now = Date()
-        guard now.timeIntervalSince(lastSent) >= minimumInterval else { return }
-        guard let portal = settings.portalURL, let url = HostPolicy.pingURL(portal: portal),
-              let token = Keychain.get(Keychain.tokenKey), !token.isEmpty,
-              let bound = Keychain.get(Keychain.originKey) else {
+        guard Policies.mayReport(now: now, lastSent: lastSent) else { return }
+        let token = Keychain.get(Keychain.tokenKey)
+        // The token goes only to the address it was saved for, so repointing the address cannot redirect it.
+        let url: URL
+        switch Policies.sendDecision(portal: settings.portalURL, token: token, boundOrigin: Keychain.get(Keychain.originKey)) {
+        case .send(let target): url = target
+        case .notConfigured:
             report("Set the portal address and token to report")
             return
-        }
-        guard HostPolicy.mayCarryToken(to: url) else {
+        case .notHTTPS:
             report("The token only travels over https")
             return
-        }
-        // The token goes only to the address it was saved for, so repointing the address cannot redirect it.
-        guard HostPolicy.origin(of: portal) == bound else {
+        case .originMismatch(let bound):
             report("Token was saved for \(HostPolicy.displayName(ofOrigin: bound)); save it again for this address")
             return
         }
+        guard let token else { return }
         lastSent = now
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -88,6 +89,6 @@ final class LocationReporter: NSObject, ObservableObject, CLLocationManagerDeleg
 private final class RefuseRedirects: NSObject, URLSessionTaskDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
-        completionHandler(nil)
+        completionHandler(Policies.redirectTarget(request))
     }
 }

@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 xcodebuild -version
-swiftc Sources/HostPolicy.swift Checks/main.swift -o host-policy-checks
+swiftc Sources/HostPolicy.swift Sources/Policies.swift Checks/main.swift -o host-policy-checks
 ./host-policy-checks
 command -v xcodegen >/dev/null || brew install xcodegen
 xcodegen generate
