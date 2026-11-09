@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import https from "node:https";
 import { PassThrough } from "node:stream";
 import zlib from "node:zlib";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { decodeBody, toUtf8Bytes } from "./decode.js";
 import { FeedFetchError, fetchCalendarFeed, normalizeFeedUrl } from "./fetch.js";
 import { isDeniedAddress } from "./guard.js";
@@ -249,6 +249,25 @@ describe("fetchCalendarFeed", () => {
       })
     ).rejects.toMatchObject({ code: "connect_failed" });
     expect(slow.calls).toHaveLength(1);
+  });
+  it("treats a connect timeout as the spent budget even when the wall clock has not caught up with the timer", async () => {
+    // setTimeout runs off libuv's cached loop clock, Date.now() off the wall clock. On a busy host the timer
+    // can fire while Date.now() still reads before the deadline; freezing Date.now() reproduces that exactly.
+    const frozen = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(frozen);
+    try {
+      const slow = fakeTransport([{ connecting: true }, {}]);
+      await expect(
+        fetchCalendarFeed("https://x.example.com/a", {
+          lookup: pub(["8.8.8.8", 4], ["8.8.4.4", 4]),
+          request: slow.request,
+          connectMs: 30
+        })
+      ).rejects.toMatchObject({ code: "connect_failed" });
+      expect(slow.calls).toHaveLength(1);
+    } finally {
+      clock.mockRestore();
+    }
   });
   it("follows up to 3 redirects, rechecking each hop", async () => {
     const ok = fakeTransport([
