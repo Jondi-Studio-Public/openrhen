@@ -284,7 +284,7 @@ fn config_set_accepts_valid_values_and_keeps_comments_and_layout() {
     assert_eq!(c.idle_threshold_secs, Some(180));
     assert_eq!(c.retention.events.days().unwrap(), Some(400));
     assert!(!c.collectors.power);
-    assert_eq!(c.extra_games, ["a.exe", "B.exe"]);
+    assert_eq!(c.extra_games, ["a.exe", "b.exe"]);
     // every comment of the template survives
     for comment in config::TEMPLATE.lines().filter(|l| l.trim_start().starts_with('#')) {
         assert!(out.contains(comment), "lost: {comment}");

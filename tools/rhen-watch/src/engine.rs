@@ -193,6 +193,11 @@ impl Engine {
         out
     }
 
+    /// (locked, remote) as the engine believes it, for the runner to compare with the OS.
+    pub fn session_flags(&self) -> (bool, bool) {
+        (self.locked.is_some(), self.remote.is_some())
+    }
+
     pub fn paused(&self) -> bool {
         self.paused.is_some()
     }
@@ -256,7 +261,11 @@ impl Engine {
         } else if gap < -2_000 {
             // The wall clock moved backwards. Close at the old time and start again; do not invent time.
             // The tally gets a new run, so the minutes it revisits are added to, not overwritten.
+            // A lock, suspend, remote session or display-off is still going on: close it at the old time and reopen it at the new one,
+            // so its end event still has an interval to close, and the holds stay.
             self.meter.reset(); // clock jump
+            let (was_locked, was_suspended) = (self.locked.is_some(), self.suspended.is_some());
+            let (was_remote, was_display_off) = (self.remote.is_some(), self.display_off.is_some());
             self.close_all(last.min(now), &mut out.ops);
             out.ops.push(Op::Instant {
                 source: SRC_AGENT,
@@ -265,9 +274,20 @@ impl Engine {
                 end: None,
                 attrs: attrs([("delta_ms", json!(gap))]),
             });
-            self.holds.clear();
+            if was_locked {
+                self.locked = Some(self.open(SRC_SESSION, "locked", now, Default::default(), &mut out.ops));
+            }
+            if was_suspended {
+                self.suspended = Some(self.open(SRC_POWER, "suspended", now, Default::default(), &mut out.ops));
+            }
+            if was_remote {
+                self.remote = Some(self.open(SRC_SESSION, "remote", now, Default::default(), &mut out.ops));
+            }
+            if was_display_off {
+                self.display_off = Some(self.open(SRC_POWER, "display_off", now, Default::default(), &mut out.ops));
+            }
             self.floor = now;
-            out.refresh_foreground = true;
+            out.refresh_foreground = self.holds.is_empty();
         }
     }
 
@@ -323,6 +343,8 @@ impl Engine {
         }
         if suppressed || self.suppressed() {
             self.meter.reset(); // entering or leaving a suppressed game
+            // Idle must not backdate into the game span: nothing is known about it.
+            self.floor = self.floor.max(now);
         }
         if let Some(prev) = self.fg.take() {
             out.ops.push(Op::Close { id: prev.id, ts: now });

@@ -20,6 +20,8 @@ pub trait Sys {
     fn current_foreground(&self) -> Option<Fg>;
     /// (process CPU time in ms, working set in bytes) of this agent.
     fn proc_stats(&self) -> (i64, i64);
+    /// (locked, remote) of this session as the OS reports it now; `locked` is `None` if it would not say.
+    fn session_state(&self) -> (Option<bool>, bool);
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +60,8 @@ pub struct Runner<S: Sys> {
     pending: Vec<Op>,
     failures: u32,
     idle_unavailable: bool,
+    /// Signals were dropped: the session and foreground are re-read once the queue is empty.
+    resync_pending: bool,
 }
 
 /// Consecutive failed writes (about one per second) before the agent gives up.
@@ -86,6 +90,7 @@ impl<S: Sys> Runner<S> {
             pending: Vec::new(),
             failures: 0,
             idle_unavailable: false,
+            resync_pending: false,
         }
     }
 
@@ -118,6 +123,40 @@ impl<S: Sys> Runner<S> {
         if self.store.meta("paused").map_err(|e| e.to_string())?.as_deref() == Some("1") {
             return self.feed(Signal::Pause);
         }
+        self.sync_session()?;
+        if let Some(fg) = self.sys.current_foreground() {
+            self.feed(Signal::Foreground(fg))?;
+        }
+        Ok(())
+    }
+
+    /// Make the engine's lock and remote state match what the OS says now: at start the transitions happened
+    /// before the agent existed, and after a dropped signal one may have been lost.
+    fn sync_session(&mut self) -> Result<(), String> {
+        let (locked, remote) = self.sys.session_state();
+        let (was_locked, was_remote) = self.engine.session_flags();
+        if remote != was_remote {
+            self.feed(Signal::Session(if remote {
+                SessionEvt::RemoteConnect
+            } else {
+                SessionEvt::RemoteDisconnect
+            }))?;
+        }
+        if let Some(locked) = locked
+            && locked != was_locked
+        {
+            self.feed(Signal::Session(if locked { SessionEvt::Lock } else { SessionEvt::Unlock }))?;
+        }
+        Ok(())
+    }
+
+    /// After a drop the queue may still hold older, real events. The caller runs this once that queue is
+    /// drained, so the OS state is read after them and not before.
+    pub fn resync_if_pending(&mut self) -> Result<(), String> {
+        if !std::mem::take(&mut self.resync_pending) || self.engine.paused() {
+            return Ok(());
+        }
+        self.sync_session()?;
         if let Some(fg) = self.sys.current_foreground() {
             self.feed(Signal::Foreground(fg))?;
         }
@@ -168,18 +207,19 @@ impl<S: Sys> Runner<S> {
             let n = (dropped - self.dropped_seen) as i64;
             self.dropped_seen = dropped;
             self.metric_dropped += n;
-            self.apply(
-                now,
-                vec![Op::Instant {
-                    source: SRC_AGENT,
-                    kind: "dropped".into(),
-                    ts: now,
-                    end: None,
-                    attrs: attrs([("count", json!(n))]),
-                }],
-            )?;
-            if let Some(fg) = self.sys.current_foreground() {
-                self.feed(Signal::Foreground(fg))?;
+            // Paused means paused: nothing is written and no window is looked up; only the count is kept.
+            if !self.engine.paused() {
+                self.apply(
+                    now,
+                    vec![Op::Instant {
+                        source: SRC_AGENT,
+                        kind: "dropped".into(),
+                        ts: now,
+                        end: None,
+                        attrs: attrs([("count", json!(n))]),
+                    }],
+                )?;
+                self.resync_pending = true;
             }
         }
         // A wall clock stepped back must not silence the probe until it catches up: negative means due.

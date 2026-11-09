@@ -633,6 +633,9 @@ impl Sys for RigSys {
     fn proc_stats(&self) -> (i64, i64) {
         (self.0.get() / 1000, 30_000_000)
     }
+    fn session_state(&self) -> (Option<bool>, bool) {
+        (None, false)
+    }
 }
 
 impl Rig {
