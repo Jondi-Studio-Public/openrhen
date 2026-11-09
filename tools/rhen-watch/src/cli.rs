@@ -413,6 +413,7 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
     win::set_data_dir(&d);
 
     let mut store = store::Store::open(&d.join("activity.db")).map_err(|e| e.to_string())?;
+    store.set_tz(local_tz());
     let device = match store.meta("device").map_err(|e| e.to_string())? {
         Some(v) => v,
         None => {
