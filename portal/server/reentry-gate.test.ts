@@ -123,7 +123,8 @@ describe("the agent gate while the pulse is lapsed", () => {
       ["DELETE", "/api/activity-sources/[source]/events"],
       ["POST", "/api/activity-imports"],
       ["GET", "/api/derived-settings"],
-      ["PUT", "/api/derived-settings"]
+      ["PUT", "/api/derived-settings"],
+      ["POST", "/api/derived-settings/test"]
     ] as const) {
       expect((await call(method, route)).status, `${method} ${route}`).toBe(428);
     }

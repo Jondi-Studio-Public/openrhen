@@ -7,7 +7,7 @@ import { z } from "zod";
  */
 
 /** Every secret the app can hold. A new one is added here and nowhere else decides what may be stored. */
-export const SECRET_NAMES = ["youtube_data_api_key"] as const;
+export const SECRET_NAMES = ["youtube_data_api_key", "deepinfra_api_key"] as const;
 export type SecretName = (typeof SECRET_NAMES)[number];
 
 export const secretNameSchema = z.enum(SECRET_NAMES);
@@ -17,6 +17,10 @@ export const SECRET_LABELS: Record<SecretName, { label: string; help: string }> 
   youtube_data_api_key: {
     label: "YouTube Data API key",
     help: "Lets Review look up how long your watched videos are. Create a key for the YouTube Data API v3 in the Google Cloud console."
+  },
+  deepinfra_api_key: {
+    label: "DeepInfra API key",
+    help: "Lets mail understanding send the few messages the local model cannot read to DeepInfra (the hosted tier), within the daily caps set in Settings > Mail understanding. Mail understanding reads the key from here only and ignores the DEEPINFRA_API_KEY environment variable (search embeddings use that one). A restore from a backup empties it, so enter it again afterwards."
   }
 };
 

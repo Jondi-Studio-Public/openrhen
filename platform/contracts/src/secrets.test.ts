@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  SECRET_LABELS,
   SECRET_NAMES,
   putSecretSchema,
   secretNameSchema,
@@ -9,10 +10,20 @@ import {
 
 describe("secret names", () => {
   it("allows only the names listed in code", () => {
-    expect(SECRET_NAMES).toEqual(["youtube_data_api_key"]);
+    expect(SECRET_NAMES).toEqual(["youtube_data_api_key", "deepinfra_api_key"]);
+    expect(secretNameSchema.safeParse("deepinfra_api_key").success).toBe(true);
     expect(secretNameSchema.safeParse("youtube_data_api_key").success).toBe(true);
     for (const name of ["", "openai_api_key", "YOUTUBE_DATA_API_KEY", "../x", "youtube_data_api_key "])
       expect(secretNameSchema.safeParse(name).success, name).toBe(false);
+  });
+});
+
+describe("deepinfra key label", () => {
+  it("says it is for the hosted tier, that it ignores the DEEPINFRA_API_KEY variable, and that a restore empties it", () => {
+    const { label, help } = SECRET_LABELS.deepinfra_api_key;
+    expect(label).toContain("DeepInfra");
+    expect(help).toContain("restore");
+    expect(help).toContain("ignores the DEEPINFRA_API_KEY environment variable");
   });
 });
 

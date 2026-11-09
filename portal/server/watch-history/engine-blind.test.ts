@@ -64,6 +64,7 @@ const MAY_NAME_BLIND_TABLES = new Set([
   "portal/server/persistence/postgres/eval-report-store.ts",
   "portal/server/persistence/postgres/extractor-state-store.ts",
   "portal/server/persistence/postgres/derived-settings-store.ts",
+  "portal/server/persistence/postgres/derived-model-calls-store.ts",
   "portal/server/persistence/postgres/app-secrets-store.ts",
   "portal/server/secrets/read-secret.ts",
   "platform/database/src/schema/core.ts",

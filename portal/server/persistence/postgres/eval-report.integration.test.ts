@@ -263,7 +263,7 @@ describe("readEvalReport", () => {
     ).toEqual(["fact:fact_type:ask>deadline", "message:class:bulk>person"]);
   });
 
-  it("says when the fact read was cut short by its scan cap", async () => {
+  it("finds a labelled fact by its id with no window; only the by-message fallback read is cut short", async () => {
     await state("1", true);
     for (const id of ["1", "2", "3"])
       await row(
@@ -285,9 +285,10 @@ describe("readEvalReport", () => {
       field: "fact_type",
       new_value: "deadline"
     });
-    const cut = await readEvalReport(sql, { window: 2 });
-    expect(cut.versions[0]!.problems).toEqual([
-      expect.stringContaining("Only the newest 2 rows of derived were looked at")
+    const narrow = await readEvalReport(sql, { window: 2 });
+    expect(narrow.versions[0]!.report.wrongAutoActions.count).toBe(1);
+    expect(narrow.versions[0]!.problems).toEqual([
+      expect.stringContaining("Only the newest 2 fact rows of derived were looked at")
     ]);
     const whole = await readEvalReport(sql);
     expect(whole.versions[0]!.problems).toEqual([]);
@@ -720,15 +721,15 @@ describe("readEvalReport: facts", () => {
     expect([...reached]).toEqual(["newest"]);
   });
 
-  it("counts the fact window in rows of any kind: newer msg_class rows push older facts out of it", async () => {
+  it("counts the fact window in fact rows: newer msg_class rows do not push older facts out of it", async () => {
     await stateWith("1", true, wideCursor());
     await messageAt("old", 10);
     await typesLabel("old", ["ask"]);
     await factFor("f-old", "old", factId(1), "ask");
     for (let i = 0; i < 150; i++) await row("derived", "msg_class", `c${i}`, at(100 + i), klass("other", "bulk"), VIA);
     const cut = await readEvalReport(sql, { window: 100 });
-    expect(cut.versions[0]!.report.facts).toMatchObject({ scored: 0, notReached: 1 });
-    expect(cut.versions[0]!.problems.join(" ")).toContain("Only the newest 100 rows of derived were looked at");
+    expect(cut.versions[0]!.report.facts).toMatchObject({ scored: 1, notReached: 0 });
+    expect(cut.versions[0]!.problems).toEqual([]);
     const whole = await readEvalReport(sql);
     expect(whole.versions[0]!.report.facts).toMatchObject({ scored: 1 });
   });

@@ -217,7 +217,11 @@ function refusal(status: number, shown: string, model: string, chat: boolean): C
       "bad_key",
       `The server at ${shown} asked for a login (${status}). Ollama itself needs none, so this is another program or a gateway in front of it; point baseUrl at Ollama directly.`
     );
-  return failureForStatus(status, `Ollama at ${shown}`);
+  return failureForStatus(
+    status,
+    `Ollama at ${shown}`,
+    "This is usually the model running out of memory or failing to load; try a smaller model."
+  );
 }
 
 export { answer };

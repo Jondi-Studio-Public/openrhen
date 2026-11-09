@@ -1,5 +1,7 @@
 import { parseDerivedSettingsPatch } from "@/server/derived/derived-settings";
 import { withRoute } from "@/server/logging";
+import { hostedUsageLast24Hours } from "@/server/persistence/postgres/derived-model-calls-store";
+import { ensureUser } from "@/server/persistence/postgres/ensure-user";
 import { readDerivedSettings, saveDerivedSettings } from "@/server/persistence/postgres/derived-settings-store";
 import { sqlPool } from "@/server/persistence/postgres/sql-pool";
 import { databaseUrl } from "@/server/runtime-env";
@@ -14,14 +16,16 @@ const KEY_NOTE =
 /**
  * Mail-understanding settings: the local model's address (`ollamaUrl`), the models the next extractor version is pinned
  * to (`t2Model`, `t3Model`), the hosted tier's daily caps and how many days back the model tier backfills. The owner's
- * own read and write: the URL is a network address and the settings decide where mail text is sent, so no agent token
+ * own read and write (the read also carries the hosted sends and tokens of the last 24 hours, for the caps): the URL is a network address and the settings decide where mail text is sent, so no agent token
  * reaches either (`OWNER_READS`, `OWNER_ROUTES`).
  */
 export const GET = withRoute("/api/derived-settings", async () => {
   const connectionString = databaseUrl();
   if (!connectionString) return Response.json({ error: "Mail understanding requires PostgreSQL." }, { status: 503 });
+  const sql = sqlPool(connectionString);
+  const userId = await ensureUser(sql);
   return Response.json(
-    { settings: await readDerivedSettings(sqlPool(connectionString)), note: KEY_NOTE },
+    { settings: await readDerivedSettings(sql), usage: await hostedUsageLast24Hours(sql, userId), note: KEY_NOTE },
     { headers: { "cache-control": "no-store" } }
   );
 });
