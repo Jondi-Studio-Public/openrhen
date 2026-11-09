@@ -29,6 +29,12 @@ export interface DoctorRecordingSlice {
     /** Server receipt time of the latest phone ping; null when it never pinged. */
     lastPingAt: string | null;
   };
+  /** Agent wakes (`agent_wakes`) that went `dead` in the last 24 h: not delivered, or expired unsent. */
+  deadAgentWakes: {
+    count: number;
+    /** The newest row's `last_error` (an HTTP status plus a fixed reason, never gateway output), or null. */
+    lastError: string | null;
+  };
 }
 
 function ms(value: string | null): number | undefined {
@@ -44,7 +50,7 @@ function age(from: number, now: number): string {
 
 export function recordingItems(slice: DoctorRecordingSlice, nowMs: number): DoctorItem[] {
   const items: DoctorItem[] = [];
-  const { backup, phonePing } = slice;
+  const { backup, phonePing, deadAgentWakes } = slice;
   if (backup === null) {
     items.push({
       id: "backup_never",
@@ -130,6 +136,20 @@ export function recordingItems(slice: DoctorRecordingSlice, nowMs: number): Doct
       handles: [],
       since: new Date(ping).toISOString(),
       fix: { who: "person", question: "Check the Shortcuts location automation on the phone is still running." }
+    });
+  if (deadAgentWakes.count > 0)
+    items.push({
+      id: "agent_wake_dead",
+      check: "agent_wake_dead",
+      tier: "degrading",
+      area: "integrations",
+      title: `${deadAgentWakes.count} agent ${deadAgentWakes.count === 1 ? "wake was" : "wakes were"} not delivered in the last 24 h`,
+      why: "The agent was not nudged about an unanswered check-in or a lapsed status, so it may not have acted on it.",
+      handles: [],
+      fix: {
+        who: "person",
+        question: `Check OPENCLAW_HOOKS_URL and OPENCLAW_HOOKS_TOKEN and that the gateway is reachable from the engine worker${deadAgentWakes.lastError ? ` (latest: ${deadAgentWakes.lastError})` : ""}. Then call priorities_doctor again; the line clears 24 h after the last failed wake.`
+      }
     });
   return items;
 }

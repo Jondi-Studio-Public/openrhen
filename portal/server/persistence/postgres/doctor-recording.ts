@@ -5,11 +5,11 @@ import type { PoolSql, Sql } from "./sql-pool";
 
 /**
  * The recorded-elsewhere family of the data health check: the nightly backup (a `backup` row in
- * `integration_sync_runs`, written by scripts/backup/scheduled.mjs) and the phone's last location ping. Status and
+ * `integration_sync_runs`, written by scripts/backup/scheduled.mjs), the phone's last location ping and the agent wakes that went dead in the last 24 h. Status and
  * times only: never a path, host or coordinate.
  */
 export async function readRecordingSlice(sql: Sql, userId: string): Promise<DoctorRecordingSlice> {
-  const [rows, lastPing] = await Promise.all([
+  const [rows, lastPing, wakes] = await Promise.all([
     sql<{ status: string; last_run_at: Date; last_success_at: Date | null; summary: unknown }[]>`
       SELECT r.status, r.started_at AS last_run_at, r.summary,
         (SELECT max(COALESCE(s.finished_at, s.started_at)) FROM integration_sync_runs s
@@ -17,7 +17,13 @@ export async function readRecordingSlice(sql: Sql, userId: string): Promise<Doct
       FROM integration_sync_runs r
       WHERE r.user_id = ${userId} AND r.provider = 'backup'
       ORDER BY r.started_at DESC LIMIT 1`,
-    readLastPhonePingAt(sql as PoolSql, userId)
+    readLastPhonePingAt(sql as PoolSql, userId),
+    sql<{ count: number; last_error: string | null }[]>`
+      SELECT count(*)::int AS count,
+        (SELECT w.last_error FROM agent_wakes w WHERE w.user_id = ${userId} AND w.status = 'dead'
+          AND w.created_at > now() - interval '24 hours' ORDER BY w.created_at DESC LIMIT 1) AS last_error
+      FROM agent_wakes
+      WHERE user_id = ${userId} AND status = 'dead' AND created_at > now() - interval '24 hours'`
   ]);
   const row = rows[0];
   return {
@@ -30,7 +36,8 @@ export async function readRecordingSlice(sql: Sql, userId: string): Promise<Doct
           ...(summaryFlag(row.summary, "restoreSkipped") ? { restoreSkipped: true } : {})
         }
       : null,
-    phonePing: { configured: locationPingToken() !== undefined, lastPingAt: lastPing ? lastPing.toISOString() : null }
+    phonePing: { configured: locationPingToken() !== undefined, lastPingAt: lastPing ? lastPing.toISOString() : null },
+    deadAgentWakes: { count: wakes[0]?.count ?? 0, lastError: wakes[0]?.last_error ?? null }
   };
 }
 
