@@ -92,6 +92,44 @@ private struct WebContainer: UIViewRepresentable {
             return nil
         }
 
+        // The page's alert(), confirm() and prompt(). Without these WebKit answers them itself without
+        // showing anything: confirm() is false and prompt() is null, so every "Are you sure?" in the
+        // portal quietly cancelled the action it guarded.
+        func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
+                     initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
+            let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in completionHandler() })
+            present(alert, from: webView) { completionHandler() }
+        }
+
+        func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
+                     initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+            let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in completionHandler(false) })
+            alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in completionHandler(true) })
+            present(alert, from: webView) { completionHandler(false) }
+        }
+
+        func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String,
+                     defaultText: String?, initiatedByFrame frame: WKFrameInfo,
+                     completionHandler: @escaping (String?) -> Void) {
+            let alert = UIAlertController(title: nil, message: prompt, preferredStyle: .alert)
+            alert.addTextField { $0.text = defaultText }
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in completionHandler(nil) })
+            alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak alert] _ in
+                completionHandler(alert?.textFields?.first?.text)
+            })
+            present(alert, from: webView) { completionHandler(nil) }
+        }
+
+        /// Shows the dialog over whatever is on top; when nothing can present it, answers as a dismissal so
+        /// the page is never left waiting on a handler that will not be called.
+        private func present(_ alert: UIAlertController, from webView: WKWebView, otherwise dismiss: () -> Void) {
+            guard var top = webView.window?.rootViewController else { return dismiss() }
+            while let next = top.presentedViewController { top = next }
+            top.present(alert, animated: true)
+        }
+
         func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) { model.errorMessage = nil }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
