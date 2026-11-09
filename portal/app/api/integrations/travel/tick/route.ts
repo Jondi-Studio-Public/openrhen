@@ -2,6 +2,7 @@ import type { PlanForecastResponse } from "@openrhen/contracts";
 import { readJourneySummary } from "@openrhen/database";
 import { redact, withRoute } from "@/server/logging";
 import { ensureUser } from "@/server/persistence/postgres/ensure-user";
+import { recordRun } from "@/server/persistence/postgres/run-log";
 import { getStateStore } from "@/server/persistence/state-store";
 import { sqlPool } from "@/server/persistence/postgres/sql-pool";
 import { databaseUrl } from "@/server/runtime-env";
@@ -37,6 +38,7 @@ export const POST = withRoute("/api/integrations/travel/tick", async (request, _
 
   const now = new Date();
   const timeZone = state.settings.timezone;
+  const startedAt = now;
 
   try {
     const [journeySummary, planningRunRows, budget] = await Promise.all([
@@ -113,12 +115,29 @@ export const POST = withRoute("/api/integrations/travel/tick", async (request, _
       }
     }
 
+    // A tick that spent nothing (no plan, or the budget said no) is the normal five-minute case and leaves no row.
+    const spent = outcomes.reduce((total, outcome) => total + outcome.spent, 0);
+    if (spent > 0)
+      await recordRun({
+        provider: "job:travel-lookup",
+        trigger,
+        status: "synced",
+        startedAt,
+        finishedAt: new Date(),
+        summary: { groups: groups.length, spent, remaining: outcomes[outcomes.length - 1]!.remaining }
+      });
     return Response.json({ status: "ok", trigger, groups: groups.length, outcomes });
   } catch (error) {
     log.setError(error);
-    return Response.json(
-      { error: error instanceof Error ? redact(error.message) : "The travel lookup tick failed.", trigger },
-      { status: 502 }
-    );
+    const message = error instanceof Error ? redact(error.message) : "The travel lookup tick failed.";
+    await recordRun({
+      provider: "job:travel-lookup",
+      trigger,
+      status: "failed",
+      startedAt,
+      finishedAt: new Date(),
+      summary: { error: message.slice(0, 500) }
+    });
+    return Response.json({ error: message, trigger }, { status: 502 });
   }
 });

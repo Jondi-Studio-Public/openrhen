@@ -3,6 +3,7 @@ import { redact, withRoute } from "@/server/logging";
 import { runPlanHealth } from "@/server/persistence/postgres/plan-health-store";
 import { sweepPlanMap } from "@/server/persistence/postgres/plan-map-store";
 import { runPlanMapProposers } from "@/server/persistence/postgres/plan-map-proposers";
+import { recordRun } from "@/server/persistence/postgres/run-log";
 import { queueCatchUpNudge } from "@/server/persistence/postgres/catch-up";
 import { planMapContext } from "@/server/plan-map/route-support";
 
@@ -18,6 +19,7 @@ export const POST = withRoute("/api/plan-map/sweep", async (request, _context, l
   const trigger = body?.trigger === "scheduled" ? "scheduled" : "manual";
   const context = await planMapContext();
   if (context instanceof Response) return context;
+  const startedAt = new Date();
   try {
     const counts = await sweepPlanMap(context.sql, context.userId);
     // The proposers are advisory: a failure there must not fail the sweep that already finished.
@@ -46,12 +48,29 @@ export const POST = withRoute("/api/plan-map/sweep", async (request, _context, l
       log.setError(error);
       return { mode: "error", error: error instanceof Error ? redact(error.message) : "The health checks failed." };
     });
+    // A daily sweep that found nothing to do leaves no row; one that deleted, expired or proposed something does.
+    const proposed = "error" in proposers ? 0 : proposers.suggested + proposers.revived;
+    if (counts.orphanedLinksDeleted + counts.suggestionsExpired + counts.shadowRowsDeleted + proposed > 0)
+      await recordRun({
+        provider: "job:plan-map-sweep",
+        trigger,
+        status: "synced",
+        startedAt,
+        finishedAt: new Date(),
+        summary: { ...counts, suggested: "error" in proposers ? 0 : proposers.suggested }
+      });
     return Response.json({ status: "ok", trigger, ...counts, proposers, reviewer, catchUp, health });
   } catch (error) {
     log.setError(error);
-    return Response.json(
-      { error: error instanceof Error ? redact(error.message) : "The plan map sweep failed.", trigger },
-      { status: 502 }
-    );
+    const message = error instanceof Error ? redact(error.message) : "The plan map sweep failed.";
+    await recordRun({
+      provider: "job:plan-map-sweep",
+      trigger,
+      status: "failed",
+      startedAt,
+      finishedAt: new Date(),
+      summary: { error: message.slice(0, 500) }
+    });
+    return Response.json({ error: message, trigger }, { status: 502 });
   }
 });
