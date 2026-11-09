@@ -43,7 +43,8 @@ describe("mcp --read-only: the tool table", () => {
     for (const spec of commands) {
       if (spec.name === "mcp") continue;
       const toolName = `rhen_${spec.name.replace(/-/g, "_")}`;
-      if (spec.mutates) expect(names.has(toolName)).toBe(false);
+      // An owner-only command is never a tool, whether or not it writes.
+      if (spec.mutates || spec.ownerOnly) expect(names.has(toolName)).toBe(false);
       else expect(names.has(toolName)).toBe(true);
     }
   });

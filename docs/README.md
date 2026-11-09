@@ -17,6 +17,7 @@ Start with the guide that matches what you want to do. Open only what you need.
 | Store and read back what a PC, phone or export recorded | [Activity store](architecture/activity-store.md) |
 | Load a Google Takeout, Spotify, Discord or Apple Health export | [Importing your data](operations/importing-your-data.md) |
 | See where every piece of data comes from and goes, or add a source to that record | [Data-flow registry](architecture/data-flow-registry.md) |
+| Count the moments the plan and what happened came apart | [Drift detector](architecture/drift.md) |
 | Run it safely beyond one machine | [Locking down the API](operations/locking-down.md) |
 | Back up, restore, upgrade | [Database and backups](operations/database-and-backups.md) |
 | Get leave-by reminders on a phone | [Web push](operations/web-push.md), [Location ping](operations/location-ping.md) |
