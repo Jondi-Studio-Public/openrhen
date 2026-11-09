@@ -58,6 +58,8 @@ pub struct Runner<S: Sys> {
     pending: Vec<Op>,
     failures: u32,
     idle_unavailable: bool,
+    /// `file`, `default` or `degraded`: where the run's category map came from.
+    categories: &'static str,
 }
 
 /// Consecutive failed writes (about one per second) before the agent gives up.
@@ -86,7 +88,13 @@ impl<S: Sys> Runner<S> {
             pending: Vec::new(),
             failures: 0,
             idle_unavailable: false,
+            categories: "default",
         }
+    }
+
+    /// Say where the category map came from, for the start row.
+    pub fn set_categories(&mut self, source: &'static str) {
+        self.categories = source;
     }
 
     #[cfg(test)]
@@ -104,15 +112,37 @@ impl<S: Sys> Runner<S> {
         // Tally generations only grow: the highest one stored is the base the engine moves past at start.
         let run_seq = self.store.meta("run_seq").map_err(|e| e.to_string())?;
         self.engine.set_run_base(run_seq.and_then(|v| v.parse().ok()).unwrap_or(0));
+        let c = &self.cfg.collectors;
+        let retention = &self.cfg.retention;
+        let start_attrs = attrs([
+            ("idle_threshold_secs", json!(self.cfg.idle_threshold_secs.unwrap_or(120))),
+            (
+                "collectors",
+                json!({"foreground": c.foreground, "idle": c.idle, "session": c.session, "power": c.power}),
+            ),
+            (
+                "retention",
+                json!({"events": retention.events, "metrics": retention.metrics, "input_buckets": retention.input_buckets}),
+            ),
+            ("extra_games", json!(self.cfg.extra_games)),
+            ("categories", json!(self.categories)),
+        ]);
+        // The marker only means something until the next run starts.
         self.apply(
             now,
-            vec![Op::Instant {
-                source: SRC_AGENT,
-                kind: "start".into(),
-                ts: now,
-                end: None,
-                attrs: Default::default(),
-            }],
+            vec![
+                Op::Meta {
+                    key: "clean_stop".into(),
+                    value: String::new(),
+                },
+                Op::Instant {
+                    source: SRC_AGENT,
+                    kind: "start".into(),
+                    ts: now,
+                    end: None,
+                    attrs: start_attrs,
+                },
+            ],
         )?;
         self.feed(Signal::Tick)?;
         if self.store.meta("paused").map_err(|e| e.to_string())?.as_deref() == Some("1") {
@@ -219,6 +249,16 @@ impl<S: Sys> Runner<S> {
 
     /// Clean shutdown: close every interval and note the stop.
     pub fn stop(&mut self) -> Result<(), String> {
+        self.finish_run(true)
+    }
+
+    /// Close everything after a caught panic. The stop is noted but not marked clean, so the next start
+    /// records the downtime as `unknown`.
+    pub fn stop_after_panic(&mut self) -> Result<(), String> {
+        self.finish_run(false)
+    }
+
+    fn finish_run(&mut self, clean: bool) -> Result<(), String> {
         let now = self.sys.now_ms();
         let mut ops = self.engine.finish(now);
         ops.push(Op::Instant {
@@ -228,6 +268,13 @@ impl<S: Sys> Runner<S> {
             end: None,
             attrs: Default::default(),
         });
+        // Same write as the heartbeat `now`: recovery tells a clean stop from a crash by the two matching.
+        if clean {
+            ops.push(Op::Meta {
+                key: "clean_stop".into(),
+                value: now.to_string(),
+            });
+        }
         self.apply(now, ops)?;
         // The last write matters most: retry it, and say so if it still cannot be made.
         for _ in 0..5 {

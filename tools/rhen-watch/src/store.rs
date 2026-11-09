@@ -329,7 +329,8 @@ impl Store {
     }
 
     /// At start: close whatever a crash or sleep left open at the last heartbeat, and record the time the
-    /// agent was not running as `unknown`. Returns the gap, if one was recorded.
+    /// agent was not running. After a clean stop (the marker equals the last heartbeat) that time is `off`
+    /// and nothing is returned; otherwise it is `unknown` and the gap is returned.
     pub fn recover(&mut self, device: &str, now: Ms) -> rusqlite::Result<Option<(Ms, Ms)>> {
         let Some(last) = self.last_heartbeat()? else {
             return Ok(None);
@@ -337,17 +338,23 @@ impl Store {
         let ids: Vec<String> = self.open.keys().cloned().collect();
         let mut ops: Vec<Op> = ids.into_iter().map(|id| Op::Close { id, ts: last }).collect();
         let gap = now - last > 10_000;
+        let clean = self.meta("clean_stop")?.and_then(|v| v.parse::<Ms>().ok()) == Some(last);
         if gap {
+            let (kind, reason) = if clean {
+                ("off", "agent stopped")
+            } else {
+                ("unknown", "agent not running")
+            };
             ops.push(Op::Instant {
                 source: crate::model::SRC_AGENT,
-                kind: "unknown".into(),
+                kind: kind.into(),
                 ts: last,
                 end: Some(now),
-                attrs: crate::model::attrs([("reason", Value::from("agent not running"))]),
+                attrs: crate::model::attrs([("reason", Value::from(reason))]),
             });
         }
         self.apply(device, &ops, now)?;
-        Ok(gap.then_some((last, now)))
+        Ok((gap && !clean).then_some((last, now)))
     }
 
     pub fn put_metric(&self, m: &MetricRow) -> rusqlite::Result<()> {
