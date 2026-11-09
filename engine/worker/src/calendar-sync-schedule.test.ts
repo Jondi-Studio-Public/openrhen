@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { intervalCalendarSourceIds, type CalendarSyncResult } from "@openrhen/contracts";
-import { EXAMPLE_DAILY_SOURCE, EXAMPLE_INTERVAL_SOURCE } from "./calendar-sync-test-sources.js";
+import {
+  defaultCalendarSyncProviderIds,
+  intervalCalendarSourceIds,
+  type CalendarSyncResult
+} from "@openrhen/contracts";
+import { EXAMPLE_DAILY_SOURCE, EXAMPLE_DEFAULT_SOURCE, EXAMPLE_INTERVAL_SOURCE } from "./calendar-sync-test-sources.js";
 import {
   afterCalendarSyncAttempt,
   afterCalendarSyncNetworkError,
@@ -55,9 +59,12 @@ describe("CALENDAR_SYNC_PROVIDERS", () => {
 });
 
 describe("parseCalendarSyncProviders", () => {
-  it("defaults to Google only", () => {
-    expect(parseCalendarSyncProviders(undefined)).toEqual(["google_calendar"]);
-    expect(parseCalendarSyncProviders("  ")).toEqual(["google_calendar"]);
+  it("defaults to the sources whose manifest sets syncByDefault, and to none when no manifest does", () => {
+    const expected = defaultCalendarSyncProviderIds();
+    expect(expected).toContain(EXAMPLE_DEFAULT_SOURCE);
+    expect(expected).not.toContain(EXAMPLE_INTERVAL_SOURCE);
+    expect(parseCalendarSyncProviders(undefined)).toEqual(expected);
+    expect(parseCalendarSyncProviders("  ")).toEqual(expected);
   });
   it("reads a comma-separated list, ignoring unknown names and repeats", () => {
     expect(

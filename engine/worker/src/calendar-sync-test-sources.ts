@@ -5,6 +5,7 @@ import { registerConnectionManifest } from "@openrhen/contracts";
 // reads the registry when it loads.
 export const EXAMPLE_INTERVAL_SOURCE = "example_shared";
 export const EXAMPLE_DAILY_SOURCE = "example_daily";
+export const EXAMPLE_DEFAULT_SOURCE = "example_default";
 
 registerConnectionManifest({
   id: EXAMPLE_INTERVAL_SOURCE,
@@ -35,5 +36,22 @@ registerConnectionManifest({
     diffProfile: "roster",
     authFailure: { anyFailure: false, reasons: [] },
     schedule: { kind: "daily", localTimeEnv: "EXAMPLE_DAILY_LOCAL_TIME", defaultLocalTime: "05:30" }
+  }
+});
+
+registerConnectionManifest({
+  id: EXAMPLE_DEFAULT_SOURCE,
+  label: "Example Default",
+  capabilities: ["calendar_source"],
+  ops: { calendar_source: ["proof", "read_events"] },
+  secrets: { anyOf: [["EXAMPLE_DEFAULT_TOKEN"]] },
+  config: {},
+  calendarSource: {
+    role: "secondary",
+    sourceType: "example_default_event",
+    diffProfile: "shared_calendar",
+    syncByDefault: true,
+    authFailure: { anyFailure: false, reasons: [] },
+    schedule: { kind: "interval", minutesEnv: "CALENDAR_SYNC_INTERVAL_MINUTES", defaultMinutes: 60 }
   }
 });

@@ -24,6 +24,7 @@ import { engineConnectionView } from "@/features/planning/engine-connection";
 import { GoogleCalendarCard } from "@/features/calendar-sync/components/google-calendar-card";
 import {
   CONNECTION_IDS,
+  PROVIDER_ROWS,
   connectionsAnswer,
   deriveConnectionSummaries,
   type ConnectionState
@@ -306,25 +307,9 @@ export default function ConnectionsPage() {
         </GoogleCalendarCard>
       );
       break;
-    case "openai":
-      details = (
-        <ProviderDetail
-          data={data}
-          provider="openai"
-          about="The deliverable AI assistant, reached through the outbound proxy."
-        />
-      );
-      break;
-    case "google-maps":
-      details = (
-        <ProviderDetail
-          data={data}
-          provider="google"
-          about="Place search and travel times, reached through the outbound proxy."
-        />
-      );
-      break;
   }
+  const providerRow = PROVIDER_ROWS.find((row) => row.id === shownId);
+  if (providerRow) details = <ProviderDetail data={data} provider={providerRow.provider} about={providerRow.about} />;
 
   const extension = connectionExtensions().find((candidate) => candidate.id === shownId);
   if (extension && shownId) {

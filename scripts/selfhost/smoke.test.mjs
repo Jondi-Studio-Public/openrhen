@@ -44,7 +44,7 @@ test("scrubEnv keeps only the allowed names", () => {
       DATABASE_URL: "postgres://live",
       POSTGRES_ADMIN_URL: "postgres://admin",
       COMPOSE_PROFILES: "planning",
-      OPENAI_API_KEY: "sk-x",
+      EXAMPLE_API_KEY: "sk-x",
       UNSET: undefined
     },
     "linux"

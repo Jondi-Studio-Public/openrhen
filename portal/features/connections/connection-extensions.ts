@@ -21,6 +21,8 @@ export interface ConnectionExtension {
   provider?: string;
   /** The core connection whose row this one follows. */
   after: string;
+  /** A core row this extension supplies instead (its id, e.g. `google-calendar`): the core row and details are left out. Give the extension that same `id` so a link to `/connections#<id>` still opens it. */
+  replaces?: string;
   /** The page's live read (called as a hook, once per render, in registration order). */
   useRead: () => unknown;
   summary: (read: unknown, when: (iso: string) => string, now: Date) => ConnectionSummary;
@@ -37,6 +39,11 @@ export function registerConnectionExtension(extension: ConnectionExtension): voi
 
 export function connectionExtensions(): readonly ConnectionExtension[] {
   return extensions;
+}
+
+/** The core row ids an extension supplies itself, so the core row is not also drawn. */
+export function replacedRowIds(): ReadonlySet<string> {
+  return new Set(extensions.flatMap((extension) => (extension.replaces ? [extension.replaces] : [])));
 }
 
 /** Runs every registered read; the list is fixed once the module graph has loaded. */

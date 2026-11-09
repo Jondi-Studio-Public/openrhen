@@ -64,7 +64,7 @@ const { runCalendarSync, googleCalendarAdapter } = await import("./calendar-sync
 const { calendarDiffRecords, profileFor } = await import("@/server/persistence/postgres/imports/calendar-diff");
 const { googleCalendarSourceText } = await import("@/server/persistence/postgres/imports/calendar-profiles/calendar");
 const { toCalendarEvent } =
-  await import("@/server/persistence/postgres/imports/calendar-profiles/google-event-fixtures");
+  await import("@/server/persistence/postgres/imports/calendar-profiles/calendar-event-fixtures");
 
 const CAL = "jon@example.com";
 const connected = { status: "connected", checkedAt: new Date().toISOString(), calendarCount: 1 };

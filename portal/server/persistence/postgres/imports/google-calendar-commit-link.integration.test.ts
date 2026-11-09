@@ -11,7 +11,7 @@ import { NormalizedPostgresStateStore } from "../state-store";
 import { createSeedState } from "@/state/portal-state";
 import { PostgresImportStore } from "../import-store";
 import { ensureUser } from "../ensure-user";
-import { toCalendarEvent } from "./calendar-profiles/google-event-fixtures";
+import { toCalendarEvent } from "./calendar-profiles/calendar-event-fixtures";
 import { listGoogleCalendarSelections, saveGoogleCalendarSelections } from "../calendar-source-selections";
 
 /**
