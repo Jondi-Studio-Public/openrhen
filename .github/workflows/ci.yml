@@ -512,6 +512,13 @@ jobs:
           persist-credentials: false
       # Host policy checks, XcodeGen, an unsigned Xcode build and the package checks, in one script you can also run on a Mac.
       - run: mobile/ios/ci-build.sh
+      # Throwaway signing spike (slice 0.5 of the native app). Remove with mobile/ios-spike once its result is recorded.
+      - run: mobile/ios-spike/ci-build.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: OpenRhen-Spike-unsigned-ipa
+          path: mobile/ios-spike/OpenRhen-Spike-unsigned.ipa
+          retention-days: 14
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: OpenRhen-unsigned-ipa
