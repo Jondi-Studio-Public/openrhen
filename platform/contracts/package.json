@@ -9,6 +9,8 @@
     "./integrations/*": "./src/integrations/*.ts",
     "./data-flow": "./src/data-flow/data-flow.ts",
     "./drift": "./src/drift/drift-episodes.ts",
+    "./drift/rules": "./src/drift/drift-rules.ts",
+    "./drift/eval": "./src/drift/drift-eval.ts",
     "./zoned-time": "./src/zoned-time.ts",
     "./consequence-fit": "./src/planning/consequence-fit.ts",
     "./consequence-question": "./src/planning/consequence-question.ts",
