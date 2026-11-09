@@ -1,3 +1,4 @@
+import { MODEL_PROVIDERS } from "@openrhen/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { createPolicyState, type PolicyDeps } from "./call-policy";
 import { SYNTHETIC_TEST_TEXT, runConnectionTest } from "./connection-test";
@@ -7,6 +8,7 @@ const deps = (reply: unknown): { policy: PolicyDeps; sent: string[] } => {
   return {
     sent,
     policy: {
+      hosted: MODEL_PROVIDERS.hosted,
       transport: {
         complete: vi.fn(async (_tier, request) => {
           sent.push(request.messages.map((m: { content: string }) => m.content).join("\n"));

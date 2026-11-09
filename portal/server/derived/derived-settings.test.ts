@@ -173,7 +173,7 @@ describe("the body", () => {
   });
 
   it("points a hosted key at the passwords and keys page instead of accepting it", () => {
-    expect(problems({ deepinfraApiKey: "k" })).toContain("Passwords and keys");
+    expect(problems({ hostedModelApiKey: "k" })).toContain("Passwords and keys");
     expect(problems({ apiKey: "k" })).toContain("Passwords and keys");
   });
 });

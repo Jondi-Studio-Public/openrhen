@@ -1,3 +1,4 @@
+import { MODEL_PROVIDERS } from "@openrhen/contracts";
 import { createModelTransport } from "@/integrations/models/model-proxy-client";
 import { processPolicyState, type PolicyDeps } from "@/server/derived/call-policy";
 import { runConnectionTest } from "@/server/derived/connection-test";
@@ -28,7 +29,8 @@ export const POST = withRoute("/api/derived-settings/test", async (request: Requ
   const userId = await ensureUser(sql);
   const settings = await readDerivedSettings(sql);
   const policy: PolicyDeps = {
-    transport: createModelTransport({ sql, userId, ollamaUrl: settings.ollamaUrl }),
+    hosted: MODEL_PROVIDERS.hosted,
+    transport: createModelTransport({ sql, userId, localAddress: settings.ollamaUrl }),
     settings,
     usage: () => hostedUsageLast24Hours(sql, userId),
     recordCall: (row) => recordModelCall(sql, userId, row),

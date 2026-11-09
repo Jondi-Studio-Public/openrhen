@@ -373,8 +373,9 @@ async function readInTransaction(sql: Sql, userId: string, options: EvalReportOp
   //  - By fact id: exact, no window, served by (the `= ANY(ARRAY(...))` form, checked with EXPLAIN on 1.2M seeded rows and a
   //    generic plan; `IN (SELECT ...)` made Postgres hash-join over the whole derived partial index instead) `(user_id, (attrs ->> 'fact_id')) WHERE kind = 'fact'`.
   //  - By message key (`attrs.source_event_id`, which has no index): the newest `window` FACT rows of the source, counted
-  //    in fact rows (`kind = 'fact'` inside the LIMIT, served by the `(user_id, source, kind)` partial index), then
-  //    filtered to the messages. This is the only read that can be cut short.
+  //    in fact rows (`kind = 'fact'` inside the LIMIT; the planner walks the person's newest derived rows of the source
+  //    and filters on kind, so this is fast while facts are dense among them), then filtered to the messages. This is the
+  //    only read that can be cut short.
   const factsBySource = new Map<string, { attrs: Record<string, unknown>; at: Date }[]>();
   const factCut = new Map<string, Date | null>();
   const readFacts = async (source: string, ids: string[], messages: string[]) => {

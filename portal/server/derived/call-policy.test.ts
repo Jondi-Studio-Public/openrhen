@@ -1,3 +1,4 @@
+import type { ModelProviderDescriptor } from "@openrhen/contracts";
 import { describe, expect, it, vi } from "vitest";
 import {
   callModel,
@@ -8,6 +9,17 @@ import {
   type PolicyDeps,
   type PolicyRequest
 } from "./call-policy";
+
+/** A made-up provider: the policy must work from this descriptor alone, with no knowledge of any real vendor. */
+const FAKE_HOSTED: ModelProviderDescriptor = {
+  tier: "hosted",
+  connectionId: "fake-host",
+  label: "AcmeAI",
+  secretName: "hosted_model_api_key",
+  body: { keyField: "token" },
+  refusedOrgs: { widgetco: "WidgetCo" },
+  refusalMessage: (model, org) => `ACME REFUSES ${model} (${org})`
+};
 
 const ok = (text = '{"a":1}', tokensIn: number | null = 100, tokensOut: number | null = 20): ModelOutcome => ({
   outcome: "ok",
@@ -24,6 +36,7 @@ function setup(overrides: Partial<PolicyDeps> = {}, sends: ModelOutcome[] = [ok(
   const recorded: Parameters<PolicyDeps["recordCall"]>[0][] = [];
   const sleeps: number[] = [];
   const deps: PolicyDeps = {
+    hosted: FAKE_HOSTED,
     transport: {
       complete: vi.fn(async (tier, request) => {
         calls.push({ tier, ...request });
@@ -214,14 +227,30 @@ describe("hosted tier", () => {
     expect((result as { message: string }).message).toContain("Settings > Mail understanding");
   });
 
-  it("refuses a Google or Anthropic model, whose own training policy applies on DeepInfra", async () => {
-    for (const model of ["google/gemma-3-27b-it", "anthropic/claude-4-opus", "Google/x"]) {
+  it("refuses the makers the injected descriptor lists, with its sentence, and no others", async () => {
+    for (const model of ["widgetco/big-1", "WidgetCo/x"]) {
       const { deps, calls } = setup();
-      expect(await callModel(deps, { ...t3, model })).toMatchObject({ kind: "refused", reason: "model_retention" });
+      expect(await callModel(deps, { ...t3, model })).toMatchObject({
+        kind: "refused",
+        reason: "model_retention",
+        message: `ACME REFUSES ${model} (WidgetCo)`
+      });
       expect(calls).toEqual([]);
     }
-    expect(hostedModelRefusal("Qwen/Qwen3-14B")).toBeNull();
-    expect(hostedModelRefusal("zai-org/GLM-5.2")).toBeNull();
+    // Makers that are refused for a different provider are fine here: the list is the descriptor's, not the policy's.
+    for (const model of ["google/gemma-3-27b-it", "anthropic/claude-4-opus", "Qwen/Qwen3-14B"]) {
+      const { deps, calls } = setup();
+      expect(await callModel(deps, { ...t3, model })).toMatchObject({ kind: "ok" });
+      expect(calls).toHaveLength(1);
+    }
+    expect(hostedModelRefusal(FAKE_HOSTED, "zai-org/GLM-5.2")).toBeNull();
+  });
+
+  it("words a refusal from the provider's label when the descriptor gives no sentence", () => {
+    const { refusalMessage: _sentence, ...plain } = FAKE_HOSTED;
+    expect(hostedModelRefusal(plain, "widgetco/x")).toContain("AcmeAI says that company's own");
+    const { refusedOrgs: _orgs, ...none } = FAKE_HOSTED;
+    expect(hostedModelRefusal(none, "widgetco/x")).toBeNull();
   });
 
   it("does not send when the audit row cannot be written for a previous send", async () => {

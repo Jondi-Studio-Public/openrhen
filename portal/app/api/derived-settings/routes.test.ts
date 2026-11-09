@@ -92,7 +92,7 @@ describe("PUT /api/derived-settings", () => {
   });
 
   it("does not accept the hosted key, and says where it goes", async () => {
-    const response = await put({ deepinfraApiKey: "abc" });
+    const response = await put({ hostedModelApiKey: "abc" });
     expect(response.status).toBe(400);
     expect(((await response.json()) as { error: string }).error).toContain("Passwords and keys");
     expect(store.saveDerivedSettings).not.toHaveBeenCalled();

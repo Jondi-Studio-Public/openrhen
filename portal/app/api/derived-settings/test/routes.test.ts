@@ -51,7 +51,7 @@ describe("POST /api/derived-settings/test", () => {
     expect(run.mock.calls[0]![1]).toBe("t2");
     expect(run.mock.calls[0]![2]).toBe("qwen3:8b");
     expect(transport).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: "u1", ollamaUrl: "http://192.168.1.20:11434" })
+      expect.objectContaining({ userId: "u1", localAddress: "http://192.168.1.20:11434" })
     );
     expect(((await response.json()) as { result: { ok: boolean } }).result.ok).toBe(true);
   });

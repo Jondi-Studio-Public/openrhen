@@ -1,14 +1,16 @@
+import { MODEL_PROVIDERS, type ModelProviderDescriptor } from "@openrhen/contracts";
 import { callCapability, ConnectionHostNotConfiguredError } from "@/integrations/connection-host-client";
 import type { ModelOutcome, ModelRequest, ModelTransport, Tier } from "@/server/derived/call-policy";
 import type { Sql } from "@/server/persistence/postgres/sql-pool";
 import { readSecret } from "@/server/secrets/read-secret";
 
 /**
- * The one place the saved DeepInfra key is read and used: the proxy-call helper for `model_provider.complete`. The
+ * The one place the saved hosted-provider key is read and used: the proxy-call helper for `model_provider.complete`. The
  * key goes in the body of one call to the outbound proxy (which puts it in an Authorization header) and is never
  * returned, logged or kept; this is the only file besides the YouTube client allowed to import `readSecret`
  * (`scripts/repository/secret-reader-rule.mjs`). The local tier needs no key: the saved address goes in the body and
- * the proxy checks it before connecting.
+ * the proxy checks it before connecting. Which connection answers each tier, which secret the hosted one needs and
+ * which body fields it takes come from the provider descriptors (`providers`), so this file names no provider.
  */
 
 const OUTCOMES = ["unreachable", "timeout", "bad_output", "rate_limited", "bad_key"] as const;
@@ -19,9 +21,12 @@ const SETTINGS_HINT = "Settings > Mail understanding";
 export interface ModelTransportDeps {
   sql: Sql;
   userId: string;
-  ollamaUrl: string | null;
+  /** The saved address of the local model (the settings field `ollamaUrl`). */
+  localAddress: string | null;
   env?: Record<string, string | undefined>;
   fetcher?: typeof fetch;
+  /** The connection descriptor for each tier; the portal's own defaults when omitted. */
+  providers?: { local: ModelProviderDescriptor; hosted: ModelProviderDescriptor };
 }
 
 const failure = (outcome: (typeof OUTCOMES)[number], message: string): ModelOutcome => ({ outcome, message });
@@ -48,7 +53,8 @@ function interpret(status: number, body: unknown): ModelOutcome {
 
 export function createModelTransport(deps: ModelTransportDeps): ModelTransport {
   const { sql, userId, env, fetcher } = deps;
-  const call = async (connectionId: "ollama" | "deepinfra", body: Record<string, unknown>, timeoutMs: number) => {
+  const providers = deps.providers ?? MODEL_PROVIDERS;
+  const call = async (connectionId: string, body: Record<string, unknown>, timeoutMs: number) => {
     try {
       const result = await callCapability({
         connectionId,
@@ -73,19 +79,24 @@ export function createModelTransport(deps: ModelTransportDeps): ModelTransport {
   return {
     async complete(tier: Tier, request: ModelRequest): Promise<ModelOutcome> {
       if (tier === "t2") {
-        if (!deps.ollamaUrl)
+        const local = providers.local;
+        if (!deps.localAddress)
           return failure("unreachable", `No address is saved for the local model. Enter it in ${SETTINGS_HINT}.`);
-        return call("ollama", { ...request, baseUrl: deps.ollamaUrl, withDigest: false }, LOCAL_WAIT_MS);
+        const address = local.body.addressField ? { [local.body.addressField]: deps.localAddress } : {};
+        return call(local.connectionId, { ...request, ...address, ...local.body.fixed }, LOCAL_WAIT_MS);
       }
-      const key = await readSecret(sql, userId, "deepinfra_api_key", env);
+      const hosted = providers.hosted;
+      if (!hosted.secretName) return call(hosted.connectionId, { ...request, ...hosted.body.fixed }, HOSTED_WAIT_MS);
+      const key = await readSecret(sql, userId, hosted.secretName, env);
       if (key.kind !== "ok")
         return failure(
           "bad_key",
           key.kind === "unset"
-            ? "No DeepInfra key is saved. Enter it under Settings > Passwords and keys."
-            : "The saved DeepInfra key can no longer be opened. Enter it again under Settings > Passwords and keys."
+            ? `No ${hosted.label} key is saved. Enter it under Settings > Passwords and keys.`
+            : `The saved ${hosted.label} key can no longer be opened. Enter it again under Settings > Passwords and keys.`
         );
-      return call("deepinfra", { ...request, apiKey: key.value }, HOSTED_WAIT_MS);
+      const secret = hosted.body.keyField ? { [hosted.body.keyField]: key.value } : {};
+      return call(hosted.connectionId, { ...request, ...secret, ...hosted.body.fixed }, HOSTED_WAIT_MS);
     }
   };
 }

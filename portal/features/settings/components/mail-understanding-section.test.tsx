@@ -24,7 +24,7 @@ const secrets = (isSet: boolean) => ({
   canWrite: true,
   secrets: [
     {
-      name: "deepinfra_api_key",
+      name: "hosted_model_api_key",
       isSet,
       updatedAt: isSet ? "2026-11-06T00:00:00.000Z" : null,
       state: isSet ? "set" : "unset"

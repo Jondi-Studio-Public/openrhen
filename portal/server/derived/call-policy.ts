@@ -1,15 +1,18 @@
+import type { ModelProviderDescriptor } from "@openrhen/contracts";
+
 /**
  * The one place a model is called for mail understanding (communication understanding, slice 2b-3b). Every extractor
  * that needs a language model goes through `callModel`, so the rules below cannot be skipped by one caller:
  *
- * - Local tier (`t2`, the owner's Ollama): one call at a time; the model is warmed with a tiny call first (a model
+ * - Local tier (`t2`, the owner's own machine): one call at a time; the model is warmed with a tiny call first (a model
  *   still loading can take minutes, and the real call should not pay for that); a timeout is retried twice after a
  *   growing wait; bad output (or output the caller's `validate` refuses) gets one repair retry.
- * - Hosted tier (`t3`, DeepInfra): the hosted-eligibility rule is asked at this call, immediately before sending,
+ * - Hosted tier (`t3`, the hosted provider): the hosted-eligibility rule is asked at this call, immediately before sending,
  *   through an injected checker (the rule itself lives with the communication readers); the daily message and token
  *   caps are checked before every attempt; every attempt that leaves the machine writes one audit row
- *   (the event key, model and token counts, never content). Google and Anthropic models are refused, because
- *   DeepInfra's data-privacy page says their own training policy applies to them (`zdr-deepinfra.md`).
+ *   (the event key, model and token counts, never content). Models the hosted provider's descriptor lists
+ *   as refused (makers whose own retention or training policy applies there) are never sent mail. The provider's name,
+ *   its refused makers and its wording come from the injected descriptor (`PolicyDeps.hosted`), not from this file.
  *
  * Nothing here logs message text. A transport failure carries the proxy's own sentence, which never quotes the prompt.
  */
@@ -80,6 +83,8 @@ export const processPolicyState = createPolicyState();
 
 export interface PolicyDeps {
   transport: ModelTransport;
+  /** The hosted provider's descriptor: the retention rule and wording are its, not this file's. */
+  hosted: ModelProviderDescriptor;
   settings: { t3DailyMessageCap: number; t3DailyTokenCap: number };
   /** Hosted sends and tokens in the last 24 hours. */
   usage: () => Promise<{ messages: number; tokens: number }>;
@@ -115,15 +120,15 @@ export const DEFAULT_TEMPERATURE = 0;
 export const estimateTokens = (messages: readonly ChatMessage[]): number =>
   Math.ceil(messages.reduce((sum, message) => sum + message.content.length, 0) / 4);
 
-/** Orgs whose own retention and training policy applies on DeepInfra (https://docs.deepinfra.com/account/data-privacy). */
-const RETENTION_EXCLUDED_ORGS = new Set(["google", "anthropic"]);
-
-/** A sentence when the hosted model may not carry mail, else null. */
-export function hostedModelRefusal(model: string): string | null {
+/** A sentence when the hosted provider's descriptor says its model may not carry mail, else null. */
+export function hostedModelRefusal(provider: ModelProviderDescriptor, model: string): string | null {
   const org = model.split("/")[0]?.toLowerCase() ?? "";
-  return RETENTION_EXCLUDED_ORGS.has(org)
-    ? `"${model}" is a ${org === "google" ? "Google" : "Anthropic"} model, and DeepInfra says that company's own storage and training policy applies to it, so mail is not sent to it. Pick another model in Settings > Mail understanding (one whose DeepInfra page says Zero retention).`
-    : null;
+  const shown = provider.refusedOrgs?.[org];
+  if (shown === undefined) return null;
+  return (
+    provider.refusalMessage?.(model, shown) ??
+    `"${model}" is a ${shown} model, and ${provider.label} says that company's own storage and training policy applies to it, so mail is not sent to it. Pick another model in Settings > Mail understanding.`
+  );
 }
 
 const WARM_UP: ChatMessage[] = [{ role: "user", content: "Reply with the single word OK." }];
@@ -236,7 +241,7 @@ async function runLocal(deps: PolicyDeps, request: PolicyRequest, base: ModelReq
 }
 
 async function runHosted(deps: PolicyDeps, request: PolicyRequest, base: ModelRequest): Promise<PolicyResult> {
-  const retention = hostedModelRefusal(request.model);
+  const retention = hostedModelRefusal(deps.hosted, request.model);
   if (retention) return { kind: "refused", reason: "model_retention", message: retention };
   const eligibility = await deps.isHostedEligible({ sourceEventKey: request.sourceEventKey, model: request.model });
   if (!eligibility.eligible)

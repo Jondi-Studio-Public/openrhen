@@ -2,14 +2,13 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import type { SecretStatusResponse } from "@openrhen/contracts";
+import { MODEL_PROVIDERS, type SecretStatusResponse } from "@openrhen/contracts";
 import { Field } from "@/components/field";
 import { Button } from "@/components/ui/button";
-import { ollamaStartHelp } from "@/features/settings/mail-understanding-help";
 
 /**
- * Settings, Mail understanding: where the model tier of mail understanding runs. The local model (Ollama, an IP
- * address on this network or tailnet) reads the mail; the hosted model (DeepInfra) is for the few messages the local
+ * Settings, Mail understanding: where the model tier of mail understanding runs. The local model (an IP
+ * address on this network or tailnet) reads the mail; the hosted model is for the few messages the local
  * one cannot, within daily caps. Plain settings fields only: the hosted key is a saved key on Passwords and keys, and
  * the Test buttons send fixed made-up text, never mail.
  */
@@ -32,7 +31,7 @@ type TestResult =
   | { ok: false; tier: "t2" | "t3"; outcome: string; message: string; ms: number };
 type Load = { status: "loading" } | { status: "failed" } | { status: "ready"; data: Loaded };
 
-const DEEPINFRA_PRIVACY = "https://docs.deepinfra.com/account/data-privacy";
+const { local: LOCAL, hosted: HOSTED } = MODEL_PROVIDERS;
 
 async function readAll(): Promise<Load> {
   try {
@@ -45,7 +44,7 @@ async function readAll(): Promise<Load> {
     let keyState: Loaded["keyState"] = "unknown";
     if (secrets?.ok) {
       const status = (await secrets.json()) as SecretStatusResponse;
-      keyState = status.secrets.find((secret) => secret.name === "deepinfra_api_key")?.state ?? "unset";
+      keyState = status.secrets.find((secret) => secret.name === HOSTED.secretName)?.state ?? "unset";
     }
     return {
       status: "ready",
@@ -60,10 +59,10 @@ const spoken = (ms: number) => (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(
 const grouped = (n: number) => n.toLocaleString("en-US");
 
 function keyLine(state: Loaded["keyState"]) {
-  if (state === "set") return "DeepInfra key: saved.";
-  if (state === "unreadable") return "DeepInfra key: saved but can no longer be opened; enter it again.";
-  if (state === "unset") return "DeepInfra key: not saved.";
-  return "DeepInfra key: status could not be read.";
+  if (state === "set") return `${HOSTED.label} key: saved.`;
+  if (state === "unreadable") return `${HOSTED.label} key: saved but can no longer be opened; enter it again.`;
+  if (state === "unset") return `${HOSTED.label} key: not saved.`;
+  return `${HOSTED.label} key: status could not be read.`;
 }
 
 export function MailUnderstandingSection() {
@@ -179,27 +178,28 @@ export function MailUnderstandingSection() {
     }
   }
 
-  const help = result && !result.ok && result.tier === "t2" ? ollamaStartHelp(settings.ollamaUrl) : null;
+  const help = result && !result.ok && result.tier === "t2" ? (LOCAL.startHelp?.(settings.ollamaUrl) ?? null) : null;
   return (
     <section className="more-group" id="mail-understanding">
       <div className="section-heading">
         <h2>Mail understanding</h2>
       </div>
       <p className="reason">
-        A model reads your mail to find who asked what by when. Your own computer&rsquo;s model (Ollama) reads it first;
-        the hosted model (DeepInfra) is only for messages the local one cannot read, within the daily limits below.
+        A model reads your mail to find who asked what by when. Your own computer&rsquo;s model ({LOCAL.label}) reads it
+        first; the hosted model ({HOSTED.label}) is only for messages the local one cannot read, within the daily limits
+        below.
       </p>
       <div className="editor-grid settings-grid">
-        <Field label="Ollama address" wide>
+        <Field label={`${LOCAL.label} address`} wide>
           <input
-            id="mu-ollama-url"
-            aria-label="Ollama address"
+            id="mu-local-address"
+            aria-label={`${LOCAL.label} address`}
             value={value("ollamaUrl")}
             placeholder="http://192.168.1.20:11434"
             spellCheck={false}
             onChange={edit("ollamaUrl")}
           />
-          <small>The IP address and port of the computer that runs Ollama, on this network or your tailnet.</small>
+          <small>{LOCAL.addressHint}</small>
         </Field>
         <Field label="Local model">
           <input
@@ -279,12 +279,9 @@ export function MailUnderstandingSection() {
         sensitive is eligible, and each send is counted above. If that is not acceptable, set the daily messages to 0.
       </p>
       <p className="microcopy">
-        DeepInfra&rsquo;s published policy is that it does not log request content or keep it after answering, and does
-        not train on it. That is how every request is handled; there is no setting to turn on, in this app or in your
-        DeepInfra account. The exception is Google or Anthropic models, where that company&rsquo;s own policy applies,
-        so this app refuses to send mail to them. See{" "}
-        <a href={DEEPINFRA_PRIVACY} target="_blank" rel="noreferrer">
-          DeepInfra data privacy
+        {HOSTED.privacyNote} See{" "}
+        <a href={HOSTED.privacyUrl} target="_blank" rel="noreferrer">
+          {HOSTED.label} data privacy
         </a>
         ; model pages marked &ldquo;Zero retention&rdquo; are the safest choice.
       </p>
@@ -318,10 +315,7 @@ export function MailUnderstandingSection() {
       ) : null}
       {help ? (
         <div className="settings-preview">
-          <p>
-            If Ollama is running but cannot be reached from here, it is probably listening only on its own computer. In
-            PowerShell on the Ollama computer run:
-          </p>
+          <p>{help.intro}</p>
           <pre>
             <code>{help.lines.join("\n")}</code>
           </pre>
