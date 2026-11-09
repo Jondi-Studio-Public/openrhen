@@ -57,6 +57,7 @@
       "scripts/repository/pending/env-readers/**",
       "scripts/repository/pending/module-state/**",
       "scripts/repository/pending/side-effect-imports/**",
+      "scripts/repository/pending/seam-inventory/**",
       "scripts/test/fixtures/vendor-terms/**"
     ]
   }

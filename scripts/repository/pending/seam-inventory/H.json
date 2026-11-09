@@ -1,0 +1,82 @@
+{
+  "lane": "H",
+  "registries": {
+    "total": 28,
+    "files": {
+      "portal/server/agent-activity.ts": [
+        "noteAgentCall"
+      ],
+      "portal/server/agent-proposals/appliers.ts": [
+        "registerProposalApplier"
+      ],
+      "portal/server/agent-tokens.ts": [
+        "vouchForRequest"
+      ],
+      "portal/server/attention/counts.ts": [
+        "readAttentionCounts"
+      ],
+      "portal/server/attention/facts-guard.ts": [
+        "guardedFactsRead"
+      ],
+      "portal/server/device/device-state-cache.ts": [
+        "setCachedDeviceState"
+      ],
+      "portal/server/imports/provider-hooks.ts": [
+        "registerCalendarSyncAdapter",
+        "registerProviderConnectionHandlers",
+        "registerPublishRequester"
+      ],
+      "portal/server/mcp-endpoint.ts": [
+        "handleMcpRequest"
+      ],
+      "portal/server/mcp-route-table.ts": [
+        "registerMcpRoutes"
+      ],
+      "portal/server/owner-auth.ts": [
+        "noteOwnerOutcome",
+        "ownerGate",
+        "verifyOwnerCredential",
+        "vouchOwnerRequest"
+      ],
+      "portal/server/persistence/postgres/delete-guard.ts": [
+        "refuseDeletingReferencedRows"
+      ],
+      "portal/server/persistence/postgres/entity-extensions.ts": [
+        "registerEntityExtension"
+      ],
+      "portal/server/persistence/postgres/fact-act-store.ts": [
+        "actOnFact"
+      ],
+      "portal/server/persistence/postgres/fact-listing-store.ts": [
+        "readFactListing"
+      ],
+      "portal/server/persistence/postgres/imports/calendar-diff-registry.ts": [
+        "registerDiffProfile"
+      ],
+      "portal/server/persistence/postgres/imports/import-extensions.ts": [
+        "registerImportExtension"
+      ],
+      "portal/server/persistence/postgres/imports/store-methods.ts": [
+        "registerStoreMethods"
+      ],
+      "portal/server/persistence/postgres/plan-health-extensions.ts": [
+        "registerPlanHealthEmailSource"
+      ],
+      "portal/server/persistence/postgres/run-log.ts": [
+        "recordRunThrottled"
+      ],
+      "portal/server/persistence/postgres/sql-pool.ts": [
+        "sqlPool"
+      ],
+      "portal/server/persistence/postgres/sync-status-extensions.ts": [
+        "registerSyncStatusExtension"
+      ],
+      "portal/server/persistence/postgres/write-snapshot.ts": [
+        "registerSnapshotTable"
+      ],
+      "portal/server/push/push-transports.ts": [
+        "registerPushTransport"
+      ]
+    }
+  }
+}

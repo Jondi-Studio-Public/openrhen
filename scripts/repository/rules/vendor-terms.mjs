@@ -44,7 +44,7 @@ export const gitOk = (root, args) => {
 };
 export const readJson = (root, file) => JSON.parse(readFileSync(resolve(root, file), "utf8"));
 const sha256 = (text) => createHash("sha256").update(text.replace(/\r\n/g, "\n")).digest("hex");
-const isTest = (path) => /\.test\.|\/test\//.test(path);
+export const isTest = (path) => /\.test\.|\/test\//.test(path);
 
 function expandBraces(glob) {
   const match = /\{([^{}]*)\}/.exec(glob);

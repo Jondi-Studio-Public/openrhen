@@ -1,0 +1,28 @@
+{
+  "lane": "I",
+  "registries": {
+    "total": 10,
+    "files": {
+      "integrations/communication-readers/src/hosted-eligibility.ts": [
+        "hostedEligibility"
+      ],
+      "integrations/communication-readers/src/resolve-when.ts": [
+        "instantsAt",
+        "resolveWhen",
+        "rfc3339"
+      ],
+      "tools/cli/src/command-modules.ts": [
+        "recordCommandModule",
+        "withoutCommandModules"
+      ],
+      "tools/cli/src/registry.ts": [
+        "registerCommandModule"
+      ],
+      "tools/cli/src/write.ts": [
+        "derivedEntityId",
+        "postCommand",
+        "stampCommandId"
+      ]
+    }
+  }
+}

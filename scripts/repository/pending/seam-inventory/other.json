@@ -1,0 +1,11 @@
+{
+  "lane": "other",
+  "registries": {
+    "total": 1,
+    "files": {
+      "portal/shared/locale.ts": [
+        "dateTimeFormat"
+      ]
+    }
+  }
+}
