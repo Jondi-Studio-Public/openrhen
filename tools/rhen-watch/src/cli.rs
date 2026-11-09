@@ -461,6 +461,10 @@ fn cmd_run(_args: &[String]) -> Result<(), String> {
 
 #[cfg(windows)]
 const ELEVATED_AGENT: &str = "an agent is running as administrator; use tray Quit or an elevated prompt";
+#[cfg(windows)]
+const ELEVATED_INSTALL_WARNING: &str = "rhen-watch: warning: this prompt is running as administrator, so the agent will too. \
+A normal prompt will not be able to stop or uninstall it: use tray Quit or an administrator prompt, \
+or uninstall and install again from a normal PowerShell.";
 
 #[cfg(windows)]
 fn cmd_stop() -> Result<(), String> {
@@ -660,9 +664,11 @@ fn stop_and_wait() -> Result<(), String> {
 fn cmd_install() -> Result<(), String> {
     use std::os::windows::process::CommandExt;
 
-    // An elevated install would start an agent that a normal prompt can neither stop nor uninstall.
+    // An elevated install starts an agent that a normal prompt can neither stop nor uninstall.
+    // Say so before anything changes; `stop` names the same cause when it meets one. It is a
+    // warning, not a refusal, because some setups (CI runners among them) have no normal prompt.
     if platform::windows::is_elevated() {
-        return Err("run install from a normal (not administrator) PowerShell".into());
+        eprintln!("{ELEVATED_INSTALL_WARNING}");
     }
     // Prove the new binary would start before anything is copied or the Run key is touched.
     check_settings_for_install(&dir()?)?;
