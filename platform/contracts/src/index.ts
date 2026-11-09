@@ -1334,6 +1334,52 @@ export type {
   SlotBy,
   SourceAvailability
 } from "./signal-availability.js";
+export {
+  CLOCK_SKEW_MINUTES,
+  KNOWN_SCOPE_DAYS,
+  SIGNAL_FRESHNESS,
+  SUPPORT_CAP,
+  canonicalValueKey,
+  classifySource,
+  evidenceConfidence,
+  evidenceFreshness,
+  fuseContinuous,
+  fuseDeviceAttention,
+  fuseLedger,
+  fuseState,
+  routeEntries,
+  scaleConsumerWeight,
+  silentAfterMinutes,
+  slotKeyOf
+} from "./signal-fusion.js";
+export type {
+  AvailabilityBookView,
+  CoverageClaim,
+  CoverageRetraction,
+  FreshnessInput,
+  FusedContinuous,
+  FusedLedger,
+  FusedSlot,
+  FusedState,
+  FusedSupport,
+  FuseLedgerInput,
+  FusionItem,
+  LedgerRowRef,
+  LedgerScope,
+  SourceClassification,
+  SourceState,
+  TimeInput
+} from "./signal-fusion.js";
+export {
+  distanceMetres,
+  distanceToCellEdgeMetres,
+  geohashBounds,
+  geohashEncode,
+  isDaylight,
+  resolveAnchor,
+  solarElevationDeg
+} from "./signal-anchors.js";
+export type { GeohashBounds, KnownPlace, PositionFix, ResolvedAnchor } from "./signal-anchors.js";
 export { UNTRUSTED_SOURCE_LABELS, fenceUntrusted, newFenceNonce } from "./untrusted-fence.js";
 export type { UntrustedOutputKind } from "./untrusted-fence.js";
 export { contractsExtensions, extensionContractSnapshotTools, registerContractsExtension } from "./extensions.js";
