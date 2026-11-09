@@ -1,13 +1,10 @@
-import { Table, getTableName, is } from "drizzle-orm";
-import * as schema from "@openrhen/database/schema";
 import { buildDataFlowView, dataFlowRegistry, type DataFlowView } from "@openrhen/contracts/data-flow";
 import { log } from "@/server/logging";
 import type { Sql } from "@/server/persistence/postgres/sql-pool";
 import { readHealth, type HealthResult } from "./health-reader";
+import { SCHEMA_TABLES } from "./schema-tables";
 
 /** The body of `GET /api/data-flow`: the static graph plus what each node is doing now. Read-only. */
-
-const TABLES = Object.values(schema).flatMap((value) => (is(value, Table) ? [getTableName(value)] : []));
 
 export type DataFlowHealth =
   | (HealthResult & { unavailable?: undefined; counts: Record<string, number> })
@@ -24,7 +21,7 @@ const COUNTED = ["late", "stale", "failing", "never", "probe_unresolved"] as con
 
 export async function readDataFlow(sql: Sql, now: Date = new Date()): Promise<DataFlowResponse> {
   const registry = dataFlowRegistry();
-  const view = buildDataFlowView(TABLES, registry);
+  const view = buildDataFlowView(SCHEMA_TABLES, registry);
   let health: DataFlowHealth;
   const startedAt = Date.now();
   try {

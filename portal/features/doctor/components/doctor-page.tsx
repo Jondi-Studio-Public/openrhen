@@ -5,6 +5,7 @@ import type { DoctorArea, DoctorItem, DoctorReport } from "@openrhen/contracts";
 import { usePortal } from "@/state/portal-provider";
 import { useNow } from "@/shared/clock";
 import { fetchDoctor } from "../doctor-client";
+import { SourcesCountsLine } from "./sources-counts-line";
 import { areaLabel, areasPresent, groupByTier, handleLink, sinceText, summaryLine } from "../doctor-model";
 
 function Row({ item, now, plan }: { item: DoctorItem; now: Date; plan: Parameters<typeof handleLink>[1] }) {
@@ -20,6 +21,7 @@ function Row({ item, now, plan }: { item: DoctorItem; now: Date; plan: Parameter
       ) : (
         <div className="doctor-agent">
           <p>An agent can fix this</p>
+          {item.fix.next && <p className="doctor-question">{item.fix.next}</p>}
           {item.fix.cli && <code>{item.fix.cli}</code>}
         </div>
       )}
@@ -84,6 +86,7 @@ export function DoctorPage() {
       <p className="doctor-summary" role="status">
         {summaryLine(report)}
       </p>
+      <SourcesCountsLine report={report} className="doctor-sources" />
       {report.notChecked.length > 0 && (
         <ul className="doctor-not-checked">
           {report.notChecked.map((entry) => (

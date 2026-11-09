@@ -109,6 +109,28 @@ describe("rhen sources", () => {
     expect(text).toContain("Set tokenName for entry alpha");
   });
 
+  it("names a kind that went quiet while its source is still arriving, in --problems and in the entry's detail", async () => {
+    const withKinds = {
+      ...body,
+      health: {
+        ...body.health,
+        nodes: {
+          ...body.health.nodes,
+          alpha: node("alpha", {
+            lateKinds: [{ kind: "focus-mode", lastAt: "2026-10-15T10:00:00.000Z", warnHours: 2 }],
+            credentialPresent: true
+          })
+        }
+      }
+    };
+    const get = vi.fn().mockResolvedValue(withKinds);
+    const problems = (await run({ problems: true }, [], get)).text;
+    expect(problems).toMatch(/alpha[\s\S]*focus-mode/);
+    const detail = (await run({}, ["alpha"], get)).text;
+    expect(detail).toContain("late kinds: focus-mode (last 2026-10-15T10:00:00.000Z, usual rhythm 2 h)");
+    expect(detail).toContain("token exists: yes");
+  });
+
   it("--unused lists the sources nothing uses, the ones nothing sends, tables and dead tables", async () => {
     const { text } = await run({ unused: true });
     expect(text).toMatch(/collected, unused[\s\S]*beta/);

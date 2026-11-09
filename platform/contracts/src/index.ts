@@ -1547,6 +1547,15 @@ export type {
 } from "./planning/doctor-duplicates.js";
 export { recordingItems, DOCTOR_BACKUP_STALE_HOURS, DOCTOR_PING_SILENT_HOURS } from "./planning/doctor-recording.js";
 export type { DoctorRecordingSlice } from "./planning/doctor-recording.js";
+export { sourceCountsLine, sourceItems, DOCTOR_LEARNED_BLOCKING_DAYS } from "./planning/doctor-sources.js";
+export type {
+  DoctorDeviceInput,
+  DoctorSourceCounts,
+  DoctorSourceFreshness,
+  DoctorSourceInput,
+  DoctorSourceIssue,
+  DoctorSourcesSlice
+} from "./planning/doctor-sources.js";
 export { closedStampItems } from "./planning/doctor-closed.js";
 export type { DoctorClosedSlice } from "./planning/doctor-closed.js";
 export { prerequisiteItems } from "./planning/doctor-prerequisites.js";

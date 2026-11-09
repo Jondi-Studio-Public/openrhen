@@ -15,16 +15,17 @@ function summaryLine(report: DoctorReport): string {
 function fixText(item: DoctorItem): string {
   const { fix } = item;
   if (fix.who === "person") return `ask: ${fix.question ?? "the person"}${fix.cli ? ` (${fix.cli})` : ""}`;
-  return fix.cli ?? fix.tool ?? "";
+  const call = fix.cli ?? fix.tool ?? "";
+  return fix.next ? `${call}${call ? ": " : ""}${fix.next}` : call;
 }
 
 export const doctorCommand: CommandSpec = {
   name: "doctor",
   summary: "Check the quality of the plan data and rank what to fix",
   description:
-    "Checks the DATA (not the connection; `openclaw mcp doctor` does that) and ranks what to fix so the engine works at its best: " +
-    "stale wake, session or place, failing syncs, calendar events held or missing a place or travel mode, actions with no or an assumed " +
-    "estimate, empty or idle projects, lapsed routines, overdue reviews, and counts of catch-up entries and findings. Tiers: blocking, " +
+    "Checks the DATA (not the connection; `openclaw mcp doctor` does that) and ranks what to fix so the engine works best: " +
+    "stale wake, session, place, failing or silent sources and devices, calendar events held or missing a place or travel mode, actions with no or " +
+    "assumed estimates, empty, idle projects, lapsed routines, overdue reviews, and catch-up and finding counts. Tiers: blocking, " +
     "degrading, tidy. Each item's `fix`: who `agent` means do it now with the named command; who `person` means ask the question first. " +
     "Never pause or drop a project unasked. Never writes. --area and --tier filter; --limit (default 10, 0 for all). Needs the live portal.",
   positionals: [],

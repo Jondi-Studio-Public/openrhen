@@ -8,10 +8,12 @@ import {
   type FreshnessState,
   type HealthIssue,
   type HealthProbe,
+  type LateKind,
   type NodeHealth
 } from "@openrhen/contracts/data-flow";
 import { readExtensionSyncStatuses } from "@/server/persistence/postgres/sync-status-extensions";
-import type { Sql } from "@/server/persistence/postgres/sql-pool";
+import { log } from "@/server/logging";
+import type { PoolSql, Sql } from "@/server/persistence/postgres/sql-pool";
 
 /**
  * Reads one live signal per registry entry (design 4.2): the newest good run, row, poll or use, and the newest
@@ -21,6 +23,9 @@ import type { Sql } from "@/server/persistence/postgres/sql-pool";
  */
 
 const CACHE_MS = 60_000;
+/** One statement may run this long on the probe connection; a slower probe is named, not waited for. */
+const PROBE_TIMEOUT_MS = 8_000;
+const HOUR = 3_600_000;
 const ERROR_MAX = 200;
 const IDENTIFIER = /^[a-z_][a-z0-9_]*$/;
 const SUCCESS = ["synced", "needs_review"];
@@ -36,6 +41,10 @@ interface Raw {
   count7d?: number;
   kinds?: string[];
   arrivals?: number[];
+  /** Activity sources with a learned rhythm: arrivals and the newest arrival, per kind. */
+  kindArrivals?: Map<string, { hours: number[]; last: Date }>;
+  /** The source's own token exists and is live. */
+  credentialPresent?: boolean;
   note?: string | undefined;
   /** A lag probe found the downstream stage trailing: late even when its own clock is recent. */
   forceLate?: boolean;
@@ -75,6 +84,8 @@ export interface HealthOptions {
   entries: readonly FlowEntry[];
   /** Defaults to true; a test that seeds between reads passes false. */
   cache?: boolean;
+  /** The longest one probe statement may run, in milliseconds; defaults to 8000. */
+  probeTimeoutMs?: number;
 }
 
 /**
@@ -187,8 +198,9 @@ const summaryMatches = (run: SyncRun, match: Record<string, string> | undefined)
 
 interface ActivityRead {
   last: Map<string, Date>;
-  kinds: Map<string, { kind: string; c24: number; c7: number }[]>;
+  kinds: Map<string, { kind: string; c24: number; c7: number; last: Date }[]>;
   arrivals: Map<string, number[]>;
+  kindHours: Map<string, Map<string, number[]>>;
   imported: Map<string, Date>;
 }
 
@@ -197,7 +209,13 @@ async function readActivity(
   sources: readonly string[],
   learnFor: ReadonlySet<string>
 ): Promise<ActivityRead> {
-  const read: ActivityRead = { last: new Map(), kinds: new Map(), arrivals: new Map(), imported: new Map() };
+  const read: ActivityRead = {
+    last: new Map(),
+    kinds: new Map(),
+    arrivals: new Map(),
+    kindHours: new Map(),
+    imported: new Map()
+  };
   if (sources.length === 0 || !context.userId) return read;
   const list = context.sql([...sources]);
   // One bound value per source, so each gets its own index-backed lookup for the newest row.
@@ -213,9 +231,9 @@ async function readActivity(
         SELECT ingested_at FROM activity_events
         WHERE user_id = ${context.userId} AND source = v.s ORDER BY ingested_at DESC LIMIT 1
       ) AS newest`,
-    context.sql<{ source: string; kind: string; c24: number; c7: number }[]>`
+    context.sql<{ source: string; kind: string; c24: number; c7: number; last: Date }[]>`
       SELECT source, kind, count(*) FILTER (WHERE ingested_at > ${since24})::int AS c24,
-        count(*) FILTER (WHERE ingested_at > ${since7})::int AS c7
+        count(*) FILTER (WHERE ingested_at > ${since7})::int AS c7, max(ingested_at) AS last
       FROM activity_events
       WHERE user_id = ${context.userId} AND source IN ${list} AND ingested_at > ${since30}
       GROUP BY source, kind`,
@@ -228,12 +246,16 @@ async function readActivity(
   for (const row of imports) read.imported.set(row.source, row.last);
   const learn = sources.filter((source) => learnFor.has(source));
   if (learn.length > 0) {
-    const buckets = await context.sql<{ source: string; hour: Date }[]>`
-      SELECT source, date_trunc('hour', ingested_at) AS hour FROM activity_events
+    const buckets = await context.sql<{ source: string; kind: string; hour: Date }[]>`
+      SELECT source, kind, date_trunc('hour', ingested_at) AS hour FROM activity_events
       WHERE user_id = ${context.userId} AND source IN ${context.sql(learn)} AND ingested_at > ${since30}
-      GROUP BY 1, 2`;
-    for (const row of buckets)
+      GROUP BY 1, 2, 3`;
+    for (const row of buckets) {
       read.arrivals.set(row.source, [...(read.arrivals.get(row.source) ?? []), row.hour.getTime()]);
+      const perKind = read.kindHours.get(row.source) ?? new Map<string, number[]>();
+      perKind.set(row.kind, [...(perKind.get(row.kind) ?? []), row.hour.getTime()]);
+      read.kindHours.set(row.source, perKind);
+    }
   }
   return read;
 }
@@ -265,7 +287,13 @@ function activityRaw(source: string, activity: ActivityRead, runs: Map<string, S
     count24h: kinds.reduce((total, kind) => total + kind.c24, 0),
     count7d: kinds.reduce((total, kind) => total + kind.c7, 0),
     kinds: kinds.map((kind) => kind.kind).sort(),
-    arrivals: activity.arrivals.get(source) ?? []
+    arrivals: activity.arrivals.get(source) ?? [],
+    kindArrivals: new Map(
+      [...(activity.kindHours.get(source) ?? new Map<string, number[]>()).entries()].flatMap(([kind, hours]) => {
+        const last = kinds.find((candidate) => candidate.kind === kind)?.last;
+        return last ? [[kind, { hours, last }] as const] : [];
+      })
+    )
   };
 }
 
@@ -434,6 +462,7 @@ async function probeAll(context: Context, entries: readonly FlowEntry[]): Promis
           return { unresolved: `no live token is named ${probe.tokenName} (it may be revoked or expired)` };
         return {
           ...simple(when(row.last_used_at)),
+          credentialPresent: true,
           // A bound push source keeps the threshold learned from its own rows.
           arrivals: entry.activitySource ? (activity.arrivals.get(entry.activitySource) ?? []) : []
         };
@@ -468,9 +497,24 @@ async function probeAll(context: Context, entries: readonly FlowEntry[]): Promis
       try {
         out.set(entry.id, await resolve(entry.health, entry));
       } catch (error) {
+        // The driver's text can carry host and query detail, so it goes to the server log; agents get a fixed reason.
+        const code = (error as { code?: unknown } | null)?.code;
+        const transient = isTransient(error);
+        log("error", "Data-flow health probe failed", {
+          route: "data-flow/health-reader",
+          method: "GET",
+          status: 200,
+          durationMs: 0,
+          commandType: `probe ${entry.health.kind} for ${entry.id}`,
+          errorMessage: error instanceof Error ? error.message : String(error),
+          errorClass: error instanceof Error ? error.constructor.name : typeof error,
+          ...(typeof code === "string" ? { errorCode: code } : {})
+        });
         out.set(entry.id, {
-          unresolved: `the probe query failed: ${clip(error instanceof Error ? error.message : String(error))}`,
-          ...(isTransient(error) ? { transient: true as const } : {})
+          unresolved: transient
+            ? "the probe query failed: the database did not answer in time or the connection dropped"
+            : "the probe query failed: the database rejected the probe's query",
+          ...(transient ? { transient: true as const } : {})
         });
       }
     })
@@ -526,6 +570,38 @@ function deviceHealth(entries: readonly FlowEntry[], nodes: Record<string, NodeH
     });
 }
 
+/**
+ * Runs the probes on one connection of their own with a statement time limit, so a slow probe is named (the
+ * entry shows as unresolved with a retry step) and cannot hold the whole answer. The limit is set for the session and
+ * cleared before the connection goes back to the pool. A transaction handle cannot be reserved and runs unbounded.
+ */
+async function withProbeConnection<T>(sql: Sql, timeoutMs: number, work: (sql: Sql) => Promise<T>): Promise<T> {
+  const pool = sql as Partial<PoolSql>;
+  if (typeof pool.reserve !== "function") return work(sql);
+  const reserved = await pool.reserve();
+  try {
+    await reserved`SELECT set_config('statement_timeout', ${String(timeoutMs)}, false)`;
+    return await work(reserved as unknown as Sql);
+  } finally {
+    try {
+      await reserved`RESET statement_timeout`;
+    } finally {
+      reserved.release();
+    }
+  }
+}
+
+/** Kinds that went quiet on their own learned rhythm; only called for a source that as a whole is not late. */
+function lateKindsOf(outcome: Raw, now: number): LateKind[] {
+  const out: LateKind[] = [];
+  for (const [kind, { hours, last }] of outcome.kindArrivals ?? []) {
+    const learned = learnThreshold(hours);
+    if (learned && (now - last.getTime()) / HOUR > learned.warnHours)
+      out.push({ kind, lastAt: last.toISOString(), warnHours: learned.warnHours });
+  }
+  return out.sort((a, b) => a.kind.localeCompare(b.kind));
+}
+
 export async function readHealth(sql: Sql, options: HealthOptions): Promise<HealthResult> {
   const now = options.now ?? new Date();
   if (options.cache === false) return (await computeHealth(sql, options, now)).result;
@@ -552,9 +628,11 @@ async function computeHealth(
   options: HealthOptions,
   now: Date
 ): Promise<{ result: HealthResult; transient: boolean }> {
-  const context: Context = { sql, userId: await userId(sql), now, columns: new Map() };
+  const owner = await userId(sql);
   const entries = options.entries.filter((entry) => entry.planned === undefined);
-  const outcomes = await probeAll(context, entries);
+  const outcomes = await withProbeConnection(sql, options.probeTimeoutMs ?? PROBE_TIMEOUT_MS, (bounded) =>
+    probeAll({ sql: bounded, userId: owner, now, columns: new Map() }, entries)
+  );
   const transient = [...outcomes.values()].some((outcome) => "unresolved" in outcome && outcome.transient === true);
   const cadence = Object.fromEntries(
     Object.entries(doctorSyncCadence()).map(([provider, value]) => [provider, value.lateAfterMs])
@@ -616,20 +694,24 @@ async function computeHealth(
               threshold
             })
           : "never";
+    const finalFreshness: FreshnessState =
+      outcome.forceLate && freshness === "fresh"
+        ? "late"
+        : threshold === null && freshness !== "never" && freshness !== "failing"
+          ? "n/a"
+          : freshness;
+    const lateKinds = finalFreshness === "fresh" ? lateKindsOf(outcome, now.getTime()) : [];
     nodes[entry.id] = {
       ...base,
       configured: outcome.everSeen,
-      freshness:
-        outcome.forceLate && freshness === "fresh"
-          ? "late"
-          : threshold === null && freshness !== "never" && freshness !== "failing"
-            ? "n/a"
-            : freshness,
+      freshness: finalFreshness,
       lastSuccessAt: iso(outcome.lastSuccessAt),
       lastAttemptAt: iso(outcome.lastAttemptAt),
       lastError: outcome.lastError ? { at: iso(outcome.lastError.at), message: outcome.lastError.message } : null,
       ...(outcome.count24h !== undefined ? { count24h: outcome.count24h, count7d: outcome.count7d ?? 0 } : {}),
       ...(outcome.kinds ? { kindsSeen: outcome.kinds } : {}),
+      ...(lateKinds.length > 0 ? { lateKinds } : {}),
+      ...(outcome.credentialPresent ? { credentialPresent: true } : {}),
       threshold,
       ...(outcome.note ? { note: outcome.note } : {})
     };

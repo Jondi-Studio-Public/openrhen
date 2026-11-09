@@ -85,6 +85,15 @@ export function classifyFreshness(input: ClassifyInput): FreshnessState {
   return ageHours > threshold.warnHours ? "late" : "fresh";
 }
 
+/** A kind of an activity source that stopped arriving on its own learned rhythm while the source as a whole did not. */
+export interface LateKind {
+  kind: string;
+  /** The newest arrival of this kind. */
+  lastAt: string;
+  /** The warning this kind's own rhythm gave (1.5 x its p95 gap, between 2 h and 14 d). */
+  warnHours: number;
+}
+
 /** What one probe found, for one entry. */
 export interface NodeHealth {
   entryId: string;
@@ -100,6 +109,10 @@ export interface NodeHealth {
   count7d?: number;
   /** Activity sources: the kinds seen in the last 30 days. */
   kindsSeen?: string[];
+  /** Push sources with a learned rhythm: the kinds that went quiet while the source as a whole is still arriving. */
+  lateKinds?: LateKind[];
+  /** The source's own agent token exists and is live, used or not; with `never` this is silence, not a source never set up. */
+  credentialPresent?: boolean;
   threshold: ThresholdInUse | null;
   /** One line of plain explanation, for a person or an agent. */
   note?: string;

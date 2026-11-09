@@ -362,30 +362,30 @@ describe("probe_unresolved next steps", () => {
     expect(result.issues[0]).toMatchObject({ code: "probe_unresolved" });
     expect(result.issues[0]!.next).toContain("platform/contracts/src/data-flow/entries");
     expect(result.issues[0]!.next).not.toMatch(/retry/i);
+    // The driver's text can carry host and query detail: it goes to the server log, never to agents.
+    const shown = JSON.stringify(result.issues[0]) + JSON.stringify(result.nodes.q);
+    expect(shown).not.toMatch(/Invalid time value|invalid input syntax/i);
+    expect(result.issues[0]!.title).toContain("the probe query failed");
   });
 
-  it("tells a connection or timeout failure to retry, naming rhen doctor, and does not cache it", async () => {
-    let fail = true;
-    const flaky = new Proxy(sql, {
-      apply(target, thisArg, args: unknown[]) {
-        const text = Array.isArray(args[0]) ? (args[0] as string[]).join("?") : "";
-        if (fail && text.includes("max("))
-          return Promise.reject(
-            Object.assign(new Error("canceling statement due to statement timeout"), { code: "57014" })
-          );
-        return Reflect.apply(target, thisArg, args);
-      }
-    });
-    const e = entry("q", { kind: "max", table: "integration_sync_runs", column: "started_at" }, { freshness: fresh });
-    const first = await readHealth(flaky as never, { now: NOW, entries: [e] });
+  it("tells a timeout failure to retry, naming rhen doctor, and does not cache it", async () => {
+    const e = entry("q", { kind: "max", table: "photo_checkin", column: "created_at" });
+    const locker = await sql.reserve();
+    let first;
+    try {
+      await locker`BEGIN`;
+      await locker`LOCK TABLE photo_checkin IN ACCESS EXCLUSIVE MODE`;
+      first = await readHealth(sql as never, { now: NOW, entries: [e], probeTimeoutMs: 300 });
+    } finally {
+      await locker`ROLLBACK`.catch(() => {});
+      locker.release();
+    }
     expect(first.nodes.q!.freshness).toBe("probe_unresolved");
     expect(first.issues[0]!.next).toMatch(/retry/i);
     expect(first.issues[0]!.next).toContain("rhen doctor");
     expect(first.issues[0]!.next).toContain("rhen sources --problems");
-    fail = false;
-    await run("p", "synced", 1);
-    const second = await readHealth(flaky as never, { now: NOW, entries: [e] });
-    expect(second.nodes.q!.freshness).toBe("fresh");
+    const second = await readHealth(sql as never, { now: NOW, entries: [e] });
+    expect(second.nodes.q!.freshness).not.toBe("probe_unresolved");
   });
 
   it("names the extension's entries file for an extension-owned entry", async () => {
@@ -629,3 +629,103 @@ describe("no writes", () => {
 function withoutExtensions(): FlowEntry[] {
   return dataFlowRegistry().entries.filter((e) => e.owner === "core" && e.planned === undefined);
 }
+
+describe("per-kind lateness (lateKinds)", () => {
+  const pushEntry = () =>
+    entry(
+      "shortcuts",
+      { kind: "activity", source: "iphone-shortcuts" },
+      {
+        method: "push",
+        activitySource: "iphone-shortcuts",
+        device: "phone"
+      }
+    );
+  /** One event an hour for each of `count` hours, the newest `newestHoursAgo` ago. */
+  async function hourly(kind: string, count: number, newestHoursAgo: number) {
+    for (let i = 0; i < count; i += 1) await event("iphone-shortcuts", kind, newestHoursAgo + i);
+  }
+
+  it("names a kind that stopped on its own learned rhythm while the source as a whole is still arriving", async () => {
+    await hourly("arrive", 40, 1);
+    await hourly("focus-mode", 30, 60);
+    const node = await one(pushEntry());
+    expect(node.freshness).toBe("fresh");
+    expect(node.lateKinds).toEqual([{ kind: "focus-mode", lastAt: ago(60).toISOString(), warnHours: 2 }]);
+  });
+
+  it("does not name a kind that is still arriving, or one with too few arrivals to learn from", async () => {
+    await hourly("arrive", 40, 1);
+    await hourly("rare", 5, 60);
+    expect((await one(pushEntry())).lateKinds).toBeUndefined();
+  });
+
+  it("leaves the naming to the source when the whole source is late", async () => {
+    await hourly("arrive", 40, 100);
+    const node = await one(pushEntry());
+    expect(node.freshness).not.toBe("fresh");
+    expect(node.lateKinds).toBeUndefined();
+  });
+});
+
+describe("credentialPresent", () => {
+  const token = async (name: string, lastUsedHoursAgo: number | null) =>
+    sql`INSERT INTO agent_tokens (user_id, name, token_hash, expires_at, last_used_at)
+      VALUES (${userId}, ${name}, ${crypto.randomUUID().replaceAll("-", "").repeat(2)}, ${ago(-1000)}, ${lastUsedHoursAgo === null ? null : ago(lastUsedHoursAgo)})`;
+  const bound = () =>
+    entry(
+      "watch",
+      { kind: "last-used", table: "agent_tokens", tokenName: "watch" },
+      { method: "push", activitySource: "rhen-watch" }
+    );
+
+  it("is true for a live token that has never been used, which is silence rather than a source never set up", async () => {
+    await token("watch", null);
+    expect(await one(bound())).toMatchObject({ freshness: "never", configured: false, credentialPresent: true });
+  });
+
+  it("is absent when there is no token to speak of", async () => {
+    const node = await one(
+      entry("a", { kind: "activity", source: "rhen-watch" }, { method: "push", activitySource: "rhen-watch" })
+    );
+    expect(node.credentialPresent).toBeUndefined();
+  });
+});
+
+describe("the cache key and the probe time limit", () => {
+  it("gives up on one slow probe, names it, and still answers for the rest", async () => {
+    await run("p", "synced", 1);
+    const slow = entry("slow", { kind: "max", table: "photo_checkin", column: "created_at" });
+    const quick = entry("quick", { kind: "sync-runs", provider: "p" }, { freshness: fresh });
+    const locker = await sql.reserve();
+    try {
+      await locker`BEGIN`;
+      await locker`LOCK TABLE photo_checkin IN ACCESS EXCLUSIVE MODE`;
+      const started = Date.now();
+      const result = await readHealth(sql as never, {
+        now: NOW,
+        entries: [slow, quick],
+        cache: false,
+        probeTimeoutMs: 1500
+      });
+      expect(Date.now() - started).toBeLessThan(5000);
+      expect(result.nodes.quick!.freshness).toBe("fresh");
+      expect(result.nodes.slow!.freshness).toBe("probe_unresolved");
+      expect(result.issues.find((issue) => issue.entryId === "slow")!.next).toMatch(/Retry in a minute/);
+    } finally {
+      await locker`ROLLBACK`.catch(() => {});
+      locker.release();
+    }
+  });
+
+  it("leaves the connection it used free of the time limit", async () => {
+    await readHealth(sql as never, {
+      now: NOW,
+      entries: [entry("a", { kind: "sync-runs", provider: "p" })],
+      cache: false,
+      probeTimeoutMs: 1500
+    });
+    const [row] = await sql<{ statement_timeout: string }[]>`SHOW statement_timeout`;
+    expect(row!.statement_timeout).toBe("0");
+  });
+});

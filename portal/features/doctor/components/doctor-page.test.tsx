@@ -67,6 +67,41 @@ describe("DoctorPage", () => {
     expect(screen.getByRole("link", { name: "Open commitment" }).getAttribute("href")).toBe("/commitments/c1");
   });
 
+  it("shows the data-source counts with a link to the Data page, and the agent's next step", async () => {
+    stub({
+      ...report,
+      sources: {
+        late: 4,
+        failing: 0,
+        deviceSilent: 1,
+        collectedUnused: 11,
+        nothingSends: 5,
+        line: "4 late · 1 device silent"
+      },
+      items: [
+        {
+          ...report.items[1],
+          fix: { who: "agent", cli: "rhen sources x", next: "Correct the health probe on entry x." }
+        }
+      ]
+    });
+    render(<DoctorPage />);
+    expect(await screen.findByText(/4 late · 1 device silent/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "See the Data page" }).getAttribute("href")).toBe("/data");
+    expect(screen.getByText("Correct the health probe on entry x.")).toBeTruthy();
+    expect(screen.getByText("rhen sources x")).toBeTruthy();
+  });
+
+  it("draws no counts line when every source count is zero", async () => {
+    stub({
+      ...report,
+      sources: { late: 0, deviceSilent: 0, collectedUnused: 0, nothingSends: 0, line: null }
+    });
+    render(<DoctorPage />);
+    await screen.findByText("1 blocking, 1 degrading");
+    expect(screen.queryByRole("link", { name: "See the Data page" })).toBeNull();
+  });
+
   it("filters by area", async () => {
     stub(report);
     render(<DoctorPage />);
