@@ -33,6 +33,8 @@ const HISTORY_DAYS = 45;
 const LEARN_DAYS = 30;
 /** A kind that has been quiet for longer than this many times its warning is retired, not late. */
 const KIND_RETIRED_FACTOR = 2;
+/** ...but never sooner than this, so a kind that stopped for real stays visible for at least a week. */
+const KIND_RETIRED_MIN_HOURS = 7 * 24;
 const HOUR = 3_600_000;
 const ERROR_MAX = 200;
 const IDENTIFIER = /^[a-z_][a-z0-9_]*$/;
@@ -656,8 +658,12 @@ function lateKindsOf(outcome: Raw, now: number): LateKind[] {
   for (const [kind, { hours, last }] of outcome.kindArrivals ?? []) {
     const learned = learnThreshold(hours);
     const quietHours = (now - last.getTime()) / HOUR;
-    // A kind quiet for more than twice its warning was retired on purpose, so it is not raised again.
-    if (learned && quietHours > learned.warnHours && quietHours <= KIND_RETIRED_FACTOR * learned.warnHours)
+    // A kind quiet for longer than the larger of twice its warning and a week was retired on purpose, so it is not raised again.
+    if (
+      learned &&
+      quietHours > learned.warnHours &&
+      quietHours <= Math.max(KIND_RETIRED_FACTOR * learned.warnHours, KIND_RETIRED_MIN_HOURS)
+    )
       out.push({ kind, lastAt: last.toISOString(), warnHours: learned.warnHours });
   }
   return out.sort((a, b) => a.kind.localeCompare(b.kind));
