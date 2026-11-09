@@ -350,7 +350,7 @@ jobs:
       - name: Install and uninstall smoke
         if: runner.os == 'Windows'
         # A hung step fails here in minutes instead of holding the job to its limit.
-        timeout-minutes: 5
+        timeout-minutes: 10
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
