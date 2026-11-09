@@ -17,6 +17,9 @@ const LANGS = {
   ".jsx": "jsx"
 };
 
+// The file extensions parse() accepts, for rules that select source files.
+export const SOURCE_EXTENSIONS = Object.keys(LANGS);
+
 // parse(file, source?) -> { file, source, body, errors, comments }. `body` is the top-level statement list
 // (ESTree-shaped nodes with `start`/`end` offsets). `source` may be passed to parse text that is not on disk.
 // A file that does not parse throws, naming the file and the first error, so a rule never silently skips it.

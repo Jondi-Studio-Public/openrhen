@@ -83,6 +83,30 @@ export const CASES = [
     },
     [/tools\/cli\/src\/x\.ts is new .*eager import\.meta\.glob/s]
   ),
+  must(
+    S1,
+    "a bare import with a comment between import and the source",
+    { "portal/server/x.ts": 'import /* x */ "./register";\n' },
+    [/portal\/server\/x\.ts is new/]
+  ),
+  must(
+    S1,
+    "a bare import written with an empty specifier list",
+    { "portal/server/x.ts": 'import {} from "./register";\n' },
+    [/portal\/server\/x\.ts is new/]
+  ),
+  must(
+    S1,
+    "a bare import in a .js, .jsx, .cjs, .mts and .cts file",
+    {
+      "portal/server/a.js": 'import "./register";\n',
+      "portal/server/b.jsx": 'import "./register";\n',
+      "portal/server/c.cjs": 'require("./register");\n',
+      "portal/server/d.mts": 'import "./register";\n',
+      "portal/server/e.cts": 'import "./register";\n'
+    },
+    [/a\.js is new/, /b\.jsx is new/, /c\.cjs is new/, /d\.mts is new/, /e\.cts is new/]
+  ),
   pass(S1, "css, server-only and client-only bare imports", {
     "portal/app/x.tsx": 'import "./globals.css";\nimport "server-only";\nimport "client-only";\n'
   }),
@@ -159,6 +183,93 @@ export const CASES = [
     { "portal/server/config.ts": "export const a = process.env.A;\n" },
     [/portal\/server\/config\.ts is new/]
   ),
+  must(
+    S4,
+    "(process as NodeJS.Process).env",
+    { "portal/server/x.ts": "export const a = (process as NodeJS.Process).env.A;\n" },
+    [/env read/]
+  ),
+  must(
+    S4,
+    "(globalThis as any).process.env",
+    { "portal/server/x.ts": "export const a = (globalThis as any).process.env.A;\n" },
+    [/env read/]
+  ),
+  must(
+    S4,
+    "process!.env and <X>process.env",
+    { "portal/server/x.ts": "export const a = process!.env.A;\nexport const b = (<any>process).env.B;\n" },
+    [/2 env reads/]
+  ),
+  must(S4, "const p = process; p.env", { "portal/server/x.ts": "const p = process;\nexport const a = p.env.A;\n" }, [
+    /env read/
+  ]),
+  must(
+    S4,
+    "an alias of an alias and of globalThis",
+    {
+      "portal/server/x.ts": "const g = globalThis;\nconst p = g.process;\nconst q = p;\nexport const a = q.env.A;\n"
+    },
+    [/env read/]
+  ),
+  must(
+    S4,
+    'import process from "node:process"',
+    { "portal/server/x.ts": 'import process from "node:process";\nexport const a = process.env.A;\n' },
+    [/env read/]
+  ),
+  must(
+    S4,
+    'import * as proc from "node:process"',
+    { "portal/server/x.ts": 'import * as proc from "node:process";\nexport const a = proc.env.A;\n' },
+    [/env read/]
+  ),
+  must(
+    S4,
+    'import p from "process"',
+    { "portal/server/x.ts": 'import p from "process";\nexport const a = p.env.A;\n' },
+    [/env read/]
+  ),
+  must(
+    S4,
+    "function f({env} = process)",
+    { "portal/server/x.ts": "export function f({ env } = process) {\n  return env.A;\n}\n" },
+    [/env read/]
+  ),
+  must(
+    S4,
+    "const {process: {env}} = globalThis",
+    { "portal/server/x.ts": "const { process: { env } } = globalThis;\nexport const a = env.A;\n" },
+    [/env read/]
+  ),
+  must(
+    S4,
+    "const {process: p} = globalThis; p.env",
+    { "portal/server/x.ts": "const { process: p } = globalThis;\nexport const a = p.env.A;\n" },
+    [/env read/]
+  ),
+  must(
+    S4,
+    "({env} = process) as an assignment",
+    { "portal/server/x.ts": "let env: any;\n({ env } = process);\nexport { env };\n" },
+    [/env read/]
+  ),
+  must(
+    S4,
+    "process.env in .js, .cjs, .jsx, .mts and .cts files",
+    {
+      "tools/cli/src/a.js": "export const a = process.env.A;\n",
+      "tools/cli/src/b.cjs": "module.exports = process.env.A;\n",
+      "tools/cli/src/c.jsx": "export const a = process.env.A;\n",
+      "tools/cli/src/d.mts": "export const a = process.env.A;\n",
+      "tools/cli/src/e.cts": "export const a = process.env.A;\n"
+    },
+    [/a\.js is new/, /b\.cjs is new/, /c\.jsx is new/, /d\.mts is new/, /e\.cts is new/]
+  ),
+  pass(S4, "a local named process or p that is not the process object", {
+    "portal/server/x.ts":
+      "export function f(p: { env: string }, other: { process: { env: string } }) {\n  const q = other;\n  return p.env + q.process.env;\n}\n"
+  }),
   pass(S4, "vitest.config.ts", { "portal/vitest.config.ts": "export default { env: process.env };\n" }),
   pass(S4, "a vitest-setup file", { "portal/vitest-setup.ts": "process.env.A = 'x';\n" }),
   pass(S4, "a *-harness.ts that imports vitest", {

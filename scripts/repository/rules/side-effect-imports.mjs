@@ -38,13 +38,12 @@ function measure({ path, parsed }) {
     );
   };
   for (const statement of parsed.body) {
-    // `import "x"` has no specifiers, and so does `import {} from "x"` and `import type {} from "x"`: only the bare form
-    // has nothing between `import` and the source string.
+    // No specifiers on the AST: `import "x"` (comments between the keyword and the source included) and
+    // `import {} from "x"`, which evaluates the module just the same.
     if (
       statement.type === "ImportDeclaration" &&
       statement.specifiers.length === 0 &&
       statement.importKind !== "type" &&
-      /^import\s*$/.test(parsed.source.slice(statement.start, statement.source.start)) &&
       !ALLOWED_BARE.test(statement.source.value)
     ) {
       found.push({ start: statement.start, what: `bare import "${statement.source.value}"` });

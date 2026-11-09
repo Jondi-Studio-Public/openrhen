@@ -13,7 +13,7 @@
 // The lane assignment, the tracked-file listing, the base-commit lookup and the shard readers are vendor-terms.mjs's.
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { lineOf, parse } from "./rules/ast.mjs";
+import { SOURCE_EXTENSIONS, lineOf, parse } from "./rules/ast.mjs";
 import {
   baseShards,
   composedSkips,
@@ -31,8 +31,8 @@ const FIX = "run `pnpm structure:check --fix-pending`";
 
 // The roots the shared-state rules read (the plan's A.4 file list), and what they never read.
 const ROOTS = /^(?:engine|platform|portal|integrations|tools)\//;
-const SOURCE = /\.(?:ts|tsx|mjs)$/;
-const GENERATED = /(?:^|\/)(?:node_modules|dist|\.next|\.vinext)\/|\.d\.ts$/;
+const SOURCE = new RegExp(`(?:${SOURCE_EXTENSIONS.map((extension) => extension.replace(".", "\\.")).join("|")})$`);
+const GENERATED = /(?:^|\/)(?:node_modules|dist|\.next|\.vinext)\/|\.d\.[cm]?ts$/;
 const TEST_PATH = /\.(?:test|spec)\.|(?:^|\/)(?:test|tests|__tests__)\//;
 // Build-tool configs and test setup files count as tests (S4): *.config.ts, vitest-*.ts.
 const TEST_NAME = /(?:^|\/)(?:vitest-[^/]*|[^/]*\.config\.[^/]*)$/;
@@ -98,12 +98,14 @@ export const CONFIG_MODULES = [
 ];
 
 const FUNCTIONS = new Set(["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"]);
-const unwrap = (node) => {
+/** Strip parentheses and TypeScript wrappers (`as`, `!`, `satisfies`, `<T>x`) from an expression. */
+export const unwrap = (node) => {
   let current = node;
   while (
     current &&
     (current.type === "ParenthesizedExpression" ||
       current.type === "TSNonNullExpression" ||
+      current.type === "TSTypeAssertion" ||
       current.type === "TSAsExpression" ||
       current.type === "TSSatisfiesExpression")
   )
