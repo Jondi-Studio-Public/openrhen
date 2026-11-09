@@ -104,36 +104,69 @@ export function findCollisions(routes) {
 
 const WRITER_CLASSES = new Set(["owner", "helper"]);
 
+/** Validate a `{ path: { class, reason } }` map that sits in `folder`; returns the accepted entries. */
+function checkedWriters(map, folder, source, errors) {
+  const accepted = {};
+  const own = `${folder}/`;
+  for (const [path, writer] of Object.entries(map ?? {})) {
+    if (!path.startsWith(own) || path.includes(".."))
+      errors.push(`${source} registers ${path}, which is outside the folder it sits in (${own})`);
+    else if (!WRITER_CLASSES.has(writer?.class))
+      errors.push(`${source} gives ${path} class ${String(writer?.class)}; an add-on writer is owner or helper`);
+    else if (typeof writer.reason !== "string" || writer.reason.trim() === "")
+      errors.push(`${source} gives ${path} no reason`);
+    else accepted[path] = writer;
+  }
+  return accepted;
+}
+
+function readManifest(root, manifest, errors) {
+  const folder = posix(relative(root, dirname(manifest)));
+  const source = `${folder}/write-paths.json`;
+  try {
+    return { folder, source, parsed: JSON.parse(readFileSync(manifest, "utf8")) };
+  } catch (error) {
+    errors.push(`${source} is not valid JSON: ${error.message}`);
+    return null;
+  }
+}
+
 /**
- * The write paths add-on route handlers register, as data: each `write-paths.json` under `portal/app/(addon)/` maps a
- * repository-relative path (or a folder ending `/`) inside the folder it sits in to `{ class, reason, owners? }`,
- * as `write-path-registry.mjs` does for core. Only `owner` and `helper` are accepted: an add-on that writes a
- * plan-input table must go through `recordStateChange`, and may not claim the exemptions core reserves for itself.
+ * The write paths add-ons register, as data. Two homes, both read here:
+ * - each `write-paths.json` under `portal/app/(addon)/` maps a repository-relative path (or a folder ending `/`) inside
+ *   the folder it sits in to `{ class, reason, owners? }`, as `write-path-registry.mjs` does for core. Only `owner`
+ *   and `helper` are accepted: an add-on that writes a plan-input table must go through `recordStateChange`, and may
+ *   not claim the exemptions core reserves for itself.
+ * - an add-on layer package may hold `addons/<id>/<layer>/write-paths.json` beside its `package.json`:
+ *   `{ "owns": { "<table>": "<file in this package>" }, "writers": { "<file>": { class, reason } } }`. `writers` has the
+ *   shape above; `owns` names, per table the add-on's own `addons/<id>/drizzle/*.sql` creates, the one file that
+ *   writes it (a key may be schema-qualified, `notes.entries`). Paths are repository-relative, as in the first
+ *   shape. `scripts/repository/rules/write-owners.mjs` enforces `owns`; this reader only checks the shape.
+ * Returns `{ writers, owns, errors }`, `owns` being `[{ file, addon, table, owner }]`.
  */
 export function loadAddonWriters(root = defaultRoot) {
   const writers = {};
+  const owns = [];
   const errors = [];
-  const base = resolve(root, "portal/app", ADDON_GROUP);
-  for (const manifest of files(base).filter((file) => file.endsWith(`${sep}write-paths.json`))) {
-    const folder = posix(relative(root, dirname(manifest)));
-    const source = `${folder}/write-paths.json`;
-    let parsed;
-    try {
-      parsed = JSON.parse(readFileSync(manifest, "utf8"));
-    } catch (error) {
-      errors.push(`${source} is not valid JSON: ${error.message}`);
-      continue;
-    }
-    const own = `${folder}/`;
-    for (const [path, writer] of Object.entries(parsed ?? {})) {
-      if (!path.startsWith(own) || path.includes(".."))
-        errors.push(`${source} registers ${path}, which is outside the folder it sits in (${own})`);
-      else if (!WRITER_CLASSES.has(writer?.class))
-        errors.push(`${source} gives ${path} class ${String(writer?.class)}; an add-on writer is owner or helper`);
-      else if (typeof writer.reason !== "string" || writer.reason.trim() === "")
-        errors.push(`${source} gives ${path} no reason`);
-      else writers[path] = writer;
-    }
+  for (const manifest of files(resolve(root, "portal/app", ADDON_GROUP)).filter((file) =>
+    file.endsWith(`${sep}write-paths.json`)
+  )) {
+    const read = readManifest(root, manifest, errors);
+    if (read) Object.assign(writers, checkedWriters(read.parsed, read.folder, read.source, errors));
   }
-  return { writers, errors };
+  for (const manifest of files(resolve(root, "addons")).filter((file) => file.endsWith(`${sep}write-paths.json`))) {
+    const parts = posix(relative(root, manifest)).split("/");
+    if (parts.length !== 4) continue; // addons/<id>/<layer>/write-paths.json only
+    const read = readManifest(root, manifest, errors);
+    if (!read) continue;
+    const { folder, source, parsed } = read;
+    for (const [table, owner] of Object.entries(parsed?.owns ?? {})) {
+      if (typeof owner !== "string" || owner === "") errors.push(`${source} owns ${table} without a file`);
+      else if (!owner.startsWith(`${folder}/`) || owner.includes(".."))
+        errors.push(`${source} owns ${table} in ${owner}, which is outside the package (${folder}/)`);
+      else owns.push({ file: source, addon: parts[1], table, owner });
+    }
+    Object.assign(writers, checkedWriters(parsed?.writers, folder, source, errors));
+  }
+  return { writers, owns, errors };
 }

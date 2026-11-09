@@ -1,0 +1,230 @@
+{
+  "lane": "H",
+  "rows": {
+    "total": 202,
+    "files": {
+      "portal/app/api/push/test/route.ts": ["push_outbox"],
+      "portal/server/location/location-observation-store.ts": ["user_preferences"],
+      "portal/server/persistence/postgres/activity-commands.ts": [
+        "actions",
+        "commitments",
+        "deliverables",
+        "routine_steps",
+        "session_segments",
+        "sessions",
+        "sleep_plans"
+      ],
+      "portal/server/persistence/postgres/activity-retention-store.ts": ["activity_events", "activity_source_state"],
+      "portal/server/persistence/postgres/cadence-completion.ts": [
+        "action_occurrences",
+        "action_recurrence_rules",
+        "actions"
+      ],
+      "portal/server/persistence/postgres/catch-up.ts": [
+        "action_occurrences",
+        "check_in",
+        "projects",
+        "push_outbox",
+        "writes"
+      ],
+      "portal/server/persistence/postgres/changeset-commands.ts": ["writes"],
+      "portal/server/persistence/postgres/check-in-commands.ts": ["check_in"],
+      "portal/server/persistence/postgres/close-cascade.ts": ["projects", "routine_steps"],
+      "portal/server/persistence/postgres/close-commands.ts": ["commitments", "projects"],
+      "portal/server/persistence/postgres/command-receipt.ts": ["writes"],
+      "portal/server/persistence/postgres/commitment-source-commands.ts": [
+        "calendar_event_links",
+        "commitments",
+        "import_entity_keys",
+        "source_match_aliases"
+      ],
+      "portal/server/persistence/postgres/consequence-commands.ts": ["writes"],
+      "portal/server/persistence/postgres/current-situation.ts": ["user_preferences"],
+      "portal/server/persistence/postgres/deliverable-proposal-store.ts": [
+        "captures",
+        "deliverable_sources",
+        "sources"
+      ],
+      "portal/server/persistence/postgres/deliverable-session-rollover.ts": [
+        "actions",
+        "deliverables",
+        "session_segments",
+        "sessions"
+      ],
+      "portal/server/persistence/postgres/deliverable-write.ts": [
+        "action_dependencies",
+        "action_requirement_pathways",
+        "action_requirements",
+        "actions",
+        "deliverable_blocker_actions",
+        "deliverable_blockers",
+        "deliverable_criteria",
+        "deliverable_criterion_actions",
+        "deliverable_dependencies",
+        "deliverables"
+      ],
+      "portal/server/persistence/postgres/derived-lineage-store.ts": ["activity_events"],
+      "portal/server/persistence/postgres/derived-source-gone-store.ts": ["activity_events"],
+      "portal/server/persistence/postgres/derived-write-store.ts": ["activity_events"],
+      "portal/server/persistence/postgres/ensure-user.ts": ["user_preferences", "users"],
+      "portal/server/persistence/postgres/entity-commands.ts": [
+        "actions",
+        "areas",
+        "captures",
+        "commitments",
+        "condition_definitions",
+        "daily_plan_deferred_actions",
+        "daily_plan_desired_actions",
+        "daily_plans",
+        "deliverable_criteria",
+        "deliverable_sources",
+        "deliverables",
+        "outcomes",
+        "planning_focus_periods",
+        "planning_focus_projects",
+        "projects",
+        "routine_preset_step_dependencies",
+        "routine_preset_steps",
+        "routine_presets",
+        "routine_step_dependencies",
+        "routine_steps",
+        "sleep_plans",
+        "sources",
+        "spans",
+        "user_preferences",
+        "users"
+      ],
+      "portal/server/persistence/postgres/fact-act-store.ts": ["writes"],
+      "portal/server/persistence/postgres/import-store.ts": ["import_batches", "import_entity_keys", "import_records"],
+      "portal/server/persistence/postgres/imports/batch-records.ts": ["import_batches", "import_records"],
+      "portal/server/persistence/postgres/imports/calendar-diff-core.ts": [
+        "calendar_event_dismissals",
+        "calendar_event_links",
+        "commitments",
+        "sources"
+      ],
+      "portal/server/persistence/postgres/imports/calendar-feed-dates.ts": ["calendar_event_links", "commitments"],
+      "portal/server/persistence/postgres/imports/calendar-feed-import-extension.ts": [
+        "calendar_event_links",
+        "commitments",
+        "import_entity_keys"
+      ],
+      "portal/server/persistence/postgres/imports/calendar-feed-lifecycle.ts": [
+        "calendar_event_dismissals",
+        "calendar_event_links",
+        "import_entity_keys"
+      ],
+      "portal/server/persistence/postgres/imports/calendar-feed-series.ts": ["calendar_event_links"],
+      "portal/server/persistence/postgres/imports/commit-records.ts": [
+        "action_dependencies",
+        "deliverable_dependencies",
+        "import_entity_keys"
+      ],
+      "portal/server/persistence/postgres/imports/source-closed.ts": ["calendar_event_links"],
+      "portal/server/persistence/postgres/imports/source-links.ts": ["calendar_event_links", "source_match_aliases"],
+      "portal/server/persistence/postgres/imports/upserts.ts": [
+        "action_preferences",
+        "action_recurrence_rules",
+        "action_recurrence_windows",
+        "action_requirement_pathways",
+        "action_requirements",
+        "actions",
+        "areas",
+        "commitment_recurrence_rules",
+        "commitments",
+        "condition_definitions",
+        "deliverables",
+        "outcomes",
+        "projects"
+      ],
+      "portal/server/persistence/postgres/plan-health-store.ts": ["plan_findings"],
+      "portal/server/persistence/postgres/plan-map-proposers.ts": ["plan_links", "plan_shadow_log"],
+      "portal/server/persistence/postgres/plan-map-store.ts": ["plan_shadow_log"],
+      "portal/server/persistence/postgres/planning-evidence.ts": ["user_preferences", "write_rows", "writes"],
+      "portal/server/persistence/postgres/project-commands.ts": [
+        "action_dependencies",
+        "action_preferences",
+        "action_recurrence_rules",
+        "action_recurrence_windows",
+        "action_requirement_pathways",
+        "action_requirements",
+        "actions",
+        "projects"
+      ],
+      "portal/server/persistence/postgres/pulse-disruption.ts": ["pulse_disruptions", "writes"],
+      "portal/server/persistence/postgres/readers/check-in-read.ts": ["check_in"],
+      "portal/server/persistence/postgres/recurrence-commands.ts": [
+        "action_occurrences",
+        "action_recurrence_rules",
+        "actions",
+        "commitment_recurrence_rules",
+        "commitments"
+      ],
+      "portal/server/persistence/postgres/recurrence-end.ts": ["actions", "commitments", "routine_steps"],
+      "portal/server/persistence/postgres/reenter.ts": ["user_preferences", "writes"],
+      "portal/server/persistence/postgres/retroactive-end.ts": ["session_segments", "sessions"],
+      "portal/server/persistence/postgres/routine-step-arrival.ts": ["routine_steps", "sessions"],
+      "portal/server/persistence/postgres/routine-step-window.ts": ["action_occurrences"],
+      "portal/server/persistence/postgres/session-commands.ts": [
+        "action_occurrences",
+        "actions",
+        "session_segments",
+        "sessions"
+      ],
+      "portal/server/persistence/postgres/sleep-session-sync.ts": ["session_segments", "sessions"],
+      "portal/server/persistence/postgres/sleep-wake.ts": ["sleep_plans", "user_preferences"],
+      "portal/server/persistence/postgres/state-replace.ts": [
+        "action_dependencies",
+        "action_requirement_pathways",
+        "action_requirements",
+        "actions",
+        "areas",
+        "captures",
+        "commitment_recurrence_rules",
+        "commitments",
+        "deliverables",
+        "forecast_snapshots",
+        "outcomes",
+        "projects",
+        "recommendation_candidates",
+        "recommendations",
+        "session_segments",
+        "sessions",
+        "sources",
+        "user_preferences",
+        "users"
+      ],
+      "portal/server/persistence/postgres/stretch-command.ts": ["user_preferences", "writes"],
+      "portal/server/persistence/postgres/system-close.ts": ["commitments"],
+      "portal/server/persistence/postgres/wake-command.ts": ["sleep_plans", "user_preferences"],
+      "portal/server/persistence/postgres/write-revert.ts": [
+        "action_occurrences",
+        "forecast_snapshots",
+        "pulse_segments",
+        "recommendation_candidates",
+        "recommendations",
+        "user_preferences",
+        "writes"
+      ],
+      "portal/server/persistence/postgres/write-snapshot.ts": ["writes"],
+      "portal/server/pulse/back-on-plan-push.ts": ["push_outbox"],
+      "portal/server/pulse/pulse-publisher.ts": ["pulse_state"],
+      "portal/server/pulse/pulse-recorder.ts": ["pulse_disruptions", "pulse_segments", "pulse_state"],
+      "portal/server/pulse/pulse-reentry.ts": ["pulse_segments", "pulse_state"],
+      "portal/server/push/push-device-announcement.ts": ["push_outbox"],
+      "portal/server/push/push-drain.ts": ["push_outbox"],
+      "portal/server/telemetry/provider-call-recorder.ts": ["provider_call_telemetry"],
+      "portal/server/travel/own-trip.ts": ["journey_samples"],
+      "portal/server/travel/travel-spend.ts": ["journey_samples"]
+    }
+  },
+  "dynamic": {
+    "total": 9,
+    "files": {
+      "portal/server/persistence/postgres/close-cascade.ts": 2,
+      "portal/server/persistence/postgres/close-commands.ts": 2,
+      "portal/server/persistence/postgres/state-replace.ts": 1,
+      "portal/server/persistence/postgres/write-revert.ts": 4
+    }
+  }
+}

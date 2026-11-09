@@ -1,0 +1,1 @@
+Table owners that platform/database runtime code (planning, push, consequence, offer-log) also writes through; `scripts/repository/write-path-registry.mjs` `TABLE_OWNERS` names which file owns which table.
