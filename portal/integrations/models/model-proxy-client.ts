@@ -52,6 +52,21 @@ function interpret(status: number, body: unknown): ModelOutcome {
   );
 }
 
+/**
+ * Whether the hosted provider's key is saved and can be opened, without handing it to anyone: the hosted-eligibility check uses
+ * this so a message is never offered to a tier that has no key (the call would only fail). It reads the key through
+ * `readSecret` like the transport and returns a yes or no, never the value.
+ */
+export async function hostedKeySaved(
+  sql: Sql,
+  userId: string,
+  env?: Record<string, string | undefined>,
+  hosted: ModelProviderDescriptor = MODEL_PROVIDERS.hosted
+): Promise<boolean> {
+  if (!hosted.secretName) return true;
+  return (await readSecret(sql, userId, hosted.secretName, env)).kind === "ok";
+}
+
 export function createModelTransport(deps: ModelTransportDeps): ModelTransport {
   const { sql, userId, env, fetcher } = deps;
   const providers = deps.providers ?? MODEL_PROVIDERS;

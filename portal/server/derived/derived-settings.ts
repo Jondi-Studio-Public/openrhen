@@ -36,6 +36,9 @@ const OLLAMA_URL_MAX = 2048;
 const MODEL_ID_MAX = 200;
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$/;
 const MODEL_ID_PATH_TRICK = /\.\.|\/\//;
+/** The settings field that holds the local model host's address; callers build next-call text from it instead of spelling the name. */
+export const LOCAL_ADDRESS_FIELD = "ollamaUrl" satisfies keyof DerivedSettings;
+
 const FIELDS = ["ollamaUrl", "t2Model", "t3Model", "t3DailyMessageCap", "t3DailyTokenCap", "backfillDays"] as const;
 const KEY_NAMES = new Set([
   "apiKey",

@@ -70,6 +70,26 @@ describe("PUT /api/derived-settings", () => {
     expect(((await response.json()) as { settings: typeof saved }).settings).toEqual(saved);
   });
 
+  it("says when saving a different model made the next, inactive version, and keeps it out of `settings`", async () => {
+    const pinnedVersion = {
+      extractor: "fact-llm",
+      version: "2",
+      action: "created",
+      note: "Saving a different model made version 2 of fact-llm. It starts INACTIVE; promote it deliberately."
+    };
+    store.saveDerivedSettings.mockResolvedValue({ ...saved, pinnedVersion });
+    const response = await put({ t2Model: "other:14b" });
+    const body = (await response.json()) as { settings: Record<string, unknown>; version: typeof pinnedVersion };
+    expect(body.version).toEqual(pinnedVersion);
+    expect(body.settings).toEqual(saved);
+    expect(body.settings).not.toHaveProperty("pinnedVersion");
+  });
+
+  it("sends no `version` when the save made none", async () => {
+    store.saveDerivedSettings.mockResolvedValue(saved);
+    expect(await (await put({ backfillDays: 30 })).json()).not.toHaveProperty("version");
+  });
+
   it("answers a bad body with a 400 naming the range and the fix, and writes nothing", async () => {
     const response = await put({ backfillDays: 5000, t3DailyMessageCap: -1, ollamaUrl: "http://u:p@10.0.0.1:11434" });
     expect(response.status).toBe(400);
