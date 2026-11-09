@@ -34,7 +34,7 @@ export interface Baseline {
 export const baseline = baselineJson as unknown as Baseline;
 
 /** Cases per plan size in the CI run: measured to keep the whole suite near three seconds. */
-export const GENERATED_COUNTS: Record<PlanSize, number> = { "1x": 1000, "5x": 150, "20x": 40 };
+export const GENERATED_COUNTS: Record<PlanSize, number> = { "1x": 1000, "5x": 150, "20x": 100 };
 
 /** The `REPLAY_LARGE` sweep: about 20,000 cases, for a local run only. */
 export const LARGE_COUNTS: Record<PlanSize, number> = { "1x": 12000, "5x": 6000, "20x": 600 };
