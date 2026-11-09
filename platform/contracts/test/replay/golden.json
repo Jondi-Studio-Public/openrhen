@@ -1225,5 +1225,469 @@
       "endState": "duplicate",
       "target": { "kind": "commitment", "id": "c2" }
     }
+  },
+  {
+    "id": "event-reminder-prefix",
+    "tags": [ "golden", "reminder-of-confirmation" ],
+    "note": "A bare reminder word in front of the title.",
+    "input": {
+      "now": "2026-11-09T09:00:00Z",
+      "timezone": "UTC",
+      "plan": {
+        "commitments": [
+          {
+            "id": "c1",
+            "title": "Budget review",
+            "startsAt": "2026-11-13T09:00:00Z",
+            "endsAt": "2026-11-13T10:00:00Z"
+          }
+        ],
+        "actions": [],
+        "projects": [],
+        "contacts": [],
+        "aliases": [],
+        "openFacts": []
+      },
+      "message": {
+        "source": "message-test",
+        "from": "sam@example.test",
+        "to": "owner@example.test",
+        "sentAt": "2026-11-09T08:30:00Z",
+        "facts": [
+          {
+            "type": "event",
+            "quote": "Reminder budget review",
+            "conversationKey": "conv-1",
+            "when": [ "2026-11-13T09:00:00Z", "2026-11-13T10:00:00Z" ]
+          }
+        ]
+      }
+    },
+    "gold": {
+      "endState": "duplicate",
+      "target": {
+        "kind": "commitment",
+        "id": "c1"
+      }
+    }
+  },
+  {
+    "id": "event-reminder-second-occurrence",
+    "tags": [ "golden", "reminder-of-confirmation", "recurring-neighbour" ],
+    "note": "A reminder of the second of two weekly occurrences names the later one.",
+    "input": {
+      "now": "2026-11-09T09:00:00Z",
+      "timezone": "UTC",
+      "plan": {
+        "commitments": [
+          {
+            "id": "c1",
+            "title": "Team sync",
+            "startsAt": "2026-11-12T10:00:00Z",
+            "endsAt": "2026-11-12T11:00:00Z"
+          },
+          {
+            "id": "c2",
+            "title": "Team sync",
+            "startsAt": "2026-11-19T10:00:00Z",
+            "endsAt": "2026-11-19T11:00:00Z"
+          }
+        ],
+        "actions": [],
+        "projects": [],
+        "contacts": [],
+        "aliases": [],
+        "openFacts": []
+      },
+      "message": {
+        "source": "message-test",
+        "from": "sam@example.test",
+        "to": "owner@example.test",
+        "sentAt": "2026-11-09T08:30:00Z",
+        "facts": [
+          {
+            "type": "event",
+            "quote": "Reminder the team sync",
+            "conversationKey": "conv-1",
+            "when": [ "2026-11-19T10:00:00Z", "2026-11-19T11:00:00Z" ]
+          }
+        ]
+      }
+    },
+    "gold": {
+      "endState": "duplicate",
+      "target": {
+        "kind": "commitment",
+        "id": "c2"
+      }
+    }
+  },
+  {
+    "id": "deadline-confirmed-reminder",
+    "tags": [ "golden", "reminder-of-confirmation" ],
+    "note": "Confirming a deadline already on the plan.",
+    "input": {
+      "now": "2026-11-09T09:00:00Z",
+      "timezone": "UTC",
+      "plan": {
+        "commitments": [],
+        "actions": [],
+        "projects": [
+          {
+            "id": "p1",
+            "title": "Grant application",
+            "deadlineAt": "2026-11-30"
+          }
+        ],
+        "contacts": [],
+        "aliases": [],
+        "openFacts": []
+      },
+      "message": {
+        "source": "message-test",
+        "from": "sam@example.test",
+        "to": "owner@example.test",
+        "sentAt": "2026-11-09T08:30:00Z",
+        "facts": [
+          {
+            "type": "deadline",
+            "quote": "Confirming the grant application due",
+            "conversationKey": "conv-1",
+            "when": [ "2026-11-30" ]
+          }
+        ]
+      }
+    },
+    "gold": {
+      "endState": "duplicate",
+      "target": {
+        "kind": "project",
+        "id": "p1"
+      }
+    }
+  },
+  {
+    "id": "deadline-moved-three-days",
+    "tags": [ "golden", "moved-deadline" ],
+    "note": "Short move of an action's deadline: an update, never a second action.",
+    "input": {
+      "now": "2026-11-09T09:00:00Z",
+      "timezone": "UTC",
+      "plan": {
+        "commitments": [],
+        "actions": [
+          {
+            "id": "a1",
+            "title": "Quarterly report",
+            "deadlineAt": "2026-11-20"
+          }
+        ],
+        "projects": [],
+        "contacts": [],
+        "aliases": [],
+        "openFacts": []
+      },
+      "message": {
+        "source": "message-test",
+        "from": "sam@example.test",
+        "to": "owner@example.test",
+        "sentAt": "2026-11-09T08:30:00Z",
+        "facts": [
+          {
+            "type": "deadline",
+            "quote": "Quarterly report due moved",
+            "conversationKey": "conv-1",
+            "when": [ "2026-11-23" ]
+          }
+        ]
+      }
+    },
+    "gold": {
+      "endState": "applied",
+      "op": "update",
+      "target": {
+        "kind": "action",
+        "id": "a1"
+      },
+      "mustNot": [ "create" ]
+    }
+  },
+  {
+    "id": "deadline-moved-project-fortnight",
+    "tags": [ "golden", "moved-deadline" ],
+    "note": "A project deadline that moves by two weeks.",
+    "input": {
+      "now": "2026-11-09T09:00:00Z",
+      "timezone": "UTC",
+      "plan": {
+        "commitments": [],
+        "actions": [],
+        "projects": [
+          {
+            "id": "p1",
+            "title": "Grant application",
+            "deadlineAt": "2026-11-30"
+          }
+        ],
+        "contacts": [],
+        "aliases": [],
+        "openFacts": []
+      },
+      "message": {
+        "source": "message-test",
+        "from": "sam@example.test",
+        "to": "owner@example.test",
+        "sentAt": "2026-11-09T08:30:00Z",
+        "facts": [
+          {
+            "type": "deadline",
+            "quote": "Grant application due moved",
+            "conversationKey": "conv-1",
+            "when": [ "2026-12-14" ]
+          }
+        ]
+      }
+    },
+    "gold": {
+      "endState": "applied",
+      "op": "update",
+      "target": {
+        "kind": "project",
+        "id": "p1"
+      },
+      "mustNot": [ "create" ]
+    }
+  },
+  {
+    "id": "deadline-moved-earlier",
+    "tags": [ "golden", "moved-deadline" ],
+    "note": "A deadline pulled forward rather than pushed back.",
+    "input": {
+      "now": "2026-11-09T09:00:00Z",
+      "timezone": "UTC",
+      "plan": {
+        "commitments": [],
+        "actions": [
+          {
+            "id": "a1",
+            "title": "Budget review",
+            "deadlineAt": "2026-12-01"
+          }
+        ],
+        "projects": [],
+        "contacts": [],
+        "aliases": [],
+        "openFacts": []
+      },
+      "message": {
+        "source": "message-test",
+        "from": "sam@example.test",
+        "to": "owner@example.test",
+        "sentAt": "2026-11-09T08:30:00Z",
+        "facts": [
+          {
+            "type": "deadline",
+            "quote": "Budget review due moved",
+            "conversationKey": "conv-1",
+            "when": [ "2026-11-24" ]
+          }
+        ]
+      }
+    },
+    "gold": {
+      "endState": "applied",
+      "op": "update",
+      "target": {
+        "kind": "action",
+        "id": "a1"
+      },
+      "mustNot": [ "create" ]
+    }
+  },
+  {
+    "id": "sender-picks-first-twin",
+    "tags": [ "golden", "sender-contact", "tie-twins" ],
+    "note": "Twins told apart by who sent it, the other way round.",
+    "input": {
+      "now": "2026-11-09T09:00:00Z",
+      "timezone": "UTC",
+      "plan": {
+        "commitments": [
+          {
+            "id": "c1",
+            "title": "Check in call",
+            "startsAt": "2026-11-12T15:00:00Z",
+            "endsAt": "2026-11-12T15:30:00Z",
+            "contactId": "k2"
+          },
+          {
+            "id": "c2",
+            "title": "Check in call",
+            "startsAt": "2026-11-12T15:00:00Z",
+            "endsAt": "2026-11-12T15:30:00Z",
+            "contactId": "k1"
+          }
+        ],
+        "actions": [],
+        "projects": [],
+        "contacts": [
+          {
+            "id": "k1",
+            "name": "Sam Example",
+            "email": "sam@example.test"
+          },
+          {
+            "id": "k2",
+            "name": "Alex Example",
+            "email": "alex@example.test"
+          }
+        ],
+        "aliases": [],
+        "openFacts": []
+      },
+      "message": {
+        "source": "message-test",
+        "from": "alex@example.test",
+        "to": "owner@example.test",
+        "sentAt": "2026-11-09T08:30:00Z",
+        "facts": [
+          {
+            "type": "event",
+            "quote": "Check in call",
+            "conversationKey": "conv-1",
+            "when": [ "2026-11-12T15:00:00Z", "2026-11-12T15:30:00Z" ]
+          }
+        ]
+      }
+    },
+    "gold": {
+      "endState": "duplicate",
+      "target": {
+        "kind": "commitment",
+        "id": "c1"
+      }
+    }
+  },
+  {
+    "id": "sender-unknown-between-twins",
+    "tags": [ "golden", "sender-contact", "tie-twins" ],
+    "note": "A sender who is nobody's contact does not break the tie: ask.",
+    "input": {
+      "now": "2026-11-09T09:00:00Z",
+      "timezone": "UTC",
+      "plan": {
+        "commitments": [
+          {
+            "id": "c1",
+            "title": "Check in call",
+            "startsAt": "2026-11-12T15:00:00Z",
+            "endsAt": "2026-11-12T15:30:00Z",
+            "contactId": "k2"
+          },
+          {
+            "id": "c2",
+            "title": "Check in call",
+            "startsAt": "2026-11-12T15:00:00Z",
+            "endsAt": "2026-11-12T15:30:00Z",
+            "contactId": "k1"
+          }
+        ],
+        "actions": [],
+        "projects": [],
+        "contacts": [
+          {
+            "id": "k1",
+            "name": "Sam Example",
+            "email": "sam@example.test"
+          },
+          {
+            "id": "k2",
+            "name": "Alex Example",
+            "email": "alex@example.test"
+          }
+        ],
+        "aliases": [],
+        "openFacts": []
+      },
+      "message": {
+        "source": "message-test",
+        "from": "pat@example.test",
+        "to": "owner@example.test",
+        "sentAt": "2026-11-09T08:30:00Z",
+        "facts": [
+          {
+            "type": "event",
+            "quote": "Check in call",
+            "conversationKey": "conv-1",
+            "when": [ "2026-11-12T15:00:00Z", "2026-11-12T15:30:00Z" ]
+          }
+        ]
+      }
+    },
+    "gold": {
+      "endState": "asked",
+      "mustNot": [ "apply" ]
+    }
+  },
+  {
+    "id": "sender-matches-neither-twin",
+    "tags": [ "golden", "sender-contact", "tie-twins" ],
+    "note": "Both twins belong to the same contact, so the sender cannot tell them apart: ask.",
+    "input": {
+      "now": "2026-11-09T09:00:00Z",
+      "timezone": "UTC",
+      "plan": {
+        "commitments": [
+          {
+            "id": "c1",
+            "title": "Check in call",
+            "startsAt": "2026-11-12T15:00:00Z",
+            "endsAt": "2026-11-12T15:30:00Z",
+            "contactId": "k1"
+          },
+          {
+            "id": "c2",
+            "title": "Check in call",
+            "startsAt": "2026-11-12T15:00:00Z",
+            "endsAt": "2026-11-12T15:30:00Z",
+            "contactId": "k1"
+          }
+        ],
+        "actions": [],
+        "projects": [],
+        "contacts": [
+          {
+            "id": "k1",
+            "name": "Sam Example",
+            "email": "sam@example.test"
+          },
+          {
+            "id": "k2",
+            "name": "Alex Example",
+            "email": "alex@example.test"
+          }
+        ],
+        "aliases": [],
+        "openFacts": []
+      },
+      "message": {
+        "source": "message-test",
+        "from": "sam@example.test",
+        "to": "owner@example.test",
+        "sentAt": "2026-11-09T08:30:00Z",
+        "facts": [
+          {
+            "type": "event",
+            "quote": "Check in call",
+            "conversationKey": "conv-1",
+            "when": [ "2026-11-12T15:00:00Z", "2026-11-12T15:30:00Z" ]
+          }
+        ]
+      }
+    },
+    "gold": {
+      "endState": "asked",
+      "mustNot": [ "apply" ]
+    }
   }
 ]

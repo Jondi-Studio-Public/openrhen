@@ -237,6 +237,20 @@ export function newApplies(deterministic: readonly RunResult[], other: readonly 
     .sort();
 }
 
+/**
+ * Cases an adversarial chooser turned into a wrong duplicate (a restatement pinned to the wrong
+ * record) that the deterministic path did not. Unlike a wrong apply this is not forbidden, since a
+ * weak judge can mislead a duplicate verdict, but it is tracked so it can only shrink.
+ */
+export function newWrongDuplicates(deterministic: readonly RunResult[], other: readonly RunResult[]): string[] {
+  const wrong = (r: RunResult) => r.outcome.endState === "duplicate" && !isCorrect(r.testCase.gold, r.outcome);
+  const before = new Set(deterministic.filter(wrong).map((r) => r.testCase.id));
+  return other
+    .filter((r) => wrong(r) && !before.has(r.testCase.id))
+    .map((r) => r.testCase.id)
+    .sort();
+}
+
 export const RATCHETED = ["appliedPrecision", "recallAt5", "noJudgeShare"] as const;
 
 /** What fell below baseline. `tolerance` is a share of a rate; the fixed golden suite is exact, so 0. */

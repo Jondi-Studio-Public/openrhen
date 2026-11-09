@@ -96,6 +96,8 @@ const isDateOnly = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
 
 function localDateOf(value: string, timezone: string): string {
   if (isDateOnly(value)) return value;
+  // An instant in UTC already carries its local date; the formatter is for every other zone.
+  if (timezone === "UTC" && value.endsWith("Z")) return value.slice(0, 10);
   const parts = wallClockFormat(timezone).formatToParts(new Date(value));
   const pick = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
   return `${pick("year")}-${pick("month")}-${pick("day")}`;
