@@ -4,8 +4,6 @@
  * database and no clock of its own. The health reader feeds these rows; the doctor and the attention feed print them.
  * See docs/architecture/activity-store.md, "Coverage", and docs/operations/posting-messages.md.
  */
-import { END_STATES, type EndState } from "../planning/replay/replay-case.js";
-
 const HOUR_MS = 3_600_000;
 const DAY_MS = 24 * HOUR_MS;
 
@@ -137,12 +135,12 @@ export function coverageNote(
 // ---------------------------------------------------------------------------------------------------------------------
 
 /**
- * The five places a collected message can end up. The same words the replay harness scores, so one vocabulary covers the
- * harness and the live report. `no_effect` always carries a reason in the collector's or reader's own words; there is
+ * The five places a collected message can end up. The same words the replay harness scores (`END_STATES` in planning/replay; a test
+ * fails if the two drift), kept here because the data-flow module imports no planning code. `no_effect` always carries a reason in the collector's or reader's own words; there is
  * no preset list of reasons.
  */
-export const MESSAGE_END_STATES = END_STATES;
-export type MessageEndState = EndState;
+export const MESSAGE_END_STATES = ["applied", "duplicate", "asked", "no_effect", "unresolved"] as const;
+export type MessageEndState = (typeof MESSAGE_END_STATES)[number];
 
 /** `integration_sync_runs.provider` for a reader or reconciler pass over a source: `reconcile:<source>`. */
 export const PROCESSING_RUN_PREFIX = "reconcile:";

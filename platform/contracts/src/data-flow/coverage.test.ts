@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { END_STATES } from "../planning/replay/replay-case.js";
 import {
   COVERAGE_DEFAULT_WARN_HOURS,
   MESSAGE_END_STATES,
@@ -94,7 +95,7 @@ describe("processing end states", () => {
     ...extra
   });
   it("uses the replay harness's five end states", () => {
-    expect(MESSAGE_END_STATES).toEqual(["applied", "duplicate", "asked", "no_effect", "unresolved"]);
+    expect(MESSAGE_END_STATES).toEqual(END_STATES);
   });
   it("reads a run summary and fills the message total", () => {
     expect(parseProcessingRun(run({ applied: 2, no_effect: 3 }, { noEffectReasons: { newsletter: 3 } }))).toMatchObject(

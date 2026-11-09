@@ -6,17 +6,10 @@ import {
   type DoctorSourceInput,
   type DoctorSourcesSlice
 } from "@openrhen/contracts";
-import {
-  PROCESSING_RUN_PREFIX,
-  dataFlowGraph,
-  dataFlowRegistry,
-  summarizeProcessing,
-  type FlowEntry,
-  type ProcessingReport
-} from "@openrhen/contracts/data-flow";
+import { dataFlowGraph, dataFlowRegistry, type FlowEntry } from "@openrhen/contracts/data-flow";
 import { log } from "@/server/logging";
 import type { Sql } from "@/server/persistence/postgres/sql-pool";
-import { readHealth } from "./health-reader";
+import { readHealth, readProcessing } from "./health-reader";
 import { SCHEMA_TABLES } from "./schema-tables";
 
 /**
@@ -29,8 +22,6 @@ import { SCHEMA_TABLES } from "./schema-tables";
 
 const DAY_MS = 86_400_000;
 const IMPORT_WINDOW_DAYS = 30;
-/** The processing report covers this many days of messages collected and of runs recorded. */
-const PROCESSING_WINDOW_DAYS = 30;
 
 const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
 
@@ -67,58 +58,6 @@ const changesPlan = (entry: FlowEntry) =>
   entry.changesPlan === true ||
   (entry.activitySource !== undefined && activitySourceEntry(entry.activitySource)?.family === ACTIVITY_MESSAGE_FAMILY);
 
-/**
- * Messages collected against messages that reached an end state, for each message source. Collected is the inbound
- * message rows of the last 30 days; decided is what the passes recorded as `reconcile:<source>` runs over the same
- * days (see `parseProcessingRun`). A source with neither is left out.
- */
-async function readProcessing(
-  sql: Sql,
-  now: Date,
-  owner: string,
-  present: readonly FlowEntry[]
-): Promise<ProcessingReport[]> {
-  const names = new Map<string, string>();
-  for (const entry of present) {
-    const source = entry.activitySource;
-    if (source === undefined || names.has(source)) continue;
-    if (changesPlan(entry) || coverageScopeRequiredFor(activitySourceEntry(source))) names.set(source, entry.name);
-  }
-  if (names.size === 0) return [];
-  const sources = [...names.keys()];
-  const since = new Date(now.getTime() - PROCESSING_WINDOW_DAYS * DAY_MS);
-  const [collected, runs] = await Promise.all([
-    sql<{ source: string; n: number }[]>`
-      SELECT source, count(*)::int AS n FROM activity_events
-      WHERE user_id = ${owner} AND source IN ${sql(sources)} AND kind = 'message' AND ingested_at > ${since}
-        AND COALESCE(attrs->>'from_self', 'false') <> 'true'
-      GROUP BY source`,
-    sql<{ provider: string; started_at: Date; summary: unknown }[]>`
-      SELECT provider, started_at, summary FROM integration_sync_runs
-      WHERE user_id = ${owner} AND provider IN ${sql(sources.map((source) => `${PROCESSING_RUN_PREFIX}${source}`))}
-        AND started_at > ${since}
-      ORDER BY started_at DESC`
-  ]);
-  const reports: ProcessingReport[] = [];
-  for (const source of sources) {
-    const mine = runs
-      .filter((run) => run.provider === `${PROCESSING_RUN_PREFIX}${source}`)
-      .map((run) => ({ at: run.started_at.toISOString(), summary: run.summary }));
-    const total = collected.find((row) => row.source === source)?.n ?? 0;
-    if (total === 0 && mine.length === 0) continue;
-    reports.push(
-      summarizeProcessing({
-        source,
-        name: names.get(source)!,
-        windowDays: PROCESSING_WINDOW_DAYS,
-        collected: total,
-        runs: mine
-      })
-    );
-  }
-  return reports;
-}
-
 export async function readSourcesSlice(sql: Sql, now: Date, userId: string): Promise<DoctorSourcesSlice> {
   const startedAt = Date.now();
   try {
@@ -128,7 +67,17 @@ export async function readSourcesSlice(sql: Sql, now: Date, userId: string): Pro
     const [health, imports, processing] = await Promise.all([
       readHealth(sql, { now, entries: registry.entries, userId }),
       latestImports(sql, now, userId),
-      readProcessing(sql, now, userId, present)
+      readProcessing(
+        sql,
+        now,
+        userId,
+        present.flatMap((entry) =>
+          changesPlan(entry) ||
+          (entry.activitySource !== undefined && coverageScopeRequiredFor(activitySourceEntry(entry.activitySource)))
+            ? [{ source: entry.activitySource!, name: entry.name }]
+            : []
+        )
+      )
     ]);
     const unused = graph.unused();
     const unusedIds = new Set(unused.entries.filter((item) => item.bucket === "unused").map((item) => item.id));

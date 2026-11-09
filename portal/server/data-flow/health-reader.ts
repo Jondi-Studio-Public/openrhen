@@ -7,7 +7,10 @@ import {
 } from "@openrhen/contracts";
 import {
   classifyFreshness,
+  PROCESSING_RUN_PREFIX,
   coverageNote,
+  summarizeProcessing,
+  type ProcessingReport,
   mergeScopes,
   scopeCoverage,
   type CoverageWindow,
@@ -45,6 +48,8 @@ const PROBE_DEADLINE_MS = 15_000;
 const HISTORY_DAYS = 45;
 /** A coverage claim older than this cannot be live (the contract refuses live windows that start earlier). */
 const COVERAGE_DAYS = 400;
+/** The processing report covers this many days of messages collected and of runs recorded. */
+const PROCESSING_WINDOW_DAYS = 30;
 const LEARN_DAYS = 30;
 /** A kind that has been quiet for longer than this many times its warning is retired, not late. */
 const KIND_RETIRED_FACTOR = 2;
@@ -833,6 +838,53 @@ function lateKindsOf(outcome: Raw, now: number): LateKind[] {
 function learnedFrom(outcome: Raw) {
   const learned = outcome.arrivals ? learnThreshold(outcome.arrivals) : null;
   return learned ? { ...learned, days: Math.max(learned.days, outcome.historyDays ?? 0) } : null;
+}
+
+/**
+ * Messages collected against messages that reached an end state, for each message source given. Collected is the inbound
+ * message rows of the last 30 days; decided is what the passes recorded as `reconcile:<source>` runs over the same days
+ * (see `parseProcessingRun`). A source with neither is left out. Lives here with the other readers of the activity store.
+ */
+export async function readProcessing(
+  sql: Sql,
+  now: Date,
+  owner: string,
+  sources: readonly { source: string; name: string }[]
+): Promise<ProcessingReport[]> {
+  const names = new Map(sources.map((item) => [item.source, item.name] as const));
+  if (names.size === 0) return [];
+  const list = [...names.keys()];
+  const since = new Date(now.getTime() - PROCESSING_WINDOW_DAYS * 86_400_000);
+  const [collected, runs] = await Promise.all([
+    sql<{ source: string; n: number }[]>`
+      SELECT source, count(*)::int AS n FROM activity_events
+      WHERE user_id = ${owner} AND source IN ${sql(list)} AND kind = 'message' AND ingested_at > ${since}
+        AND COALESCE(attrs->>'from_self', 'false') <> 'true'
+      GROUP BY source`,
+    sql<{ provider: string; started_at: Date; summary: unknown }[]>`
+      SELECT provider, started_at, summary FROM integration_sync_runs
+      WHERE user_id = ${owner} AND provider IN ${sql(list.map((source) => `${PROCESSING_RUN_PREFIX}${source}`))}
+        AND started_at > ${since}
+      ORDER BY started_at DESC`
+  ]);
+  const reports: ProcessingReport[] = [];
+  for (const source of list) {
+    const mine = runs
+      .filter((run) => run.provider === `${PROCESSING_RUN_PREFIX}${source}`)
+      .map((run) => ({ at: run.started_at.toISOString(), summary: run.summary }));
+    const total = collected.find((row) => row.source === source)?.n ?? 0;
+    if (total === 0 && mine.length === 0) continue;
+    reports.push(
+      summarizeProcessing({
+        source,
+        name: names.get(source)!,
+        windowDays: PROCESSING_WINDOW_DAYS,
+        collected: total,
+        runs: mine
+      })
+    );
+  }
+  return reports;
 }
 
 export async function readHealth(sql: Sql, options: HealthOptions): Promise<HealthResult> {
