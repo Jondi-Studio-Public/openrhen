@@ -24,6 +24,7 @@ import {
 } from "./routine-inheritance.js";
 import { sweepMootRoutineSteps } from "./routine-step-mootness.js";
 import { deriveProjectPace } from "./completion-ratios.js";
+import { refitConsequenceIfStale } from "../consequence/refit.js";
 import { notifyStateChanged } from "./state-changed.js";
 import { recordNudgeShadow } from "./plan-nudge-shadow.js";
 import { readJourneySummary } from "./journey-summary.js";
@@ -168,6 +169,25 @@ export async function buildPlanForecastRequest(
     for (const project of state.projects) {
       const update = updates.get(project.id);
       if (update) Object.assign(project, update);
+    }
+    // The day-roll refresh of the comparison-derived consequence (comparison-consequence-ranking design, 3.5): answers
+    // age by calendar day, so a plan built on a new day first refits any value fitted on an earlier one. The values the
+    // refit wrote are folded into this request, so the persisted rows and the engine's input agree, like the pace above.
+    // A failed refit changes nothing and the engine falls back to stars for any value it cannot trust.
+    if (userId) {
+      const refit = await refitConsequenceIfStale(sql, userId, at, state.settings.timezone);
+      if (refit?.ok)
+        for (const record of [...state.projects, ...state.actions]) {
+          if (!refit.changed.has(record.id)) continue;
+          const next = refit.changed.get(record.id);
+          if (next) {
+            record.consequenceRefined = next.value;
+            record.consequenceRefinedForStars = next.forStars;
+          } else {
+            delete record.consequenceRefined;
+            delete record.consequenceRefinedForStars;
+          }
+        }
     }
   }
   // The journey summary is built here, alongside project pace, whenever there is both a database

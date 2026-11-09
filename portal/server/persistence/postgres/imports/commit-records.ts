@@ -1,3 +1,4 @@
+import { refitConsequenceNow } from "@openrhen/database";
 import { aliasTitleNorm, type ImportRecord, type PrerequisiteKind } from "@openrhen/contracts";
 import { IMPORT_ENTITY_ORDER } from "@/features/imports/import-spec";
 import { fieldValue } from "@/features/imports/import-validation";
@@ -185,6 +186,10 @@ export async function commitRecords(
   // Judged once, over the graph as this transaction leaves it: a prerequisite can close a loop through
   // action and deliverable dependencies or through a project's children, which no one table shows.
   if (records.some((item) => item.entityType === "entity_prerequisite")) await assertNoPrerequisiteCycle(sql, userId);
+  // New projects and actions, or a changed title, deadline or definition of done, change what stored comparison answers
+  // are about; refit in this transaction so the stored consequence matches (a failed refit cannot fail the commit).
+  if (records.some((item) => ["outcome", "project", "action"].includes(item.entityType)))
+    await refitConsequenceNow(sql, userId);
 }
 
 /** The two ends of an `entity_prerequisite` record as stored ids, or null when either key is unmapped. */

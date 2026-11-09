@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./integrations/*": "./src/integrations/*.ts",
     "./zoned-time": "./src/zoned-time.ts",
+    "./consequence-fit": "./src/planning/consequence-fit.ts",
     "./commitment-repeat": "./src/planning/commitment-repeat.ts",
     "./commitment-repeat-falls-on": "./src/planning/commitment-repeat-falls-on.ts",
     "./readiness": "./src/readiness.ts",
