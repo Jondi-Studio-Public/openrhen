@@ -1214,6 +1214,7 @@ export {
   ACTIVITY_HEALTH_SCOPE,
   ACTIVITY_CONTENT_GATE_NOTE,
   ACTIVITY_CONTENT_MAX_BYTES,
+  ACTIVITY_DEVICES_WINDOW_DAYS,
   ACTIVITY_CORRECTION_KIND,
   ACTIVITY_DEVICE_MAX_CHARS,
   ACTIVITY_FILENAME_MAX_CHARS,
@@ -1285,6 +1286,7 @@ export {
 } from "./activity-physiology.js";
 export type { PhysiologyEventInput } from "./activity-physiology.js";
 export type {
+  ActivityDeviceSummary,
   ActivityEventInput,
   ActivityHeldEntry,
   ActivityEventRow,

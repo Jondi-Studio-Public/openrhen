@@ -1,4 +1,5 @@
 import {
+  ACTIVITY_DEVICES_WINDOW_DAYS,
   ACTIVITY_HEALTH_SCOPE,
   ACTIVITY_PURGE_BATCH,
   ACTIVITY_READ_DEFAULT_LIMIT,
@@ -8,10 +9,12 @@ import {
   ACTIVITY_SOURCE_NAMES,
   DERIVED_EXTRACTOR_KINDS,
   PHYSIOLOGY_SOURCE,
+  activityHealthSources,
   isKnownActivitySource,
   validateActivityEvent,
   type ActivityEventRow,
   type ActivityEventsPage,
+  type ActivityDeviceSummary,
   type ActivityExtractorSummary,
   type ActivityHeldEntry,
   type ActivityIngestResult,
@@ -338,8 +341,43 @@ export async function listActivityImports(sql: Sql, limit = 50) {
   return importsList(sql, await ensureUser(sql), limit);
 }
 
+/**
+ * Health-class sources by device, kind and collector over the last 30 days: one range scan of
+ * `activity_events_user_source_time_idx` (user, source, ts_start), then a group. Nothing is stored for it, so it cannot
+ * drift from the rows. At about 300 rows a day per device that is about 10k rows per device.
+ */
+async function healthDevices(sql: Sql, userId: string, now: Date): Promise<ActivityDeviceSummary[]> {
+  const since = new Date(now.getTime() - ACTIVITY_DEVICES_WINDOW_DAYS * 86_400_000);
+  const rows = await sql<
+    {
+      source: string;
+      device: string | null;
+      kind: string;
+      ingested_via: string | null;
+      last_event: Date;
+      last_ingested: Date;
+      n: number;
+    }[]
+  >`
+    SELECT source, COALESCE(attrs->>'device', attrs->>'source_name', device) AS device, kind, ingested_via,
+           max(COALESCE(ts_end, ts_start)) AS last_event, max(ingested_at) AS last_ingested, count(*)::int AS n
+    FROM activity_events
+    WHERE user_id = ${userId} AND source IN ${sql(activityHealthSources())} AND ts_start >= ${since}
+    GROUP BY source, COALESCE(attrs->>'device', attrs->>'source_name', device), kind, ingested_via
+    ORDER BY source, device NULLS FIRST, kind, ingested_via NULLS FIRST`;
+  return rows.map((row) => ({
+    source: row.source,
+    device: row.device,
+    kind: row.kind,
+    ingestedVia: row.ingested_via,
+    lastEventAt: row.last_event.toISOString(),
+    lastIngestedAt: row.last_ingested.toISOString(),
+    rows30d: row.n
+  }));
+}
+
 /** Counts and the last event per source, with each source's settings, and the most recent imports. */
-export async function readActivitySummary(sql: Sql): Promise<ActivitySummary> {
+export async function readActivitySummary(sql: Sql, now: Date = new Date()): Promise<ActivitySummary> {
   const userId = await ensureUser(sql);
   const counts = await sql<{ source: string; n: number; last_start: Date | null; last_ingested: Date | null }[]>`
     SELECT source, count(*)::int AS n, max(COALESCE(ts_end, ts_start)) AS last_start, max(ingested_at) AS last_ingested
@@ -369,6 +407,7 @@ export async function readActivitySummary(sql: Sql): Promise<ActivitySummary> {
   });
   const { extractors, derivedBehind } = await extractorSummaries(sql, userId);
   return {
+    devices: await healthDevices(sql, userId, now),
     derivedBehind,
     extractors,
     sources,

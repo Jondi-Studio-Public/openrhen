@@ -712,8 +712,8 @@ describe("physiology rows", () => {
     expect(await count()).toBe(0);
   });
 
-  it("accepts a batch of about 1.5 MB of worst-case rows inside the request cap", async () => {
-    const rows = Array.from({ length: 400 }, (_, n) => {
+  it("accepts a batch of about 250 worst-case rows (about 1.5 MB) inside the request cap", async () => {
+    const rows = Array.from({ length: 250 }, (_, n) => {
       const start = hourStart(n);
       return {
         id: `hrv|band-1|${start}|v0`,
@@ -727,22 +727,25 @@ describe("physiology rows", () => {
           collector_version: "1.2.3",
           unit: "ms",
           method: "rmssd",
-          step_s: 15,
-          values: Array.from({ length: 240 }, (_, i) => 40.5 + (i % 20) / 10),
+          unit_raw: "milliseconds",
+          // The worst case: 240 irregular one-decimal readings with their offsets and a flags list.
+          step_s: null,
+          t: Array.from({ length: 240 }, (_, i) => i * 14),
+          values: Array.from({ length: 240 }, (_, i) => 100.5 + (i % 20) / 10),
           flags: Array.from({ length: 240 }, () => null),
           n: 240,
-          min: 40.5,
-          max: 42.4,
-          avg: 41.45,
-          coverage_s: 3600,
-          src_step_s: 15
+          min: 100.5,
+          max: 102.4,
+          avg: 101.45,
+          coverage_s: 3360,
+          src_step_s: 14
         }
       };
     });
     const bytes = new TextEncoder().encode(JSON.stringify({ schema: 1, events: rows })).length;
     expect(bytes).toBeGreaterThan(1_000_000);
     expect(bytes).toBeLessThanOrEqual(1.5 * 1024 * 1024);
-    expect(await ingest(rows)).toMatchObject({ added: 400, rejected: [], held: [] });
+    expect(await ingest(rows)).toMatchObject({ added: 250, rejected: [], held: [] });
   });
 });
 
@@ -841,4 +844,132 @@ describe("a real database token reads health rows only with read:activity-health
     expect(full.events.map((row) => row.source).sort()).toEqual(["apple-health", "physiology", "rhen-watch"]);
     expect(full).not.toHaveProperty("withheld");
   });
+});
+
+describe("the per-device view of health sources in the summary", () => {
+  const at = (iso: string) => new Date(iso);
+  const clock = at("2026-11-07T12:00:00.000Z");
+  const steps = (device: string, hour: number, extra: Record<string, unknown> = {}) => {
+    const start = new Date(Date.parse("2026-11-05T00:00:00.000Z") + hour * 3_600_000).toISOString();
+    return {
+      id: `steps|${device}|${start}|v0`,
+      source: "physiology",
+      kind: "steps",
+      start,
+      attrs: { device, route: "app", v: 0, steps: 10 },
+      ...extra
+    };
+  };
+  const devices = async () => (await readActivitySummary(sql, clock)).devices;
+
+  it("is empty when no health source holds a row", async () => {
+    await ingest([event("a")]);
+    expect(await devices()).toEqual([]);
+  });
+
+  it("groups by source, device, kind and collector, and counts rows with the last event and ingest times", async () => {
+    await ingest([steps("band-1", 0), steps("band-1", 1), steps("band-2", 0)], {}, "phone-app");
+    await ingest([steps("band-1", 2)], {}, "file-export");
+    const list = await devices();
+    expect(list.map((d) => [d.source, d.device, d.kind, d.ingestedVia, d.rows30d])).toEqual([
+      ["physiology", "band-1", "steps", "file-export", 1],
+      ["physiology", "band-1", "steps", "phone-app", 2],
+      ["physiology", "band-2", "steps", "phone-app", 1]
+    ]);
+    const phone = list.find((d) => d.device === "band-1" && d.ingestedVia === "phone-app")!;
+    expect(phone.lastEventAt).toBe("2026-11-05T01:00:00.000Z");
+    expect(phone.lastIngestedAt).toMatch(/^2026-|^20\d\d-/);
+  });
+
+  it("ends a period row's last event at its end when it has one", async () => {
+    await ingest([steps("band-1", 0, { end: "2026-11-05T01:00:00.000Z" })]);
+    expect((await devices())[0]!.lastEventAt).toBe("2026-11-05T01:00:00.000Z");
+  });
+
+  it("keeps the owner's own posts apart as a null collector", async () => {
+    await ingest([steps("band-1", 0)], {}, null);
+    expect((await devices())[0]).toMatchObject({ device: "band-1", ingestedVia: null });
+  });
+
+  it("looks back 30 days only", async () => {
+    await ingest([
+      { ...steps("band-1", 0), id: "steps|band-1|2026-10-01T00:00:00.000Z|v0", start: "2026-10-01T00:00:00.000Z" },
+      steps("band-1", 0)
+    ]);
+    expect((await devices())[0]!.rows30d).toBe(1);
+  });
+
+  it("maps the legacy sources: attrs.source_name, else the device column", async () => {
+    await ingest(
+      [
+        {
+          id: "ah1",
+          source: "apple-health",
+          kind: "steps",
+          start: "2026-11-06T10:00:00Z",
+          attrs: { source_name: "watch" }
+        }
+      ],
+      {},
+      "export-tool"
+    );
+    await ingest(
+      [{ id: "ih1", source: "iphone-health", kind: "steps_day", start: "2026-11-06T00:00:00Z" }],
+      { device: "iphone-14" },
+      "shortcut"
+    );
+    const list = await devices();
+    expect(list.find((d) => d.source === "apple-health")).toMatchObject({
+      device: "watch",
+      kind: "steps",
+      ingestedVia: "export-tool",
+      rows30d: 1
+    });
+    expect(list.find((d) => d.source === "iphone-health")).toMatchObject({
+      device: "iphone-14",
+      kind: "steps_day",
+      ingestedVia: "shortcut"
+    });
+  });
+
+  it("leaves other sources out", async () => {
+    await ingest([event("a"), steps("band-1", 0)]);
+    expect((await devices()).map((d) => d.source)).toEqual(["physiology"]);
+  });
+
+  it("answers within a bounded time at 100k rows in the window, using the (user, source, time) index", async () => {
+    await sql`
+      INSERT INTO activity_events (user_id, source, kind, event_key, device, ts_start, attrs, ingested_via)
+      SELECT ${userId}, 'physiology', (ARRAY['heart_rate', 'steps', 'hrv', 'sleep'])[1 + n % 4], 'k' || n,
+             'x', '2026-11-07T12:00:00Z'::timestamptz - (n % 2000) * interval '20 minutes',
+             jsonb_build_object('device', 'band-' || (n % 5)), 'collector-' || (n % 3)
+      FROM generate_series(1, 100000) AS n`;
+    // Rows of other sources and older rows surround the window and must not be scanned into it.
+    await sql`
+      INSERT INTO activity_events (user_id, source, kind, event_key, ts_start, attrs)
+      SELECT ${userId}, 'rhen-watch', 'foreground', 'w' || n, '2026-11-07T12:00:00Z'::timestamptz - n * interval '1 minute', '{}'::jsonb
+      FROM generate_series(1, 50000) AS n`;
+    await sql`ANALYZE activity_events`;
+    const began = performance.now();
+    const list = (await readActivitySummary(sql, clock)).devices;
+    const took = performance.now() - began;
+    expect(list.reduce((total, d) => total + d.rows30d, 0)).toBe(
+      (
+        await sql<
+          { n: number }[]
+        >`SELECT count(*)::int AS n FROM activity_events WHERE source = 'physiology' AND ts_start >= '2026-10-08T12:00:00Z'`
+      )[0]!.n
+    );
+    expect(list.length).toBeLessThanOrEqual(5 * 4 * 3);
+    expect(took).toBeLessThan(3000);
+    // The window here holds nearly every physiology row, so the planner may scan. For a window that is a small part of
+    // the table (a day of it here) the same predicate shape must be served by the (user, source, ts_start) index.
+    const plan = await sql.begin(async (tx) => {
+      await tx`SET LOCAL enable_seqscan = off`;
+      return tx.unsafe<{ "QUERY PLAN": string }[]>(
+        `EXPLAIN SELECT 1 FROM activity_events WHERE user_id = '${userId}' AND source IN ('apple-health', 'iphone-health', 'physiology') AND ts_start >= '2026-11-06T12:00:00Z'`
+      );
+    });
+    expect(plan.map((row) => row["QUERY PLAN"]).join("\n")).toMatch(/activity_events_user_source_time_idx/);
+  }, 60_000);
 });
