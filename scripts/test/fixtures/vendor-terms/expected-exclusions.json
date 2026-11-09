@@ -1,5 +1,5 @@
 {
-  "_comment": "The exact, closed exemption lists of rules/vendor-terms.json (paths only; hashes live in the rule config). Only the slices the plan names may add to them.",
+  "_comment": "The exact, closed exemption lists of rules/vendor-terms.json, hashes included: editing a frozen file and its hash together fails the test until this file is edited too, which a reviewer sees. Only the slices the plan names may add to them.",
   "history": {
     "paths": ["CHANGELOG.md", "pnpm-lock.yaml", "platform/database/src/operations/legacy-value-moves.json"],
     "globs": ["LICENSES/**"]
@@ -7,13 +7,42 @@
   "snapshots": ["platform/database/drizzle/meta/*_snapshot.json", "platform/database/drizzle/meta/_journal.json"],
   "lastAppliedMigration": 151,
   "migrations": [
-    "platform/database/drizzle/0139_openrhen_baseline.sql",
-    "platform/database/drizzle/0145_watch_history.sql",
-    "platform/database/drizzle/0146_app_secrets.sql",
-    "platform/database/drizzle/0151_derived_settings_and_calls.sql"
+    {
+      "path": "platform/database/drizzle/0139_openrhen_baseline.sql",
+      "sha256": "a8e84ac6a85e44f63c2716bb42d07388b87be4aa40c52674d076e2be346ba234"
+    },
+    {
+      "path": "platform/database/drizzle/0145_watch_history.sql",
+      "sha256": "6c834416b1ae76634ae2c068f2bdd90620801babd2925a174364da0c803b6045"
+    },
+    {
+      "path": "platform/database/drizzle/0146_app_secrets.sql",
+      "sha256": "eafdbc5b94c79b36609cade757114d710f56bb215482c988678a269010609aba"
+    },
+    {
+      "path": "platform/database/drizzle/0151_derived_settings_and_calls.sql",
+      "sha256": "abf8323daae83e87a287d3f5694c482d6c7a184ba187d1f025a68a53b8bae9b5"
+    }
   ],
   "migrationHistoryTests": [],
-  "legal": ["NOTICE", "GOVERNANCE.md", ".github/CODEOWNERS", "REUSE.toml"],
+  "legal": [
+    {
+      "path": "NOTICE",
+      "sha256": "365be30ce5908f30d41adbfd1e1182f0487817c254243dc09b3fcbff799b6ede"
+    },
+    {
+      "path": "GOVERNANCE.md",
+      "sha256": "515b69666c123b0d3e5e6686155620272dcc8255db54ebf67efc84c85b9cbde6"
+    },
+    {
+      "path": ".github/CODEOWNERS",
+      "sha256": "6a526e0f6037385929138c5a89aecccb1ce43b160f58dc696a20240825308849"
+    },
+    {
+      "path": "REUSE.toml",
+      "sha256": "55ed5e6323771a6bb1ab19b9fba89b5f7c25b94aabc94068840e4ea3e77cc895"
+    }
+  ],
   "archivePrefix": "docs/archive/",
   "archive": [],
   "own": {

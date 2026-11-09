@@ -70,7 +70,7 @@ function run(c, args = []) {
     write(dir, c.files ?? {});
     git(dir, "add", "-A");
     if (c.commitAfter) git(dir, "commit", "-q", "-m", "after");
-    return vendorTerms({ root: dir, args, base: "base" });
+    return vendorTerms({ root: dir, args, base: c.baseRef ?? "base", env: c.env ?? { CI: "" } });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -207,9 +207,9 @@ test("the exemption lists are exactly the closed lists this test expects", () =>
       history: e.history,
       snapshots: e.snapshots,
       lastAppliedMigration: e.lastAppliedMigration,
-      migrations: e.migrations.map((entry) => entry.path),
+      migrations: e.migrations,
       migrationHistoryTests: e.migrationHistoryTests,
-      legal: e.legal.map((entry) => entry.path),
+      legal: e.legal,
       archivePrefix: e.archivePrefix,
       archive: e.archive.map((entry) => entry.path),
       own: e.own
@@ -260,5 +260,29 @@ test("a tree that is not a git repository (the add-on conformance copy) is scann
     assert.ok(!errors.some((e) => e.includes("node_modules") || e.includes("tsbuildinfo")), errors.join("\n"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the pinned hashes catch an edited frozen file whose hash was edited with it", () => {
+  const expected = readJson(join(fixtures, "expected-exclusions.json"));
+  const edited = structuredClone(config.exclusions.legal);
+  edited[0].sha256 = "0".repeat(64);
+  assert.notDeepEqual(edited, expected.legal);
+  const editedMigrations = structuredClone(config.exclusions.migrations);
+  editedMigrations[0].sha256 = "0".repeat(64);
+  assert.notDeepEqual(editedMigrations, expected.migrations);
+});
+
+test("the defaults, schema files and lanes only grow: every pinned entry is still there", () => {
+  const pinned = readJson(join(fixtures, "pinned-terms.json"));
+  const strip = ({ why: _why, ...rest }) => JSON.stringify(rest);
+  for (const entry of pinned.defaults) {
+    const now = config.defaults.find((candidate) => candidate.id === entry.id);
+    assert.ok(now && strip(now) === strip(entry), `default ${entry.id} was removed or changed`);
+  }
+  for (const file of pinned.schemaFiles) assert.ok(config.schema.files.includes(file), `${file} left schema.files`);
+  for (const entry of pinned.lanes) {
+    const globs = config.lanes.filter((lane) => lane.lane === entry.lane).flatMap((lane) => lane.globs);
+    for (const glob of entry.globs) assert.ok(globs.includes(glob), `lane ${entry.lane} lost ${glob}`);
   }
 });

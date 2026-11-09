@@ -52,5 +52,109 @@
       "word": ["codex", "windsurf"]
     },
     "pathWords": ["chrome"]
-  }
+  },
+  "defaults": [
+    {
+      "id": "port-11434",
+      "pattern": "11434",
+      "skipTests": true,
+      "why": "Ollama's default port"
+    },
+    {
+      "id": "embedding-size",
+      "pattern": "1,?024|EMBEDDING_DIMENSIONS",
+      "countBy": "line",
+      "alsoOnLine": "dim|vector|embed",
+      "skipTests": true,
+      "skipExtensions": [".md"],
+      "why": "A fixed embedding size fits one model only"
+    }
+  ],
+  "schemaFiles": ["platform/database/src/schema/core.ts", "platform/contracts/src/secrets.ts"],
+  "lanes": [
+    {
+      "lane": "G",
+      "globs": ["package.json"]
+    },
+    {
+      "lane": "Y",
+      "globs": [
+        "compose*.yaml",
+        ".env.example",
+        "**/Dockerfile*",
+        "pnpm-workspace.yaml",
+        "addons/**",
+        ".github/workflows/**",
+        "**/tsconfig*.json",
+        ".*",
+        "*.yaml",
+        "*.yml",
+        "*.json",
+        "*.toml",
+        "*.cjs",
+        "*.js",
+        "*.mjs"
+      ]
+    },
+    {
+      "lane": "F",
+      "globs": ["platform/contracts/src/data-flow/entries/**", "portal/server/data-flow/**"]
+    },
+    {
+      "lane": "W",
+      "globs": ["engine/worker/**", "platform/database/src/planning/**"]
+    },
+    {
+      "lane": "D",
+      "globs": [
+        "platform/database/drizzle/**",
+        "platform/database/src/schema/**",
+        "platform/database/src/operations/**"
+      ]
+    },
+    {
+      "lane": "K",
+      "globs": ["platform/contracts/**"]
+    },
+    {
+      "lane": "P",
+      "globs": ["integrations/outbound-proxy/**"]
+    },
+    {
+      "lane": "X",
+      "globs": ["integrations/addon-example/**"]
+    },
+    {
+      "lane": "I",
+      "globs": ["integrations/activity-importers/**", "integrations/communication-readers/**", "tools/cli/**"]
+    },
+    {
+      "lane": "T",
+      "globs": ["tools/rhen-watch/**"]
+    },
+    {
+      "lane": "E",
+      "globs": ["engine/core/**", "engine/service/**"]
+    },
+    {
+      "lane": "H",
+      "globs": ["portal/server/**", "portal/app/**", "portal/integrations/**"]
+    },
+    {
+      "lane": "U",
+      "globs": ["portal/features/**", "portal/components/**", "portal/state/**"]
+    },
+    {
+      "lane": "S",
+      "globs": ["scripts/{smoke,selfhost,ops,ci,deploy}/**"]
+    },
+    {
+      "lane": "G",
+      "globs": ["scripts/repository/**", "scripts/test/**", "scripts/addon/**"]
+    },
+    {
+      "lane": "docs",
+      "globs": ["docs/**", "*.md", "LICENSES/**"]
+    }
+  ]
 }

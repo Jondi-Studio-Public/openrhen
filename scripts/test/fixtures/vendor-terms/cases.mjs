@@ -75,7 +75,44 @@ export const CASES = [
   {
     name: "a migration 0160_x.sql that inserts a provider",
     files: { [migration]: "INSERT INTO t (source) VALUES ('google');\n" },
-    expect: [/0160_x\.sql:1 names a vendor \(google\) outside a RENAME or DROP line/]
+    expect: [/0160_x\.sql:1 names a vendor \(google\) outside a RENAME or DROP statement/]
+  },
+  {
+    name: "an insert with a trailing drop comment in a new migration",
+    files: { [migration]: "INSERT INTO t VALUES ('google'); -- drop\n" },
+    expect: [/0160_x\.sql:1 names a vendor \(google\) outside a RENAME or DROP statement/]
+  },
+  {
+    name: "a vendor term next to a DROP on one line of a new migration",
+    files: { [migration]: "INSERT INTO t VALUES ('google'); ALTER TABLE t DROP COLUMN youtube_key;\n" },
+    expect: [/0160_x\.sql:1 names a vendor \(google\)/]
+  },
+  {
+    name: "a narrowed defaults entry",
+    configAfter: (config) => {
+      config.defaults = config.defaults.slice(1);
+    },
+    expect: [/default "port-11434" .* removed or changed/]
+  },
+  {
+    name: "a narrowed schema file list",
+    configAfter: (config) => {
+      config.schema.files = config.schema.files.slice(1);
+    },
+    expect: [/schema\.files .* lost platform\/database\/src\/schema\/core\.ts/]
+  },
+  {
+    name: "a narrowed lane pattern",
+    configAfter: (config) => {
+      config.lanes[0].globs = [];
+    },
+    expect: [/Lane G .* lost the pattern package\.json/]
+  },
+  {
+    name: "CI with a base commit that cannot be found",
+    baseRef: "no-such-commit",
+    env: { CI: "1" },
+    expect: [/commit to compare against could not be found.*CI must not skip it/s]
   },
   {
     name: "a migration that renames a vendor column and also inserts one",
@@ -218,6 +255,16 @@ export const CASES = [
   },
   // ---------------------------------------------------------------- must pass
   { name: "the clean baseline", files: {} },
+  {
+    name: "an unfindable base outside CI is skipped with a note",
+    baseRef: "no-such-commit",
+    env: { CI: "" },
+    files: {}
+  },
+  {
+    name: "a plain RENAME TO of a vendor-named table",
+    files: { [migration]: "ALTER TABLE google_t RENAME TO account_t; -- was google\n" }
+  },
   {
     name: "a lower-case outlook and browser chrome",
     files: { "src/week.ts": "// the week outlook panel, browser chrome\n" }

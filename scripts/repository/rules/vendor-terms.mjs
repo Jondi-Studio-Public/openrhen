@@ -123,7 +123,7 @@ function hasHead(root) {
 // origin/main, else the first parent (CI checks a pull request out as a merge commit). null = nothing to compare to.
 export function resolveBase(root, ctx = {}) {
   const explicit = ctx.base ?? ctx.env?.VENDOR_TERMS_BASE ?? process.env.VENDOR_TERMS_BASE;
-  if (explicit) return explicit;
+  if (explicit) return gitOk(root, ["rev-parse", "--verify", "-q", `${explicit}^{commit}`]) === null ? null : explicit;
   if (!hasHead(root)) return null;
   const mergeBase = gitOk(root, ["merge-base", "HEAD", "origin/main"])?.trim();
   if (mergeBase) return mergeBase;
@@ -255,11 +255,16 @@ export function measure(root, config, tokenRows, { skip = new Set() } = {}) {
       // RENAME or DROP line (A7's copy-then-drop statement is added to this rule by A7).
       const lines = text.split("\n");
       lines.forEach((line, index) => {
-        if (/\b(?:RENAME|DROP)\b/i.test(line)) return;
-        const hit = countMatches(line, patterns.terms) + countMatches(line, patterns.capitalised);
+        // Comments never exempt anything. Only the RENAME or DROP statement itself (with the table it alters) is exempt;
+        // a vendor term elsewhere on the same line still counts.
+        const code = line
+          .replace(/\/\*.*?\*\//g, " ")
+          .replace(/--.*$/, "")
+          .replace(/(?:ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?\S+\s+)?\b(?:RENAME|DROP)\b[^;]*;?/gi, " ");
+        const hit = countMatches(code, patterns.terms) + countMatches(code, patterns.capitalised);
         if (hit)
           errors.push(
-            `${path}:${index + 1} names a vendor (${samplesOf(line, patterns.terms).join(", ")}) outside a RENAME or DROP line. A migration may mention a vendor-named object only to rename or drop it. Use a neutral name, or see ${ADDON_DOC}.`
+            `${path}:${index + 1} names a vendor (${samplesOf(code, patterns.terms).join(", ")}) outside a RENAME or DROP statement. A migration may mention a vendor-named object only to rename or drop it (a comment does not count). Use a neutral name, or see ${ADDON_DOC}.`
           );
       });
       continue;
@@ -368,6 +373,35 @@ function checkTermSets(root, base, config) {
   return errors;
 }
 
+// defaults, schema.files and lanes only grow either: a base entry must survive unchanged (the `why` text may change).
+function checkGrowOnly(root, base, config) {
+  const errors = [];
+  if (!base) return errors;
+  const before = showAtBase(root, base, CONFIG);
+  if (before === null) return errors;
+  const old = JSON.parse(before);
+  const strip = ({ why: _why, ...rest }) => rest;
+  for (const entry of old.defaults ?? []) {
+    const now = (config.defaults ?? []).find((candidate) => candidate.id === entry.id);
+    if (!now || JSON.stringify(strip(now)) !== JSON.stringify(strip(entry)))
+      errors.push(
+        `The default "${entry.id}" in ${CONFIG} was removed or changed. The provider-default patterns only grow: restore it and add a new entry for anything new.`
+      );
+  }
+  for (const file of old.schema?.files ?? []) {
+    if (!config.schema.files.includes(file))
+      errors.push(`schema.files in ${CONFIG} lost ${file}. The schema files only grow: restore it.`);
+  }
+  for (const entry of old.lanes ?? []) {
+    const globs = new Set(config.lanes.filter((lane) => lane.lane === entry.lane).flatMap((lane) => lane.globs));
+    for (const glob of entry.globs) {
+      if (!globs.has(glob))
+        errors.push(`Lane ${entry.lane} in ${CONFIG} lost the pattern ${glob}. Lane patterns only grow: restore it.`);
+    }
+  }
+  return errors;
+}
+
 export default function vendorTerms(ctx) {
   const root = ctx.root;
   const args = ctx.args ?? [];
@@ -391,7 +425,17 @@ export default function vendorTerms(ctx) {
   }
 
   const base = resolveBase(root, ctx);
-  errors.push(...checkTermSets(root, base, config));
+  errors.push(...checkTermSets(root, base, config), ...checkGrowOnly(root, base, config));
+  const ci = ctx.env?.CI ?? process.env.CI;
+  if (!base && head && ci) {
+    errors.push(
+      "The commit to compare against could not be found, so the lane-total check cannot run, and CI must not skip it. Fetch more history (for example `fetch-depth: 2` or `git fetch origin main`) or set VENDOR_TERMS_BASE to a commit that exists."
+    );
+  } else if (!base && head) {
+    console.warn(
+      "vendor-terms: no base commit found, so the lane-total and term-set comparisons were skipped (fetch origin/main or set VENDOR_TERMS_BASE to run them)."
+    );
+  }
 
   const skip = composedSkips(root);
   const result = measure(root, config, tokenRows, { skip });
