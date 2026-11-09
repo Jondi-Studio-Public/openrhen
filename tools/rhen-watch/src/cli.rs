@@ -444,6 +444,13 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
     let engine = engine::Engine::new(settings, catalogue, ids::generator(now_ms));
     let dropped = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let mut run = runner::Runner::new(win::WinSys, engine, store, device, dropped.clone(), cfg.clone());
+    run.set_categories(if category_error.is_some() {
+        "degraded"
+    } else if d.join("categories.toml").exists() {
+        "file"
+    } else {
+        "default"
+    });
 
     let (tx, rx) = std::sync::mpsc::sync_channel::<runner::Raw>(1024);
     let (mut hooks, missing) = win::Hooks::start(tx, cfg.collectors.foreground, cfg.collectors.session, cfg.collectors.power)?;
@@ -482,7 +489,7 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
     }));
     // Whatever happened, close what is open so the report shows an honest end. This comes before the hooks
     // are torn down so a console close or logoff handler waiting on `STOPPED` is released as early as possible.
-    let stopped = run.stop();
+    let stopped = if result.is_err() { run.stop_after_panic() } else { run.stop() };
     win::STOPPED.store(true, Ordering::SeqCst);
     hooks.stop();
     match result {

@@ -657,3 +657,39 @@ fn derive_exposes_nothing_network_or_server_facing_and_uses_neutral_names() {
         }
     }
 }
+
+#[test]
+fn a_short_block_that_fails_the_minimum_does_not_swallow_the_block_after_it() {
+    // code 8, chrome 2, code 1, chrome 8: the work run reaches only 9 active minutes, but the browser
+    // block that starts at the first chrome minute has 10.
+    let mut b = run("code.exe", 100, 108);
+    b.extend(run("chrome.exe", 108, 110));
+    b.extend(run("code.exe", 110, 111));
+    b.extend(run("chrome.exe", 111, 119));
+    let f = blocks_of(&b, &params());
+    assert_eq!(f.blocks.len(), 1, "{:?}", f.blocks);
+    assert_eq!((f.blocks[0].group.as_str(), f.blocks[0].active_minutes), ("browser", 10));
+}
+
+#[test]
+fn a_shutdown_overnight_does_not_make_the_next_day_partial() {
+    // The agent stopped at 23:00 the evening before and started at 08:00; every minute since was watched.
+    let b = run("code.exe", 480, 1020);
+    let before = |kind: &str| ev("agent", kind, at(-60), at(480), json!({"reason": "agent not running"}));
+    let ev_app = app("code.exe", at(480), at(1020));
+    for kind in ["unknown", "off"] {
+        let f = facts_until(&b, &[ev_app.clone(), before(kind)], at(0), at(1440), at(1020), None, &params());
+        assert_eq!((f.partial, f.unknown_minutes), (false, 0), "{kind}");
+    }
+}
+
+#[test]
+fn time_the_agent_was_off_is_known_not_unknown() {
+    // off from 10:00 to 12:00 inside the day
+    let mut b = run("code.exe", 540, 600);
+    b.extend(run("code.exe", 720, 780));
+    let off = ev("agent", "off", at(600), at(720), json!({"reason": "agent stopped"}));
+    let apps = [app("code.exe", at(540), at(600)), app("code.exe", at(720), at(780)), off];
+    let f = facts_until(&b, &apps, at(0), at(1440), at(780), None, &params());
+    assert_eq!((f.partial, f.unknown_minutes), (false, 0));
+}

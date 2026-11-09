@@ -245,17 +245,19 @@ fn is_interruption(source: &str, kind: &str) -> bool {
         ("session", "locked")
             | ("power", "suspended")
             | ("agent", "paused")
+            | ("agent", "off")
             | ("agent", "unknown")
             | ("agent", "clock_jump")
             | ("foreground", "suppressed")
     )
 }
 
-/// Time that is accounted for although nobody was polling: a lock, a suspend, a pause, a game.
+/// Time that is accounted for although nobody was polling: a lock, a suspend, a pause, a game, or the
+/// agent stopped on purpose.
 fn is_explained(source: &str, kind: &str) -> bool {
     matches!(
         (source, kind),
-        ("session", "locked") | ("power", "suspended") | ("agent", "paused") | ("foreground", "suppressed")
+        ("session", "locked") | ("power", "suspended") | ("agent", "paused") | ("agent", "off") | ("foreground", "suppressed")
     )
 }
 
@@ -502,10 +504,11 @@ pub fn derive(input: &DeriveInput) -> DayFacts {
         .iter()
         .map(|b| b.minute_ts)
         .chain(spans.iter().map(|((s, _), _)| *s))
-        .filter(|&t| t < input.to)
+        // Only records that start inside the day: a gap row that began the evening before (an overnight
+        // shutdown) must not stretch the recorded part back to midnight.
+        .filter(|&t| t >= input.from && t < input.to)
         .min()
-        .unwrap_or(input.from)
-        .max(input.from);
+        .unwrap_or(input.from);
     let rec_from = first_recorded.div_euclid(MINUTE_MS);
     let rec_to = ((input.open_until.min(input.to) + MINUTE_MS - 1).div_euclid(MINUTE_MS)).max(rec_from);
     let mut unknown = 0u32;
@@ -551,11 +554,11 @@ fn blocks_in(entries: &[(i64, String)], p: &Params) -> Vec<RawBlock> {
         if consumed[i] {
             continue;
         }
-        consumed[i] = true;
         let g = runs[i].group.clone();
         let (first, mut last_to) = (runs[i].from, runs[i].to);
         let mut active = runs[i].len();
         let (mut detours, mut detour_minutes) = (0u32, 0u32);
+        let mut last_run = i;
         let mut j = i + 1;
         loop {
             // The visit elsewhere: every run up to the next one in this group.
@@ -573,9 +576,7 @@ fn blocks_in(entries: &[(i64, String)], p: &Params) -> Vec<RawBlock> {
             if new_detour * 100 > p.detour_share_percent * new_active {
                 break;
             }
-            for c in consumed.iter_mut().take(k + 1).skip(j) {
-                *c = true;
-            }
+            last_run = k;
             active = new_active;
             detour_minutes = new_detour;
             detours += 1;
@@ -583,6 +584,10 @@ fn blocks_in(entries: &[(i64, String)], p: &Params) -> Vec<RawBlock> {
             j = k + 1;
         }
         if active >= p.min_block_minutes {
+            // Only a block that qualifies uses up its runs; one that fails leaves its detours free to start their own.
+            for c in consumed.iter_mut().take(last_run + 1).skip(i) {
+                *c = true;
+            }
             out.push(RawBlock {
                 group: g,
                 first,
