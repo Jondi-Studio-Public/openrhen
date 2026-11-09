@@ -363,6 +363,10 @@ export function isKnownScope(scope: string): boolean {
     // Health-class sources (physiology, apple-health, iphone-health) are withheld from a read unless the token also holds this
     // scope. Deliberately not in SCOPES_SUPPORTED (portal/server/mcp-oauth.ts): a default OAuth grant never includes it.
     knownScopes.add("read:activity-health");
+    // Whereabouts-class sources (location, indoor, place) are withheld the same way, and likewise kept out of SCOPES_SUPPORTED.
+    knownScopes.add("read:activity-whereabouts");
+    // Writing the owner's place model (rooms, links, names). Its rows will count as owner rows once the place-owner source maps to it. Not in SCOPES_SUPPORTED.
+    knownScopes.add("write:place-model");
     // Writing derived rows an extractor produces (fact, msg_class). Never override or fact_status: those need write:activity-event.
     knownScopes.add("write:activity-derived");
     knownScopes.add("write:plan-map");

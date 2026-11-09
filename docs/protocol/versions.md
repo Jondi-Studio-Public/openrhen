@@ -22,6 +22,7 @@ A backup carries a format number and a format string. The writer currently write
 These exist but no test reads them, so this page cannot be kept in step by a test. Treat them as `unstable`.
 
 - `settings.version`, a row version used to detect concurrent edits, not a schema version.
+- The activity read response: `withheldClasses` (a count per source class) sits beside `withheld`, and `withheldNote` names the missing scope per class. Additive; `withheld` keeps its shape.
 - Stored key shapes. Imported records are keyed `<provider>:shift:` style, a provider id then a kind then an id. A new add-on picks its own provider id; changing a key shape orphans the records already stored under it.
 
 ## Upgrading stored data
