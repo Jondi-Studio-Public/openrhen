@@ -1,5 +1,6 @@
 import type postgres from "postgres";
 import { fitConsequence, isConsequenceFitActive } from "@openrhen/contracts/consequence-fit";
+import { CONSEQUENCE_WORDINGS, isPlaceholderEvidence } from "@openrhen/contracts/consequence-question";
 import { loadComparisons, loadPoolRows, pgArrayLiteral, type ConsequencePool } from "./pool-load.js";
 import { nextConsequenceGroup, PAIR_COOLDOWN_DAYS, type GroupCandidate } from "./next-group.js";
 import { inTransaction, lockConsequencePool, lockConsequencePools, refitConsequence, userLocalDay } from "./refit.js";
@@ -15,7 +16,7 @@ import { localDay, usableComparisons, type ComparisonBasis } from "./usable-comp
  */
 type Sql = postgres.Sql | postgres.TransactionSql;
 
-export const QUESTION_WORDINGS = ["only_finish_one", "most_regret_not_doing"] as const;
+export const QUESTION_WORDINGS = CONSEQUENCE_WORDINGS;
 export type QuestionWording = (typeof QUESTION_WORDINGS)[number];
 
 export type ComparisonErrorCode =
@@ -27,10 +28,19 @@ export type ComparisonErrorCode =
   | "basis_not_allowed"
   | "idempotency_conflict";
 
+/** The group a refusal is about (the one the answer named, or the one waiting for an answer), so a caller can build the exact next call. */
+export interface ComparisonErrorGroup {
+  groupId: string;
+  itemIds: string[];
+  /** The group can no longer be answered (answered already, or an item is gone), so the next call asks for a new group. */
+  askNext?: boolean;
+}
+
 export class ConsequenceComparisonError extends Error {
   constructor(
     readonly code: ComparisonErrorCode,
-    message: string
+    message: string,
+    readonly group?: ComparisonErrorGroup
   ) {
     super(message);
     this.name = "ConsequenceComparisonError";
@@ -163,6 +173,10 @@ export interface RecordComparisonInput {
   /** The owner's words, required for an agent's `stated` answer. */
   evidence?: string | null;
   idempotencyKey: string;
+  /** When sent, must be the wording the group was asked under. */
+  wording?: string;
+  /** The answer comes from an agent-facing caller: a group holding a private item is treated as not issued to it. */
+  agentFacing?: boolean;
   now?: Date;
 }
 
@@ -238,48 +252,77 @@ export async function recordComparison(
       SELECT ${issuedColumns(tx)} FROM consequence_groups_issued
       WHERE id::text = ${input.groupId} AND user_id = ${userId} FOR UPDATE`;
     const group = groups[0];
-    if (!group) {
-      const waiting = await tx<IssuedRow[]>`
+    // A group with a private item was never shown to an agent-facing caller, so to it the group does not exist: decide
+    // that before any message names the group or its ids.
+    const hasPrivate = async (candidate: IssuedRow) =>
+      (await loadPoolRows(tx, userId, candidate.pool)).some(
+        (row) => candidate.item_ids.includes(row.id) && row.private
+      );
+    if (!group || (input.agentFacing && (await hasPrivate(group)))) {
+      let waiting: IssuedRow | undefined;
+      for (const candidate of await tx<IssuedRow[]>`
         SELECT ${issuedColumns(tx)} FROM consequence_groups_issued
-        WHERE user_id = ${userId} AND answered_at IS NULL ORDER BY issued_at DESC, id LIMIT 1`;
+        WHERE user_id = ${userId} AND answered_at IS NULL ORDER BY issued_at DESC, id`) {
+        if (input.agentFacing && (await hasPrivate(candidate))) continue;
+        waiting = candidate;
+        break;
+      }
       throw new ConsequenceComparisonError(
         "group_not_found",
         `No group ${input.groupId} was issued to you. ${
-          waiting[0]
-            ? `The group waiting for an answer is ${describeGroup(waiting[0])}: answer that one with its groupId and exactly those ids.`
+          waiting
+            ? `The group waiting for an answer is ${describeGroup(waiting)}: answer that one with its groupId and exactly those ids.`
             : "Nothing is waiting for an answer: ask for the next group, then answer it with the groupId it returns."
-        }`
+        }`,
+        waiting ? { groupId: waiting.id, itemIds: waiting.item_ids } : undefined
       );
     }
     if (group.answered_at) {
       throw new ConsequenceComparisonError(
         "group_already_answered",
-        `Group ${group.id} was already answered (comparison ${group.answered_comparison_id}). A group can be answered once: ask for the next group and answer that.`
+        `Group ${group.id} was already answered (comparison ${group.answered_comparison_id}). A group can be answered once: ask for the next group and answer that.`,
+        { groupId: group.id, itemIds: group.item_ids, askNext: true }
       );
     }
+    if (input.wording !== undefined && input.wording !== group.wording)
+      throw new ConsequenceComparisonError(
+        "bad_input",
+        `Group ${group.id} was asked as "${group.wording}", not "${input.wording}". Leave wording out, or send "${group.wording}".`,
+        { groupId: group.id, itemIds: group.item_ids }
+      );
     if (!tie) {
       const expected = [...group.item_ids].sort();
       const sent = [...ranking!].sort();
       if (expected.length !== sent.length || expected.some((id, index) => id !== sent[index]))
         throw new ConsequenceComparisonError(
           "ranking_mismatch",
-          `rankedIds does not match ${describeGroup(group)}. Send exactly its ${group.item_ids.length} ids, each once, best first (the one you would most regret not finishing first), or tie: true. You sent: ${ranking!.join(", ")}.`
+          `rankedIds does not match ${describeGroup(group)}. Send exactly its ${group.item_ids.length} ids, each once, best first (the one you would most regret not finishing first), or tie: true. You sent: ${ranking!.join(", ")}.`,
+          { groupId: group.id, itemIds: group.item_ids }
         );
     }
     if (input.answeredBy === "person" && input.basis !== "stated")
       throw new ConsequenceComparisonError(
         "basis_not_allowed",
-        'A person\'s answer has basis "stated". Resend it with basis: "stated".'
+        'A person\'s answer has basis "stated". Resend it with basis: "stated".',
+        { groupId: group.id, itemIds: group.item_ids }
       );
     if (input.answeredBy === "agent" && input.basis === "stated" && !input.evidence?.trim())
       throw new ConsequenceComparisonError(
         "basis_not_allowed",
-        'A "stated" answer from an agent needs the owner\'s own words as evidence. Resend with evidence set to what they said, or with basis "observed" (seen in their behaviour, with evidence) or "inferred" (your guess, counted at half weight).'
+        'A "stated" answer from an agent needs the owner\'s own words as evidence. Resend with evidence set to what they said, or with basis "observed" (seen in their behaviour, with evidence) or "inferred" (your guess, counted at half weight).',
+        { groupId: group.id, itemIds: group.item_ids }
       );
     if (input.answeredBy === "agent" && input.basis === "observed" && !input.evidence?.trim())
       throw new ConsequenceComparisonError(
         "basis_not_allowed",
-        'An "observed" answer needs evidence naming what was observed. Resend with evidence set.'
+        'An "observed" answer needs evidence naming what was observed. Resend with evidence set.',
+        { groupId: group.id, itemIds: group.item_ids }
+      );
+    if (input.basis !== "inferred" && input.evidence != null && isPlaceholderEvidence(input.evidence))
+      throw new ConsequenceComparisonError(
+        "basis_not_allowed",
+        `The evidence "${input.evidence.trim()}" is a placeholder (text in <angle brackets>), not what was said or seen. A "${input.basis}" answer is counted in full, so it needs the person's actual words (or, for "observed", what you saw them do). Resend with evidence set to those words, or with basis "inferred" (your own guess, counted at half weight).`,
+        { groupId: group.id, itemIds: group.item_ids }
       );
 
     const rows = await loadPoolRows(tx, userId, group.pool);
@@ -291,7 +334,8 @@ export async function recordComparison(
     if (gone.length)
       throw new ConsequenceComparisonError(
         "items_changed",
-        `${describeGroup(group)} can no longer be answered: ${gone.join(", ")} ${gone.length === 1 ? "is" : "are"} no longer active. Ask for the next group.`
+        `${describeGroup(group)} can no longer be answered: ${gone.join(", ")} ${gone.length === 1 ? "is" : "are"} no longer active. Ask for the next group.`,
+        { groupId: group.id, itemIds: group.item_ids, askNext: true }
       );
     const stars = group.item_ids.map((id) => byId.get(id)!.stars);
     const hashes = group.item_ids.map((id) => byId.get(id)!.materialHash);

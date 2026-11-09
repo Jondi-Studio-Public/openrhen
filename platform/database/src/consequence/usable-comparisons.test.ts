@@ -219,4 +219,22 @@ describe("usable comparisons: staleness", () => {
       { id: "2", reason: "bad_row" }
     ]);
   });
+
+  it("ignores a skipped tie by its nature, even when a ranking was stored beside it", () => {
+    const result = usableComparisons(
+      ITEMS,
+      [
+        answer("1", "2026-11-09T01:00:00Z", { tie: true, ranking: ["d", "c", "b", "a"], basis: "stated" }),
+        answer("2", "2026-11-09T02:00:00Z", { tie: true, ranking: null, basis: "inferred" })
+      ],
+      DAY,
+      "UTC"
+    );
+    expect(result.comparisons).toEqual([]);
+    expect([...result.touchedIds]).toEqual([]);
+    expect(result.dropped).toEqual([
+      { id: "1", reason: "tie" },
+      { id: "2", reason: "tie" }
+    ]);
+  });
 });

@@ -542,6 +542,11 @@ describe("coverage of core entry points (PR A2)", () => {
     }
   });
 
+  it("keeps the consequence answers reaching the engine through the refit reader", () => {
+    const graph = withoutContractsExtensions(() => dataFlowGraph(coreTables));
+    expect(graph.reach("portal-consequence-ranking").map((r) => r.surface)).toContain("surface:engine");
+  });
+
   it("fails a rule when any present entry is removed", () => {
     // Entries whose removal another test catches, not a coverage rule.
     const CAUGHT_ELSEWHERE: Record<string, string> = {
@@ -555,7 +560,8 @@ describe("coverage of core entry points (PR A2)", () => {
       "snapshots-view": "the data pages test (page claimed, tables read)",
       "doctor-view": "the data pages test (page claimed, tables read)",
       "agent-review-view": "the data pages test (page claimed, tables read)",
-      "deliverables-view": "the data pages test (page claimed, tables read)"
+      "deliverables-view": "the data pages test (page claimed, tables read)",
+      "consequence-refit": "the consequence test: answers still reach the engine through the refit reader"
     };
     const survivors = core
       .filter((entry) => entry.planned === undefined && !(entry.id in CAUGHT_ELSEWHERE))

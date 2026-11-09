@@ -39,6 +39,32 @@ export const MANUAL_ENTRIES: readonly FlowEntry[] = [
     health: { kind: "max", table: "writes", column: "created_at" }
   }),
   flow({
+    id: "portal-consequence-ranking",
+    name: "Consequence ranking answers",
+    role: "source",
+    category: "manual",
+    method: "manual",
+    trigger: { kind: "on-request", by: "owner" },
+    code: { routes: ["POST /api/commands/consequence"] },
+    from: ["ext:owner"],
+    to: pg(["consequence_comparisons", "consequence_groups_issued"]),
+    incidentalWrites: [{ table: "writes", reason: "the change ledger entry for the command" }],
+    health: { kind: "max", table: "consequence_comparisons", column: "answered_at" }
+  }),
+  flow({
+    id: "consequence-refit",
+    name: "Consequence refit",
+    role: "reader",
+    category: "manual",
+    method: "derived",
+    trigger: { kind: "on-request", by: "owner" },
+    gives: "refined consequence ratings the engine ranks by",
+    from: pg(["consequence_comparisons", "consequence_groups_issued"]),
+    to: pg(["projects", "actions"]),
+    value: { note: "the refit rewrites the refined consequence columns" },
+    health: { kind: "none", reason: "runs inside the ranking command; its source has the probe" }
+  }),
+  flow({
     id: "portal-check-ins",
     name: "Check-ins and re-entry",
     role: "source",

@@ -57,7 +57,8 @@ export const SAVE_ENTITY_KINDS = [
   "current_availability",
   "sleep_log_entry",
   "capture_review",
-  "deliverable_contract_review"
+  "deliverable_contract_review",
+  "comparison"
 ] as const;
 export type SaveEntityKind = (typeof SAVE_ENTITY_KINDS)[number];
 
@@ -586,6 +587,16 @@ const captureReviewSchema = entity({
     .describe("tentative confirms a commitment as maybe; only for fixed_commitment proposals.")
 });
 
+const comparisonSchema = entity({
+  groupId: z.string().min(1).describe("The group being answered, from the compare room of rhen_inbox."),
+  rankedIds: stringList.optional().describe("Every id of the group once, best first. Leave out with tie."),
+  tie: z.boolean().optional().describe("true when the person says they are equal or cannot decide."),
+  wording: z
+    .enum(["only_finish_one", "most_regret_not_doing"])
+    .optional()
+    .describe("The group's wording; optional, refused if it differs from the one it was asked under.")
+});
+
 const deliverableContractReviewSchema = entity({
   id: z.string().min(1).describe("The pending requirement proposal being reviewed."),
   decision: z.enum(["confirm", "ignore"]),
@@ -625,7 +636,8 @@ export const ENTITY_FIELD_SCHEMAS: Record<SaveEntityKind, z.ZodObject<any>> = {
   current_availability: currentAvailabilitySchema,
   sleep_log_entry: sleepLogEntrySchema,
   capture_review: captureReviewSchema,
-  deliverable_contract_review: deliverableContractReviewSchema
+  deliverable_contract_review: deliverableContractReviewSchema,
+  comparison: comparisonSchema
 };
 
 /** The top-level field names `kind` accepts (writable and read-only). */

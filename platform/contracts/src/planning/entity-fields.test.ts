@@ -62,12 +62,13 @@ const minimal: Record<SaveEntityKind, Record<string, unknown>> = {
   current_availability: { currentEnergy: "high", currentSituation: { locationId: "home" } },
   sleep_log_entry: { sleepAt: at, wakeAt: later },
   capture_review: { id: "cap1", proposalType: "action", draft: { title: "Run" } },
-  deliverable_contract_review: { id: "prop1", decision: "ignore" }
+  deliverable_contract_review: { id: "prop1", decision: "ignore" },
+  comparison: { groupId: "g1", rankedIds: ["a", "b", "c", "d"] }
 };
 
 describe("ENTITY_FIELD_SCHEMAS", () => {
   it("has a schema for every save entity kind", () => {
-    expect(SAVE_ENTITY_KINDS).toHaveLength(19);
+    expect(SAVE_ENTITY_KINDS).toHaveLength(20);
     expect(Object.keys(ENTITY_FIELD_SCHEMAS).sort()).toEqual([...SAVE_ENTITY_KINDS].sort());
     for (const kind of SAVE_ENTITY_KINDS) expect(entityFieldNames(kind).length).toBeGreaterThan(0);
   });
