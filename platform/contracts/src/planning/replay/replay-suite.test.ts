@@ -181,7 +181,14 @@ describe("generated replay suite against its baseline", () => {
     }
     const twins = at20.filter((r) => r.outcome.tie);
     expect(twins.length).toBeGreaterThanOrEqual(8);
-    for (const r of twins) expect(r.outcome.endState, r.testCase.id).toBe("asked");
+    // A tie is asked, except one a unique sender contact settles, which must land on the gold record.
+    for (const r of twins) {
+      if (r.outcome.tieBrokenBy === "contact") {
+        expect(r.outcome, r.testCase.id).toMatchObject({ endState: "duplicate", target: r.testCase.gold.target });
+      } else {
+        expect(r.outcome.endState, r.testCase.id).toBe("asked");
+      }
+    }
   });
 
   it("calls a chooser only for asked cases, and never on the deterministic path", () => {

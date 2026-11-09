@@ -37,6 +37,8 @@ export interface SourceCommitment {
   allDay: boolean;
   localDate: string;
   status: string;
+  /** The contact the commitment belongs to, when the loader read it (`breakTieByContact` uses it). */
+  contactId?: string | null;
   links: { provider: SourceProvider; externalId: string }[];
 }
 

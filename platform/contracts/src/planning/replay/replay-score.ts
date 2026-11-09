@@ -214,7 +214,12 @@ export function violations(results: readonly RunResult[]): Violations {
   const tieGuess: string[] = [];
   const mustNot: string[] = [];
   for (const { testCase, outcome } of results) {
-    if (outcome.tie && !outcome.usedChooser && (outcome.endState === "applied" || outcome.endState === "duplicate")) {
+    if (
+      outcome.tie &&
+      !outcome.usedChooser &&
+      !outcome.tieBrokenBy &&
+      (outcome.endState === "applied" || outcome.endState === "duplicate")
+    ) {
       tieGuess.push(testCase.id);
     }
     const forbidden = testCase.gold.mustNot ?? [];
