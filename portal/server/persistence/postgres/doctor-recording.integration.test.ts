@@ -48,6 +48,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await sql`DELETE FROM integration_sync_runs`;
+  await sql`DELETE FROM agent_wakes`;
   await sql`UPDATE user_preferences SET device_location_state = '{}'::jsonb WHERE user_id = ${userId}`;
 });
 
@@ -109,5 +110,20 @@ describe("readRecordingSlice", () => {
       ON CONFLICT (user_id) DO UPDATE SET device_location_state = EXCLUDED.device_location_state`;
     const slice = await readRecordingSlice(sql as never, userId);
     expect(slice.phonePing.lastPingAt).toBe("2026-10-18T09:00:00.000Z");
+  });
+
+  it("counts only wakes that went dead in the last 24 hours, with the newest error", async () => {
+    const wake = (key: string, status: string, error: string | null, age: string) => sql`
+      INSERT INTO agent_wakes (user_id, event, target_id, dedupe_key, status, last_error, expires_at, created_at)
+      VALUES (${userId}, 'pulse_lapsed', ${key}, ${key}, ${status}, ${error}, now() + interval '1 day', now() - ${age}::interval)`;
+    expect((await readRecordingSlice(sql as never, userId)).deadAgentWakes).toEqual({ count: 0, lastError: null });
+    await wake("old", "dead", "http 500", "30 hours");
+    await wake("sent", "sent", null, "1 hour");
+    await wake("a", "dead", "expired", "5 hours");
+    await wake("b", "dead", "http 502", "2 hours");
+    expect((await readRecordingSlice(sql as never, userId)).deadAgentWakes).toEqual({
+      count: 2,
+      lastError: "http 502"
+    });
   });
 });

@@ -6,7 +6,8 @@ const hoursAgo = (h: number) => new Date(NOW - h * 3_600_000).toISOString();
 
 const quiet: DoctorRecordingSlice = {
   backup: { status: "synced", lastRunAt: hoursAgo(5), lastSuccessAt: hoursAgo(5) },
-  phonePing: { configured: true, lastPingAt: hoursAgo(2) }
+  phonePing: { configured: true, lastPingAt: hoursAgo(2) },
+  deadAgentWakes: { count: 0, lastError: null }
 };
 
 describe("recordingItems", () => {
@@ -68,5 +69,17 @@ describe("recordingItems", () => {
     expect(recordingItems({ ...quiet, phonePing: silent }, NOW).map((i) => i.id)).toEqual(["location_ping_silent"]);
     expect(recordingItems({ ...quiet, phonePing: { ...silent, configured: false } }, NOW)).toEqual([]);
     expect(recordingItems({ ...quiet, phonePing: { configured: true, lastPingAt: null } }, NOW)).toEqual([]);
+  });
+
+  it("flags dead agent wakes with the latest error and the next call, and is quiet at zero", () => {
+    const dead = { count: 2, lastError: "http 502" };
+    const items = recordingItems({ ...quiet, deadAgentWakes: dead }, NOW);
+    expect(items.map((i) => [i.id, i.tier])).toEqual([["agent_wake_dead", "degrading"]]);
+    expect(items[0]!.title).toBe("2 agent wakes were not delivered in the last 24 h");
+    expect(items[0]!.fix.question).toContain("http 502");
+    expect(items[0]!.fix.question).toContain("priorities_doctor");
+    expect(recordingItems({ ...quiet, deadAgentWakes: { count: 1, lastError: null } }, NOW)[0]!.title).toBe(
+      "1 agent wake was not delivered in the last 24 h"
+    );
   });
 });
