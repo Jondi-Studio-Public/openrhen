@@ -1,6 +1,7 @@
 //! rhen-watch: a local desktop activity recorder. Observation only; it sends nothing anywhere.
 #![cfg_attr(not(windows), allow(dead_code))]
 
+pub mod activity;
 pub mod categories;
 pub mod cli;
 pub mod config;
@@ -16,6 +17,8 @@ pub mod runner;
 pub mod store;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_meter;
 #[cfg(test)]
 mod tests_settings;
 #[cfg(test)]
