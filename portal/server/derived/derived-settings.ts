@@ -1,6 +1,6 @@
 /**
  * Mail-understanding settings (communication understanding, slice 2b-2): the pure part. The defaults mirror the
- * settings table's column defaults and the bounds mirror its CHECK constraints (migration 0150), so a value that
+ * settings table's column defaults and the bounds mirror its CHECK constraints (migration 0151), so a value that
  * passes here cannot be refused by the database. The store (`derived-settings-store.ts`) does the reading and writing.
  *
  * The hosted API key is deliberately not a field: it is a sealed secret saved under Settings > Passwords and keys.

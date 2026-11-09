@@ -140,10 +140,18 @@ const CORE_BACKUP_TABLES = [
   // describes. A format 20 to 23 backup has neither table and restores with them empty (`legacy-backups.ts`).
   "derived_lineage",
   "extractor_state",
-  // Mail-understanding settings and the model-call audit (format 25). Both reference only `users`. The settings are
+  // The comparison log behind comparison-derived consequence (format 25): the groups handed out, then the answers, which
+  // reference them. Authored history nothing regenerates; the `consequence_refined*` columns on projects and actions are
+  // recomputed from it (`consequence/refit.ts`), never the reverse. Item ids in both are plain text with no foreign key
+  // to projects or actions, so a state replace cannot cascade into them, and both reference only `users` (and the
+  // answers their group), which are earlier in this list. A format 20 to 24 backup has neither table and restores with
+  // them empty (`legacy-backups.ts`); the engine never reads them.
+  "consequence_groups_issued",
+  "consequence_comparisons",
+  // Mail-understanding settings and the model-call audit (format 26). Both reference only `users`. The settings are
   // authored (where the local model runs, the hosted caps); the audit is append-only history of what was sent to a
   // model and nothing regenerates it. The hosted API key is NOT here: it is a sealed `app_secrets` row, which a
-  // backup leaves out and a restore empties. A format 20 to 24 backup has neither table and restores with them empty
+  // backup leaves out and a restore empties. A format 20 to 25 backup has neither table and restores with them empty
   // (`legacy-backups.ts`).
   "derived_settings",
   "derived_model_calls"
@@ -242,7 +250,7 @@ export type BackupTables = Record<CoreBackupTable, Record<string, unknown>[]> &
   Record<string, Record<string, unknown>[]>;
 
 /** The format a new backup is written in. A format bump changes this one constant and nothing else. */
-export const CURRENT_BACKUP_FORMAT_VERSION = 25 as const;
+export const CURRENT_BACKUP_FORMAT_VERSION = 26 as const;
 
 /** Only a current-format backup is held to a row-for-row content check on restore (S8-11). */
 export function isContentVerifiedFormat(formatVersion: number): boolean {
@@ -431,7 +439,7 @@ export function validateBackup(value: unknown): OpenRhenBackup {
       throw new Error(`Backup is missing table ${table}`);
   }
   if (checksum(backup.tables) !== backup.sha256) throw new Error("Backup checksum does not match its contents");
-  // Formats 23 to 25 all keep `activity_events` rows in a streamed section.
+  // Formats 23 and later keep `activity_events` rows in a streamed section.
   if (typeof version === "number" && version >= 23) {
     for (const table of STREAMED_BACKUP_TABLES) {
       const section = backup.streamed?.[table];

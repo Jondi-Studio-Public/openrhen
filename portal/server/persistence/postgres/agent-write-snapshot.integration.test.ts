@@ -189,6 +189,27 @@ describe("an update puts the whole before-row back", () => {
     expect((await image("actions", "id = $1", id))!.notes).toBe("Edited by the owner");
   });
 
+  it("undoes after a consequence refit touched the row, and keeps the refit's values", async () => {
+    const projectId = await createProject();
+    const id = await createAction(projectId);
+    const command = actionCommand(id, projectId, 1, { notes: "Agent note" });
+    await asAgent(() => saveAction(sql, command));
+    // A refit is the system's, like the planner's replan: it moves the three refined columns on both tables.
+    for (const table of ["actions", "projects"])
+      await sql.unsafe(
+        `UPDATE ${table} SET consequence_refined = 4.5, consequence_refined_for_stars = 3, consequence_refined_as_of = '2026-11-09' WHERE id = $1`,
+        [table === "actions" ? id : projectId]
+      );
+    await asAgent(() => runRevertCommand(sql, revert(command.commandId!, "undo")));
+    const row = (await image("actions", "id = $1", id))!;
+    expect(row.notes).toBeNull();
+    expect(row).toMatchObject({
+      consequence_refined: 4.5,
+      consequence_refined_for_stars: 3,
+      consequence_refined_as_of: "2026-11-09"
+    });
+  });
+
   it("keeps nothing for the owner's own save", async () => {
     const projectId = await createProject();
     const id = await createAction(projectId);

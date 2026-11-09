@@ -9,6 +9,8 @@ import {
   type EvalPrediction,
   type EvalReport,
   type EvalSubject,
+  type FactReference,
+  type FactRow,
   type PersonCorrection,
   type WrongAutoAction
 } from "@openrhen/communication-readers";
@@ -31,6 +33,13 @@ import type { PoolSql, Sql } from "./sql-pool";
  *     does), each as its own entry, so two versions can be compared before one is promoted.
  *   - Subjects: a `msg_class` row is about the message in `attrs.source_event_id`; a `fact` row is about `attrs.fact_id`.
  *     The other attrs of those rows are the fields a label answers (`class`, `reasons`, `tier`, `fact_type`, ...).
+ *   - Facts (2b-1b): a message label `fact_types` is scored by `factMetrics` from the version's fact rows grouped by
+ *     `attrs.source_event_id`. A labelled message counts only when the extractor reached it: for the active version,
+ *     its (ingested_at, id) lies between the extractor's low (backfill) and high (forward) watermarks; for an inactive
+ *     version, its event key (or id) is in `cursor.shadow.done`. A message outside that range with no fact row is
+ *     "not reached" and neither a hit nor a correct negative; the entry says how many. A labelled fact the version wrote
+ *     under another id is found by the same message and an overlapping span, so a promoted version is scored against
+ *     labels made for the old one.
  *   - Corrections for the wrong-auto-action count are the person's labels, `override` rows and `fact_status` rows (the
  *     status is the field "status"), all with `ingested_via IS NULL`. Mark's overrides are not the person's word.
  *     `source_gone` is not an extractor's judgement (the retention pass writes it when mail is deleted), so it is never
@@ -48,10 +57,13 @@ import type { PoolSql, Sql } from "./sql-pool";
  *     three kinds (there is no index on `kind`; the pass is complete because a label must never be missed);
  *   - predictions about a message come from `derived_lineage` (indexed on `source_id`) and the message from its event
  *     key (unique index);
- *   - fact rows have no index by `fact_id`, so only the newest `window` rows of each `derived` source are looked at;
+ *   - fact rows have no index by `fact_id` yet, so only the newest `window` rows (of any kind) of each `derived` source are
+ *     looked at. Every `kind = 'fact'` and `source IN ('derived', 'derived-shadow')` predicate there is a SQL literal,
+ *     so the partial indexes of the 2b-2 migration can serve the read once it lands;
  *   - the T0 share is taken over the newest `window` raw messages (an ordered index scan), joined through lineage.
- * Each cut-short read says so in the entry's `problems`. The migration that introduces fact writers (2b) owes an
- * expression index on (user_id, (attrs ->> 'fact_id')) and one on (user_id, source, kind); with them the window goes.
+ * Each cut-short read says so in the entry's `problems`. Until the 2b-2 migration lands (partial indexes on
+ * (user_id, (attrs ->> 'fact_id')) WHERE kind = 'fact' and on (user_id, source, kind) WHERE source IN
+ * ('derived', 'derived-shadow')) the window stays; with them it can go.
  */
 
 /** Rows looked at per bounded read unless the caller narrows or widens it. */
@@ -108,6 +120,88 @@ function subjectOf(attrs: Record<string, unknown>): EvalSubject | null {
   if (typeof attrs.fact_id === "string") return { kind: "fact", id: attrs.fact_id };
   if (typeof attrs.source_event_id === "string") return { kind: "message", id: attrs.source_event_id };
   return null;
+}
+
+interface Mark {
+  at: string;
+  id: string;
+}
+const isMark = (value: unknown): value is Mark =>
+  value !== null &&
+  typeof value === "object" &&
+  typeof (value as Mark).at === "string" &&
+  typeof (value as Mark).id === "string";
+/**
+ * Marks hold `ingested_at` as ISO text, microseconds from the database but possibly milliseconds elsewhere, so they are
+ * compared by parsed time (to the microsecond), never as text; the id breaks ties. Unparseable text compares as NaN, so
+ * the message is never counted as inside a range.
+ */
+function markTime(at: string): number {
+  const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?Z$/.exec(at);
+  if (match === null) return Number.NaN;
+  return Date.parse(`${match[1]}Z`) * 1000 + Number((match[2] ?? "").padEnd(6, "0").slice(0, 6));
+}
+const compareMarks = (a: Mark, b: Mark) => {
+  const [x, y] = [markTime(a.at), markTime(b.at)];
+  if (Number.isNaN(x) || Number.isNaN(y)) return Number.NaN;
+  return x < y ? -1 : x > y ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+};
+const MARK_MICROS = `YYYY-MM-DD"T"HH24:MI:SS.US"Z"`;
+export const SHADOW_DONE_MAX = 200_000;
+
+/**
+ * The labelled messages an extractor version has reached. The active version's processed range runs from its low
+ * (backfill) watermark to its high (forward) one, both inclusive because each is the last row read; a cursor missing
+ * either has reached nothing. An inactive version has no watermarks: it lists what it has read in `cursor.shadow.done`,
+ * a flat array of message event keys (or row ids), oldest first; over `SHADOW_DONE_MAX` entries the NEWEST are kept.
+ * A message the runner gave up on (`cursor.skippedIds`, entries with `id` and `key`) or is retrying (`cursor.retries`,
+ * keyed by row id) was not read, so it is never counted as reached. The runner (2b-4) must keep those fields, and
+ * whatever it uses to mark a message `no_content` or T3-deferred, in the cursor for as long as the message is
+ * unprocessed, or the report will take it for a correct negative or a miss.
+ */
+export function reachedMessages(
+  active: boolean,
+  cursor: Record<string, unknown>,
+  held: Map<string, { id: string; mark: Mark }>
+) {
+  const reached = new Set<string>();
+  if (active) {
+    if (!isMark(cursor.forward) || !isMark(cursor.backfill)) return reached;
+    for (const [key, message] of held)
+      if (compareMarks(message.mark, cursor.backfill) >= 0 && compareMarks(message.mark, cursor.forward) <= 0)
+        reached.add(key);
+  } else {
+    const done = record(cursor.shadow).done;
+    if (!Array.isArray(done)) return reached;
+    const listed = new Set(done.slice(-SHADOW_DONE_MAX).filter((item): item is string => typeof item === "string"));
+    for (const [key, message] of held) if (listed.has(key) || listed.has(message.id)) reached.add(key);
+  }
+  const unread = new Set<string>(Object.keys(record(cursor.retries)));
+  if (Array.isArray(cursor.skippedIds))
+    for (const item of cursor.skippedIds) {
+      const entry = record(item);
+      if (typeof entry.id === "string") unread.add(entry.id);
+      if (typeof entry.key === "string") unread.add(entry.key);
+    }
+  for (const [key, message] of held) if (unread.has(key) || unread.has(message.id)) reached.delete(key);
+  return reached;
+}
+
+function factRowOf(attrs: Record<string, unknown>): FactRow | null {
+  if (
+    typeof attrs.source_event_id !== "string" ||
+    typeof attrs.fact_id !== "string" ||
+    typeof attrs.fact_type !== "string"
+  )
+    return null;
+  const span = record(attrs.span);
+  return {
+    messageId: attrs.source_event_id,
+    factId: attrs.fact_id,
+    factType: attrs.fact_type,
+    span: typeof span.start === "number" && typeof span.end === "number" ? { start: span.start, end: span.end } : null,
+    attrs
+  };
 }
 
 const subjectKey = (subject: EvalSubject) => `${subject.kind}:${subject.id}`;
@@ -172,15 +266,16 @@ async function readInTransaction(sql: Sql, userId: string, options: EvalReportOp
   }
 
   // Which versions to score: every active version, and every other version that has an extractor_state row.
-  const states = await sql<{ extractor: string; version: string; active: boolean }[]>`
-    SELECT extractor, version, active FROM extractor_state WHERE user_id = ${userId} ORDER BY extractor, version`;
+  const states = await sql<{ extractor: string; version: string; active: boolean; cursor: unknown }[]>`
+    SELECT extractor, version, active, cursor FROM extractor_state WHERE user_id = ${userId} ORDER BY extractor, version`;
   const groups = states.map((row) => ({
     source: row.active ? ("derived" as const) : ("derived-shadow" as const),
     extractor: row.extractor,
     version: row.version,
-    active: row.active
+    active: row.active,
+    cursor: record(row.cursor)
   }));
-  const sameGroup = (attrs: Record<string, unknown>, group: (typeof groups)[number]) =>
+  const sameGroup = (attrs: Record<string, unknown>, group: { extractor: string; version: string }) =>
     attrs.extractor === group.extractor && attrs.extractor_version === group.version;
 
   const wanted = (kind: EvalSubject["kind"]) => [
@@ -192,11 +287,17 @@ async function readInTransaction(sql: Sql, userId: string, options: EvalReportOp
   ];
   const messageKeys = wanted("message");
   const factIds = wanted("fact");
+  // Messages whose `fact_types` label is scored from fact rows grouped by message.
+  const factMessageKeys = [
+    ...new Set(labels.filter((l) => l.subject.kind === "message" && l.field === "fact_types").map((l) => l.subject.id))
+  ];
   const window = options.window ?? EVAL_WINDOW_DEFAULT;
 
   // Per distinct input source: the labelled messages still held (by event key) and every version's class rows about them.
   interface InputRead {
     held: Map<string, string>;
+    /** The same messages with their position, for the extractor's processed range. */
+    marks: Map<string, { id: string; mark: Mark }>;
     classRows: { source: string; attrs: Record<string, unknown>; at: Date }[];
     /** Raw messages looked at for the T0 share (the newest `window`), and whether there were more. */
     windowMessages: number;
@@ -210,12 +311,16 @@ async function readInTransaction(sql: Sql, userId: string, options: EvalReportOp
     const done = inputs.get(key);
     if (done !== undefined) return done;
     const held = new Map<string, string>();
+    const marks = new Map<string, { id: string; mark: Mark }>();
     if (messageKeys.length > 0) {
-      const rows = await sql<{ id: string; event_key: string }[]>`
-        SELECT id, event_key FROM activity_events
+      const rows = await sql<{ id: string; event_key: string; at: string }[]>`
+        SELECT id, event_key, to_char(ingested_at AT TIME ZONE 'UTC', ${MARK_MICROS}) AS at FROM activity_events
         WHERE user_id = ${userId} AND source = ${input.source} AND kind = ${input.kind}
           AND event_key IN (SELECT jsonb_array_elements_text(${sql.json(messageKeys)}))`;
-      for (const row of rows) held.set(row.event_key, row.id);
+      for (const row of rows) {
+        held.set(row.event_key, row.id);
+        marks.set(row.event_key, { id: row.id, mark: { at: row.at, id: row.id } });
+      }
     }
     const classRows: InputRead["classRows"] = [];
     if (held.size > 0) {
@@ -253,6 +358,7 @@ async function readInTransaction(sql: Sql, userId: string, options: EvalReportOp
     for (const row of t0Rows) t0.set(`${row.source}\u0000${row.extractor}\u0000${row.version}`, row.n);
     const read = {
       held,
+      marks,
       classRows,
       windowMessages: Math.min(seen?.n ?? 0, window),
       windowCut: (seen?.n ?? 0) > window,
@@ -262,34 +368,68 @@ async function readInTransaction(sql: Sql, userId: string, options: EvalReportOp
     return read;
   };
 
-  // Fact rows: only the newest `window` rows of each source are looked at (there is no index by fact id).
-  // The predicates that must match migration 0150's partial indexes (`source IN ('derived', 'derived-shadow')`,
-  // `kind = 'fact'`) are written as SQL literals, not bind parameters: a prepared statement can switch to a generic plan,
-  // which cannot prove a parameter implies a partial index's predicate and so cannot use the index. `source = ${source}`
-  // then only narrows within the literal.
+  // Fact rows: only the newest `window` rows of each source are looked at (there is no index by fact id until the
+  // 2b-2 migration lands). `kind = 'fact'` and `source IN (...)` are literals so its partial indexes can serve this read;
+  // `source = ${source}` narrows to one of the two.
   const factsBySource = new Map<string, { attrs: Record<string, unknown>; at: Date }[]>();
-  const factCut = new Set<string>();
-  if (factIds.length > 0)
-    for (const source of new Set(groups.map((g) => g.source))) {
-      const found = await sql<{ attrs: unknown; at: Date | null; scanned: number }[]>`
-        WITH newest AS (
-          SELECT kind, attrs, ingested_at FROM activity_events
-          WHERE user_id = ${userId} AND source IN ('derived', 'derived-shadow') AND source = ${source}
-          ORDER BY ingested_at DESC LIMIT ${window})
-        SELECT attrs, ingested_at AS at, (SELECT count(*)::int FROM newest) AS scanned
-        FROM newest
-        WHERE kind = 'fact' AND attrs ->> 'fact_id' IN (SELECT jsonb_array_elements_text(${sql.json(factIds)}))
-        UNION ALL
-        SELECT NULL, NULL, (SELECT count(*)::int FROM newest)
-        WHERE NOT EXISTS (SELECT 1 FROM newest WHERE kind = 'fact' AND attrs ->> 'fact_id' IN (SELECT jsonb_array_elements_text(${sql.json(factIds)})))`;
-      if ((found[0]?.scanned ?? 0) >= window) factCut.add(source);
-      factsBySource.set(
-        source,
-        found
-          .filter((row) => row.attrs !== null && row.at !== null)
-          .map((row) => ({ attrs: record(row.attrs), at: row.at! }))
-      );
+  const factCut = new Map<string, Date | null>();
+  // The window is the newest `window` rows of the source of ANY kind, then filtered to facts: `kind = 'fact'` before the
+  // LIMIT would make Postgres walk every derived row of the person to find few facts (the (user_id, source, ingested_at)
+  // index serves only this form) and hit the statement timeout. After the 2b-2 migration (PR 135) lands, switch to the
+  // direct form (`kind = 'fact'` inside the LIMIT, served by the partial index) and count the window in fact rows; the
+  // floor logic below counts the window in whatever rows the query limits.
+  const readFacts = async (source: string, ids: string[], messages: string[]) => {
+    const found = await sql<{ attrs: unknown; at: Date | null; scanned: number; floor: Date | null }[]>`
+      WITH newest AS MATERIALIZED (
+        SELECT kind, attrs, ingested_at FROM activity_events
+        WHERE user_id = ${userId} AND source IN ('derived', 'derived-shadow') AND source = ${source}
+        ORDER BY ingested_at DESC LIMIT ${window}),
+      hit AS (
+        SELECT attrs, ingested_at FROM newest
+        WHERE kind = 'fact'
+          AND (attrs ->> 'fact_id' IN (SELECT jsonb_array_elements_text(${sql.json(ids)}))
+            OR attrs ->> 'source_event_id' IN (SELECT jsonb_array_elements_text(${sql.json(messages)}))))
+      SELECT attrs, ingested_at AS at, (SELECT count(*)::int FROM newest) AS scanned,
+             (SELECT min(ingested_at) FROM newest) AS floor FROM hit
+      UNION ALL
+      SELECT NULL, NULL, (SELECT count(*)::int FROM newest), (SELECT min(ingested_at) FROM newest)
+      WHERE NOT EXISTS (SELECT 1 FROM hit)`;
+    // A source read twice is cut by the same window, so the first floor stands.
+    if ((found[0]?.scanned ?? 0) >= window && !factCut.has(source)) factCut.set(source, found[0]?.floor ?? null);
+    const held = factsBySource.get(source) ?? [];
+    const seen = new Set(held.map((item) => `${item.at.getTime()}\u0000${JSON.stringify(item.attrs)}`));
+    for (const item of found) {
+      if (item.attrs === null || item.at === null) continue;
+      const entry = { attrs: record(item.attrs), at: item.at };
+      const id = `${entry.at.getTime()}\u0000${JSON.stringify(entry.attrs)}`;
+      if (!seen.has(id)) {
+        seen.add(id);
+        held.push(entry);
+      }
     }
+    factsBySource.set(source, held);
+  };
+  const factSources = [...new Set(groups.map((g) => g.source))];
+  if (factIds.length > 0 || factMessageKeys.length > 0)
+    for (const source of factSources) await readFacts(source, factIds, factMessageKeys);
+  // Where each labelled fact sits (message and span), as whichever version wrote it last; the fallback join needs it.
+  // A fact id can be written for several messages (the same sentence repeated), so a reference is one id on one message.
+  const factIdSet = new Set(factIds);
+  const references = new Map<string, FactReference & { at: number }>();
+  for (const rows of factsBySource.values())
+    for (const row of rows) {
+      const fact = factRowOf(row.attrs);
+      if (fact === null || !factIdSet.has(fact.factId)) continue;
+      const key = `${fact.factId}\u0000${fact.messageId}`;
+      const held = references.get(key);
+      if (held === undefined || held.at <= row.at.getTime())
+        references.set(key, { factId: fact.factId, messageId: fact.messageId, span: fact.span, at: row.at.getTime() });
+    }
+  // Candidates for the fallback join are the rows about those messages, whether or not the message itself is labelled.
+  const referenceMessages = [...new Set([...references.values()].map((r) => r.messageId))].filter(
+    (m) => !factMessageKeys.includes(m)
+  );
+  if (referenceMessages.length > 0) for (const source of factSources) await readFacts(source, [], referenceMessages);
 
   const versions: EvalVersionReport[] = [];
   for (const group of groups) {
@@ -298,6 +438,7 @@ async function readInTransaction(sql: Sql, userId: string, options: EvalReportOp
     const rows: { attrs: Record<string, unknown>; at: Date }[] = [];
     let scoredLabels = labels;
     let t0: { messages: number; resolvedByT0: number } | null = null;
+    let reached = new Set<string>();
 
     if (known === undefined) {
       if (messageKeys.length > 0)
@@ -312,6 +453,7 @@ async function readInTransaction(sql: Sql, userId: string, options: EvalReportOp
         scoredLabels = labels.filter((l) => !(l.subject.kind === "message" && !read.held.has(l.subject.id)));
         problems.push(`${gone.length} label(s) are about mail that has since been deleted and are not scored.`);
       }
+      reached = reachedMessages(group.active, group.cursor, read.marks);
       t0 = {
         messages: read.windowMessages,
         resolvedByT0: read.t0.get(`${group.source}\u0000${group.extractor}\u0000${group.version}`) ?? 0
@@ -322,12 +464,32 @@ async function readInTransaction(sql: Sql, userId: string, options: EvalReportOp
         );
     }
 
-    if (factIds.length > 0) {
-      rows.push(...(factsBySource.get(group.source) ?? []).filter((row) => sameGroup(row.attrs, group)));
-      if (factCut.has(group.source))
+    // This version's fact rows, one per fact id (the latest write).
+    const factRows = new Map<string, { row: FactRow; at: number }>();
+    const rowKey = (fact: FactRow) => `${fact.factId}\u0000${fact.messageId}`;
+    if (factIds.length > 0 || factMessageKeys.length > 0) {
+      const own = (factsBySource.get(group.source) ?? []).filter((row) => sameGroup(row.attrs, group));
+      rows.push(...own);
+      for (const item of own) {
+        const fact = factRowOf(item.attrs);
+        const held = fact === null ? undefined : factRows.get(rowKey(fact));
+        if (fact !== null && (held === undefined || held.at <= item.at.getTime()))
+          factRows.set(rowKey(fact), { row: fact, at: item.at.getTime() });
+      }
+      if (factCut.has(group.source)) {
+        // Rows older than the window were not read, so a labelled message whose rows may be among them is neither a
+        // miss nor a correct negative: it is left out. Its rows are complete only when all lie inside the window.
+        const floor = factCut.get(group.source)?.getTime() ?? Number.POSITIVE_INFINITY;
+        for (const key of factMessageKeys) {
+          const times = own.filter((item) => item.attrs.source_event_id === key).map((item) => item.at.getTime());
+          if (times.length > 0 && Math.min(...times) > floor) continue;
+          reached.delete(key);
+          for (const [id, entry] of factRows) if (entry.row.messageId === key) factRows.delete(id);
+        }
         problems.push(
-          `Only the newest ${window} rows of ${group.source} were looked at for facts, so labels about older facts may show no prediction. An index on the fact id (owed in the migration that adds fact writers) removes this limit.`
+          `Only the newest ${window} rows of ${group.source} were looked at for facts, so labels about older facts may show no prediction. This holds until the 2b-2 migration adds indexes on the fact id; then the window can go.`
         );
+      }
     }
 
     const predictions = new Map<string, { prediction: EvalPrediction; at: number }>();
@@ -352,6 +514,11 @@ async function readInTransaction(sql: Sql, userId: string, options: EvalReportOp
         predictions: [...predictions.values()].map((entry) => entry.prediction),
         writes,
         corrections,
+        facts: {
+          rows: [...factRows.values()].map((entry) => entry.row),
+          reached,
+          references: [...references.values()].map(({ at: _at, ...reference }) => reference)
+        },
         t0: t0Input
       });
     try {
@@ -363,7 +530,20 @@ async function readInTransaction(sql: Sql, userId: string, options: EvalReportOp
       );
       report = make(null);
     }
-    versions.push({ ...group, report, problems });
+    if (report.facts.notReached > 0)
+      problems.push(
+        `${report.facts.notReached} labelled message(s) are outside what this version has processed and have no fact row; they are not scored (not a hit, a miss or a correct negative).`
+      );
+    if (report.facts.unreadable > 0)
+      problems.push(`${report.facts.unreadable} fact_types label(s) are not a list of fact types and are not scored.`);
+    versions.push({
+      source: group.source,
+      extractor: group.extractor,
+      version: group.version,
+      active: group.active,
+      report,
+      problems
+    });
   }
 
   const set: EvalReportSet = {

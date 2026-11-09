@@ -511,6 +511,12 @@ export interface Project {
   externalDeadlineAt?: Date;
   value: number;
   consequence: number;
+  /**
+   * Comparison-refined consequence (finite, 0..6), fitted by `fitConsequence`. Used only by the ordinary
+   * consequence score and the ordinary-tier tiebreak; deadline tiers and continuation read `consequence`.
+   * Absent means exactly the stars.
+   */
+  consequenceRefined?: number;
   remainingEffortOverrideMinutes?: number;
   lastWorkedAt?: Date;
   createdAt?: Date;
@@ -550,6 +556,12 @@ export interface Action {
   maximumSessionMinutes: number;
   importance: number;
   consequence: number;
+  /**
+   * Comparison-refined consequence (finite, 0..6), fitted by `fitConsequence`. Used only by the ordinary
+   * consequence score and the ordinary-tier tiebreak; deadline tiers and continuation read `consequence`.
+   * Absent means exactly the stars.
+   */
+  consequenceRefined?: number;
   availableFrom?: Date;
   deadlineAt?: Date;
   /**

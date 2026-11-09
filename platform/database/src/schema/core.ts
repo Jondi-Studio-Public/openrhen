@@ -1,10 +1,12 @@
 import {
+  type AnyPgColumn,
   bigint,
   bigserial,
   boolean,
   check,
   date,
   doublePrecision,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -406,6 +408,32 @@ export const outcomes = pgTable(
   ]
 );
 
+/**
+ * Comparison-derived consequence (comparison-consequence-ranking design, 3.3 and 3.4), on `projects` and `actions`
+ * only (deliverables stay on stars). All three are derived by `consequence/refit.ts` from `consequence_comparisons`
+ * and are null together: the value (finite, 0..6; a different range from the 1-5 stars), the stars it was fitted for
+ * (the engine ignores the value when the item's current stars differ, so a star edit wins at once) and the local day
+ * the fit used. Null means exactly today's behaviour. No ordinary save writes them.
+ */
+export const consequenceRefinedColumns = {
+  consequenceRefined: real("consequence_refined"),
+  consequenceRefinedForStars: smallint("consequence_refined_for_stars"),
+  consequenceRefinedAsOf: date("consequence_refined_as_of")
+};
+
+/**
+ * All three are set or none is. `between` is false for NaN and the infinities in Postgres, so the range check also
+ * keeps the value finite; every column is named as `is not null` too because a NULL in a CHECK passes it.
+ */
+function consequenceRefinedCheck(table: {
+  consequenceRefined: AnyPgColumn;
+  consequenceRefinedForStars: AnyPgColumn;
+  consequenceRefinedAsOf: AnyPgColumn;
+}) {
+  const { consequenceRefined: value, consequenceRefinedForStars: stars, consequenceRefinedAsOf: asOf } = table;
+  return sql`(${value} is null and ${stars} is null and ${asOf} is null) or (${value} is not null and ${stars} is not null and ${asOf} is not null and ${value} between 0 and 6 and ${stars} between 1 and 5)`;
+}
+
 export const projects = pgTable(
   "projects",
   {
@@ -419,6 +447,7 @@ export const projects = pgTable(
     internalDeadlineAt: timestamp("internal_deadline_at", { withTimezone: true }),
     uncertainty: uncertaintyLevel("uncertainty").notNull().default("some"),
     consequence: smallint("consequence").notNull().default(3),
+    ...consequenceRefinedColumns,
     actualCompletionRatio: numeric("actual_completion_ratio", { precision: 6, scale: 5 }),
     requiredCompletionRatio: numeric("required_completion_ratio", { precision: 6, scale: 5 }),
     remainingEffortOverrideMinutes: integer("remaining_effort_override_minutes"),
@@ -444,6 +473,7 @@ export const projects = pgTable(
       sql`${table.internalDeadlineAt} is null or ${table.externalDeadlineAt} is null or ${table.internalDeadlineAt} <= ${table.externalDeadlineAt}`
     ),
     check("projects_consequence_check", sql`${table.consequence} between 1 and 5`),
+    check("projects_consequence_refined_check", consequenceRefinedCheck(table)),
     index("projects_outcome_status_idx").on(table.outcomeId, table.status)
   ]
 );
@@ -478,6 +508,7 @@ export const actions = pgTable(
     deadlineAt: timestamp("deadline_at", { withTimezone: true }),
     importance: smallint("importance").notNull().default(3),
     consequence: smallint("consequence").notNull().default(3),
+    ...consequenceRefinedColumns,
     setupMinutes: integer("setup_minutes").notNull().default(0),
     latestStartAt: timestamp("latest_start_at", { withTimezone: true }),
     dependenciesComplete: boolean("dependencies_complete").notNull().default(true),
@@ -538,6 +569,7 @@ export const actions = pgTable(
     ),
     check("actions_remaining_check", sql`${table.remainingMinutes} >= 0`),
     check("actions_scores_check", sql`${table.importance} between 1 and 5 and ${table.consequence} between 1 and 5`),
+    check("actions_consequence_refined_check", consequenceRefinedCheck(table)),
     index("actions_project_status_sort_idx").on(table.projectId, table.status, table.sortOrder),
     index("actions_status_energy_idx").on(table.status, table.energy),
     index("actions_deliverable_status_sort_idx").on(table.deliverableId, table.status, table.sortOrder),
@@ -3559,7 +3591,7 @@ export const derivedSettings = pgTable(
 
 /**
  * The audit of every model send from the derived layer: which message (its event key, never its content), when, which
- * tier and model, the tokens each way and why. Append-only: a trigger in migration 0150 rejects UPDATE; DELETE stays
+ * tier and model, the tokens each way and why. Append-only: a trigger in migration 0151 rejects UPDATE; DELETE stays
  * possible for the user cascade. No message content and no key is ever stored here. The hosted tier's daily caps and
  * the settings card's "today's sends" read it. Never a plan input.
  */
@@ -3698,5 +3730,92 @@ export const offerLog = pgTable(
     uniqueIndex("offer_log_command_event_target_idx")
       .on(table.commandId, table.event, table.targetId)
       .where(sql`${table.commandId} IS NOT NULL`)
+  ]
+);
+
+/**
+ * The comparison log (comparison-consequence-ranking design, 3.4): one row per answered group of items, append-only and
+ * never updated or deleted by code (rows go only with their user, by the cascade). Item ids are plain text with NO
+ * foreign key and no cascade to projects or actions, so a state replace (which deletes and reinserts them) cannot
+ * destroy the log; ids that no longer exist are ignored by the fit. `item_ids` is the group as issued (sorted),
+ * `item_stars` and `item_hashes` run parallel to it and hold each item's stars and material-field hash at answer time,
+ * which is what the fit compares against to drop a stale answer. `ranking` is the item ids best first, or null for a
+ * tie ("equal / can't decide"). `group_id` is unique, so an issued group cannot be answered twice, and
+ * `(user_id, idempotency_key)` is unique, so a retried write is the same row. In `BACKUP_TABLES` (format 25): the
+ * derived columns on projects and actions are recomputed from it, never the other way round.
+ */
+export const consequenceComparisons = pgTable(
+  "consequence_comparisons",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    pool: text("pool").notNull(),
+    itemIds: text("item_ids").array().notNull(),
+    itemStars: smallint("item_stars").array().notNull(),
+    itemHashes: text("item_hashes").array().notNull(),
+    ranking: text("ranking").array(),
+    tie: boolean("tie").notNull().default(false),
+    answeredBy: text("answered_by").notNull(),
+    basis: text("basis").notNull(),
+    evidence: text("evidence"),
+    questionWording: text("question_wording").notNull(),
+    askedAt: timestamp("asked_at", { withTimezone: true }).notNull(),
+    answeredAt: timestamp("answered_at", { withTimezone: true }).notNull().defaultNow(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    groupId: uuid("group_id").notNull()
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.groupId],
+      foreignColumns: [consequenceGroupsIssued.id],
+      name: "consequence_comparisons_group_fk"
+    }),
+    check("consequence_comparisons_pool_check", sql`${table.pool} in ('project','action')`),
+    check("consequence_comparisons_answered_by_check", sql`${table.answeredBy} in ('person','agent')`),
+    check("consequence_comparisons_basis_check", sql`${table.basis} in ('stated','observed','inferred')`),
+    check(
+      "consequence_comparisons_items_check",
+      sql`cardinality(${table.itemIds}) between 2 and 4 and cardinality(${table.itemStars}) = cardinality(${table.itemIds}) and cardinality(${table.itemHashes}) = cardinality(${table.itemIds})`
+    ),
+    check(
+      "consequence_comparisons_ranking_check",
+      sql`(${table.tie} and ${table.ranking} is null) or (not ${table.tie} and ${table.ranking} is not null and cardinality(${table.ranking}) = cardinality(${table.itemIds}) and ${table.ranking} <@ ${table.itemIds} and ${table.itemIds} <@ ${table.ranking})`
+    ),
+    uniqueIndex("consequence_comparisons_idempotency_idx").on(table.userId, table.idempotencyKey),
+    uniqueIndex("consequence_comparisons_group_idx").on(table.groupId),
+    index("consequence_comparisons_user_pool_idx").on(table.userId, table.pool, table.answeredAt)
+  ]
+);
+
+/**
+ * Every group handed out for comparison (design 3.4), so "refuse an answer that does not match the group issued" is
+ * checkable. `answered_at` and `answered_comparison_id` are set when the group is answered; the comparison id is plain,
+ * not a foreign key, because the comparison already references this row. Item ids are plain text, as in the log.
+ * `issued_at` is also the "asked" time the 30-day pair cool-down reads. Append-only except for the answered pair.
+ */
+export const consequenceGroupsIssued = pgTable(
+  "consequence_groups_issued",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    pool: text("pool").notNull(),
+    itemIds: text("item_ids").array().notNull(),
+    wording: text("wording").notNull(),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    answeredComparisonId: uuid("answered_comparison_id")
+  },
+  (table) => [
+    check("consequence_groups_issued_pool_check", sql`${table.pool} in ('project','action')`),
+    check("consequence_groups_issued_items_check", sql`cardinality(${table.itemIds}) between 2 and 4`),
+    check(
+      "consequence_groups_issued_answered_check",
+      sql`(${table.answeredAt} is null) = (${table.answeredComparisonId} is null)`
+    ),
+    index("consequence_groups_issued_user_pool_idx").on(table.userId, table.pool, table.issuedAt)
   ]
 );

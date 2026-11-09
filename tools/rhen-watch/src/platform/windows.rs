@@ -10,7 +10,7 @@
 
 use std::ptr::{null, null_mut};
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::SyncSender;
 use std::thread::JoinHandle;
 
@@ -20,18 +20,23 @@ use windows_sys::Win32::System::Diagnostics::ToolHelp::*;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Power::*;
 use windows_sys::Win32::System::ProcessStatus::*;
+use windows_sys::Win32::System::Registry::*;
 use windows_sys::Win32::System::RemoteDesktop::*;
 use windows_sys::Win32::System::SystemInformation::*;
 use windows_sys::Win32::System::Threading::*;
 use windows_sys::Win32::System::Time::*;
 use windows_sys::Win32::UI::Accessibility::*;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
+use windows_sys::Win32::UI::Shell::{NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW, Shell_NotifyIconW};
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 use windows_sys::core::{BOOL, GUID};
 
 use crate::engine::{Fg, PowerEvt, SessionEvt};
 use crate::model::Ms;
-use crate::runner::{Raw, Sys};
+use crate::runner::{Control, Raw, Sys};
+
+/// Keeps helper programs from flashing a console when the no-console build starts them.
+pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 pub static STOP: AtomicBool = AtomicBool::new(false);
 /// Set by `main` once open intervals are closed and flushed; the console handler and WM_ENDSESSION wait for it.
@@ -212,6 +217,123 @@ impl Sys for WinSys {
     }
 }
 
+// ---- tray icon ----
+//
+// The tray icon lives on the hook thread's hidden window, so it shares that thread's message loop. It is
+// always shown while the agent runs: the recorder is never hidden.
+
+const WM_TRAY: u32 = WM_APP + 1;
+const WM_TRAY_REFRESH: u32 = WM_APP + 2;
+const ID_STATUS: usize = 1;
+const ID_TOGGLE: usize = 2;
+const ID_FOLDER: usize = 3;
+const ID_QUIT: usize = 4;
+
+static TRAY_HWND: AtomicIsize = AtomicIsize::new(0);
+static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
+static UI_STATE: AtomicU32 = AtomicU32::new(0);
+static DATA_DIR: OnceLock<Vec<u16>> = OnceLock::new();
+
+pub fn set_data_dir(dir: &std::path::Path) {
+    let _ = DATA_DIR.set(wide(&dir.to_string_lossy()));
+}
+
+fn state_name(code: u32) -> &'static str {
+    match code {
+        1 => "paused",
+        2 => "degraded (writes are failing)",
+        _ => "recording",
+    }
+}
+
+/// Tell the tray what the runner is doing: `recording`, `paused` or `degraded`.
+pub fn set_state(state: &str) {
+    let code = match state {
+        "paused" => 1,
+        "degraded" => 2,
+        _ => 0,
+    };
+    if UI_STATE.swap(code, Ordering::SeqCst) != code {
+        let hwnd = TRAY_HWND.load(Ordering::SeqCst);
+        if hwnd != 0 {
+            unsafe { PostMessageW(hwnd as HWND, WM_TRAY_REFRESH, 0, 0) };
+        }
+    }
+}
+
+fn tray_data(hwnd: HWND) -> NOTIFYICONDATAW {
+    let mut nid: NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
+    nid.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
+    nid.hWnd = hwnd;
+    nid.uID = 1;
+    nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
+    nid.uCallbackMessage = WM_TRAY;
+    nid.hIcon = unsafe { LoadIconW(null_mut(), IDI_APPLICATION) };
+    let tip = wide(&format!("rhen-watch: {}", state_name(UI_STATE.load(Ordering::SeqCst))));
+    for (slot, c) in nid.szTip.iter_mut().zip(tip.iter().take(127)) {
+        *slot = *c;
+    }
+    nid
+}
+
+unsafe fn tray_add(hwnd: HWND) {
+    let nid = tray_data(hwnd);
+    unsafe { Shell_NotifyIconW(NIM_ADD, &nid) };
+}
+
+unsafe fn tray_update(hwnd: HWND) {
+    let nid = tray_data(hwnd);
+    unsafe { Shell_NotifyIconW(NIM_MODIFY, &nid) };
+}
+
+unsafe fn tray_remove(hwnd: HWND) {
+    let nid = tray_data(hwnd);
+    unsafe { Shell_NotifyIconW(NIM_DELETE, &nid) };
+}
+
+unsafe fn show_menu(hwnd: HWND) {
+    unsafe {
+        let menu = CreatePopupMenu();
+        let state = UI_STATE.load(Ordering::SeqCst);
+        AppendMenuW(
+            menu,
+            MF_STRING | MF_GRAYED,
+            ID_STATUS,
+            wide(&format!("rhen-watch: {}", state_name(state))).as_ptr(),
+        );
+        AppendMenuW(menu, MF_SEPARATOR, 0, null());
+        let toggle = if state == 1 { "Resume recording" } else { "Pause recording" };
+        AppendMenuW(menu, MF_STRING, ID_TOGGLE, wide(toggle).as_ptr());
+        AppendMenuW(menu, MF_STRING, ID_FOLDER, wide("Open data folder").as_ptr());
+        AppendMenuW(menu, MF_SEPARATOR, 0, null());
+        AppendMenuW(menu, MF_STRING, ID_QUIT, wide("Quit").as_ptr());
+        let mut pt = POINT { x: 0, y: 0 };
+        GetCursorPos(&mut pt);
+        // The menu only dismisses properly if its owner is foreground. The user just clicked our own icon.
+        SetForegroundWindow(hwnd);
+        let cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd, null()) as usize;
+        PostMessageW(hwnd, WM_NULL, 0, 0);
+        DestroyMenu(menu);
+        match cmd {
+            ID_TOGGLE => {
+                // A click must not be lost to a full queue, so this one waits for room.
+                if let Some(tx) = SENDER.get() {
+                    let _ = tx.send(Raw::Control(if state == 1 { Control::Resume } else { Control::Pause }));
+                }
+            }
+            ID_FOLDER => {
+                // explorer.exe needs no COM setup on this thread, unlike ShellExecute.
+                if let Some(dir) = DATA_DIR.get() {
+                    let path = String::from_utf16_lossy(&dir[..dir.len().saturating_sub(1)]);
+                    let _ = std::process::Command::new("explorer.exe").arg(path).spawn();
+                }
+            }
+            ID_QUIT => STOP.store(true, Ordering::SeqCst),
+            _ => {}
+        }
+    }
+}
+
 // ---- hook thread ----
 
 unsafe extern "system" fn foreground_cb(
@@ -229,7 +351,23 @@ unsafe extern "system" fn foreground_cb(
 }
 
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    // Explorer restarted: the tray is empty again, so put the icon back.
+    if msg != 0 && msg == TASKBAR_CREATED.load(Ordering::Relaxed) {
+        unsafe { tray_add(hwnd) };
+        return 0;
+    }
     match msg {
+        WM_TRAY => {
+            let event = (lparam as u32) & 0xffff;
+            if event == WM_RBUTTONUP || event == WM_LBUTTONUP || event == WM_CONTEXTMENU {
+                unsafe { show_menu(hwnd) };
+            }
+            0
+        }
+        WM_TRAY_REFRESH => {
+            unsafe { tray_update(hwnd) };
+            0
+        }
         WM_WTSSESSION_CHANGE => {
             let evt = match wparam as u32 {
                 WTS_SESSION_LOCK => Some(SessionEvt::Lock),
@@ -345,6 +483,9 @@ unsafe fn hook_thread(foreground: bool, session: bool, power: bool, ready: std::
             let _ = ready.send(Err("CreateWindowExW failed".into()));
             return;
         }
+        TRAY_HWND.store(hwnd as isize, Ordering::SeqCst);
+        TASKBAR_CREATED.store(RegisterWindowMessageW(wide("TaskbarCreated").as_ptr()), Ordering::SeqCst);
+        tray_add(hwnd);
         let mut hook = null_mut();
         if foreground {
             hook = SetWinEventHook(
@@ -407,6 +548,8 @@ unsafe fn hook_thread(foreground: bool, session: bool, power: bool, ready: std::
         if !hook.is_null() {
             UnhookWinEvent(hook);
         }
+        tray_remove(hwnd);
+        TRAY_HWND.store(0, Ordering::SeqCst);
         DestroyWindow(hwnd);
     }
 }
@@ -486,8 +629,10 @@ pub fn local_offset_minutes() -> i32 {
 
 /// The current user's SID string, from `whoami /user`.
 fn current_sid() -> Result<String, String> {
+    use std::os::windows::process::CommandExt;
     let out = std::process::Command::new("whoami")
         .args(["/user", "/fo", "csv", "/nh"])
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map_err(|e| format!("whoami: {e}"))?;
     let text = String::from_utf8_lossy(&out.stdout);
@@ -502,7 +647,9 @@ fn current_sid() -> Result<String, String> {
 /// is by SID, so a domain or Microsoft-account name cannot resolve to the wrong principal.
 pub fn restrict_dir(dir: &std::path::Path) -> Result<(), String> {
     let sid = current_sid()?;
+    use std::os::windows::process::CommandExt;
     let out = std::process::Command::new("icacls")
+        .creation_flags(CREATE_NO_WINDOW)
         .arg(dir)
         .args(["/inheritance:r", "/grant:r"])
         .arg(format!("*{sid}:(OI)(CI)F"))
@@ -512,5 +659,64 @@ pub fn restrict_dir(dir: &std::path::Path) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!("icacls failed: {}", String::from_utf8_lossy(&out.stdout)))
+    }
+}
+
+// ---- start at logon ----
+
+const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+const RUN_VALUE: &str = "rhen-watch";
+
+/// Make `command` run when this user logs on (HKCU Run: no admin rights, visible in Task Manager's Startup tab).
+pub fn set_autostart(command: &str) -> Result<(), String> {
+    unsafe {
+        let mut key: HKEY = null_mut();
+        let rc = RegCreateKeyExW(
+            HKEY_CURRENT_USER,
+            wide(RUN_KEY).as_ptr(),
+            0,
+            null(),
+            0,
+            KEY_SET_VALUE,
+            null(),
+            &mut key,
+            null_mut(),
+        );
+        if rc != 0 {
+            return Err(format!("could not open the Run key (error {rc})"));
+        }
+        let value = wide(command);
+        let rc = RegSetValueExW(
+            key,
+            wide(RUN_VALUE).as_ptr(),
+            0,
+            REG_SZ,
+            value.as_ptr() as *const u8,
+            (value.len() * 2) as u32,
+        );
+        RegCloseKey(key);
+        if rc != 0 {
+            Err(format!("could not write the Run value (error {rc})"))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Remove start-at-logon. Not being set is not an error.
+pub fn clear_autostart() -> Result<(), String> {
+    unsafe {
+        let mut key: HKEY = null_mut();
+        if RegOpenKeyExW(HKEY_CURRENT_USER, wide(RUN_KEY).as_ptr(), 0, KEY_SET_VALUE, &mut key) != 0 {
+            return Ok(());
+        }
+        let rc = RegDeleteValueW(key, wide(RUN_VALUE).as_ptr());
+        RegCloseKey(key);
+        // ERROR_FILE_NOT_FOUND (2): it was never set.
+        if rc == 0 || rc == 2 {
+            Ok(())
+        } else {
+            Err(format!("could not remove the Run value (error {rc})"))
+        }
     }
 }

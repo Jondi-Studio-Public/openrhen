@@ -9,7 +9,7 @@ import { ensureUser } from "./ensure-user";
 import { readDerivedSettings, saveDerivedSettings } from "./derived-settings-store";
 
 /**
- * Migration 0150 end to end: the settings store (defaults, merge, clear, per-user isolation, the CHECK backstop), the
+ * Migration 0151 end to end: the settings store (defaults, merge, clear, per-user isolation, the CHECK backstop), the
  * append-only model-call audit (UPDATE refused, DELETE and the user cascade allowed, no content column), and the two
  * partial indexes (what they cover and that the planner can use them).
  */

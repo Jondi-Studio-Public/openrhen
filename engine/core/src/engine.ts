@@ -1427,6 +1427,7 @@ function prepare(
       uncertainty: project.uncertainty,
       value: project.value,
       consequence: project.consequence,
+      ...refinedConsequence(project),
       outcomeActive: outcome?.status === "active",
       ...(calibration && (calibration.factor !== 1 || (calibration.spread ?? 1) > 1)
         ? {
@@ -1558,6 +1559,21 @@ function prepare(
   return { projects, actions: [...baseActions, ...recurringActions], sleepPlans, horizonEnd };
 }
 
+/**
+ * A refined consequence reaches the engine only when it was fitted for the stars the record now has;
+ * after a star edit the cached value is stale and the stars win until the next fit.
+ */
+function refinedConsequence(record: {
+  consequence: number;
+  consequenceRefined?: number | undefined;
+  consequenceRefinedForStars?: number | undefined;
+}): { consequenceRefined?: number } {
+  const { consequenceRefined, consequenceRefinedForStars } = record;
+  if (consequenceRefined === undefined || consequenceRefinedForStars === undefined) return {};
+  if (!Number.isFinite(consequenceRefined) || consequenceRefinedForStars !== record.consequence) return {};
+  return { consequenceRefined };
+}
+
 function hydrateAction(
   action: WireState["actions"][number],
   statuses: Map<string, string>,
@@ -1607,6 +1623,7 @@ function hydrateAction(
     maximumSessionMinutes: action.maximumSessionMinutes,
     importance: action.importance,
     consequence: action.consequence,
+    ...refinedConsequence(action),
     contexts: action.contexts,
     requirementPathways: action.requirementPathways,
     preferences: action.preferences,

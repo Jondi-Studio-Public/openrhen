@@ -1,5 +1,5 @@
 {
-  "id": "051be1a1-2f63-453d-abc9-94025b218e09",
+  "id": "e8fb202e-39de-413b-9151-bf323467e4fa",
   "prevId": "ef4d2072-8b8c-4f5d-ba16-df14350536ff",
   "version": "7",
   "dialect": "postgresql",
@@ -1047,6 +1047,24 @@
           "notNull": true,
           "default": 3
         },
+        "consequence_refined": {
+          "name": "consequence_refined",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "consequence_refined_for_stars": {
+          "name": "consequence_refined_for_stars",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "consequence_refined_as_of": {
+          "name": "consequence_refined_as_of",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
         "setup_minutes": {
           "name": "setup_minutes",
           "type": "integer",
@@ -1334,6 +1352,10 @@
           "name": "actions_scores_check",
           "value": "\"actions\".\"importance\" between 1 and 5 and \"actions\".\"consequence\" between 1 and 5"
         },
+        "actions_consequence_refined_check": {
+          "name": "actions_consequence_refined_check",
+          "value": "(\"actions\".\"consequence_refined\" is null and \"actions\".\"consequence_refined_for_stars\" is null and \"actions\".\"consequence_refined_as_of\" is null) or (\"actions\".\"consequence_refined\" is not null and \"actions\".\"consequence_refined_for_stars\" is not null and \"actions\".\"consequence_refined_as_of\" is not null and \"actions\".\"consequence_refined\" between 0 and 6 and \"actions\".\"consequence_refined_for_stars\" between 1 and 5)"
+        },
         "actions_scheduling_mode_check": {
           "name": "actions_scheduling_mode_check",
           "value": "\"actions\".\"scheduling_mode\" IN ('one_off','recurring','cadence')"
@@ -1567,56 +1589,6 @@
           ],
           "isUnique": false,
           "where": "\"activity_events\".\"attrs\" ? 'thread_id'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "activity_events_fact_id_idx": {
-          "name": "activity_events_fact_id_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "(\"attrs\"->>'fact_id')",
-              "asc": true,
-              "isExpression": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"activity_events\".\"kind\" = 'fact'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "activity_events_derived_idx": {
-          "name": "activity_events_derived_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "source",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "kind",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"activity_events\".\"source\" IN ('derived', 'derived-shadow')",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -5222,6 +5194,348 @@
       },
       "isRLSEnabled": false
     },
+    "public.consequence_comparisons": {
+      "name": "consequence_comparisons",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pool": {
+          "name": "pool",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "item_ids": {
+          "name": "item_ids",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "item_stars": {
+          "name": "item_stars",
+          "type": "smallint[]",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "item_hashes": {
+          "name": "item_hashes",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ranking": {
+          "name": "ranking",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tie": {
+          "name": "tie",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "answered_by": {
+          "name": "answered_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "basis": {
+          "name": "basis",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "evidence": {
+          "name": "evidence",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "question_wording": {
+          "name": "question_wording",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "asked_at": {
+          "name": "asked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "answered_at": {
+          "name": "answered_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "group_id": {
+          "name": "group_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "consequence_comparisons_idempotency_idx": {
+          "name": "consequence_comparisons_idempotency_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "idempotency_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "consequence_comparisons_group_idx": {
+          "name": "consequence_comparisons_group_idx",
+          "columns": [
+            {
+              "expression": "group_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "consequence_comparisons_user_pool_idx": {
+          "name": "consequence_comparisons_user_pool_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "pool",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "answered_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "consequence_comparisons_user_id_users_id_fk": {
+          "name": "consequence_comparisons_user_id_users_id_fk",
+          "tableFrom": "consequence_comparisons",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "consequence_comparisons_group_fk": {
+          "name": "consequence_comparisons_group_fk",
+          "tableFrom": "consequence_comparisons",
+          "tableTo": "consequence_groups_issued",
+          "columnsFrom": [
+            "group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "consequence_comparisons_pool_check": {
+          "name": "consequence_comparisons_pool_check",
+          "value": "\"consequence_comparisons\".\"pool\" in ('project','action')"
+        },
+        "consequence_comparisons_answered_by_check": {
+          "name": "consequence_comparisons_answered_by_check",
+          "value": "\"consequence_comparisons\".\"answered_by\" in ('person','agent')"
+        },
+        "consequence_comparisons_basis_check": {
+          "name": "consequence_comparisons_basis_check",
+          "value": "\"consequence_comparisons\".\"basis\" in ('stated','observed','inferred')"
+        },
+        "consequence_comparisons_items_check": {
+          "name": "consequence_comparisons_items_check",
+          "value": "cardinality(\"consequence_comparisons\".\"item_ids\") between 2 and 4 and cardinality(\"consequence_comparisons\".\"item_stars\") = cardinality(\"consequence_comparisons\".\"item_ids\") and cardinality(\"consequence_comparisons\".\"item_hashes\") = cardinality(\"consequence_comparisons\".\"item_ids\")"
+        },
+        "consequence_comparisons_ranking_check": {
+          "name": "consequence_comparisons_ranking_check",
+          "value": "(\"consequence_comparisons\".\"tie\" and \"consequence_comparisons\".\"ranking\" is null) or (not \"consequence_comparisons\".\"tie\" and \"consequence_comparisons\".\"ranking\" is not null and cardinality(\"consequence_comparisons\".\"ranking\") = cardinality(\"consequence_comparisons\".\"item_ids\") and \"consequence_comparisons\".\"ranking\" <@ \"consequence_comparisons\".\"item_ids\" and \"consequence_comparisons\".\"item_ids\" <@ \"consequence_comparisons\".\"ranking\")"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.consequence_groups_issued": {
+      "name": "consequence_groups_issued",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pool": {
+          "name": "pool",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "item_ids": {
+          "name": "item_ids",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "wording": {
+          "name": "wording",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "issued_at": {
+          "name": "issued_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "answered_at": {
+          "name": "answered_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "answered_comparison_id": {
+          "name": "answered_comparison_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "consequence_groups_issued_user_pool_idx": {
+          "name": "consequence_groups_issued_user_pool_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "pool",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "issued_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "consequence_groups_issued_user_id_users_id_fk": {
+          "name": "consequence_groups_issued_user_id_users_id_fk",
+          "tableFrom": "consequence_groups_issued",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "consequence_groups_issued_pool_check": {
+          "name": "consequence_groups_issued_pool_check",
+          "value": "\"consequence_groups_issued\".\"pool\" in ('project','action')"
+        },
+        "consequence_groups_issued_items_check": {
+          "name": "consequence_groups_issued_items_check",
+          "value": "cardinality(\"consequence_groups_issued\".\"item_ids\") between 2 and 4"
+        },
+        "consequence_groups_issued_answered_check": {
+          "name": "consequence_groups_issued_answered_check",
+          "value": "(\"consequence_groups_issued\".\"answered_at\" is null) = (\"consequence_groups_issued\".\"answered_comparison_id\" is null)"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.daily_plan_deferred_actions": {
       "name": "daily_plan_deferred_actions",
       "schema": "",
@@ -6477,230 +6791,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.derived_model_calls": {
-      "name": "derived_model_calls",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "source_event_key": {
-          "name": "source_event_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "at": {
-          "name": "at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "tier": {
-          "name": "tier",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "model": {
-          "name": "model",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "tokens_in": {
-          "name": "tokens_in",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "tokens_out": {
-          "name": "tokens_out",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "reason": {
-          "name": "reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "derived_model_calls_user_at_idx": {
-          "name": "derived_model_calls_user_at_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "derived_model_calls_user_id_users_id_fk": {
-          "name": "derived_model_calls_user_id_users_id_fk",
-          "tableFrom": "derived_model_calls",
-          "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "derived_model_calls_tier_check": {
-          "name": "derived_model_calls_tier_check",
-          "value": "\"derived_model_calls\".\"tier\" IN ('t2', 't3')"
-        },
-        "derived_model_calls_tokens_check": {
-          "name": "derived_model_calls_tokens_check",
-          "value": "\"derived_model_calls\".\"tokens_in\" >= 0 AND \"derived_model_calls\".\"tokens_out\" >= 0"
-        },
-        "derived_model_calls_short_text_check": {
-          "name": "derived_model_calls_short_text_check",
-          "value": "length(\"derived_model_calls\".\"source_event_key\") <= 512 AND length(\"derived_model_calls\".\"model\") <= 200 AND length(\"derived_model_calls\".\"reason\") <= 200"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.derived_settings": {
-      "name": "derived_settings",
-      "schema": "",
-      "columns": {
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "ollama_url": {
-          "name": "ollama_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "t2_model": {
-          "name": "t2_model",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "t3_model": {
-          "name": "t3_model",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "t3_daily_message_cap": {
-          "name": "t3_daily_message_cap",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 50
-        },
-        "t3_daily_token_cap": {
-          "name": "t3_daily_token_cap",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 200000
-        },
-        "backfill_days": {
-          "name": "backfill_days",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 90
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "derived_settings_user_id_users_id_fk": {
-          "name": "derived_settings_user_id_users_id_fk",
-          "tableFrom": "derived_settings",
-          "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "derived_settings_t3_message_cap_check": {
-          "name": "derived_settings_t3_message_cap_check",
-          "value": "\"derived_settings\".\"t3_daily_message_cap\" BETWEEN 0 AND 10000"
-        },
-        "derived_settings_t3_token_cap_check": {
-          "name": "derived_settings_t3_token_cap_check",
-          "value": "\"derived_settings\".\"t3_daily_token_cap\" BETWEEN 0 AND 100000000"
-        },
-        "derived_settings_backfill_days_check": {
-          "name": "derived_settings_backfill_days_check",
-          "value": "\"derived_settings\".\"backfill_days\" BETWEEN 1 AND 3650"
-        },
-        "derived_settings_ollama_url_check": {
-          "name": "derived_settings_ollama_url_check",
-          "value": "length(\"derived_settings\".\"ollama_url\") <= 2048"
-        },
-        "derived_settings_t2_model_check": {
-          "name": "derived_settings_t2_model_check",
-          "value": "length(\"derived_settings\".\"t2_model\") <= 200"
-        },
-        "derived_settings_t3_model_check": {
-          "name": "derived_settings_t3_model_check",
-          "value": "length(\"derived_settings\".\"t3_model\") <= 200"
-        }
-      },
       "isRLSEnabled": false
     },
     "public.entity_prerequisites": {
@@ -10615,6 +10705,24 @@
           "notNull": true,
           "default": 3
         },
+        "consequence_refined": {
+          "name": "consequence_refined",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "consequence_refined_for_stars": {
+          "name": "consequence_refined_for_stars",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "consequence_refined_as_of": {
+          "name": "consequence_refined_as_of",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
         "actual_completion_ratio": {
           "name": "actual_completion_ratio",
           "type": "numeric(6, 5)",
@@ -10777,6 +10885,10 @@
         "projects_consequence_check": {
           "name": "projects_consequence_check",
           "value": "\"projects\".\"consequence\" between 1 and 5"
+        },
+        "projects_consequence_refined_check": {
+          "name": "projects_consequence_refined_check",
+          "value": "(\"projects\".\"consequence_refined\" is null and \"projects\".\"consequence_refined_for_stars\" is null and \"projects\".\"consequence_refined_as_of\" is null) or (\"projects\".\"consequence_refined\" is not null and \"projects\".\"consequence_refined_for_stars\" is not null and \"projects\".\"consequence_refined_as_of\" is not null and \"projects\".\"consequence_refined\" between 0 and 6 and \"projects\".\"consequence_refined_for_stars\" between 1 and 5)"
         }
       },
       "isRLSEnabled": false

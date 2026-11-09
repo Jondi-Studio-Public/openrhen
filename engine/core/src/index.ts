@@ -22,3 +22,4 @@ export * from "./recommendation/routine-step-mootness.js";
 export * from "./recommendation/day-plan.js";
 export * from "./recommendation/situation-projection.js";
 export * from "./recommendation/prep-pace.js";
+export * from "./recommendation/consequence-fit.js";

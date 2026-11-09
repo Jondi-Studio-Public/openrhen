@@ -1,24 +1,12 @@
-#![cfg_attr(not(windows), allow(dead_code))]
-//! rhen-watch: a local desktop activity recorder. Observation only; it sends nothing anywhere.
-
-mod categories;
-mod config;
-mod engine;
-mod ids;
-mod model;
-mod paths;
-mod platform;
-mod report;
-mod retention;
-mod runner;
-mod store;
-#[cfg(test)]
-mod tests;
+//! The command line: shared by `rhen-watch` (console) and `rhen-watchw` (no console, for autostart).
 
 use std::path::PathBuf;
 
-use config::Config;
-use model::Ms;
+use crate::config::{self, Config};
+use crate::model::Ms;
+#[cfg(windows)]
+use crate::{categories, engine, ids, platform, runner};
+use crate::{paths, report, store};
 
 const HELP: &str = "rhen-watch: local desktop activity recorder (observation only, nothing is sent anywhere)
 
@@ -28,22 +16,26 @@ USAGE
   rhen-watch report [--day YYYY-MM-DD] [--utc-offset-minutes N]
   rhen-watch status                  paths, size, last heartbeat, row counts
   rhen-watch config init|path        write the default config / print its path
+  rhen-watch install                 copy to %LOCALAPPDATA%\\Programs\\rhen-watch, start at logon, start now
+  rhen-watch uninstall [--purge]     stop, remove start at logon and the program (--purge also deletes your data)
   rhen-watch wipe --yes              delete the database, its sidecar files and the config
 ";
 
-fn main() {
+pub fn main() {
+    // The no-console build has nowhere to show a panic, so put it in the log.
+    std::panic::set_hook(Box::new(|info| crate::log::error(&format!("internal error: {info}"))));
     let args: Vec<String> = std::env::args().skip(1).collect();
     let code = match real_main(&args) {
         Ok(()) => 0,
         Err(e) => {
-            eprintln!("rhen-watch: {e}");
+            crate::log::error(&e);
             1
         }
     };
     std::process::exit(code);
 }
 
-fn real_main(args: &[String]) -> Result<(), String> {
+pub fn real_main(args: &[String]) -> Result<(), String> {
     match args.first().map(String::as_str) {
         Some("run") => cmd_run(&args[1..]),
         Some("stop") => cmd_stop(),
@@ -51,6 +43,8 @@ fn real_main(args: &[String]) -> Result<(), String> {
         Some("status") => cmd_status(),
         Some("config") => cmd_config(args.get(1).map(String::as_str)),
         Some("wipe") => cmd_wipe(&args[1..]),
+        Some("install") => cmd_install(),
+        Some("uninstall") => cmd_uninstall(&args[1..]),
         Some("--help") | Some("-h") | Some("help") | None => {
             print!("{HELP}");
             Ok(())
@@ -120,9 +114,18 @@ fn cmd_wipe(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// True while an agent holds `run.lock` (the OS drops it if the process dies).
+pub fn agent_running(dir: &std::path::Path) -> bool {
+    match std::fs::OpenOptions::new().write(true).open(dir.join("run.lock")) {
+        Ok(f) => matches!(f.try_lock(), Err(std::fs::TryLockError::WouldBlock)),
+        Err(_) => false,
+    }
+}
+
 fn cmd_status() -> Result<(), String> {
     let d = dir()?;
     println!("data directory: {}", d.display());
+    println!("agent: {}", if agent_running(&d) { "running" } else { "not running" });
     let db = d.join("activity.db");
     if !db.exists() {
         println!("no database yet; run `rhen-watch run`");
@@ -263,9 +266,11 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
         None => None,
     };
     let d = dir()?;
-    let _ = win::restrict_dir(&d).map_err(|e| eprintln!("warning: could not restrict the data directory to your user: {e}"));
+    if let Err(e) = win::restrict_dir(&d) {
+        crate::log::warn(&format!("could not restrict the data directory to your user: {e}"));
+    }
     if d.to_string_lossy().starts_with("\\\\") {
-        eprintln!("warning: the data directory is on a network share; SQLite write-ahead logging is unsafe there");
+        crate::log::warn("the data directory is on a network share; SQLite write-ahead logging is unsafe there");
     }
     let cfg = load_config(&d)?;
 
@@ -281,6 +286,7 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
 
     let stop_event = win::StopEvent::create()?;
     win::install_ctrl_handler();
+    win::set_data_dir(&d);
 
     let mut store = store::Store::open(&d.join("activity.db")).map_err(|e| e.to_string())?;
     let device = match store.meta("device").map_err(|e| e.to_string())? {
@@ -312,13 +318,16 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
 
     let (tx, rx) = std::sync::mpsc::sync_channel::<runner::Raw>(1024);
     let (mut hooks, missing) = win::Hooks::start(tx, cfg.collectors.foreground, cfg.collectors.session, cfg.collectors.power)?;
-    println!("rhen-watch recording to {} (Ctrl+C or `rhen-watch stop` to end)", d.display());
+    crate::log::info(&format!(
+        "rhen-watch recording to {} (Ctrl+C or `rhen-watch stop` to end)",
+        d.display()
+    ));
 
     let started = Instant::now();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(), String> {
         run.start()?;
         if !missing.is_empty() {
-            eprintln!("warning: could not register for: {} (recorded as degraded)", missing.join(", "));
+            crate::log::warn(&format!("could not register for: {} (recorded as degraded)", missing.join(", ")));
             run.degraded(&missing)?;
         }
         loop {
@@ -335,6 +344,7 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
             // Mirror the hook thread's drop counter into the runner's.
             dropped.store(win::DROPPED.load(Ordering::Relaxed), Ordering::Relaxed);
             run.tick()?;
+            win::set_state(run.state());
         }
     }));
     // Whatever happened, close what is open so the report shows an honest end. This comes before the hooks
@@ -347,4 +357,178 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
         Ok(Err(e)) => Err(e),
         Err(_) => Err("internal error (panic); the open intervals were closed".into()),
     }
+}
+
+#[cfg(not(windows))]
+fn cmd_install() -> Result<(), String> {
+    Err("install is for Windows".into())
+}
+
+#[cfg(not(windows))]
+fn cmd_uninstall(_args: &[String]) -> Result<(), String> {
+    Err("uninstall is for Windows".into())
+}
+
+#[cfg(windows)]
+fn install_dir() -> Result<PathBuf, String> {
+    std::env::var_os("LOCALAPPDATA")
+        .map(|d| PathBuf::from(d).join("Programs").join("rhen-watch"))
+        .ok_or_else(|| "LOCALAPPDATA is not set".to_string())
+}
+
+/// Wait until none of `files` is held open by a running copy (Windows will not replace or delete a running program).
+#[cfg(windows)]
+fn wait_released(files: &[PathBuf]) -> Result<(), String> {
+    use std::time::{Duration, Instant};
+    let started = Instant::now();
+    loop {
+        let busy: Vec<_> = files
+            .iter()
+            .filter(|f| f.exists() && std::fs::OpenOptions::new().write(true).open(f).is_err())
+            .collect();
+        if busy.is_empty() {
+            return Ok(());
+        }
+        if started.elapsed() > Duration::from_secs(10) {
+            return Err(format!("{} is still running; close it and try again", busy[0].display()));
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+/// Ask a running agent to stop and wait until its lock is free.
+#[cfg(windows)]
+fn stop_and_wait() -> Result<(), String> {
+    use std::time::{Duration, Instant};
+    if !platform::windows::signal_stop() {
+        return Ok(());
+    }
+    let lock = paths::data_dir()?.join("run.lock");
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_secs(10) {
+        match std::fs::OpenOptions::new().write(true).open(&lock) {
+            Ok(f) if f.try_lock().is_ok() => return Ok(()),
+            Err(_) => return Ok(()),
+            _ => std::thread::sleep(Duration::from_millis(200)),
+        }
+    }
+    Err("the running agent did not stop within 10 seconds".into())
+}
+
+#[cfg(windows)]
+fn cmd_install() -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+
+    let here = std::env::current_exe().map_err(|e| e.to_string())?;
+    let src_dir = here.parent().ok_or("cannot find the folder this program is in")?.to_path_buf();
+    let dest = install_dir()?;
+    let names = ["rhen-watch.exe", "rhen-watchw.exe"];
+    for n in names {
+        if !src_dir.join(n).exists() {
+            return Err(format!(
+                "{n} must sit next to this program to install it (looked in {})",
+                src_dir.display()
+            ));
+        }
+    }
+    stop_and_wait()?;
+    std::fs::create_dir_all(&dest).map_err(|e| format!("cannot create {}: {e}", dest.display()))?;
+    let same = match (src_dir.canonicalize(), dest.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    };
+    if !same {
+        let targets: Vec<PathBuf> = names.iter().map(|n| dest.join(n)).collect();
+        wait_released(&targets)?;
+        // Copy both under temporary names first, so a failure leaves the old pair untouched.
+        let staged: Vec<(PathBuf, PathBuf)> = names.iter().map(|n| (dest.join(format!("{n}.new")), dest.join(n))).collect();
+        for (n, (tmp, _)) in names.iter().zip(&staged) {
+            if let Err(e) = std::fs::copy(src_dir.join(n), tmp) {
+                for (t, _) in &staged {
+                    let _ = std::fs::remove_file(t);
+                }
+                return Err(format!("cannot copy {n}: {e}"));
+            }
+        }
+        for (tmp, target) in &staged {
+            std::fs::rename(tmp, target).map_err(|e| format!("cannot replace {}: {e}", target.display()))?;
+        }
+    }
+    let gui = dest.join("rhen-watchw.exe");
+    platform::windows::set_autostart(&format!("\"{}\" run", gui.display()))?;
+    // DETACHED_PROCESS | CREATE_NO_WINDOW: the agent outlives this console and shows no window of its own.
+    let mut child = std::process::Command::new(&gui)
+        .arg("run")
+        .creation_flags(0x0000_0008 | 0x0800_0000)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("installed, but could not start it: {e}"))?;
+    // Prove it is alive: it holds run.lock once it is recording, and it must not have exited.
+    let data = paths::data_dir()?;
+    let started = std::time::Instant::now();
+    loop {
+        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+            return Err(format!(
+                "installed, but the agent exited at once ({status}); see rhen-watch.log in {}",
+                data.display()
+            ));
+        }
+        if agent_running(&data) {
+            break;
+        }
+        if started.elapsed() > std::time::Duration::from_secs(5) {
+            return Err(format!(
+                "installed, but the agent did not start recording within 5 seconds; see rhen-watch.log in {}",
+                data.display()
+            ));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    crate::log::info(&format!("installed to {}", dest.display()));
+    println!("It starts when you log on and is running now (look for the tray icon).");
+    println!("Report:    {}\\rhen-watch.exe report", dest.display());
+    println!("Stop:      {}\\rhen-watch.exe stop", dest.display());
+    println!(
+        "Uninstall: {}\\rhen-watch.exe uninstall   (add --purge to delete your data too)",
+        dest.display()
+    );
+    Ok(())
+}
+
+#[cfg(windows)]
+fn cmd_uninstall(args: &[String]) -> Result<(), String> {
+    let dest = install_dir()?;
+    stop_and_wait()?;
+    let gui = dest.join("rhen-watchw.exe");
+    wait_released(&[gui])?;
+    platform::windows::clear_autostart()?;
+    let mut leftovers = Vec::new();
+    for n in ["rhen-watch.exe", "rhen-watchw.exe"] {
+        let p = dest.join(n);
+        if p.exists() {
+            // The console copy may be the program running this very command; Windows will not delete it.
+            if std::env::current_exe().ok().and_then(|me| me.canonicalize().ok()) == p.canonicalize().ok() {
+                leftovers.push(p);
+            } else if let Err(e) = std::fs::remove_file(&p) {
+                return Err(format!("cannot remove {}: {e}", p.display()));
+            }
+        }
+    }
+    if leftovers.is_empty() {
+        let _ = std::fs::remove_dir(&dest);
+    } else {
+        println!(
+            "Delete {} yourself when this window closes (a program cannot delete itself).",
+            dest.display()
+        );
+    }
+    if args.iter().any(|a| a == "--purge") {
+        cmd_wipe(&["--yes".to_string()])?;
+    } else {
+        println!("Your data is kept in {}; add --purge to delete it.", paths::data_dir()?.display());
+    }
+    println!("Uninstalled.");
+    Ok(())
 }

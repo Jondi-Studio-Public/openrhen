@@ -41,6 +41,8 @@ const energy = energyTypeSchema;
 const lifecycleStatus = lifecycleStatusSchema;
 
 const score = z.number().int().min(1).max(5);
+/** A comparison-refined consequence: a finite real in 0..6, deliberately not the integer 1-5 `score`. */
+const refinedConsequence = z.number().min(0).max(6);
 /** A quarter-hour wall-clock time, `HH:MM`, matching the detailed band's 15-minute slots. */
 const recoveryClockTime = z.string().regex(/^([01]\d|2[0-3]):(00|15|30|45)$/);
 
@@ -298,6 +300,12 @@ const projectSchema = z.object({
   uncertainty: z.enum(["known", "some", "high"]),
   value: score,
   consequence: score,
+  /**
+   * Comparison-refined consequence: derived, never set by a save. Finite 0..6; a different range from `score`.
+   * Honoured by the engine only when `consequenceRefinedForStars` equals the current `consequence`.
+   */
+  consequenceRefined: refinedConsequence.optional(),
+  consequenceRefinedForStars: score.optional(),
   // read-only. Derived by the database layer from each project's baseline estimate and its
   // deadline (`platform/database/src/planning/completion-ratios.ts`) on every plan-and-forecast run;
   // `saveProjectCommandSchema` does not accept either field, so a client cannot set them directly.
@@ -340,6 +348,9 @@ const actionSchema = z.object({
   maximumSessionMinutes: nonNegativeMinutes,
   importance: score,
   consequence: score,
+  /** See `projectSchema.consequenceRefined`. */
+  consequenceRefined: refinedConsequence.optional(),
+  consequenceRefinedForStars: score.optional(),
   contexts: z.array(z.string().min(1)),
   dependencyIds: z.array(z.string().min(1)),
   /** Prerequisites that are not other actions (`planning/prerequisites.ts`). */
