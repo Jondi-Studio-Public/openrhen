@@ -1,0 +1,86 @@
+{
+  "description": "Frozen test vectors for the message@1 fingerprint and canonical keys (platform/contracts/src/activity-message.ts). A collector in any language can check its own normalisation against these. fp = first 32 hex of sha256(JSON array [normalised sender, normalised text]); the fp: key = first 40 hex of sha256(JSON array [normalised sender, sent time floored to the UTC minute as ISO 8601 with milliseconds and Z, normalised text]). Normalising: Unicode NFKC, lower-case, zero-width (U+200B to U+200D, U+2060) and BOM (U+FEFF) removed, every run of whitespace one space, trimmed; text is cut to its first 8192 code points. Changing any value here is a breaking change to every stored fingerprint.",
+  "version": 1,
+  "fingerprints": [
+    {
+      "name": "plain",
+      "from": "alex@example.com",
+      "text": "Hello world",
+      "fp": "36fbbde9cf49ec9cb69a90265c4f6f33"
+    },
+    {
+      "name": "case and whitespace",
+      "from": "Alex@Example.com",
+      "text": "  hello\u00a0 WORLD\n",
+      "fp": "36fbbde9cf49ec9cb69a90265c4f6f33"
+    },
+    {
+      "name": "zero-width and BOM",
+      "from": "alex@example.com",
+      "text": "He\u200bllo\ufeff world",
+      "fp": "36fbbde9cf49ec9cb69a90265c4f6f33"
+    },
+    {
+      "name": "NFKC fullwidth",
+      "from": "alex@example.com",
+      "text": "\uff28\uff25\uff2c\uff2c\uff2f world",
+      "fp": "36fbbde9cf49ec9cb69a90265c4f6f33"
+    },
+    {
+      "name": "line endings",
+      "from": "alex@example.com",
+      "text": "Hello\r\n\r\nworld",
+      "fp": "36fbbde9cf49ec9cb69a90265c4f6f33"
+    },
+    {
+      "name": "other sender differs",
+      "from": "sam@example.com",
+      "text": "Hello world",
+      "fp": "fac8e54bea27f015f9a23be6662f1d6f"
+    },
+    {
+      "name": "short text",
+      "from": "alex@example.com",
+      "text": "ok",
+      "fp": "b0def14c91f6ffc38fb87ef358a57ade"
+    },
+    {
+      "name": "display-name sender and non-ASCII",
+      "from": "Alex Example",
+      "text": "Caf\u00e9 \u2615",
+      "fp": "bf09399a652c28205009755db5d62a0b"
+    },
+    {
+      "name": "composed vs decomposed differ only by sender",
+      "from": "alex@example.com",
+      "text": "Cafe\u0301 \u2615",
+      "fp": "11a3504bf39f313ccd12d74936fb95a5"
+    }
+  ],
+  "keys": [
+    {
+      "name": "id with brackets and mixed-case domain",
+      "message_id": "<Abc.DEF@Mail.Example.COM>",
+      "key": "mid:Abc.DEF@mail.example.com"
+    },
+    {
+      "name": "id over 200 characters is hashed",
+      "message_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "key": "mid:086d4a1c293bde318dc1fec9a21b9d828ba7637b"
+    },
+    {
+      "name": "no id: sender, minute, text",
+      "from": "Alex@Example.com",
+      "start": "2026-11-08T10:15:42Z",
+      "text": "Hello world",
+      "key": "fp:c1d3c7819abdc6456a6aef86e0d72ed6df3e95a4"
+    },
+    {
+      "name": "no id: same minute, other seconds and spacing",
+      "from": "alex@example.com",
+      "start": "2026-11-08T10:15:59.900Z",
+      "text": " HELLO   world ",
+      "key": "fp:c1d3c7819abdc6456a6aef86e0d72ed6df3e95a4"
+    }
+  ]
+}

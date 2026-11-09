@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { describeDerivedProblem } from "./activity-derived.js";
+import { MESSAGE_FAMILY, describeMessageProblem } from "./activity-message.js";
 import {
   PHYSIOLOGY_KINDS,
   PHYSIOLOGY_SCHEMA_VERSION,
@@ -298,8 +299,8 @@ export function describeWithheldClasses(withheld: Partial<Record<ActivitySourceC
 }
 
 const FAMILY_REF = /^[a-z0-9][a-z0-9-]*@[1-9][0-9]*$/;
-/** Families an extension source may name. Slice 1.3 replaces this with the family registry. */
-export const KNOWN_ACTIVITY_FAMILIES: ReadonlySet<string> = new Set<string>();
+/** Families an extension source may name. Slice 1.3 replaces this with the family registry. `message@1` is the neutral message family (activity-message.ts). */
+export const KNOWN_ACTIVITY_FAMILIES: ReadonlySet<string> = new Set<string>([MESSAGE_FAMILY]);
 
 /** What is wrong with the sources one extension registers, or undefined when they are fine. */
 export function describeExtensionSourceProblem(
@@ -707,6 +708,17 @@ export function validateActivityEvent(
     });
     if (physiologyProblem) return reject(physiologyProblem);
   }
+  if (entry.family === MESSAGE_FAMILY && kind === "message") {
+    const verdict = describeMessageProblem({ id, kind, tsStart, tsEnd, content, attrs });
+    if (!verdict.ok) return reject(verdict.reason);
+    // The tidied attrs and the computed fingerprint (taken from the raw content, before any content gate) are what is stored.
+    attrs = verdict.attrs;
+    const messageBytes = byteLength(JSON.stringify(attrs));
+    if (messageBytes > ACTIVITY_ATTRS_MAX_BYTES)
+      return reject(
+        `attrs is ${messageBytes} bytes; the limit is ${ACTIVITY_ATTRS_MAX_BYTES}. Keep small facts in attrs and put text in content.`
+      );
+  }
   if (content !== null) {
     const contentProblem = describeUnstorableText("content", content);
     if (contentProblem) return reject(contentProblem);
@@ -957,7 +969,7 @@ export function activityEventsJsonSchema(): Record<string, unknown> {
     $id: "https://openrhen.example/schemas/activity-events.v1.json",
     title: "OpenRhen activity events, version 1",
     description:
-      "The batch body of POST /api/activity-events. It does not describe the single-event shorthand body ({source, kind, start, id?, device?, end?, attrs?, content?}) or the rules that compare fields (end not before start, start not more than 24 hours ahead, attrs under 8 KB, content under 64 KB, offsets within -14:00 to +14:00, no NUL or lone surrogate in text, one source per import); the server states each of those in the rejection text. A time with an offset sets tz_offset_min to that offset (so +00:00 gives 0; Z leaves it unknown). Events of source physiology are also held to physiology-schema.v1.json and its canonical key rule.",
+      "The batch body of POST /api/activity-events. It does not describe the single-event shorthand body ({source, kind, start, id?, device?, end?, attrs?, content?}) or the rules that compare fields (end not before start, start not more than 24 hours ahead, attrs under 8 KB, content under 64 KB, offsets within -14:00 to +14:00, no NUL or lone surrogate in text, one source per import); the server states each of those in the rejection text. A time with an offset sets tz_offset_min to that offset (so +00:00 gives 0; Z leaves it unknown). Events of source physiology are also held to physiology-schema.v1.json and its canonical key rule. Events of a source whose family is message@1 are held to the message rules (closed attrs, the mid: or fp: key, a server-computed attrs.fp).",
     ...(withoutDatePatterns(
       z.toJSONSchema(ingestActivityEventsSchema, { io: "input", unrepresentable: "any" })
     ) as Record<string, unknown>),

@@ -22,6 +22,7 @@ Start with the guide that matches what you want to do. Open only what you need.
 | Get leave-by reminders on a phone | [Web push](operations/web-push.md), [Location ping](operations/location-ping.md) |
 | Record what your iPhone does | [iPhone Shortcuts feed](operations/iphone-shortcuts-feed.md) |
 | Post wearable or health-app data from your own collector | [Posting physiology data](operations/posting-physiology-data.md) |
+| Post messages from your own collector | [Posting messages](operations/posting-messages.md) |
 | Contribute | [CONTRIBUTING](../CONTRIBUTING.md), [GOVERNANCE](../GOVERNANCE.md) |
 
 Each document owns its subject. If two documents seem to disagree, the code and its tests are the final word; please open an issue.
