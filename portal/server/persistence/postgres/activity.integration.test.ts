@@ -17,6 +17,7 @@ import {
   setActivitySourceSettings
 } from "./activity-store";
 import { ensureUser } from "./ensure-user";
+import { resetRunThrottle } from "./run-log";
 
 config({ path: resolve(process.cwd(), "../.env"), quiet: true });
 
@@ -72,6 +73,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   await sql.unsafe("TRUNCATE TABLE users RESTART IDENTITY CASCADE");
   userId = await ensureUser(sql);
+  resetRunThrottle();
 });
 
 afterAll(async () => {
@@ -584,5 +586,49 @@ describe("who a derived row is attributed to", () => {
       expect(result.rejected[0]!.reason).toContain("attrs.by");
     }
     expect(await count()).toBe(0);
+  });
+});
+
+describe("ingest run rows", () => {
+  const ingestRuns = () =>
+    sql<{ provider: string; trigger: string; status: string; summary: { rejected: number; firstReason: string } }[]>`
+      SELECT provider, trigger, status, summary FROM integration_sync_runs WHERE provider LIKE 'ingest:%' ORDER BY provider`;
+
+  it("leaves one needs_review row, trigger scheduled, when a source's events are rejected", async () => {
+    await ingest([event("good"), event("bad", { start: "not a time" }), event("bad2", { start: "also not" })]);
+    const rows = await ingestRuns();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ provider: "ingest:rhen-watch", trigger: "scheduled", status: "needs_review" });
+    expect(rows[0]!.summary.rejected).toBe(2);
+    expect(rows[0]!.summary.firstReason).toEqual(expect.any(String));
+    expect(rows[0]!.summary.firstReason.length).toBeGreaterThan(0);
+  });
+
+  it("writes nothing for a clean batch", async () => {
+    await ingest([event("a"), event("b")]);
+    expect(await ingestRuns()).toEqual([]);
+  });
+
+  it("writes at most one row per source per hour, in memory and after a restart", async () => {
+    await ingest([event("bad", { start: "nope" })]);
+    await ingest([event("bad-again", { start: "nope" })]);
+    expect(await ingestRuns()).toHaveLength(1);
+    resetRunThrottle();
+    await ingest([event("bad-3", { start: "nope" })]);
+    expect(await ingestRuns()).toHaveLength(1);
+  });
+
+  it("files rejections from an event with no known source under ingest:unknown", async () => {
+    await ingest([{ id: "x", kind: "foreground", start: "2026-11-07T10:00:00Z" }, event("y", { source: "made-up" })]);
+    const rows = await ingestRuns();
+    expect(rows.map((row) => row.provider)).toEqual(["ingest:unknown"]);
+  });
+
+  it("still records the rejections when the transaction rolls back", async () => {
+    await expect(
+      ingest([event("bad", { start: "nope" })], { importId: "00000000-0000-4000-8000-000000000000" })
+    ).rejects.toBeInstanceOf(ActivityInputError);
+    expect(await count()).toBe(0);
+    expect((await ingestRuns()).map((row) => row.provider)).toEqual(["ingest:rhen-watch"]);
   });
 });

@@ -108,35 +108,182 @@ export async function runActivityImport(context: CommandContext, args: ParsedArg
 
   const summaries: SourceSummary[] = [];
   const youtube: { file: string; result: WatchImportResult | null; dryRun: boolean }[] = [];
-  try {
-    for (const job of plan.jobs) {
-      if (job.kind === "youtube") youtube.push(await runYoutube(context, job, path, dryRun));
-      else summaries.push(await runEvents(context, plan, job, path, { dryRun, again }));
+  const failures: JobFailure[] = [];
+  const poster = runPoster(context);
+  // One job failing (a damaged file, a refused batch) must not hide the others: every job gets its turn and its
+  // own run row, and the command exits non-zero at the end if any failed.
+  for (const job of plan.jobs) {
+    const startedAt = context.now();
+    const source = job.kind === "youtube" ? YOUTUBE_RUN_SOURCE : job.source;
+    const partial = job.kind === "youtube" ? undefined : newSummary(job, dryRun);
+    try {
+      if (job.kind === "youtube") {
+        const item = await runYoutube(context, job, path, dryRun);
+        youtube.push(item);
+        if (!dryRun && item.result) await poster.post(youtubeRun(source, job, item.result, startedAt, context.now()));
+      } else {
+        const summary = await runEvents(context, plan, job, path, { dryRun, again }, partial!);
+        summaries.push(summary);
+        if (summary.status === "imported") await poster.post(eventsRun(source, summary, startedAt, context.now()));
+      }
+    } catch (error) {
+      const failure = error instanceof ImportReadError ? new CliError(error.message, EXIT.usage) : error;
+      failures.push({ source, error: failure });
+      if (!dryRun)
+        await poster.post(failedRun(source, job, partial, failure, [path, ...jobFiles(job)], startedAt, context.now()));
     }
-  } catch (error) {
-    if (error instanceof ImportReadError) throw new CliError(error.message, EXIT.usage);
-    throw error;
   }
 
-  if (context.mode !== "table") {
-    context.stdout(toJson({ sources: summaries, youtube }, true));
-    return;
+  if (context.mode !== "table") context.stdout(toJson({ sources: summaries, youtube }, true));
+  else {
+    for (const summary of summaries) context.stdout(renderSummary(summary));
+    for (const item of youtube) context.stdout(renderYoutube(item));
   }
-  for (const summary of summaries) context.stdout(renderSummary(summary));
-  for (const item of youtube) context.stdout(renderYoutube(item));
+  throwFailures(context, failures, plan.jobs.length);
 }
 
-async function runEvents(
-  context: CommandContext,
-  plan: ImportPlan,
-  job: EventJob,
-  path: string,
-  options: { dryRun: boolean; again: boolean }
-): Promise<SourceSummary> {
-  const summary: SourceSummary = {
+interface JobFailure {
+  source: string;
+  error: unknown;
+}
+
+/** One failure is thrown as it was, so its message and exit code are unchanged; several are listed, then summarised. */
+function throwFailures(context: CommandContext, failures: JobFailure[], jobs: number): void {
+  const first = failures[0];
+  if (!first) return;
+  if (failures.length === 1) throw first.error;
+  for (const failure of failures)
+    context.stderr(`rhen: ${failure.source}: ${failure.error instanceof Error ? failure.error.message : "failed"}`);
+  throw new CliError(
+    `${failures.length} of ${jobs} imports failed (see above). The others were imported and are listed in the output.`,
+    first.error instanceof CliError ? first.error.exitCode : EXIT.unavailable
+  );
+}
+
+const YOUTUBE_RUN_SOURCE = "youtube-watch-history";
+
+type RunBody = {
+  source: string;
+  status: "synced" | "needs_review" | "failed";
+  startedAt: string;
+  finishedAt: string;
+  summary: {
+    file: string;
+    events: number;
+    skipped: number;
+    rejected: number;
+    truncated: number;
+    warnings: string[];
+    error?: string;
+  };
+};
+
+const cut = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
+const jobFiles = (job: EventJob | YoutubeJob): string[] => (job.kind === "youtube" ? [job.file] : job.files);
+const baseOf = (file: string | undefined) => (file ? basename(file) : "");
+
+/**
+ * Posts each finished job to `POST /api/activity-imports/runs`, so an import that brought in nothing is a row the
+ * portal can show and not a silence. A failed post prints one warning for the whole command and never fails the import.
+ */
+function runPoster(context: CommandContext) {
+  let warned = false;
+  return {
+    async post(body: RunBody): Promise<void> {
+      try {
+        await context.client.post("/api/activity-imports/runs", body);
+      } catch (error) {
+        if (warned) return;
+        warned = true;
+        context.stderr(
+          `rhen: could not record the run in the portal (${error instanceof Error ? cut(error.message, 200) : "unknown error"}). The import itself is not affected.`
+        );
+      }
+    }
+  };
+}
+
+function eventsRun(source: string, summary: SourceSummary, startedAt: Date, finishedAt: Date): RunBody {
+  const warnings: string[] = [];
+  if (summary.warning) warnings.push(cut(summary.warning, 200));
+  if (summary.truncated) warnings.push("The file ends in the middle of a record, so it looks cut off.");
+  for (const group of summary.rejections.slice(0, 3))
+    warnings.push(cut(`rejected ${group.count}: ${group.reason}`, 200));
+  const status = summary.skipped > 0 || summary.rejected > 0 || warnings.length > 0 ? "needs_review" : "synced";
+  return {
+    source,
+    status,
+    startedAt: startedAt.toISOString(),
+    finishedAt: finishedAt.toISOString(),
+    summary: {
+      file: cut(baseOf(summary.files[0]), 300),
+      events: summary.added,
+      skipped: summary.skipped,
+      rejected: summary.rejected,
+      truncated: summary.truncated ? 1 : 0,
+      warnings: warnings.slice(0, 20)
+    }
+  };
+}
+
+function youtubeRun(
+  source: string,
+  job: YoutubeJob,
+  result: WatchImportResult,
+  startedAt: Date,
+  finishedAt: Date
+): RunBody {
+  return {
+    source,
+    status: result.skipped > 0 ? "needs_review" : "synced",
+    startedAt: startedAt.toISOString(),
+    finishedAt: finishedAt.toISOString(),
+    summary: {
+      file: cut(baseOf(job.file), 300),
+      events: result.added,
+      skipped: result.skipped,
+      rejected: 0,
+      truncated: 0,
+      warnings: []
+    }
+  };
+}
+
+function failedRun(
+  source: string,
+  job: EventJob | YoutubeJob,
+  partial: SourceSummary | undefined,
+  error: unknown,
+  paths: string[],
+  startedAt: Date,
+  finishedAt: Date
+): RunBody {
+  let message = error instanceof Error ? error.message : "The import failed.";
+  // The portal keeps a base name, never a directory: scrub every path this run named from the message too.
+  for (const path of paths.filter((entry) => entry.length > 0).sort((a, b) => b.length - a.length))
+    message = message.split(path).join(basename(path));
+  return {
+    source,
+    status: "failed",
+    startedAt: startedAt.toISOString(),
+    finishedAt: finishedAt.toISOString(),
+    summary: {
+      file: cut(baseOf(jobFiles(job)[0]), 300),
+      events: partial?.added ?? 0,
+      skipped: partial?.skipped ?? 0,
+      rejected: partial?.rejected ?? 0,
+      truncated: 0,
+      warnings: [],
+      error: cut(message, 500)
+    }
+  };
+}
+
+function newSummary(job: EventJob, dryRun: boolean): SourceSummary {
+  return {
     source: job.source,
     files: job.files,
-    status: options.dryRun ? "dry-run" : "imported",
+    status: dryRun ? "dry-run" : "imported",
     read: 0,
     sent: 0,
     added: 0,
@@ -151,6 +298,16 @@ async function runEvents(
     truncated: false,
     importId: null
   };
+}
+
+async function runEvents(
+  context: CommandContext,
+  plan: ImportPlan,
+  job: EventJob,
+  path: string,
+  options: { dryRun: boolean; again: boolean },
+  summary: SourceSummary
+): Promise<SourceSummary> {
   let sha256 = "";
   let filename = "";
   if (!options.dryRun) {

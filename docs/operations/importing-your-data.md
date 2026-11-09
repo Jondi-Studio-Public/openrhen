@@ -138,6 +138,8 @@ spotify (my_spotify_data.zip): read 41210 rows; sent 41198: added 41198, already
 - **content dropped** appears when a source's content gate is off.
 - A file that ends in the middle of a record is reported as cut off; what was read before the break is still imported, and downloading the export again fixes it.
 
+Each source also reports one run to the portal when it finishes (`POST /api/activity-imports/runs`: `synced`, `needs_review` when rows were skipped, rejected or warned about, or `failed`), so an import that brought in nothing is on record. If the portal cannot take the report, the command prints one warning and the import is unaffected. When one source fails (a damaged file, a refused batch), the others still run and print their blocks, and the command exits non-zero at the end.
+
 Add `--json` for the same information as data. The import id each block ends with is what the owner uses to undo that import (`DELETE /api/activity-imports/<id>` in the portal, or the activity summary).
 
 ## Running an import again

@@ -141,6 +141,17 @@ describe("readDoctorReport", () => {
     expect((await readDoctorReport(sql as never, { now: NOW })).healthy).toBe(true);
   });
 
+  it("ignores namespaced run rows (import:, ingest:, job:, device:), which are not a sync", async () => {
+    await sql`INSERT INTO integration_sync_runs (user_id,provider,trigger,started_at,finished_at,status,summary)
+      VALUES (${userId},'import:timeline','manual',${daysAgo(3)},${daysAgo(3)},'failed','{}'),
+             (${userId},'ingest:unknown','scheduled',${daysAgo(3)},${daysAgo(3)},'needs_review','{}'),
+             (${userId},'job:plan-map-sweep','scheduled',${daysAgo(3)},${daysAgo(3)},'failed','{}'),
+             (${userId},'device:handheld','scheduled',${daysAgo(3)},${daysAgo(3)},'failed','{}')`;
+    const report = await readDoctorReport(sql as never, { now: NOW });
+    expect(report.items.filter((entry) => entry.id.startsWith("sync_failing"))).toEqual([]);
+    expect(report.healthy).toBe(true);
+  });
+
   it("reports an action whose estimate needs review as degrading", async () => {
     const projectId = await createProject("Active", NOW);
     const actionId = await createAction(projectId, "Guess", true);

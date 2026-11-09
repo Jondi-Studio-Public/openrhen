@@ -646,6 +646,8 @@ const WRITE_RULES: Record<string, Rule> = {
   // Activity store ingest: its own narrow scope, never a proposal, nothing on the hard floor.
   // Which scope a row needs depends on its source and kind (see activityEventsWrite).
   "POST /api/activity-events": (body) => activityEventsWrite(body),
+  // An importer reports a finished file: capture scope, nothing on the hard floor, the body names no scope.
+  "POST /api/activity-imports/runs": () => ({ kind: "scopes", scopes: ["write:activity-event"] }),
   "POST /api/imports/extract": fixed({ tool: "import", action: "extract" }),
   "POST /api/imports/preview": fixed({ tool: "import", action: "preview" }),
   "POST /api/imports/[id]/commit": fixed({ tool: "import", action: "commit" }),

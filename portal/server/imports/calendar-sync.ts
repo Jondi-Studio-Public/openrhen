@@ -23,6 +23,7 @@ import { DEFAULT_MAX_DELETES } from "./publish-marker";
 import { listSelectedGoogleCalendars } from "@/server/persistence/postgres/calendar-source-selections";
 import { withImportStore, type PostgresImportStore } from "@/server/persistence/postgres/import-store";
 import { ImportConflictError } from "@/server/persistence/postgres/imports/import-conflict-error";
+import { recordRun, type RunRecord } from "@/server/persistence/postgres/run-log";
 import { sqlPool, type PoolSql } from "@/server/persistence/postgres/sql-pool";
 import { databaseUrl, runtimeEnv } from "@/server/runtime-env";
 
@@ -42,8 +43,6 @@ import { databaseUrl, runtimeEnv } from "@/server/runtime-env";
  */
 
 const DEFAULT_SYNC_WINDOW_DAYS = 90;
-/** How long a run's row is kept before the next sync prunes it. */
-const RUN_RETENTION_DAYS = 90;
 
 export interface PreparedCalendarDiff {
   records: ImportRecord[];
@@ -209,38 +208,6 @@ export async function ownerTimezone(env: Record<string, string | undefined>): Pr
     stored = rows[0]?.timezone;
   }
   return resolveTimezone(stored, env);
-}
-
-/** Records one run, best-effort, and prunes rows older than 90 days for this provider. */
-async function recordRun(run: {
-  provider: CalendarSyncProvider;
-  trigger: "manual" | "scheduled";
-  startedAt: Date;
-  finishedAt: Date;
-  result: CalendarSyncResult;
-}): Promise<void> {
-  const sql = sqlOrNull();
-  if (!sql) return;
-  try {
-    const userId = await ensureUser(sql);
-    await sql`
-      INSERT INTO integration_sync_runs (user_id, provider, trigger, started_at, finished_at, status, summary)
-      VALUES (${userId}, ${run.provider}, ${run.trigger}, ${run.startedAt.toISOString()}, ${run.finishedAt.toISOString()}, ${run.result.status}, ${sql.json(run.result as never)})
-    `;
-    await sql`
-      DELETE FROM integration_sync_runs
-      WHERE user_id=${userId} AND provider=${run.provider} AND started_at < now() - (${RUN_RETENTION_DAYS} * INTERVAL '1 day')
-    `;
-  } catch (error) {
-    console.error(
-      JSON.stringify({
-        level: "error",
-        message: "Calendar sync run telemetry write failed",
-        provider: run.provider,
-        errorMessage: error instanceof Error ? error.message : String(error)
-      })
-    );
-  }
 }
 
 /** Whether a record would stop `commitReady` from committing it: the rule `import-store.ts` applies. */
@@ -471,7 +438,15 @@ async function runCalendarSyncLocked({
 }): Promise<CalendarSyncResult> {
   const startedAt = new Date();
   const finish = async (result: CalendarSyncResult) => {
-    await recordRun({ provider, trigger, startedAt, finishedAt: new Date(), result });
+    await recordRun({
+      provider,
+      trigger,
+      // `already_running` and `not_enabled` are answers, never runs, so they never reach `finish`.
+      status: result.status as RunRecord["status"],
+      startedAt,
+      finishedAt: new Date(),
+      summary: result
+    });
     // A sync commit does not notify state_changed, so a moved commitment that is shared with the
     // family calendar is republished from here, as the roster sync does. Any source's commit can move one,
     // so this asks whenever a connection can be published to.

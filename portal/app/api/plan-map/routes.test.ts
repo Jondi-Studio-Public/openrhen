@@ -29,6 +29,9 @@ vi.mock("@openrhen/database", async (importOriginal) => ({
   ...reviewer
 }));
 
+const runLog = vi.hoisted(() => ({ recordRun: vi.fn(async () => true) }));
+vi.mock("@/server/persistence/postgres/run-log", () => runLog);
+
 const catchUp = vi.hoisted(() => ({ queueCatchUpNudge: vi.fn() }));
 vi.mock("@/server/persistence/postgres/catch-up", () => catchUp);
 
@@ -60,6 +63,7 @@ beforeEach(() => {
     ...Object.values(catchUp)
   ])
     mock.mockReset();
+  runLog.recordRun.mockClear();
   health.runPlanHealth.mockResolvedValue({ mode: "off", found: 0, created: 0, cleared: 0 });
   catchUp.queueCatchUpNudge.mockResolvedValue({ due: false, queued: false });
 });
@@ -188,6 +192,79 @@ describe("plan-map routes", () => {
     expect(await isolated.json()).toMatchObject({ status: "ok", health: { mode: "error", error: "health boom" } });
     store.sweepPlanMap.mockRejectedValue(new Error("boom"));
     expect((await sweep.POST(post({ trigger: "scheduled" }), undefined)).status).toBe(502);
+  });
+
+  describe("the run row", () => {
+    const quiet = { orphanedLinksDeleted: 0, suggestionsExpired: 0, shadowRowsDeleted: 0 };
+    beforeEach(() => {
+      proposers.runPlanMapProposers.mockResolvedValue({ mode: "off", suggested: 0, revived: 0, scores: [] });
+      reviewer.runPlanReviewer.mockResolvedValue({ mode: "off", ran: false, queued: false, digest: null });
+    });
+
+    it("writes job:plan-map-sweep, synced, when the sweep changed something", async () => {
+      store.sweepPlanMap.mockResolvedValue({ ...quiet, suggestionsExpired: 2 });
+      await sweep.POST(post({ trigger: "scheduled" }), undefined);
+      expect(runLog.recordRun).toHaveBeenCalledOnce();
+      expect(runLog.recordRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: "job:plan-map-sweep",
+          trigger: "scheduled",
+          status: "synced",
+          summary: expect.objectContaining({ suggestionsExpired: 2 })
+        })
+      );
+    });
+
+    it("writes nothing for a quiet sweep", async () => {
+      store.sweepPlanMap.mockResolvedValue(quiet);
+      await sweep.POST(post({ trigger: "scheduled" }), undefined);
+      expect(runLog.recordRun).not.toHaveBeenCalled();
+    });
+
+    it("writes a failed row, with the redacted error, when the sweep fails", async () => {
+      store.sweepPlanMap.mockRejectedValue(new Error("boom"));
+      expect((await sweep.POST(post({ trigger: "scheduled" }), undefined)).status).toBe(502);
+      expect(runLog.recordRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: "job:plan-map-sweep",
+          trigger: "scheduled",
+          status: "failed",
+          summary: { error: "boom" }
+        })
+      );
+    });
+
+    it("writes a needs_review row naming the failed advisory steps when nothing else happened", async () => {
+      store.sweepPlanMap.mockResolvedValue(quiet);
+      proposers.runPlanMapProposers.mockRejectedValue(new Error("p".repeat(400)));
+      health.runPlanHealth.mockRejectedValue(new Error("health boom"));
+      expect((await sweep.POST(post({ trigger: "scheduled" }), undefined)).status).toBe(200);
+      expect(runLog.recordRun).toHaveBeenCalledOnce();
+      const row = (runLog.recordRun.mock.calls as unknown as [unknown][])[0]![0] as {
+        provider: string;
+        trigger: string;
+        status: string;
+        summary: { steps: Record<string, string> };
+      };
+      expect(row).toMatchObject({ provider: "job:plan-map-sweep", trigger: "scheduled", status: "needs_review" });
+      expect(Object.keys(row.summary.steps).sort()).toEqual(["health", "proposers"]);
+      expect(row.summary.steps.proposers!.length).toBeLessThanOrEqual(200);
+      expect(row.summary.steps.health).toBe("health boom");
+    });
+
+    it("keeps the synced row as it is when work was done, even if a step errored", async () => {
+      store.sweepPlanMap.mockResolvedValue({ ...quiet, suggestionsExpired: 1 });
+      health.runPlanHealth.mockRejectedValue(new Error("health boom"));
+      await sweep.POST(post({ trigger: "scheduled" }), undefined);
+      expect(runLog.recordRun).toHaveBeenCalledOnce();
+      expect(runLog.recordRun).toHaveBeenCalledWith(expect.objectContaining({ status: "synced" }));
+    });
+
+    it("records a manual sweep as manual", async () => {
+      store.sweepPlanMap.mockResolvedValue({ ...quiet, shadowRowsDeleted: 1 });
+      await sweep.POST(post({}), undefined);
+      expect(runLog.recordRun).toHaveBeenCalledWith(expect.objectContaining({ trigger: "manual" }));
+    });
   });
 
   it("does not fail the sweep when the proposers fail", async () => {
