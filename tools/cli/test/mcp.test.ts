@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { MCP_CORE_TOOL_MANIFEST, MCP_TOOL_MANIFEST } from "@openrhen/contracts";
 import { buildInfo } from "../src/build-info.js";
 import { runCli } from "../src/cli.js";
 import { serveMcp, toolInvocation } from "../src/commands/mcp.js";
+import { commandModules } from "../src/command-modules.js";
 import { DEFAULT_PORTAL_URL } from "../src/config.js";
 import { commands } from "../src/registry.js";
 import { fakeFetch, type RecordedCall } from "./fake-fetch.js";
@@ -10,8 +10,8 @@ import { fixtureNow, fixtureRawState } from "./fixture-state.js";
 
 /** Pinned from the new-data-sources slice 1.1: no new MCP tool without changing this on purpose. Core's own tools. */
 const EXPECTED_CORE_TOOL_COUNT = 51;
-/** Tools an extension adds on top of core's (none in this repository), so a composed tree that adds some still passes. */
-const EXTENSION_TOOL_COUNT = MCP_TOOL_MANIFEST.length - MCP_CORE_TOOL_MANIFEST.length;
+/** Commands the registered extension modules add; each is a tool in `tools/list` (none in this repository). */
+const EXTENSION_TOOL_COUNT = commandModules().reduce((total, module) => total + module.commands.length, 0);
 
 interface JsonRpcResponse {
   jsonrpc: string;
