@@ -327,7 +327,7 @@ async function readSyncRuns(sql: Queryable, userId: string, now: Date): Promise<
       SELECT DISTINCT ON (r.provider) r.provider, r.status, r.started_at AS last_run_at,
         (SELECT max(COALESCE(s.finished_at, s.started_at)) FROM integration_sync_runs s
           WHERE s.user_id = r.user_id AND s.provider = r.provider AND s.status = 'synced') AS last_success_at
-      FROM integration_sync_runs r WHERE r.user_id = ${userId} AND r.provider <> 'backup'
+      FROM integration_sync_runs r WHERE r.user_id = ${userId} AND r.provider <> 'backup' AND r.provider NOT LIKE '%:%'
       ORDER BY r.provider, r.started_at DESC LIMIT 50`,
     readExtensionSyncStatuses(sql)
   ]);
