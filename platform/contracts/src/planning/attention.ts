@@ -495,6 +495,10 @@ export const ATTENTION_DOCTOR_TEMPLATES: Record<DoctorCheck, AttentionDoctorTemp
     title: "Place changes are not being reported",
     why: "Travel and what can be done here are planned from an old place."
   },
+  agent_wake_dead: {
+    title: "The agent was not woken",
+    why: "A wake sent to the owner's agent failed or expired, so a question or lapse may have gone unseen."
+  },
   closed_stamp_stray: {
     title: "Open records carry a closed stamp",
     why: "A closed time on an open record would put it on the Closed list and hide its real state."
