@@ -539,6 +539,11 @@ impl Store {
         self.conn.execute("DELETE FROM metrics WHERE minute_ts < ?1", params![cutoff])
     }
 
+    /// A consistent copy of the whole database in one new file (see `handover::export_db`).
+    pub fn vacuum_into(&self, dest: &Path) -> rusqlite::Result<()> {
+        self.conn.execute("VACUUM INTO ?1", [dest.to_string_lossy().as_ref()]).map(|_| ())
+    }
+
     pub fn db_bytes(&self) -> i64 {
         let pages: i64 = self.conn.query_row("PRAGMA page_count", [], |r| r.get(0)).unwrap_or(0);
         let size: i64 = self.conn.query_row("PRAGMA page_size", [], |r| r.get(0)).unwrap_or(0);
