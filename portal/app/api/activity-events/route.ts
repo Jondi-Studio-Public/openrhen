@@ -18,10 +18,26 @@ import { databaseUrl } from "@/server/runtime-env";
 
 const NEEDS_DB = "The activity store requires PostgreSQL.";
 
+/**
+ * One sentence on message copies dropped because another source holds the message (they are part of `alreadyHeld`),
+ * ending with the exact next call: the coverage row that reports how far the source has been read.
+ */
+function duplicatesSentence(duplicates: ActivityIngestResult["duplicates"]): string {
+  const byId = duplicates.filter((copy) => copy.by === "message_id").length;
+  const byText = duplicates.length - byId;
+  const how = [
+    byId > 0 ? `${byId} by message id` : null,
+    byText > 0 ? `${byText} by matching sender, time and text` : null
+  ].filter((part) => part !== null);
+  const copies = duplicates.length === 1 ? "1 of those is a copy" : `${duplicates.length} of those are copies`;
+  return `${copies} of messages another source already holds (${how.join(", ")}), so nothing is stored for them and nothing needs resending (see "duplicates" for which were dropped and which were kept). To report how far "${duplicates[0]!.source}" has been read, post a coverage row: POST /api/activity-events {"source": "${duplicates[0]!.source}", "kind": "coverage", ...}`;
+}
+
 /** Plain English for what happened to a batch: a phone shortcut shows the response body as it is. */
 function messageFor(result: ActivityIngestResult): string {
   const parts = [`Saved ${result.added} event${result.added === 1 ? "" : "s"}`];
   if (result.alreadyHeld > 0) parts.push(`${result.alreadyHeld} already held`);
+  if (result.duplicates.length > 0) parts.push(duplicatesSentence(result.duplicates));
   if (result.contentDropped > 0)
     parts.push(`text dropped from ${result.contentDropped} (the content gate for that source is off)`);
   if (result.rejected.length > 0)

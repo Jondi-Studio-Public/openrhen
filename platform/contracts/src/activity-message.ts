@@ -42,7 +42,7 @@ export const MESSAGE_START_FLOOR = new Date("1990-01-01T00:00:00.000Z");
 /**
  * The window in which two rows with the same `attrs.fp` count as one message when the store compares them. `fp` has no
  * time in it, so this range check is part of the contract, not an option; it is applied by the cross-source lookup
- * (slice B2), which does not exist yet.
+ * (`findMessageDuplicates`, activity-message-dedupe.ts), inclusive of the boundary.
  */
 export const MESSAGE_FINGERPRINT_TIME_TOLERANCE_SECONDS = 60;
 /** The server-computed attr: a hash of the normalised sender and normalised text. */
@@ -98,7 +98,7 @@ export function normaliseMessageId(raw: string): string {
  * `attrs.fp`: 32 hex characters of sha256 over the normalised sender and normalised text. Time is deliberately not in
  * it: a time bucket would split one message across a bucket edge or an offset, so the fingerprint is only a candidate
  * key and any lookup MUST also require the sent times to lie within `MESSAGE_FINGERPRINT_TIME_TOLERANCE_SECONDS`
- * (slice B2). Two rows with an equal fp and far-apart times are different messages. Returns undefined when the text normalises to nothing, so a message with no text has no fp.
+ * (`findMessageDuplicates`). Two rows with an equal fp and far-apart times are different messages. Returns undefined when the text normalises to nothing, so a message with no text has no fp.
  */
 export function messageFingerprint(sender: string, text: string): string | undefined {
   const normalisedText = normaliseMessageText(text);
