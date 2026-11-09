@@ -75,6 +75,18 @@ fn app(exe: &str, start: i64, end: i64) -> EventRow {
 }
 
 fn facts_with(buckets: &[BucketRow], events: &[EventRow], from: i64, to: i64, p: &Params) -> DayFacts {
+    facts_until(buckets, events, from, to, to, None, p)
+}
+
+fn facts_until(
+    buckets: &[BucketRow],
+    events: &[EventRow],
+    from: i64,
+    to: i64,
+    open_until: i64,
+    floor: Option<i64>,
+    p: &Params,
+) -> DayFacts {
     derive(&DeriveInput {
         from,
         to,
@@ -82,7 +94,8 @@ fn facts_with(buckets: &[BucketRow], events: &[EventRow], from: i64, to: i64, p:
         buckets,
         group_of: &group_of,
         params: p,
-        open_until: to,
+        open_until,
+        events_floor: floor,
     })
 }
 
@@ -446,6 +459,44 @@ fn events_without_buckets_are_no_input_data() {
     let f = facts_with(&[], &[app("code.exe", at(0), at(60))], at(0), at(1440), &params());
     assert_eq!(f.availability, Availability::NoInputData);
     assert!(f.first_input.is_none());
+}
+
+#[test]
+fn only_the_recorded_part_of_the_day_counts_towards_partial() {
+    let b = run("code.exe", 0, 600);
+    let ev = [app("code.exe", at(0), at(600))];
+    // viewed at 10:00: everything from the first record to now was watched
+    let f = facts_until(&b, &ev, at(0), at(1440), at(600), None, &params());
+    assert_eq!((f.partial, f.unknown_minutes), (false, 0));
+    // the same rows seen at the end of the day: 840 minutes with nothing
+    let f = facts_until(&b, &ev, at(0), at(1440), at(1440), None, &params());
+    assert_eq!((f.partial, f.unknown_minutes), (true, 840));
+    // a day that starts recording at 09:00 is not unknown before that
+    let b = run("code.exe", 540, 600);
+    let ev = [app("code.exe", at(540), at(600))];
+    let f = facts_until(&b, &ev, at(0), at(1440), at(600), None, &params());
+    assert_eq!((f.partial, f.unknown_minutes), (false, 0));
+}
+
+#[test]
+fn a_retention_cutoff_mid_day_splits_sessions_and_marks_the_day_partial() {
+    // engaged 100..105, quiet 105..108, engaged 108..113: one session, until the lock that was in the gap is purged
+    let mut b = run("code.exe", 100, 105);
+    b.extend(calm(105, 108));
+    b.extend(run("code.exe", 108, 113));
+    let ev = [app("code.exe", at(0), at(1440))];
+    let whole = facts_until(&b, &ev, at(0), at(1440), at(1440), None, &params());
+    assert_eq!(whole.sessions.len(), 1);
+    // events before 01:46 were purged: the oldest surviving one ended at minute 106
+    let cut = facts_until(&b, &ev, at(0), at(1440), at(1440), Some(at(106)), &params());
+    assert_eq!(cut.sessions.len(), 2, "the lost events could have been a lock in that gap");
+    assert!(cut.partial, "the purged part is unknown");
+    // a floor before every bucket changes nothing
+    let early = facts_until(&b, &ev, at(0), at(1440), at(1440), Some(at(50)), &params());
+    assert_eq!(early.sessions.len(), 1);
+    // a floor after the whole day is "events purged"
+    let gone = facts_until(&b, &ev, at(0), at(1440), at(1440), Some(at(2000)), &params());
+    assert_eq!(gone.availability, Availability::EventsPurged);
 }
 
 // ---- determinism and properties ----

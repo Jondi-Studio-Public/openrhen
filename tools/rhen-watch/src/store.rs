@@ -429,6 +429,11 @@ impl Store {
         rows.collect()
     }
 
+    /// The end of the oldest stored event: nothing older survives retention.
+    pub fn earliest_event_end(&self) -> rusqlite::Result<Option<Ms>> {
+        self.conn.query_row("SELECT MIN(ts_end) FROM events", [], |r| r.get(0))
+    }
+
     pub fn count_events(&self) -> rusqlite::Result<i64> {
         self.conn.query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0))
     }

@@ -259,23 +259,28 @@ fn front(exe: &str) -> Signal {
 
 /// Two polls that credit, so the meter has a baseline and a tally.
 fn warm(e: &mut Engine, t0: i64) -> i64 {
+    warm_run(e, t0).0
+}
+
+/// Like `warm`, also returning the run the tally is in.
+fn warm_run(e: &mut Engine, t0: i64) -> (i64, u64) {
     e.step(t0, Signal::Tick);
     e.step(t0, front("code.exe"));
     poll(e, t0 + 1_000, 60_000);
     let ops = poll(e, t0 + 6_000, 100);
     assert_eq!(totals(&ops).0, 5_000, "warm: {ops:?}");
-    t0 + 6_000
+    (t0 + 6_000, buckets(&ops)[0].2)
 }
 
-fn credits_next_poll(e: &mut Engine, t: i64) -> bool {
-    // The poll right after a reset sets the baseline; the one after that credits.
+/// The run of the bucket the second poll after a reset writes; the first poll must write none.
+fn credits_next_poll(e: &mut Engine, t: i64) -> Option<u64> {
     let first = poll(e, t, 100);
     let second = poll(e, t + 5_000, 5_100 - 5_000 + 20);
     assert!(
         buckets(&first).is_empty(),
         "the first poll after a reset credits nothing: {first:?}"
     );
-    !buckets(&second).is_empty()
+    buckets(&second).first().map(|b| b.2)
 }
 
 #[test]
@@ -346,9 +351,14 @@ fn nothing_is_polled_or_tallied_while_locked_suspended_paused_or_a_game_is_in_fr
 #[test]
 fn every_named_reset_path_leaves_the_next_poll_as_a_baseline_only() {
     let mut e = eng(Settings::default());
-    let mut t = warm(&mut e, 1_000_000);
+    let (mut t, first_run) = warm_run(&mut e, 1_000_000);
+    // Each path must start a new run: a stall (whose slot the 30 s limit would discard anyway) is only proved
+    // to reset by the run changing.
+    let last_run = std::cell::Cell::new(first_run);
     let check = |e: &mut Engine, label: &str, t: &mut i64| {
-        assert!(credits_next_poll(e, *t + 1_000), "{label}: credits again after its baseline");
+        let run = credits_next_poll(e, *t + 1_000).unwrap_or_else(|| panic!("{label}: credits again after its baseline"));
+        assert!(run > last_run.get(), "{label}: a new run ({} -> {run})", last_run.get());
+        last_run.set(run);
         *t += 20_000;
     };
 
@@ -767,20 +777,19 @@ fn a_kill_between_polls_loses_less_than_one_cadence() {
     let dir = tmp("kill");
     let path = dir.join("a.db");
     let rig = Rig::new(T0);
-    let polled_obs;
     {
         let mut r = rig.runner(Store::open(&path).unwrap());
         r.start().unwrap();
         rig.secs(&mut r, 47, true);
-        polled_obs = 47_000;
-        // no stop(): the process dies here
+        // no stop(): the process dies here, 2 s after the poll at 45 s
     }
     let s = Store::open(&path).unwrap();
     let (obs, _) = sums(&s);
-    assert!(polled_obs - obs < 5_000 + 1_000 + 5_000, "lost {} ms", polled_obs - obs);
+    // Polls at 5 s (baseline) .. 45 s cover 40 s; 42 s have passed since the baseline.
+    assert_eq!(obs, 40_000, "everything up to the last poll is on disk");
+    assert!(42_000 - obs < 5_000, "lost less than one cadence");
     let hb = s.last_heartbeat().unwrap().unwrap();
-    let newest = s.buckets_between(0, i64::MAX).unwrap().iter().map(|b| b.minute_ts).max().unwrap();
-    assert!(newest <= hb, "a bucket is never newer than the last heartbeat");
+    assert!(hb >= T0 + 46_000, "the heartbeat is applied every second: {}", hb - T0);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -916,8 +925,10 @@ fn the_events_metric_counts_event_ops_and_not_buckets_or_meta() {
     let metrics = r.store().metrics_between(0, i64::MAX).unwrap();
     let counted: i64 = metrics.iter().map(|m| m.events).sum();
     let rows = r.store().count_events().unwrap();
+    // start, one foreground interval (open and close), stop: a handful of ops. About 25 polls each wrote a
+    // bucket; if those were counted this would be far above the rows.
     assert!(
-        counted <= rows + 4,
+        counted > 0 && counted <= rows * 2,
         "metric_events {counted} vs {rows} event rows: buckets must not inflate it"
     );
 }

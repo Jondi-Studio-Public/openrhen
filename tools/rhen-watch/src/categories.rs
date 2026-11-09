@@ -179,7 +179,11 @@ impl CategoryFile {
         for (exe, category) in raw.exe {
             let key = normalise_exe(&exe).map_err(|e| format!("categories.toml: [exe] {e}"))?;
             validate_category(&category).map_err(|e| format!("categories.toml: [exe] \"{exe}\": {e}"))?;
-            out.exe.insert(key, category);
+            if out.exe.insert(key.clone(), category).is_some() {
+                return Err(format!(
+                    "categories.toml: [exe] \"{key}\" is given twice (names are not case sensitive)"
+                ));
+            }
         }
         for (category, group) in raw.group {
             validate_category(&category).map_err(|e| format!("categories.toml: [group] {e}"))?;

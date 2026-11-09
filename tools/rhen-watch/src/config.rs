@@ -152,7 +152,7 @@ pub const LEGACY_CATEGORIES: &str =
 /// Bytes of a text file as UTF-8: a BOM is stripped, UTF-16 (PowerShell 5 redirects write it) is refused clearly.
 pub fn decode_text(bytes: &[u8], name: &str) -> Result<String, String> {
     let utf16 =
-        bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF]) || (bytes.len() >= 2 && bytes[0] != 0 && bytes[1] == 0);
+        bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF]) || (bytes.len() >= 2 && (bytes[0] != 0) != (bytes[1] != 0));
     if utf16 {
         return Err(format!(
             "{name} is saved as UTF-16 (a PowerShell 5 redirect does this); save it as UTF-8 and try again"
@@ -221,6 +221,8 @@ fn read_at_start(key: &str) -> bool {
 }
 
 const MAX_MINUTES: u32 = 1440;
+/// One day; also keeps `secs * 1000` far from overflowing.
+const MAX_IDLE_THRESHOLD_SECS: u64 = 86_400;
 
 impl Config {
     pub fn load(path: &Path) -> Result<Self, String> {
@@ -232,11 +234,10 @@ impl Config {
 
     /// `run` and `report` stop on a leftover `[categories]` table rather than quietly ignoring it.
     pub fn reject_legacy_categories(&self) -> Result<(), String> {
-        if self.categories.is_some() {
-            Err(LEGACY_CATEGORIES.into())
-        } else {
-            Ok(())
-        }
+        // The old `config init` template wrote an empty `[categories]` table (only a commented example); that
+        // holds nothing to move, so only a table with entries (or something that is not a table) stops the agent.
+        let has_entries = self.categories.as_ref().is_some_and(|v| v.as_table().is_none_or(|t| !t.is_empty()));
+        if has_entries { Err(LEGACY_CATEGORIES.into()) } else { Ok(()) }
     }
 
     pub fn parse(text: &str) -> Result<Self, String> {
@@ -249,8 +250,10 @@ impl Config {
         if self.collectors.title || self.collectors.ocr {
             return Err("collectors.title and collectors.ocr are not built yet in this version; set them to false".into());
         }
-        if let Some(0) = self.idle_threshold_secs {
-            return Err("idle_threshold_secs must be at least 1".into());
+        if let Some(n) = self.idle_threshold_secs
+            && !(1..=MAX_IDLE_THRESHOLD_SECS).contains(&n)
+        {
+            return Err(format!("idle_threshold_secs must be between 1 and {MAX_IDLE_THRESHOLD_SECS}"));
         }
         self.retention.events.days().map_err(|e| format!("retention.events: {e}"))?;
         self.retention.metrics.days().map_err(|e| format!("retention.metrics: {e}"))?;
@@ -394,9 +397,17 @@ pub fn set_key(text: &str, key: &str, value: &str) -> Result<String, String> {
     };
     let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e| format!("{key}: config.toml is not valid TOML: {e}"))?;
     let path: Vec<&str> = key.split('.').collect();
+    let root = doc.as_table_mut();
     let item = match path.as_slice() {
-        [name] => &mut doc[*name],
-        [table, name] => &mut doc[*table][*name],
+        [name] => root.entry(name).or_insert(toml_edit::Item::None),
+        [table, name] => {
+            // A file may hold a plain value where a table belongs (`derive = 5`); that is an error, not a panic.
+            let tbl = root.entry(table).or_insert_with(toml_edit::table);
+            let tbl = tbl
+                .as_table_like_mut()
+                .ok_or_else(|| format!("{key}: `{table}` in config.toml is not a table"))?;
+            tbl.entry(name).or_insert(toml_edit::Item::None)
+        }
         _ => return Err(format!("{key}: unknown key; run `rhen-watch config show` for the keys")),
     };
     let mut new_value = new_value;
@@ -409,6 +420,8 @@ pub fn set_key(text: &str, key: &str, value: &str) -> Result<String, String> {
     *item = toml_edit::Item::Value(new_value);
     let out = doc.to_string();
     Config::parse(&out).map_err(|e| {
+        // A TOML error spans several lines with a source excerpt; keep the reason, which is the last line.
+        let e = e.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or(&e).trim().to_string();
         let e = e.strip_prefix("config.toml: ").unwrap_or(&e).to_string();
         if e.contains(key) { e } else { format!("{key}: {e}") }
     })?;

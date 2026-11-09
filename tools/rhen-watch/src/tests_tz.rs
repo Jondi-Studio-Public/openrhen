@@ -79,9 +79,12 @@ fn clock_labels_across_the_repeated_hour_repeat_but_instants_stay_ordered() {
     assert_eq!(labels.len(), 25);
     // 02:00 appears twice (once as 02:00 NZDT, once as 02:00 NZST); every other label once.
     assert_eq!(labels.iter().filter(|l| *l == "02:00").count(), 2);
-    let mut sorted: Vec<i64> = (0..25).map(|i| from + i * H).collect();
-    sorted.dedup();
-    assert_eq!(sorted.len(), 25);
+    // the two 02:00 labels are two different instants, exactly an hour apart, in order
+    let at_label: Vec<i64> = (0..25)
+        .map(|i| from + i * H)
+        .filter(|&t| fmt_clock(t, tz.offset_at(t)) == "02:00")
+        .collect();
+    assert_eq!(at_label[1] - at_label[0], H);
 }
 
 #[test]
