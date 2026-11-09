@@ -29,13 +29,6 @@
       "docs/operations/self-hosting.md": 10
     }
   },
-  "owner": {
-    "total": 2,
-    "files": {
-      "docs/architecture/activity-store.md": 1,
-      "docs/architecture/overview.md": 1
-    }
-  },
   "paths": {
     "total": 1,
     "files": {

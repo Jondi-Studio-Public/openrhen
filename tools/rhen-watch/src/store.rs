@@ -55,6 +55,9 @@ pub struct Store {
     pub fail_metric_next: std::cell::Cell<u32>,
     #[cfg(test)]
     pub fail_purge_next: std::cell::Cell<u32>,
+    /// Transactions committed by `apply`, for tests that count disk writes.
+    #[cfg(test)]
+    pub commits: u32,
 }
 
 /// Consume one failure from a test hook.
@@ -143,6 +146,8 @@ impl Store {
             fail_metric_next: Default::default(),
             #[cfg(test)]
             fail_purge_next: Default::default(),
+            #[cfg(test)]
+            commits: 0,
         }
     }
 
@@ -331,6 +336,10 @@ impl Store {
             params![now.to_string()],
         )?;
         tx.commit()?;
+        #[cfg(test)]
+        {
+            self.commits += 1;
+        }
         self.open = open;
         Ok(())
     }
@@ -388,12 +397,13 @@ impl Store {
         Ok((gap && !clean).then_some((last, now)))
     }
 
+    /// A second process in the same minute adds its CPU to the row instead of replacing the first one's.
     pub fn put_metric(&self, m: &MetricRow) -> rusqlite::Result<()> {
         #[cfg(test)]
         trip(&self.fail_metric_next)?;
         self.conn.execute(
             "INSERT INTO metrics (minute_ts, cpu_ms, rss_bytes, db_bytes, events, dropped) VALUES (?1,?2,?3,?4,?5,?6)
-             ON CONFLICT(minute_ts) DO UPDATE SET cpu_ms=excluded.cpu_ms, rss_bytes=MAX(rss_bytes, excluded.rss_bytes),
+             ON CONFLICT(minute_ts) DO UPDATE SET cpu_ms=cpu_ms+excluded.cpu_ms, rss_bytes=MAX(rss_bytes, excluded.rss_bytes),
                db_bytes=excluded.db_bytes, events=events+excluded.events, dropped=dropped+excluded.dropped",
             params![m.minute_ts, m.cpu_ms, m.rss_bytes, m.db_bytes, m.events, m.dropped],
         )?;

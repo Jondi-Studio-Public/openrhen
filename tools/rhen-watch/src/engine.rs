@@ -153,6 +153,12 @@ impl Engine {
         self.settings.idle && self.paused.is_none() && !self.suppressed() && self.holds.is_empty()
     }
 
+    /// Turn idle and the input tally off for the rest of the run (the foreground collector failed to start, so a
+    /// game in front could not be spotted).
+    pub fn disable_idle(&mut self) {
+        self.settings.idle = false;
+    }
+
     /// How often the runner should poll: 5 s, backed off to 15 s while an idle interval is open (that is, once
     /// the configured idle threshold has passed).
     pub fn idle_cadence_ms(&self) -> Ms {

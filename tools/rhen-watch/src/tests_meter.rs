@@ -792,8 +792,97 @@ fn a_kill_between_polls_loses_less_than_one_cadence() {
     assert_eq!(obs, 40_000, "everything up to the last poll is on disk");
     assert!(42_000 - obs < 5_000, "lost less than one cadence");
     let hb = s.last_heartbeat().unwrap().unwrap();
-    assert!(hb >= T0 + 46_000, "the heartbeat is applied every second: {}", hb - T0);
+    // Each poll commits a bucket and so a heartbeat; the quiet seconds between polls commit nothing. The last
+    // poll was at 45 s, so the heartbeat is no older than one cadence (it was 46 s when every second wrote).
+    assert!(hb >= T0 + 45_000, "the heartbeat is at least as new as the last poll: {}", hb - T0);
+    assert!(T0 + 47_000 - hb < 5_000, "and is never more than one cadence old");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn idle_polling_stops_when_the_foreground_hook_is_gone() {
+    let rig = Rig::new(T0);
+    let mut r = rig.runner(Store::in_memory().unwrap());
+    r.start().unwrap();
+    r.disable_idle();
+    let before = rig.calls();
+    rig.secs(&mut r, 30, true);
+    assert_eq!(rig.calls(), before, "the input clock is not read without the foreground collector");
+    r.stop().unwrap();
+    assert_eq!(sums(r.store()), (0, 0), "no input tally either");
+}
+
+#[test]
+fn a_quiet_minute_commits_once_per_cadence_not_once_per_second() {
+    let rig = Rig::new(T0);
+    let mut r = rig.runner(Store::in_memory().unwrap());
+    r.start().unwrap();
+    rig.secs(&mut r, 20, true);
+    let before = r.store().commits;
+    rig.secs(&mut r, 60, true);
+    let n = r.store().commits - before;
+    assert!(
+        (10..=13).contains(&n),
+        "one commit per 5 s poll (plus at most one heartbeat): {n} in 60 s"
+    );
+}
+
+#[test]
+fn ticks_with_nothing_to_write_commit_nothing_between_heartbeats() {
+    let rig = Rig::new(T0);
+    let mut r = rig.runner(Store::in_memory().unwrap());
+    r.start().unwrap();
+    let before = r.store().commits;
+    // Polling is not due for 5 s, so seconds 1 to 4 are plain ticks with no ops.
+    rig.secs(&mut r, 4, true);
+    assert_eq!(r.store().commits, before, "no ops, nothing pending, no heartbeat due: no commit");
+    rig.secs(&mut r, 1, true);
+    assert!(r.store().commits > before, "the 5 s poll commits");
+}
+
+#[test]
+fn a_bucket_is_never_newer_than_the_heartbeat() {
+    let rig = Rig::new(T0);
+    let store = Store::in_memory().unwrap();
+    let mut r = rig.runner(store);
+    r.start().unwrap();
+    for _ in 0..40 {
+        rig.secs(&mut r, 1, true);
+        let hb = r.store().last_heartbeat().unwrap().unwrap();
+        let newest = r.store().buckets_between(0, i64::MAX).unwrap().iter().map(|b| b.minute_ts).max();
+        if let Some(m) = newest {
+            assert!(m <= hb, "bucket minute {m} newer than heartbeat {hb}");
+        }
+    }
+}
+
+#[test]
+fn the_first_metric_row_counts_cpu_from_process_start() {
+    // The fake process has already used `T0 / 1000` ms when the runner is built (config, database and ACL setup
+    // run before it); a baseline taken then would drop that.
+    let rig = Rig::new(T0);
+    let mut r = rig.runner(Store::in_memory().unwrap());
+    r.start().unwrap();
+    rig.secs(&mut r, 130, true);
+    let rows = r.store().metrics_between(0, i64::MAX).unwrap();
+    assert!(rows[0].cpu_ms >= T0 / 1000, "startup CPU is in the first row: {}", rows[0].cpu_ms);
+}
+
+#[test]
+fn a_second_process_in_the_same_minute_adds_its_cpu_to_the_row() {
+    let s = Store::in_memory().unwrap();
+    let row = |cpu_ms, events| crate::store::MetricRow {
+        minute_ts: 60_000,
+        cpu_ms,
+        rss_bytes: 1,
+        db_bytes: 1,
+        events,
+        dropped: 0,
+    };
+    s.put_metric(&row(120, 2)).unwrap();
+    s.put_metric(&row(80, 3)).unwrap();
+    let rows = s.metrics_between(0, i64::MAX).unwrap();
+    assert_eq!((rows[0].cpu_ms, rows[0].events), (200, 5));
 }
 
 #[test]
