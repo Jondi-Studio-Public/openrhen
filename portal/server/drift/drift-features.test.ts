@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -31,4 +31,52 @@ describe("drift rule features", () => {
       }
     });
   }
+
+  // Reasons and tags are the owner's words, known only after the drift: a rule that took them as a feature would learn its own label's cause.
+  for (const file of ["drift-rules.ts", "drift-eval.ts", "drift-episodes.ts", "drift-labels.ts"]) {
+    it(`${file} reaches no reason or tag module and names no reason source or kind`, () => {
+      const modules = [...closure(join(driftDir, file))];
+      expect(modules.filter((m) => /reason/i.test(m))).toEqual([]);
+      for (const module of modules) {
+        expect(
+          readFileSync(module, "utf8").match(/drift-reason|reason_tag|reasonKey|resolveReasons/)?.[0],
+          module
+        ).toBeUndefined();
+      }
+    });
+  }
+
+  it("the reason modules reach no rule, evaluation, episode or planning module, and import nothing from outside the folder", () => {
+    const modules = [...closure(join(driftDir, "drift-reasons.ts"))];
+    expect(modules.filter((m) => m.startsWith("external:"))).toEqual([]);
+    expect(modules.filter((m) => /drift-(rules|eval|episodes)|planning/.test(m))).toEqual([]);
+  });
+
+  it("no module outside the reason store and service, and the activity store's own reads, deletes and retention exemption, names the reason source", () => {
+    const portalRoot = join(resolve(here, "..", ".."), "");
+    const allowed = new Set([
+      "server/drift/drift-reasons.ts",
+      "server/persistence/postgres/drift-reason-store.ts",
+      "server/persistence/postgres/activity-store.ts",
+      "server/persistence/postgres/activity-retention-store.ts"
+    ]);
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory())
+          return ["node_modules", ".next", ".vinext", "dist"].includes(entry.name) ? [] : walk(path);
+        return /\.(?:ts|tsx)$/.test(entry.name) && !/\.test\.(?:ts|tsx)$/.test(entry.name) ? [path] : [];
+      });
+    const offenders = walk(portalRoot)
+      .filter((path) => /["'`]drift-reason["'`]|reason_tag/.test(readFileSync(path, "utf8")))
+      .map((path) =>
+        path
+          .slice(portalRoot.length)
+          .replace(/^[\\/]/, "")
+          .split("\\")
+          .join("/")
+      )
+      .filter((path) => !allowed.has(path));
+    expect(offenders).toEqual([]);
+  });
 });

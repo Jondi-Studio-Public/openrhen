@@ -14,7 +14,8 @@ export const CORE_SOURCES = [
   "physiology",
   "derived",
   "derived-shadow",
-  "drift"
+  "drift",
+  "drift-reason"
 ] as const;
 
 export type CoreSource = (typeof CORE_SOURCES)[number];

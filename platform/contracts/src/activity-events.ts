@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { describeDerivedProblem } from "./activity-derived.js";
 import { describeDriftProblem } from "./activity-drift.js";
+import { describeDriftReasonProblem } from "./activity-drift-reason.js";
 import { HIDDEN_OR_CONTROL_CHARS, MESSAGE_FAMILY, describeMessageProblem } from "./activity-message.js";
 import {
   PHYSIOLOGY_KINDS,
@@ -55,6 +56,13 @@ export const PLACE_MODEL_WRITE_SCOPE = "write:place-model";
 export const ACTIVITY_DRIFT_CLASS = "drift";
 /** The scope that lets a token read drift-class sources. Deliberately not offered to OAuth clients (`SCOPES_SUPPORTED`). A token can never write the source. */
 export const ACTIVITY_DRIFT_SCOPE = "read:activity-drift";
+
+/**
+ * Sources no token can read or write, whatever scopes it holds, and that no generic activity listing shows: the owner's
+ * own words (source `drift-reason`). There is deliberately no read scope for them and no class: a class is a scope
+ * someone can be granted, and this is not. The owner reads them through owner-only routes.
+ */
+export const ACTIVITY_OWNER_ONLY_SOURCES: readonly string[] = Object.freeze(["drift-reason"]);
 
 /** Every source class, frozen. */
 export const ACTIVITY_SOURCE_CLASSES = Object.freeze([
@@ -238,6 +246,10 @@ export const ACTIVITY_SOURCES: Readonly<Record<string, ActivitySourceEntry>> = {
   // the local model, or corrected by the owner). Written in-process or by the owner session only, read by the owner
   // only (class `drift`), and never open to a token. Per-kind attrs are validated in activity-drift.ts.
   drift: { schemaVersion: 1, kinds: ["flag", "work_label"], class: ACTIVITY_DRIFT_CLASS },
+  // The owner's own words about a deviated check-in ("What pulled you off?") and the short tags put on them. Private free
+  // text, so unlike `drift` it has no class and no read scope: ACTIVITY_OWNER_ONLY_SOURCES keeps it out of every
+  // generic read, and no token may write it. Per-kind attrs are validated in activity-drift-reason.ts.
+  "drift-reason": { schemaVersion: 1, kinds: ["reason", "reason_tag"] },
   "iphone-shortcuts": {
     schemaVersion: 1,
     kinds: [
@@ -382,7 +394,7 @@ export function isKnownActivitySource(source: string): boolean {
 }
 
 /** Sources that take no `correction` row: one kind of output only (`derived-shadow`), or corrections that are rows of their own kind (`drift` work labels). */
-const NO_CORRECTIONS: readonly string[] = ["derived-shadow", "drift"];
+const NO_CORRECTIONS: readonly string[] = ["derived-shadow", "drift", "drift-reason"];
 
 export function activityKindsOf(source: string): readonly string[] {
   const entry = activitySourceEntry(source);
@@ -729,6 +741,10 @@ export function validateActivityEvent(
   if (source === "drift") {
     const driftProblem = describeDriftProblem({ id, kind, tsStart, tsEnd, attrs, content });
     if (driftProblem) return reject(driftProblem);
+  }
+  if (source === "drift-reason") {
+    const reasonProblem = describeDriftReasonProblem({ id, kind, tsEnd, attrs, content });
+    if (reasonProblem) return reject(reasonProblem);
   }
   if (source === PHYSIOLOGY_SOURCE) {
     const physiologyProblem = describePhysiologyProblem({

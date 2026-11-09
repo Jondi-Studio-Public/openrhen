@@ -209,10 +209,12 @@ describe("the source registry", () => {
   });
 
   it("accepts a correction kind for every source and nothing for an unknown one", () => {
-    // derived-shadow holds extractor output only; drift corrects a label with a row of its own kind (work_label, origin corrected).
-    for (const source of Object.keys(ACTIVITY_SOURCES).filter((name) => name !== "derived-shadow" && name !== "drift"))
+    // derived-shadow holds extractor output only; drift corrects a label with a row of its own kind (work_label, origin corrected), and drift-reason a tag likewise (reason_tag).
+    const own = ["derived-shadow", "drift", "drift-reason"];
+    for (const source of Object.keys(ACTIVITY_SOURCES).filter((name) => !own.includes(name)))
       expect(activityKindsOf(source)).toContain("correction");
     expect(activityKindsOf("drift")).toEqual(["flag", "work_label"]);
+    expect(activityKindsOf("drift-reason")).toEqual(["reason", "reason_tag"]);
     expect(activityKindsOf("nope")).toEqual([]);
     expect(activityKindsOf("constructor")).toEqual([]);
   });

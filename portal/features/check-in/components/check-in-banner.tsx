@@ -23,6 +23,7 @@ import { rememberDisruption } from "@/features/pulse/disruption-undo";
 import { PulseUnknownLine } from "@/features/pulse/components/pulse-unknown-line";
 import { pulseIsUnknown, stillDoingQuestion } from "@/features/pulse/pulse-view";
 import { answerDeviated, answerOnTrack, answerUnsure } from "../check-in-command";
+import { saveDriftReason } from "../drift-reason-client";
 
 /** Below this age a "Still on X?" (or catch-up "What were you doing") prompt is fresh enough to answer
  * with confidence. At or past it, "Not sure" appears as a third, honest answer — A
@@ -54,11 +55,19 @@ export function CheckInBanner() {
 }
 
 function CheckInPrompt() {
-  const { state, pendingCheckIn, dismissPendingCheckIn, acceptServerState } = usePortal();
+  const { state, pendingCheckIn: providerCheckIn, dismissPendingCheckIn, acceptServerState } = usePortal();
   const now = useNow("minute");
   const [open, setOpen] = useState(false);
   const [category, setCategory] = useState<"work" | "family" | "life_admin" | "other" | "">("");
   const [note, setNote] = useState("");
+  // The words for "What pulled you off?". They are saved by their own owner-only route and never touch the note or the answer command.
+  const [reason, setReason] = useState("");
+  const reasonSlot = useRef<{ key: string; id: string } | null>(null);
+  // The check-in is answered but its reason is not saved yet: the sheet stays open with the words, a retry and Skip.
+  const [answered, setAnswered] = useState(false);
+  // The check-in whose reason is unsaved, held here (not in the provider) so a refresh that drops the pending check-in cannot take the sheet or the typed words with it. Cleared only when the reason is saved or skipped.
+  const [unsaved, setUnsaved] = useState<typeof providerCheckIn>(null);
+  const pendingCheckIn = unsaved ?? providerCheckIn;
   const [deviationTargetId, setDeviationTargetId] = useState("");
   const [disruption, setDisruption] = useState<DisruptionDraft>(EMPTY_DISRUPTION_DRAFT);
   const idSlot = useRef<{ key: string; id: string } | null>(null);
@@ -67,7 +76,7 @@ function CheckInPrompt() {
   const { disruption: inForce } = useInForceDisruption();
 
   // A disruption in force explains the gap; the unknown wording would contradict the line above it.
-  if (state.pulse && pulseIsUnknown(state.pulse) && inForce) return null;
+  if (!unsaved && state.pulse && pulseIsUnknown(state.pulse) && inForce) return null;
   // Unknown with no slot to answer: the line says what counts as contact instead.
   if (!pendingCheckIn)
     return state.pulse && pulseIsUnknown(state.pulse) ? <PulseUnknownLine pulse={state.pulse} /> : null;
@@ -110,50 +119,92 @@ function CheckInPrompt() {
   function startDeviation() {
     setCategory("");
     setNote("");
+    setReason("");
+    reasonSlot.current = null;
+    setAnswered(false);
     setDeviationTargetId("");
     setDisruption(EMPTY_DISRUPTION_DRAFT);
     setError("");
     setOpen(true);
   }
 
-  async function submitDeviation(event: FormEvent) {
-    event.preventDefault();
-    // A deviation stays on plan only with what the plan needs: record that
-    // first, then answer the slot. The server names the same fields if this check is bypassed.
-    const draft = { ...disruption, targetId: deviationTargetId };
-    const at = new Date();
-    const missing = missingDisruption(draft, at, state.settings.timezone);
-    if (missing.length > 0) return setError(missingSentence(missing));
+  /** Closes the sheet and the prompt: the reason is saved, skipped, or was never typed. */
+  function finish() {
+    setOpen(false);
+    setAnswered(false);
+    setUnsaved(null);
+    reasonSlot.current = null;
+    dismissPendingCheckIn();
+  }
+
+  /** Saves the typed words, if any. False when the save failed: the words stay in the open sheet with the reason. */
+  async function saveReason(): Promise<boolean> {
+    const words = reason.trim();
+    if (!words) return true;
+    try {
+      await saveDriftReason(checkIn.id, words, retryableCommandId(reasonSlot, words));
+      return true;
+    } catch (failure) {
+      setUnsaved(checkIn);
+      setError(failure instanceof Error ? failure.message : "The reason was not saved.");
+      return false;
+    }
+  }
+
+  /** Closing the answered sheet is Skip when nothing was typed; otherwise the words are saved first, with the same failure handling. */
+  async function closeAnswered() {
+    if (submitting) return;
     setSubmitting(true);
     setError("");
     try {
-      const target = state.actions.find((action) => action.id === deviationTargetId);
-      const done = await postDisruption(
-        buildDisruptionBody(
-          draft,
-          at,
-          state.settings.timezone,
-          retryableCommandId(idSlot, JSON.stringify(draft)),
-          target?.title
-        )
-      );
-      if (done.state) acceptServerState(done.state);
-      idSlot.current = null;
-      rememberDisruption({ commandId: done.revertible, doing: done.doing, until: done.until });
-      await answerDeviated(
-        checkIn.id,
-        checkIn.version,
-        { ...(category ? { category } : {}), note, ...(deviationTargetId ? { targetId: deviationTargetId } : {}) },
-        "sheet"
-      );
-      setOpen(false);
-      dismissPendingCheckIn();
-    } catch (reason) {
+      if (await saveReason()) finish();
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function submitDeviation(event: FormEvent) {
+    event.preventDefault();
+    setSubmitting(true);
+    setError("");
+    try {
+      if (!answered) {
+        // A deviation stays on plan only with what the plan needs: record that
+        // first, then answer the slot. The server names the same fields if this check is bypassed.
+        const draft = { ...disruption, targetId: deviationTargetId };
+        const at = new Date();
+        const missing = missingDisruption(draft, at, state.settings.timezone);
+        if (missing.length > 0) return setError(missingSentence(missing));
+        const target = state.actions.find((action) => action.id === deviationTargetId);
+        const done = await postDisruption(
+          buildDisruptionBody(
+            draft,
+            at,
+            state.settings.timezone,
+            retryableCommandId(idSlot, JSON.stringify(draft)),
+            target?.title
+          )
+        );
+        if (done.state) acceptServerState(done.state);
+        idSlot.current = null;
+        rememberDisruption({ commandId: done.revertible, doing: done.doing, until: done.until });
+        await answerDeviated(
+          checkIn.id,
+          checkIn.version,
+          { ...(category ? { category } : {}), note, ...(deviationTargetId ? { targetId: deviationTargetId } : {}) },
+          "sheet"
+        );
+        setAnswered(true);
+        setUnsaved(checkIn);
+      }
+      // The reason is saved before the sheet closes; a failure keeps the words here instead of losing them.
+      if (await saveReason()) finish();
+    } catch (problem) {
       setError(
-        reason instanceof DisruptionRefusedError && reason.missing.length > 0
-          ? missingSentence(reason.missing)
-          : reason instanceof Error
-            ? reason.message
+        problem instanceof DisruptionRefusedError && problem.missing.length > 0
+          ? missingSentence(problem.missing)
+          : problem instanceof Error
+            ? problem.message
             : "The check-in was not saved."
       );
     } finally {
@@ -199,59 +250,81 @@ function CheckInPrompt() {
           {error}
         </p>
       )}
-      <Sheet open={open} onClose={() => setOpen(false)} title="What was it instead?">
+      <Sheet
+        open={open}
+        onClose={answered ? () => void closeAnswered() : () => setOpen(false)}
+        title="What was it instead?"
+      >
         <form className="editor-grid" onSubmit={submitDeviation}>
-          <Field label="Category" group>
-            <div className="disruption-choices">
-              {disruptionSourceOptions(state.settings).map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={`quiet small${category === option.value ? " selected" : ""}`}
-                  aria-pressed={category === option.value}
-                  onClick={() => setCategory(option.value)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
+          {answered && <p>Your check-in was saved. Your reason was not.</p>}
+          {!answered && (
+            <>
+              <Field label="Category" group>
+                <div className="disruption-choices">
+                  {disruptionSourceOptions(state.settings).map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={`quiet small${category === option.value ? " selected" : ""}`}
+                      aria-pressed={category === option.value}
+                      onClick={() => setCategory(option.value)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+              <Field label="A different planned task (optional)">
+                <select value={deviationTargetId} onChange={(event) => setDeviationTargetId(event.target.value)}>
+                  <option value="">None named</option>
+                  {state.projects.map((project) => {
+                    const items = state.actions.filter(
+                      (item) => item.status !== "done" && !isClosedStatus(item.status) && item.projectId === project.id
+                    );
+                    return items.length ? (
+                      <optgroup key={project.id} label={project.title}>
+                        {items.map((action) => (
+                          <option key={action.id} value={action.id}>
+                            {action.title}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null;
+                  })}
+                </select>
+              </Field>
+            </>
+          )}
+          <Field label="What pulled you off? (optional)">
+            <textarea value={reason} rows={3} onChange={(event) => setReason(event.target.value)} />
           </Field>
-          <Field label="A different planned task (optional)">
-            <select value={deviationTargetId} onChange={(event) => setDeviationTargetId(event.target.value)}>
-              <option value="">None named</option>
-              {state.projects.map((project) => {
-                const items = state.actions.filter(
-                  (item) => item.status !== "done" && !isClosedStatus(item.status) && item.projectId === project.id
-                );
-                return items.length ? (
-                  <optgroup key={project.id} label={project.title}>
-                    {items.map((action) => (
-                      <option key={action.id} value={action.id}>
-                        {action.title}
-                      </option>
-                    ))}
-                  </optgroup>
-                ) : null;
-              })}
-            </select>
-          </Field>
-          <Field label="Note (optional)">
-            <input value={note} onChange={(event) => setNote(event.target.value)} />
-          </Field>
-          <Field label="What are you doing? (needed unless you named a task)">
-            <input
-              value={disruption.doing}
-              onChange={(event) => setDisruption({ ...disruption, doing: event.target.value })}
-            />
-          </Field>
-          <DisruptionFields draft={disruption} onChange={setDisruption} definitions={state.conditionDefinitions} />
+          {!answered && (
+            <>
+              <Field label="Note (optional)">
+                <input value={note} onChange={(event) => setNote(event.target.value)} />
+              </Field>
+              <Field label="What are you doing? (needed unless you named a task)">
+                <input
+                  value={disruption.doing}
+                  onChange={(event) => setDisruption({ ...disruption, doing: event.target.value })}
+                />
+              </Field>
+              <DisruptionFields draft={disruption} onChange={setDisruption} definitions={state.conditionDefinitions} />
+            </>
+          )}
           <div className="form-actions">
             <button type="submit" disabled={submitting}>
-              Save
+              {answered ? "Try again" : "Save"}
             </button>
-            <button type="button" className="quiet" disabled={submitting} onClick={() => setOpen(false)}>
-              Cancel
-            </button>
+            {answered ? (
+              <button type="button" className="quiet" disabled={submitting} onClick={finish}>
+                Skip
+              </button>
+            ) : (
+              <button type="button" className="quiet" disabled={submitting} onClick={() => setOpen(false)}>
+                Cancel
+              </button>
+            )}
           </div>
           {error && (
             <p className="form-error" role="alert">

@@ -12,6 +12,7 @@ import {
   applyCoverageRule,
   activityHealthSources,
   describeWithheldClasses,
+  ACTIVITY_OWNER_ONLY_SOURCES,
   groupWithheldByClass,
   isKnownActivitySource,
   judgeActivityEvents,
@@ -552,6 +553,11 @@ export async function setActivitySourceSettings(sql: PoolSql, source: string, se
       `Retention is not applied to derived rows, they are kept as history (message classes and facts are what Mark learned from your mail). Set retention on the raw source instead, such as "gmail", and send {"retentionDays": null} to "${source}" to clear any value.`,
       400
     );
+  if (typeof settings.retentionDays === "number" && source === "drift-reason")
+    throw new ActivityInputError(
+      `Retention is not applied to the drift-reason source: those are your own words, kept until you delete them from the portal. Send {"retentionDays": null} to "drift-reason" to clear any value.`,
+      400
+    );
   if (typeof settings.retentionDays === "number" && source === "drift")
     throw new ActivityInputError(
       `Retention is not applied to the drift source: its work labels are your own answers and its flags are the history the detector is judged on. Send {"retentionDays": null} to "drift" to clear any value.`,
@@ -697,6 +703,7 @@ export async function readActivityEvents(sql: Sql, query: ActivityReadQuery): Pr
       ${query.asOf === undefined ? sql`` : sql`AND ingested_at <= ${query.asOf}`}
       ${excluded.length === 0 ? sql`` : sql`AND source NOT IN ${sql(excluded as string[])}`}
       ${query.source === "derived-shadow" ? sql`` : sql`AND source <> 'derived-shadow'`}
+      AND source NOT IN ${sql(ACTIVITY_OWNER_ONLY_SOURCES as string[])}
       AND (
         source <> 'derived' OR kind NOT IN ${sql(DERIVED_EXTRACTOR_KINDS as unknown as string[])} OR EXISTS (
           SELECT 1 FROM (${liveExtractorVersions(sql, userId, query.asOf)}) live
@@ -843,6 +850,19 @@ export async function insertServerEventTx(
   return inserted.length > 0;
 }
 
+/**
+ * Deletes every `drift-reason` row of one check-in (its reason rows and its tag rows) inside the caller's transaction,
+ * which holds the per-person activity lock. Answers how many rows went. The only delete of the owner's words besides
+ * purging the whole source.
+ */
+export async function deleteReasonRowsTx(tx: TxSql, userId: string, checkInId: string): Promise<number> {
+  const removed = await tx<{ id: string }[]>`
+    DELETE FROM activity_events
+    WHERE user_id = ${userId} AND source = 'drift-reason' AND attrs->>'check_in_id' = ${checkInId}
+    RETURNING id`;
+  return removed.length;
+}
+
 /** Deletes every event of one source, and the import records for it (so a file is not still "held" with nothing in it). */
 export async function purgeActivitySource(sql: PoolSql, source: string): Promise<{ removed: number }> {
   if (!isKnownActivitySource(source))
@@ -880,7 +900,7 @@ export async function purgeExpiredActivity(
 ): Promise<{ source: string; removed: number }[]> {
   const people = await sql<{ user_id: string }[]>`
     SELECT DISTINCT user_id FROM activity_source_state
-    WHERE retention_days IS NOT NULL AND source NOT IN ('derived', 'derived-shadow', 'drift')`;
+    WHERE retention_days IS NOT NULL AND source NOT IN ('derived', 'derived-shadow', 'drift', 'drift-reason')`;
   const totals = new Map<string, number>();
   for (const person of people) {
     for (;;) {

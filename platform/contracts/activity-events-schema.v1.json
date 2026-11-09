@@ -288,6 +288,13 @@
       ],
       "class": "drift"
     },
+    "drift-reason": {
+      "schemaVersion": 1,
+      "kinds": [
+        "reason",
+        "reason_tag"
+      ]
+    },
     "iphone-shortcuts": {
       "schemaVersion": 1,
       "kinds": [

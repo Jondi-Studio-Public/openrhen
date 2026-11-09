@@ -183,6 +183,173 @@ describe("CheckInBanner", () => {
   });
 });
 
+describe("CheckInBanner reason for leaving the plan", () => {
+  const WORDS = "a loud neighbour";
+  const dismissPendingCheckIn = vi.fn();
+  const home = { id: "home", name: "Home", kind: "location", status: "active" };
+  const phone = { id: "cap-phone", name: "Phone", kind: "capability", status: "active" };
+
+  /** Answers each address in turn: the reason route's replies come from `reasonReplies`, the rest succeed. */
+  function stubFetch(reasonReplies: Array<"ok" | "unreachable" | "refused">) {
+    const replies = [...reasonReplies];
+    const fetcher = vi.fn(async (url: string) => {
+      if (url !== "/api/drift-reasons") return { ok: true, json: () => Promise.resolve({ state: {} }) };
+      const next = replies.shift() ?? "ok";
+      if (next === "unreachable") throw new TypeError("Failed to fetch");
+      return next === "ok"
+        ? { ok: true, json: () => Promise.resolve({ id: "x", created: true }) }
+        : { ok: false, status: 400, json: () => Promise.resolve({ error: "The reason is too long." }) };
+    });
+    vi.stubGlobal("fetch", fetcher);
+    return fetcher;
+  }
+
+  let cleanupRerender: () => void = () => {};
+  function openSheet() {
+    dismissPendingCheckIn.mockReset();
+    context = {
+      state: { ...state, conditionDefinitions: [home, phone] },
+      pendingCheckIn: checkIn({ status: "pending", slotAt: now.toISOString() }),
+      dismissPendingCheckIn,
+      acceptServerState: vi.fn()
+    };
+    const view = render(<CheckInBanner />);
+    cleanupRerender = () => view.rerender(<CheckInBanner />);
+    fireEvent.click(screen.getByRole("button", { name: "Something else" }));
+    fireEvent.change(screen.getByLabelText(/What are you doing\?/), { target: { value: "Kids" } });
+    fireEvent.click(screen.getByRole("button", { name: "1 hour" }));
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    fireEvent.click(screen.getByRole("button", { name: "Phone" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, all of me" }));
+  }
+  const addresses = (fetcher: ReturnType<typeof vi.fn>) => fetcher.mock.calls.map((call) => call[0] as string);
+  const bodyOf = (fetcher: ReturnType<typeof vi.fn>, address: string) =>
+    JSON.parse(
+      (fetcher.mock.calls.find((call) => call[0] === address) as unknown as [string, RequestInit])[1].body as string
+    ) as Record<string, unknown>;
+
+  it("asks 'What pulled you off?' as a plain text box, with no chips or select for it", () => {
+    stubFetch([]);
+    openSheet();
+    const box = screen.getByLabelText(/What pulled you off\?/);
+    expect(box.tagName).toBe("TEXTAREA");
+    expect(screen.getByText("Note (optional)")).toBeTruthy();
+  });
+
+  it("saves the typed reason through its own route before closing, and keeps it out of the answer and the note", async () => {
+    const fetcher = stubFetch(["ok"]);
+    openSheet();
+    fireEvent.change(screen.getByLabelText(/What pulled you off\?/), { target: { value: `  ${WORDS}  ` } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await vi.waitFor(() => expect(dismissPendingCheckIn).toHaveBeenCalledTimes(1));
+    expect(addresses(fetcher)).toEqual([
+      "/api/commands/pulse-disruption",
+      "/api/commands/check-in",
+      "/api/drift-reasons"
+    ]);
+    expect(bodyOf(fetcher, "/api/drift-reasons")).toMatchObject({
+      checkInId: "11111111-1111-1111-1111-111111111111",
+      text: WORDS
+    });
+    const answer = JSON.stringify(bodyOf(fetcher, "/api/commands/check-in"));
+    expect(answer).not.toContain("neighbour");
+    expect(answer).not.toContain("deviationNote");
+    expect(JSON.stringify(bodyOf(fetcher, "/api/commands/pulse-disruption"))).not.toContain("neighbour");
+  });
+
+  it("does not call the reason route when nothing was typed", async () => {
+    const fetcher = stubFetch([]);
+    openSheet();
+    fireEvent.change(screen.getByLabelText(/What pulled you off\?/), { target: { value: "   " } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await vi.waitFor(() => expect(dismissPendingCheckIn).toHaveBeenCalledTimes(1));
+    expect(addresses(fetcher)).not.toContain("/api/drift-reasons");
+  });
+
+  it("keeps the sheet open with the typed words when the save fails, and a retry saves them once more under the same id", async () => {
+    const fetcher = stubFetch(["unreachable", "ok"]);
+    openSheet();
+    fireEvent.change(screen.getByLabelText(/What pulled you off\?/), { target: { value: WORDS } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("Could not reach the portal. Try again.");
+    expect(dismissPendingCheckIn).not.toHaveBeenCalled();
+    expect((screen.getByLabelText(/What pulled you off\?/) as HTMLTextAreaElement).value).toBe(WORDS);
+    expect(screen.getByText(/Your check-in was saved/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await vi.waitFor(() => expect(dismissPendingCheckIn).toHaveBeenCalledTimes(1));
+    // The disruption and the answer were posted once; only the reason was sent twice, with one request id.
+    const reasonCalls = fetcher.mock.calls.filter((call) => call[0] === "/api/drift-reasons");
+    expect(reasonCalls).toHaveLength(2);
+    const ids = reasonCalls.map(
+      (call) =>
+        (JSON.parse((call as unknown as [string, RequestInit])[1].body as string) as { requestId: string }).requestId
+    );
+    expect(ids[0]).toBe(ids[1]);
+    expect(addresses(fetcher).filter((address) => address === "/api/commands/check-in")).toHaveLength(1);
+    expect(addresses(fetcher).filter((address) => address === "/api/commands/pulse-disruption")).toHaveLength(1);
+  });
+
+  it("keeps the sheet and the typed words when a refresh drops the pending check-in during a failed save", async () => {
+    stubFetch(["unreachable", "ok"]);
+    openSheet();
+    fireEvent.change(screen.getByLabelText(/What pulled you off\\?/), { target: { value: WORDS } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("Could not reach the portal. Try again.");
+    // A refresh: the provider no longer has a pending check-in.
+    context = { ...context, pendingCheckIn: null };
+    cleanupRerender();
+    expect((screen.getByLabelText(/What pulled you off\\?/) as HTMLTextAreaElement).value).toBe(WORDS);
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await vi.waitFor(() => expect(dismissPendingCheckIn).toHaveBeenCalledTimes(1));
+    expect(screen.queryByLabelText(/What pulled you off\\?/)).toBeNull();
+  });
+
+  it("keeps the sheet visible when a refresh lands while the first save is still in flight", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const fetcher = vi.fn(async (url: string) => {
+      if (url === "/api/drift-reasons") {
+        await gate;
+        throw new TypeError("Failed to fetch");
+      }
+      return { ok: true, json: () => Promise.resolve({ state: {} }) };
+    });
+    vi.stubGlobal("fetch", fetcher);
+    openSheet();
+    fireEvent.change(screen.getByLabelText(/What pulled you off\\?/), { target: { value: WORDS } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await vi.waitFor(() => expect(fetcher.mock.calls.some((call) => call[0] === "/api/drift-reasons")).toBe(true));
+    context = { ...context, pendingCheckIn: null };
+    cleanupRerender();
+    release();
+    await screen.findByText("Could not reach the portal. Try again.");
+    expect((screen.getByLabelText(/What pulled you off\\?/) as HTMLTextAreaElement).value).toBe(WORDS);
+  });
+
+  it("saves typed words before closing the answered sheet from its close control, and treats an empty box as Skip", async () => {
+    const fetcher = stubFetch(["unreachable", "ok"]);
+    openSheet();
+    fireEvent.change(screen.getByLabelText(/What pulled you off\\?/), { target: { value: WORDS } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("Could not reach the portal. Try again.");
+    fireEvent.click(screen.getByRole("button", { name: /^Close/ }));
+    await vi.waitFor(() => expect(dismissPendingCheckIn).toHaveBeenCalledTimes(1));
+    expect(fetcher.mock.calls.filter((call) => call[0] === "/api/drift-reasons")).toHaveLength(2);
+  });
+
+  it("shows the portal's own sentence when it refuses the words, and Skip closes without them", async () => {
+    const fetcher = stubFetch(["refused"]);
+    openSheet();
+    fireEvent.change(screen.getByLabelText(/What pulled you off\?/), { target: { value: WORDS } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("The reason is too long.");
+    expect(dismissPendingCheckIn).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    expect(dismissPendingCheckIn).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls.filter((call) => call[0] === "/api/drift-reasons")).toHaveLength(1);
+  });
+});
+
 describe("CheckInBanner while the pulse is unknown", () => {
   const unknownPulse: NonNullable<typeof state.pulse> = {
     state: "unknown",
