@@ -195,6 +195,9 @@ export function conformance({
     );
 
     // The AST structure rules import oxc-parser; the copy has no node_modules, so link the repository's for this check.
+    // CI runs this job without an install step, so install first when the checkout has none (frozen: no lockfile change).
+    if (!existsSync(join(repoRoot, "node_modules")) && existsSync(join(repoRoot, "pnpm-lock.yaml")))
+      spawnSync("corepack", ["pnpm", "install", "--frozen-lockfile"], { cwd: repoRoot, stdio: "ignore" });
     if (existsSync(join(repoRoot, "node_modules")))
       symlinkSync(join(repoRoot, "node_modules"), join(work, "node_modules"), "dir");
     const structure = spawnSync(process.execPath, ["scripts/repository/check-structure.mjs"], {
