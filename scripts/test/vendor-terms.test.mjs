@@ -240,3 +240,25 @@ test("paths map to the plan's lanes", () => {
   assert.equal(lane("docs/README.md"), "docs");
   assert.equal(lane("integrations/openclaw-plugin/index.js"), "other");
 });
+
+test("a tree that is not a git repository (the add-on conformance copy) is scanned from disk, not an error", () => {
+  const dir = mkdtempSync(join(tmpdir(), "vendor-terms-nogit-"));
+  try {
+    write(dir, {
+      ...CLEAN,
+      [CONFIG]: `${JSON.stringify(config, null, 2)}\n`,
+      [TOKENS]: `${JSON.stringify({ entries: [] }, null, 2)}\n`,
+      "src/x.ts": "export const x = 'google';\n",
+      "node_modules/y/index.js": "google\n",
+      "tsconfig.tsbuildinfo": "google\n"
+    });
+    const errors = vendorTerms({ root: dir, args: [] });
+    assert.ok(
+      errors.some((e) => e.includes("src/x.ts")),
+      errors.join("\n")
+    );
+    assert.ok(!errors.some((e) => e.includes("node_modules") || e.includes("tsbuildinfo")), errors.join("\n"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -93,8 +93,26 @@ export function laneOf(config, path) {
   return config.fallbackLane;
 }
 
+const WALK_SKIPPED = new Set([".git", ".env", "node_modules", ".vinext", "dist", "var", "coverage"]);
+
+// The tracked files; in a scratch tree that is not a git repository (the add-on conformance copy, a source archive)
+// every file on disk outside the usual build and dependency folders.
 function trackedFiles(root) {
-  return git(root, ["ls-files", "-z"]).split("\0").filter(Boolean);
+  try {
+    return git(root, ["ls-files", "-z"]).split("\0").filter(Boolean);
+  } catch {
+    const out = [];
+    const walk = (dir) => {
+      for (const entry of readdirSync(join(root, dir), { withFileTypes: true })) {
+        if (WALK_SKIPPED.has(entry.name) || entry.name.endsWith(".tsbuildinfo")) continue;
+        const rel = dir ? `${dir}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) walk(rel);
+        else if (entry.isFile()) out.push(rel);
+      }
+    };
+    walk("");
+    return out.sort();
+  }
 }
 
 function hasHead(root) {
