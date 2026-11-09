@@ -37,7 +37,7 @@ export async function purgeExpiredForUserTx(
 ): Promise<RetentionPassResult> {
   const states = await tx<{ source: string; retention_days: number }[]>`
     SELECT source, retention_days FROM activity_source_state
-    WHERE user_id = ${userId} AND retention_days IS NOT NULL AND source NOT IN ('derived', 'derived-shadow')
+    WHERE user_id = ${userId} AND retention_days IS NOT NULL AND source NOT IN ('derived', 'derived-shadow', 'drift')
     ORDER BY source`;
   const sources: RetentionSourceResult[] = [];
   let budget = maxBatches;

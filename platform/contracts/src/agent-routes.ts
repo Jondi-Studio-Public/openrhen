@@ -118,6 +118,7 @@ const OWNER_RUNS_ITSELF = new Set([
   "POST /api/integrations/travel/tick",
   "POST /api/integrations/derived/tick",
   "POST /api/integrations/derived/model-tick",
+  "POST /api/integrations/work-label/tick",
   "POST /api/location/observe",
   "POST /api/offer-log/shown",
   "POST /api/location/ping",
@@ -542,6 +543,15 @@ const DERIVED_OWNER_ONLY = (what: string): RouteDecision => ({
     `Do not retry this call. The person does it in the owner session (signed in to the portal or the app); tell the owner: "I cannot do this myself; please do it in the owner session."`
 });
 
+const DRIFT_OWNER_ONLY = (what: string): RouteDecision => ({
+  kind: "refused",
+  reason: "owner-only",
+  message:
+    `${what} is for the owner session; an agent token cannot write it, so nothing was changed. ` +
+    `Source "drift" holds the detector's own rows (shadow flags, and which areas count as work). The server writes the flags and the local model's labels itself, and a label the person corrects is theirs alone, so no token scope opens it, and the generic "correction" kind is not accepted for it. ` +
+    `Do not retry this call. The person sets an area's label on its page in the portal; tell the owner: "I cannot do this myself; please do it in the owner session."`
+});
+
 /**
  * The scope one activity row needs, or null when only the owner session may write it. A row that is not an object, or
  * has no text `source`, can never be stored (the handler rejects that row alone), so it asks only for the event scope.
@@ -551,6 +561,7 @@ function activityEventScope(event: unknown): string | null {
   const source = str(row?.source);
   if (row === undefined || source === undefined) return "write:activity-event";
   if (source === "derived-shadow") return "write:activity-derived";
+  if (source === "drift") return null;
   if (source !== "derived") return "write:activity-event";
   const kind = str(row.kind);
   if (kind === "fact" || kind === "msg_class") return "write:activity-derived";
@@ -573,7 +584,10 @@ function activityEventsWrite(body: Body): RouteDecision {
   const scopes = new Set<string>();
   for (const event of events) {
     const scope = activityEventScope(event);
-    if (scope === null) return DERIVED_OWNER_ONLY("Writing this activity row");
+    if (scope === null)
+      return record(event)?.source === "drift"
+        ? DRIFT_OWNER_ONLY("Writing this activity row")
+        : DERIVED_OWNER_ONLY("Writing this activity row");
     scopes.add(scope);
   }
   return { kind: "scopes", scopes: scopes.size === 0 ? ["write:activity-event"] : [...scopes] };
@@ -723,6 +737,9 @@ const OWNER_ROUTES: Record<string, string> = {
   "POST /api/integrations/travel/tick": "The travel job",
   "POST /api/integrations/derived/tick": "The derived-rows job",
   "POST /api/integrations/derived/model-tick": "The model-backed derived-rows job",
+  "POST /api/integrations/work-label/tick": "The work-label inference job",
+  // Whether an area counts as work is the owner's own answer; the chip on the area page writes it. Nothing here is an agent's to set.
+  "PUT /api/work-labels/[areaId]": "Saying whether an area counts as work",
   "POST /api/location/observe": "A location report",
   "POST /api/offer-log/shown": "What the open Now page showed",
   "POST /api/location/ping": "A location ping",
@@ -842,6 +859,7 @@ const OWNER_READS = new Set([
   "/api/review/watch-history",
   "/api/settings/secrets",
   "/api/derived-settings",
+  "/api/work-labels",
   "/api/closed",
   "/api/closed/summary",
   "/api/owner/credentials",
@@ -994,6 +1012,7 @@ for (const route of [
   "/api/integrations/travel/tick",
   "/api/integrations/derived/tick",
   "/api/integrations/derived/model-tick",
+  "/api/integrations/work-label/tick",
   "/api/integrations/pulse/tick",
   "/api/integrations/push/drain",
   "/api/plan-map/sweep"

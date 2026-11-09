@@ -960,10 +960,15 @@ describe("a real database token reads health rows only with read:activity-health
       { id: "ah", source: "apple-health", kind: "steps", start: "2026-11-01T01:00:00Z" }
     ]);
     const plain = await readAs(["read:activity-event"], "plain");
-    expect(plain).toMatchObject({ withheld: health });
+    // The drift class is withheld from a token without its own scope as well as the health class.
+    expect(plain).toMatchObject({ withheld: [...health, "drift"].sort() });
     expect((await readAs(["read:activity-event"], "plain2")).events.map((row) => row.source)).toEqual(["rhen-watch"]);
-    const full = await readAs(["read:activity-event", "read:activity-health"], "full");
-    expect(full.events.map((row) => row.source).sort()).toEqual(["apple-health", "physiology", "rhen-watch"]);
+    const readable = ["apple-health", "physiology", "rhen-watch"];
+    const healthOnly = await readAs(["read:activity-event", "read:activity-health"], "health-only");
+    expect(healthOnly.events.map((row) => row.source).sort()).toEqual(readable);
+    expect(healthOnly).toMatchObject({ withheld: ["drift"] });
+    const full = await readAs(["read:activity-event", "read:activity-health", "read:activity-drift"], "full");
+    expect(full.events.map((row) => row.source).sort()).toEqual(readable);
     expect(full).not.toHaveProperty("withheld");
   });
 });

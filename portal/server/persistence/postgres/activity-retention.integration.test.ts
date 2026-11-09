@@ -266,6 +266,19 @@ describe("settings and bad values", () => {
     });
   });
 
+  it("refuses a retention on drift, whose labels are the owner's answers, and never purges its rows by age", async () => {
+    await expect(setActivitySourceSettings(sql, "drift", { retentionDays: 30 })).rejects.toThrow(
+      /not applied to the drift source/
+    );
+    await source(userId, "drift", "old-drift");
+    await sql`INSERT INTO activity_source_state (user_id, source, retention_days) VALUES (${userId}, 'drift', 1)`;
+    await tick();
+    expect(await keys("drift")).toEqual(["old-drift"]);
+    await expect(setActivitySourceSettings(sql, "drift", { retentionDays: null })).resolves.toMatchObject({
+      retentionDays: null
+    });
+  });
+
   it("skips a source whose retention makes an invalid cutoff, reports it, and still purges the others", async () => {
     await source(userId, "gmail", "old-gmail");
     await source(userId, "spotify", "old-spotify");

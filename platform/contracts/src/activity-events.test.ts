@@ -3,6 +3,7 @@ import {
   ACTIVITY_ATTRS_MAX_BYTES,
   ACTIVITY_CONTENT_MAX_BYTES,
   ACTIVITY_CLASS_READ_SCOPE,
+  ACTIVITY_DRIFT_SCOPE,
   ACTIVITY_HEALTH_SCOPE,
   ACTIVITY_SOURCE_CLASSES,
   ACTIVITY_WHEREABOUTS_SCOPE,
@@ -71,27 +72,40 @@ describe("the source registry", () => {
     expect(ACTIVITY_SOURCES.physiology!.kinds).toContain("heart_rate_dense");
     expect(activityKindsOf("physiology")).toContain("correction");
     expect(activityHealthSources()).toEqual(["apple-health", "iphone-health", "physiology"]);
-    const classed = Object.entries(ACTIVITY_SOURCES).filter(([, entry]) => entry.class !== undefined);
+    const classed = Object.entries(ACTIVITY_SOURCES).filter(([, entry]) => entry.class === "health");
     expect(classed.map(([name]) => name).sort()).toEqual(["apple-health", "iphone-health", "physiology"]);
+    expect(ACTIVITY_SOURCES.drift).toMatchObject({ schemaVersion: 1, kinds: ["flag", "work_label"], class: "drift" });
+    expect(ACTIVITY_SOURCES.drift).not.toHaveProperty("availability");
   });
 
   it("withholds the health sources from a token without read:activity-health, and from nobody else", () => {
     expect(withheldActivitySources(undefined)).toEqual([]);
-    expect(withheldActivitySources(["read:activity-event"])).toEqual(["apple-health", "iphone-health", "physiology"]);
-    expect(withheldActivitySources([])).toEqual(["apple-health", "iphone-health", "physiology"]);
-    expect(withheldActivitySources(["read:activity-event", ACTIVITY_HEALTH_SCOPE])).toEqual([]);
+    expect(withheldActivitySources(["read:activity-event"])).toEqual([
+      "apple-health",
+      "drift",
+      "iphone-health",
+      "physiology"
+    ]);
+    expect(withheldActivitySources([])).toEqual(["apple-health", "drift", "iphone-health", "physiology"]);
+    expect(withheldActivitySources(["read:activity-event", ACTIVITY_HEALTH_SCOPE])).toEqual(["drift"]);
+    expect(withheldActivitySources(["read:activity-event", ACTIVITY_HEALTH_SCOPE, ACTIVITY_DRIFT_SCOPE])).toEqual([]);
   });
 
   it("has one read scope per class, and both scopes cover themselves only", () => {
-    expect(ACTIVITY_SOURCE_CLASSES).toEqual(["health", "whereabouts"]);
+    expect(ACTIVITY_SOURCE_CLASSES).toEqual(["health", "whereabouts", "drift"]);
     expect(ACTIVITY_CLASS_READ_SCOPE).toEqual({
       health: ACTIVITY_HEALTH_SCOPE,
-      whereabouts: ACTIVITY_WHEREABOUTS_SCOPE
+      whereabouts: ACTIVITY_WHEREABOUTS_SCOPE,
+      drift: ACTIVITY_DRIFT_SCOPE
     });
+    expect(ACTIVITY_DRIFT_SCOPE).toBe("read:activity-drift");
     expect(ACTIVITY_WHEREABOUTS_SCOPE).toBe("read:activity-whereabouts");
     // The health scope does not open whereabouts, and the reverse.
-    expect(withheldActivityClasses(["read:activity-event", ACTIVITY_HEALTH_SCOPE])).toEqual({});
+    const all = ["read:activity-event", ACTIVITY_HEALTH_SCOPE, ACTIVITY_WHEREABOUTS_SCOPE, ACTIVITY_DRIFT_SCOPE];
+    expect(withheldActivityClasses(all)).toEqual({});
+    expect(withheldActivityClasses(["read:activity-event", ACTIVITY_HEALTH_SCOPE, ACTIVITY_DRIFT_SCOPE])).toEqual({});
     expect(withheldActivityClasses(["read:activity-event", ACTIVITY_WHEREABOUTS_SCOPE])).toHaveProperty("health");
+    expect(withheldActivityClasses(["read:activity-event", ACTIVITY_HEALTH_SCOPE])).toEqual({ drift: ["drift"] });
     expect(withheldActivityClasses(undefined)).toEqual({});
   });
 
@@ -195,9 +209,10 @@ describe("the source registry", () => {
   });
 
   it("accepts a correction kind for every source and nothing for an unknown one", () => {
-    // derived-shadow is the exception: it holds extractor output only.
-    for (const source of Object.keys(ACTIVITY_SOURCES).filter((name) => name !== "derived-shadow"))
+    // derived-shadow holds extractor output only; drift corrects a label with a row of its own kind (work_label, origin corrected).
+    for (const source of Object.keys(ACTIVITY_SOURCES).filter((name) => name !== "derived-shadow" && name !== "drift"))
       expect(activityKindsOf(source)).toContain("correction");
+    expect(activityKindsOf("drift")).toEqual(["flag", "work_label"]);
     expect(activityKindsOf("nope")).toEqual([]);
     expect(activityKindsOf("constructor")).toEqual([]);
   });

@@ -280,6 +280,14 @@
         "fact"
       ]
     },
+    "drift": {
+      "schemaVersion": 1,
+      "kinds": [
+        "flag",
+        "work_label"
+      ],
+      "class": "drift"
+    },
     "iphone-shortcuts": {
       "schemaVersion": 1,
       "kinds": [

@@ -4,6 +4,7 @@ import { AGENT_ENTRIES } from "./entries/agents.js";
 import { CALENDAR_ENTRIES } from "./entries/calendar.js";
 import { DERIVED_ENTRIES } from "./entries/derived.js";
 import { DEVICE_ENTRIES } from "./entries/devices.js";
+import { DRIFT_ENTRIES } from "./entries/drift.js";
 import { FILE_ENTRIES } from "./entries/files.js";
 import { MANUAL_ENTRIES } from "./entries/manual.js";
 import { PLANNED_ENTRIES } from "./entries/planned.js";
@@ -33,6 +34,7 @@ export const CORE_FLOW_ENTRIES: readonly FlowEntry[] = [
   ...MANUAL_ENTRIES,
   ...AGENT_ENTRIES,
   ...DERIVED_ENTRIES,
+  ...DRIFT_ENTRIES,
   ...READER_ENTRIES,
   ...PLANNED_ENTRIES
 ];

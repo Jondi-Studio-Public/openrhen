@@ -13,6 +13,7 @@ import { waitingOnMap } from "@/features/plan/prerequisite-choices";
 import { ProjectForecastGrid } from "@/features/plan/components/project-forecast-grid";
 import { ConnectionsFold } from "@/features/plan-map/components/connections-section";
 import { PlanEditorSheets } from "@/features/plan/components/plan-editor-sheets";
+import { AreaWorkLabel } from "@/features/plan/components/area-work-label";
 
 /**
  * One area, whole: its outcomes, the projects that resolve to it (through their outcome, or through
@@ -91,6 +92,7 @@ export function AreaDetail({ areaId }: { areaId: string }) {
           <p className="reason">
             {isUnassigned ? "Projects nothing else claims." : area!.description || "No description yet"}
           </p>
+          {!isUnassigned && <AreaWorkLabel areaId={areaId} />}
         </div>
         {!isUnassigned && (
           <button className="quiet small" onClick={() => editors.openEdit("area", area!)}>

@@ -687,6 +687,29 @@ function stamp(
   return out;
 }
 
+/**
+ * The call policy's dependencies as the real call sites build them: the transport to the owner's local model, the
+ * hosted usage and audit rows, and the process-wide queue. Shared so a second caller (the work-label job) does not copy
+ * the block, and nothing else needs to know where the local model lives.
+ */
+export function buildPolicyDeps(
+  sql: PoolSql,
+  userId: string,
+  settings: DerivedSettings,
+  options: Pick<ModelTickOptions, "transport" | "isHostedEligible" | "sleep" | "policyState"> = {}
+): PolicyDeps {
+  return {
+    transport: options.transport ?? createModelTransport({ sql, userId, localAddress: settings.ollamaUrl }),
+    settings,
+    usage: () => hostedUsageLast24Hours(sql, userId),
+    recordCall: (row) => recordModelCall(sql, userId, row),
+    isHostedEligible: options.isHostedEligible ?? DENY_HOSTED,
+    sleep: options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
+    state: options.policyState ?? processPolicyState,
+    hosted: MODEL_PROVIDERS.hosted
+  };
+}
+
 export async function runModelTick(sql: PoolSql, options: ModelTickOptions = {}): Promise<ModelTickResult> {
   const registered = options.extractors ?? MODEL_EXTRACTORS;
   if (registered.length === 0)
@@ -700,16 +723,7 @@ export async function runModelTick(sql: PoolSql, options: ModelTickOptions = {})
   const userId = await ensureUser(sql);
   const settings = await readDerivedSettings(sql);
   const now = options.now ?? (() => new Date());
-  const policy: PolicyDeps = {
-    transport: options.transport ?? createModelTransport({ sql, userId, localAddress: settings.ollamaUrl }),
-    settings,
-    usage: () => hostedUsageLast24Hours(sql, userId),
-    recordCall: (row) => recordModelCall(sql, userId, row),
-    isHostedEligible: options.isHostedEligible ?? DENY_HOSTED,
-    sleep: options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
-    state: options.policyState ?? processPolicyState,
-    hosted: MODEL_PROVIDERS.hosted
-  };
+  const policy = buildPolicyDeps(sql, userId, settings, options);
   const results: ModelExtractorResult[] = [];
   for (const extractor of registered)
     results.push(

@@ -152,18 +152,24 @@ describe("GET /api/activity-events", () => {
   it("leaves health sources out for a token without read:activity-health, and for nobody else", async () => {
     store.readActivityEvents.mockResolvedValue({ events: [], next: null });
     const health = ["apple-health", "iphone-health", "physiology"];
+    const withDrift = [...health, "drift"].sort();
     const asToken = (held: string[]) => {
       scopes.held = held;
       return get("?source=physiology");
     };
     await asToken(["read:activity-event"]);
-    expect(store.readActivityEvents.mock.calls[0]![1].excludeSources).toEqual(health);
+    expect(store.readActivityEvents.mock.calls[0]![1].excludeSources).toEqual(withDrift);
     await asToken(["read:activity-event", "read:activity-health"]);
-    expect(store.readActivityEvents.mock.calls[1]![1].excludeSources).toEqual([]);
+    expect(store.readActivityEvents.mock.calls[1]![1].excludeSources).toEqual(["drift"]);
+    // The drift class has its own scope: health alone does not open it, and it does not open health.
+    await asToken(["read:activity-event", "read:activity-drift"]);
+    expect(store.readActivityEvents.mock.calls[2]![1].excludeSources).toEqual(health);
+    await asToken(["read:activity-event", "read:activity-health", "read:activity-drift"]);
+    expect(store.readActivityEvents.mock.calls[3]![1].excludeSources).toEqual([]);
     // The owner session, an environment token and a background writer hold no token scopes.
     scopes.held = undefined;
     await get("?source=physiology");
-    expect(store.readActivityEvents.mock.calls[2]![1].excludeSources).toEqual([]);
+    expect(store.readActivityEvents.mock.calls[4]![1].excludeSources).toEqual([]);
   });
 
   it("passes the store's withheld answer through to the caller", async () => {
