@@ -116,7 +116,8 @@ export function createOllamaConnection(seams: () => OllamaSeams): BoundConnectio
                     allowedPorts: resolved.ports,
                     fetch: resolved.fetch?.(call) ?? pinnedHttpFetch(),
                     signal: call.signal,
-                    timeoutMs: remaining
+                    timeoutMs: remaining,
+                    allowedMs: clock
                   }
                 );
                 return answer(result);

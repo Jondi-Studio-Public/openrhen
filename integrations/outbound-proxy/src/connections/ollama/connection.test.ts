@@ -202,6 +202,25 @@ describe("ollama complete", () => {
       expect(r.message).not.toMatch(/within \d+ seconds/);
     });
 
+    it("timeout: names the whole time allowed, not what was left after queueing", async () => {
+      const fetcher = vi.fn<typeof fetch>(
+        (_url, init) =>
+          new Promise((_resolve, reject) => init!.signal!.addEventListener("abort", () => reject(new Error("aborted"))))
+      );
+      // The first reading is the op's start; every later one is 5 ms on, as if it waited in the queue.
+      const real = Date.now.bind(Date);
+      const t0 = real();
+      let calls = 0;
+      const now = vi.spyOn(Date, "now").mockImplementation(() => (calls++ === 0 ? t0 : t0 + 5));
+      try {
+        const r = await outcome(fetcher, { timeoutMs: 20 });
+        expect(r).toMatchObject({ status: 504, outcome: "timeout" });
+        expect(r.message).toContain("within 20 ms");
+      } finally {
+        now.mockRestore();
+      }
+    });
+
     it("timeout: 504 from a gateway", async () => {
       expect(await outcome(vi.fn<typeof fetch>(reply({}, 504)))).toMatchObject({ status: 504, outcome: "timeout" });
     });
