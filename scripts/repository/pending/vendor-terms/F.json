@@ -1,0 +1,16 @@
+{
+  "lane": "F",
+  "terms": {
+    "total": 103,
+    "files": {
+      "platform/contracts/src/data-flow/entries/calendar.ts": 18,
+      "platform/contracts/src/data-flow/entries/devices.ts": 8,
+      "platform/contracts/src/data-flow/entries/files.ts": 27,
+      "portal/server/data-flow/data-flow-response.integration.test.ts": 12,
+      "portal/server/data-flow/doctor-sources-reader.integration.test.ts": 13,
+      "portal/server/data-flow/health-reader.integration.test.ts": 3,
+      "portal/server/data-flow/registry-checks.test.ts": 5,
+      "portal/server/data-flow/registry-coverage.test.ts": 17
+    }
+  }
+}

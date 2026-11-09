@@ -1,0 +1,19 @@
+{
+  "lane": "G",
+  "terms": {
+    "total": 6,
+    "files": {
+      "scripts/repository/secret-reader-rule.mjs": 2,
+      "scripts/repository/write-path-registry.mjs": 2,
+      "scripts/test/fixtures/secret-reader-violation/route.ts.txt": 1,
+      "scripts/test/secret-reader-rule.test.mjs": 1
+    }
+  },
+  "agents": {
+    "total": 7,
+    "files": {
+      "scripts/repository/check-structure.mjs": 2,
+      "scripts/test/coverage.test.mjs": 5
+    }
+  }
+}

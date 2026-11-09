@@ -1,0 +1,137 @@
+{
+  "_comment": "The platform-tokens.json table as the test expects it. A new row or string fails the test until this file is edited in the same change, which a reviewer sees.",
+  "entries": [
+    {
+      "category": "standard-endpoint",
+      "path": "platform/contracts/src/integrations/push.ts",
+      "strings": ["\"fcm.googleapis.com\",", "\"web.push.apple.com\","],
+      "why": "The Web Push SSRF allowlist. The browser picks the push service, not the user, so the allowlist cannot be a setting without weakening the guard."
+    },
+    {
+      "category": "platform-detection",
+      "path": "portal/features/owner-auth/components/sign-in-required.tsx",
+      "strings": [
+        "/** A name for this browser in Settings › Signed-in devices (\"Safari on iPhone\"), so two signed-in browsers can be",
+        ": /Android/.test(userAgent)",
+        ": /Chrome\\/|CriOS\\//.test(userAgent)",
+        ": /Firefox\\//.test(userAgent)",
+        ": /Safari\\//.test(userAgent)",
+        ": /iPad/.test(userAgent)",
+        "? \"Android\"",
+        "? \"Chrome\"",
+        "? \"Firefox\"",
+        "? \"Safari\"",
+        "? \"iPad\"",
+        "? \"iPhone\"",
+        "const browser = /Edg\\//.test(userAgent)",
+        "const device = /iPhone/.test(userAgent)"
+      ],
+      "why": "browserLabel matches the tokens a user agent defines; rewording them breaks detection."
+    },
+    {
+      "category": "platform-detection",
+      "path": "portal/features/settings/components/notifications-section.tsx",
+      "strings": [
+        "// Safari's own non-standard flag, present only on iOS before the display-mode media query existed",
+        "const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);",
+        "if (/android/i.test(ua)) return \"Android\";",
+        "if (/ipad/i.test(ua)) return \"iPad\";",
+        "if (/iphone/i.test(ua)) return \"iPhone\";"
+      ],
+      "why": "iOS standalone detection for Web Push and the device label read from the user agent."
+    },
+    {
+      "category": "platform-detection",
+      "path": "portal/app/layout.tsx",
+      "strings": [
+        "* Chrome only reads `rel=\"manifest\"` from a direct child of `<head>`, which is where React hoists",
+        "// Chrome on Android then shrinks the layout for the keyboard, so the capture sheet (sized in dvh)",
+        "// rises above it. iOS Safari ignores this; there the sticky Add bar keeps the button reachable.",
+        "<meta name=\"apple-mobile-web-app-status-bar-style\" content=\"default\" />",
+        "<meta name=\"apple-mobile-web-app-title\" content=\"OpenRhen\" />",
+        "apple: \"/icon-192.png\""
+      ],
+      "why": "The apple icon key, the apple-mobile-web-app metas and Chrome-on-Android keyboard behaviour are defined by the platforms."
+    },
+    {
+      "category": "platform-detection",
+      "path": "tools/rhen-watch/src/platform/windows.rs",
+      "strings": [
+        "/// is by SID, so a domain or Microsoft-account name cannot resolve to the wrong principal.",
+        "const RUN_KEY: &str = \"Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Run\";"
+      ],
+      "why": "The Windows Run-key path and account wording are defined by the operating system."
+    },
+    {
+      "category": "security-deny-list",
+      "path": "integrations/outbound-proxy/src/connections/ollama/guard.ts",
+      "strings": [
+        "*     (169.254.169.254 is link-local anyway; 100.100.100.200 is Alibaba's and sits in CGNAT; fd00:ec2::/32 is AWS's",
+        "*     the operator added with `OUTBOUND_OLLAMA_EXTRA_PORTS`; a static list of ports the stack and host use is",
+        "*     what a tailnet uses) and fc00::/7 (which covers the tailnet's fd7a:115c:a1e0::/48). Everything else is denied,"
+      ],
+      "why": "The cloud-metadata and tailnet ranges of the LAN-target guard; removing them weakens the guard."
+    },
+    {
+      "category": "toolchain",
+      "path": ".github/workflows/ci.yml",
+      "strings": [
+        "# (scripts/smoke/production-click.mjs) against its own throwaway database. Chrome for Testing has",
+        "- name: Install Chrome for Testing",
+        "echo \"::error::Chrome needs shared libraries this runner lacks:\"",
+        "if (-not (Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name 'rhen-watch' -ErrorAction SilentlyContinue)) { throw 'no start-at-logon entry' }",
+        "if (Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name 'rhen-watch' -ErrorAction SilentlyContinue) { throw 'start-at-logon entry still set' }"
+      ],
+      "why": "Chrome for Testing for puppeteer, and the Windows Run key: the build and test toolchain, not something a deployment chooses."
+    },
+    {
+      "category": "toolchain",
+      "path": "scripts/smoke/install-chrome.mjs",
+      "strings": ["Chrome"],
+      "pathToo": true,
+      "why": "Installs the browser the smoke test drives; the build and test toolchain."
+    },
+    {
+      "category": "toolchain",
+      "path": "scripts/smoke/production-click.mjs",
+      "strings": [
+        "\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\",",
+        "\"/usr/bin/google-chrome\",",
+        "\"/usr/bin/google-chrome-stable\",",
+        "\"C:\\\\Program Files (x86)\\\\Google\\\\Chrome\\\\Application\\\\chrome.exe\",",
+        "\"C:\\\\Program Files (x86)\\\\Microsoft\\\\Edge\\\\Application\\\\msedge.exe\",",
+        "\"C:\\\\Program Files\\\\Google\\\\Chrome\\\\Application\\\\chrome.exe\",",
+        "\"No Chrome or Edge executable found in the usual locations:\\n\" +",
+        "\"\\nInstalling Chrome for Testing with scripts/smoke/install-chrome.mjs failed too (see above).\" +",
+        "//                        none), scripts/smoke/install-chrome.mjs fetches the Chrome for Testing build",
+        "//   SMOKE_BROWSER_PATH   path to a Chrome/Edge executable. When set it is used exclusively — no",
+        "// Nothing installed (cloud and agent sessions have no browser): fetch the Chrome for Testing build",
+        "log(\"No Chrome or Edge in the usual locations; installing Chrome for Testing...\");"
+      ],
+      "why": "The browser-path lists of the smoke test; the build and test toolchain."
+    },
+    {
+      "category": "interop-corpus",
+      "path": "integrations/outbound-proxy/src/connections/calendar-feed/corpus.test.ts",
+      "strings": [
+        "APPLE",
+        "Apple",
+        "Fastmail",
+        "Google",
+        "MICROSOFT",
+        "Microsoft",
+        "Outlook",
+        "fastmail",
+        "google",
+        "iCloud"
+      ],
+      "why": "Dialect names in the tests of a standard parser, which must say whose output they replay."
+    },
+    {
+      "category": "interop-corpus",
+      "path": "integrations/outbound-proxy/src/connections/calendar-feed/parse.test.ts",
+      "strings": ["Outlook"],
+      "why": "Dialect names in the tests of a standard parser, which must say whose output they replay."
+    }
+  ]
+}

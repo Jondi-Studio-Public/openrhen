@@ -45,7 +45,7 @@ add-on (a separate, private or public tree, built on a pinned core)
   connections, drop-ins, tables and migrations, pages: added files only, at the seams above
 ```
 
-Import rules, enforced by `corepack pnpm structure:check`: `engine/core` imports no workspace package; only `engine/service` imports `engine/core`; the portal and worker depend on `platform/*`; a connection imports only `platform/contracts`, its own folder and the host's `connection-api`, `http` and `cookie-jar`; the CLI never opens the database. Core code names a provider only through the registry or a drop-in folder, never directly. See the [architecture overview](../architecture/overview.md) for what each process does.
+Import rules, enforced by `corepack pnpm structure:check`: `engine/core` imports no workspace package; only `engine/service` imports `engine/core`; the portal and worker depend on `platform/*`; a connection imports only `platform/contracts`, its own folder and the host's `connection-api`, `http` and `cookie-jar`; the CLI never opens the database. The same command runs the vendor-term ratchet (`scripts/repository/rules/vendor-terms.mjs`): core names no provider, the term sets in `rules/vendor-terms.json` only grow, and the hits that remain are counted per lane in `scripts/repository/pending/vendor-terms/`, where a count can only go down (`corepack pnpm structure:check --fix-pending` rewrites the counts after you remove hits). Core code names a provider only through the registry or a drop-in folder, never directly. See the [architecture overview](../architecture/overview.md) for what each process does.
 
 How an add-on attaches at build time:
 

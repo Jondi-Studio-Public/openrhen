@@ -1,0 +1,250 @@
+{
+  "_comment": "The vendor term sets of the vendor-isolation ratchet (rules/vendor-terms.mjs). This file is the one place core may list vendor names, as data, and is exempt from the rule itself. Every set only grows: scripts/test/vendor-terms.test.mjs pins the floor and the rule compares with the base commit. Regex fragments are matched case-insensitively unless a set says otherwise.",
+  "terms": {
+    "provider": [
+      "google",
+      "gmail",
+      "openai",
+      "deepinfra",
+      "ollama",
+      "youtube",
+      "spotify",
+      "discord",
+      "takeout",
+      "apple",
+      "iphone",
+      "steam",
+      "garmin",
+      "anthropic",
+      "ukg",
+      "kronos",
+      "skylight",
+      "apns"
+    ],
+    "wider": {
+      "deviceMakers": [
+        "apple",
+        "garmin",
+        "google",
+        "fitbit",
+        "whoop",
+        "oura",
+        "polar",
+        "samsung",
+        "huawei",
+        "amazfit",
+        "coros",
+        "withings",
+        "suunto",
+        "xiaomi",
+        "strava"
+      ],
+      "messaging": ["whatsapp", "telegram"],
+      "modelFamilies": ["qwen[0-9.]*", "gemma", "gemini", "llama", "mistral", "gpt-[0-9][a-z0-9.-]*"],
+      "products": ["microsoft", "firefox", "safari", "android", "ipad", "crios", "edg"],
+      "network": ["tailscale", "tailnet", "icloud", "fastmail", "firebase", "fcm", "ts\\.net"],
+      "cloud": ["aws", "alibaba"]
+    },
+    "capitalised": ["Outlook", "Chrome"],
+    "owner": ["\\bjondi(?![-_]studio)", "jondipc", "jondihaynes"],
+    "agents": {
+      "substring": ["openclaw", "claude", "chatgpt"],
+      "word": ["codex", "windsurf"]
+    },
+    "pathWords": ["chrome"]
+  },
+  "discovery": {
+    "pass": "modularity A1, 2026-11-09: user-agent regexes, host names in non-test code, model-id shapes",
+    "added": ["ts\\.net (the tailnet host suffix; agent-wake-sender.ts and tests)"],
+    "considered": [
+      {
+        "candidate": "Windows, Mac OS X, Macintosh, Linux (user-agent operating systems)",
+        "decision": "not added",
+        "why": "Operating systems, not providers a deployment chooses; the owner-auth and notification detection code names them as the platform defines them."
+      },
+      {
+        "candidate": "Mozilla (user-agent prefix, push host)",
+        "decision": "not added",
+        "why": "The generic user-agent prefix appears in tests; the Firefox push host is in the standard-endpoint row."
+      },
+      {
+        "candidate": "bank, merchant and health-service host names in the spend and appointment category lists",
+        "decision": "not added",
+        "why": "A different domain from data sources, models, calendars, travel, media, mail, push and agent clients; for Jondi's call whether the V1 definition widens to them."
+      },
+      {
+        "candidate": "healthchecks.io",
+        "decision": "not added",
+        "why": "A monitoring endpoint in docs; for Jondi's call."
+      },
+      {
+        "candidate": "model-id shapes (name:8b tags, Org/Model-id)",
+        "decision": "covered",
+        "why": "Every id found names a model family already in the set (qwen); the shape itself matches ordinary identifiers such as time zones, so it is not a pattern."
+      }
+    ]
+  },
+  "defaults": [
+    {
+      "id": "port-11434",
+      "pattern": "11434",
+      "skipTests": true,
+      "why": "Ollama's default port"
+    },
+    {
+      "id": "embedding-size",
+      "pattern": "1,?024|EMBEDDING_DIMENSIONS",
+      "countBy": "line",
+      "alsoOnLine": "dim|vector|embed",
+      "skipTests": true,
+      "skipExtensions": [".md"],
+      "why": "A fixed embedding size fits one model only"
+    }
+  ],
+  "schema": {
+    "files": ["platform/database/src/schema/core.ts", "platform/contracts/src/secrets.ts"]
+  },
+  "lanes": [
+    {
+      "lane": "G",
+      "globs": ["package.json"]
+    },
+    {
+      "lane": "Y",
+      "globs": [
+        "compose*.yaml",
+        ".env.example",
+        "**/Dockerfile*",
+        "pnpm-workspace.yaml",
+        "addons/**",
+        ".github/workflows/**",
+        "**/tsconfig*.json",
+        ".*",
+        "*.yaml",
+        "*.yml",
+        "*.json",
+        "*.toml",
+        "*.cjs",
+        "*.js",
+        "*.mjs"
+      ]
+    },
+    {
+      "lane": "F",
+      "globs": ["platform/contracts/src/data-flow/entries/**", "portal/server/data-flow/**"]
+    },
+    {
+      "lane": "W",
+      "globs": ["engine/worker/**", "platform/database/src/planning/**"]
+    },
+    {
+      "lane": "D",
+      "globs": [
+        "platform/database/drizzle/**",
+        "platform/database/src/schema/**",
+        "platform/database/src/operations/**"
+      ]
+    },
+    {
+      "lane": "K",
+      "globs": ["platform/contracts/**"]
+    },
+    {
+      "lane": "P",
+      "globs": ["integrations/outbound-proxy/**"]
+    },
+    {
+      "lane": "X",
+      "globs": ["integrations/addon-example/**"]
+    },
+    {
+      "lane": "I",
+      "globs": ["integrations/activity-importers/**", "integrations/communication-readers/**", "tools/cli/**"]
+    },
+    {
+      "lane": "T",
+      "globs": ["tools/rhen-watch/**"]
+    },
+    {
+      "lane": "E",
+      "globs": ["engine/core/**", "engine/service/**"]
+    },
+    {
+      "lane": "H",
+      "globs": ["portal/server/**", "portal/app/**", "portal/integrations/**"]
+    },
+    {
+      "lane": "U",
+      "globs": ["portal/features/**", "portal/components/**", "portal/state/**"]
+    },
+    {
+      "lane": "S",
+      "globs": ["scripts/{smoke,selfhost,ops,ci,deploy}/**"]
+    },
+    {
+      "lane": "G",
+      "globs": ["scripts/repository/**", "scripts/test/**", "scripts/addon/**"]
+    },
+    {
+      "lane": "docs",
+      "globs": ["docs/**", "*.md", "LICENSES/**"]
+    }
+  ],
+  "fallbackLane": "other",
+  "exclusions": {
+    "history": {
+      "paths": ["CHANGELOG.md", "pnpm-lock.yaml", "platform/database/src/operations/legacy-value-moves.json"],
+      "globs": ["LICENSES/**"]
+    },
+    "snapshots": ["platform/database/drizzle/meta/*_snapshot.json", "platform/database/drizzle/meta/_journal.json"],
+    "lastAppliedMigration": 151,
+    "migrations": [
+      {
+        "path": "platform/database/drizzle/0139_openrhen_baseline.sql",
+        "sha256": "a8e84ac6a85e44f63c2716bb42d07388b87be4aa40c52674d076e2be346ba234"
+      },
+      {
+        "path": "platform/database/drizzle/0145_watch_history.sql",
+        "sha256": "6c834416b1ae76634ae2c068f2bdd90620801babd2925a174364da0c803b6045"
+      },
+      {
+        "path": "platform/database/drizzle/0146_app_secrets.sql",
+        "sha256": "eafdbc5b94c79b36609cade757114d710f56bb215482c988678a269010609aba"
+      },
+      {
+        "path": "platform/database/drizzle/0151_derived_settings_and_calls.sql",
+        "sha256": "abf8323daae83e87a287d3f5694c482d6c7a184ba187d1f025a68a53b8bae9b5"
+      }
+    ],
+    "migrationHistoryTests": [],
+    "legal": [
+      {
+        "path": "NOTICE",
+        "sha256": "365be30ce5908f30d41adbfd1e1182f0487817c254243dc09b3fcbff799b6ede"
+      },
+      {
+        "path": "GOVERNANCE.md",
+        "sha256": "515b69666c123b0d3e5e6686155620272dcc8255db54ebf67efc84c85b9cbde6"
+      },
+      {
+        "path": ".github/CODEOWNERS",
+        "sha256": "6a526e0f6037385929138c5a89aecccb1ce43b160f58dc696a20240825308849"
+      },
+      {
+        "path": "REUSE.toml",
+        "sha256": "55ed5e6323771a6bb1ab19b9fba89b5f7c25b94aabc94068840e4ea3e77cc895"
+      }
+    ],
+    "archivePrefix": "docs/archive/",
+    "archive": [],
+    "own": {
+      "paths": [
+        "scripts/repository/rules/vendor-terms.mjs",
+        "scripts/repository/rules/vendor-terms.json",
+        "scripts/repository/rules/platform-tokens.json",
+        "scripts/test/vendor-terms.test.mjs"
+      ],
+      "globs": ["scripts/repository/pending/vendor-terms/**", "scripts/test/fixtures/vendor-terms/**"]
+    }
+  }
+}

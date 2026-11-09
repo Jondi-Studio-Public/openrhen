@@ -1,0 +1,26 @@
+{
+  "lane": "D",
+  "terms": {
+    "total": 60,
+    "files": {
+      "platform/database/src/operations/activity-backup.integration.test.ts": 5,
+      "platform/database/src/operations/backup-format.test.ts": 1,
+      "platform/database/src/operations/backup-format.ts": 9,
+      "platform/database/src/operations/watch-history-backup.integration.test.ts": 11,
+      "platform/database/src/schema/core.ts": 34
+    }
+  },
+  "agents": {
+    "total": 2,
+    "files": {
+      "platform/database/src/operations/backup-format.ts": 1,
+      "platform/database/src/schema/core.ts": 1
+    }
+  },
+  "schema": {
+    "total": 8,
+    "files": {
+      "platform/database/src/schema/core.ts": 8
+    }
+  }
+}

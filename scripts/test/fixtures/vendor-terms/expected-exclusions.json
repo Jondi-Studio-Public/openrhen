@@ -1,0 +1,28 @@
+{
+  "_comment": "The exact, closed exemption lists of rules/vendor-terms.json (paths only; hashes live in the rule config). Only the slices the plan names may add to them.",
+  "history": {
+    "paths": ["CHANGELOG.md", "pnpm-lock.yaml", "platform/database/src/operations/legacy-value-moves.json"],
+    "globs": ["LICENSES/**"]
+  },
+  "snapshots": ["platform/database/drizzle/meta/*_snapshot.json", "platform/database/drizzle/meta/_journal.json"],
+  "lastAppliedMigration": 151,
+  "migrations": [
+    "platform/database/drizzle/0139_openrhen_baseline.sql",
+    "platform/database/drizzle/0145_watch_history.sql",
+    "platform/database/drizzle/0146_app_secrets.sql",
+    "platform/database/drizzle/0151_derived_settings_and_calls.sql"
+  ],
+  "migrationHistoryTests": [],
+  "legal": ["NOTICE", "GOVERNANCE.md", ".github/CODEOWNERS", "REUSE.toml"],
+  "archivePrefix": "docs/archive/",
+  "archive": [],
+  "own": {
+    "paths": [
+      "scripts/repository/rules/vendor-terms.mjs",
+      "scripts/repository/rules/vendor-terms.json",
+      "scripts/repository/rules/platform-tokens.json",
+      "scripts/test/vendor-terms.test.mjs"
+    ],
+    "globs": ["scripts/repository/pending/vendor-terms/**", "scripts/test/fixtures/vendor-terms/**"]
+  }
+}

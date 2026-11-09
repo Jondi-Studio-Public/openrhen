@@ -1,0 +1,56 @@
+{
+  "_comment": "The floor of the vendor term sets: every term here must stay in rules/vendor-terms.json. Add to it when a term is added; never remove from it.",
+  "terms": {
+    "provider": [
+      "google",
+      "gmail",
+      "openai",
+      "deepinfra",
+      "ollama",
+      "youtube",
+      "spotify",
+      "discord",
+      "takeout",
+      "apple",
+      "iphone",
+      "steam",
+      "garmin",
+      "anthropic",
+      "ukg",
+      "kronos",
+      "skylight",
+      "apns"
+    ],
+    "wider": {
+      "deviceMakers": [
+        "apple",
+        "garmin",
+        "google",
+        "fitbit",
+        "whoop",
+        "oura",
+        "polar",
+        "samsung",
+        "huawei",
+        "amazfit",
+        "coros",
+        "withings",
+        "suunto",
+        "xiaomi",
+        "strava"
+      ],
+      "messaging": ["whatsapp", "telegram"],
+      "modelFamilies": ["qwen[0-9.]*", "gemma", "gemini", "llama", "mistral", "gpt-[0-9][a-z0-9.-]*"],
+      "products": ["microsoft", "firefox", "safari", "android", "ipad", "crios", "edg"],
+      "network": ["tailscale", "tailnet", "icloud", "fastmail", "firebase", "fcm", "ts\\.net"],
+      "cloud": ["aws", "alibaba"]
+    },
+    "capitalised": ["Outlook", "Chrome"],
+    "owner": ["\\bjondi(?![-_]studio)", "jondipc", "jondihaynes"],
+    "agents": {
+      "substring": ["openclaw", "claude", "chatgpt"],
+      "word": ["codex", "windsurf"]
+    },
+    "pathWords": ["chrome"]
+  }
+}

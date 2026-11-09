@@ -1,0 +1,27 @@
+{
+  "lane": "Y",
+  "terms": {
+    "total": 49,
+    "files": {
+      ".env.example": 19,
+      ".github/workflows/ci.yml": 1,
+      ".gitignore": 1,
+      "compose.yaml": 26,
+      "integrations/outbound-proxy/Dockerfile": 2
+    }
+  },
+  "agents": {
+    "total": 35,
+    "files": {
+      ".env.example": 8,
+      ".github/workflows/release-openclaw-plugin.yml": 13,
+      "compose.yaml": 14
+    }
+  },
+  "defaults": {
+    "total": 1,
+    "files": {
+      ".env.example": 1
+    }
+  }
+}

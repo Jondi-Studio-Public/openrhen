@@ -408,6 +408,30 @@ if (existsSync(seamsDirectory)) {
   }
 }
 
+// Rule modules live in scripts/repository/rules/ (one per ratchet; A2-A4 add files only, this loader never changes).
+// Convention: every `*.mjs` there is a rule whose default export is `(ctx) => string[]`, with ctx = { root, args } (args
+// are this script's own command-line arguments, for example `--fix-pending`) and each returned string one failure.
+// Excluded from loading: `*.test.mjs`, `ast.mjs` (the shared parser wrapper) and any file whose name starts with `_`
+// (a helper that is not a rule). A module that is none of those and exports no default function is itself an error.
+const rulesDirectory = resolve(root, "scripts/repository/rules");
+const ruleHelpers = new Set(["ast.mjs"]);
+if (existsSync(rulesDirectory)) {
+  for (const name of readdirSync(rulesDirectory)
+    .filter(
+      (file) => file.endsWith(".mjs") && !file.endsWith(".test.mjs") && !file.startsWith("_") && !ruleHelpers.has(file)
+    )
+    .sort()) {
+    const rule = await import(pathToFileURL(resolve(rulesDirectory, name)).href);
+    if (typeof rule.default !== "function") {
+      errors.push(
+        `scripts/repository/rules/${name} exports no default function. A rule exports default (ctx) => string[]; a helper that is not a rule is named ast.mjs or starts with an underscore (_${name}).`
+      );
+      continue;
+    }
+    errors.push(...rule.default({ root, args: process.argv.slice(2) }));
+  }
+}
+
 if (errors.length) {
   console.error("Repository structure checks failed:\n" + errors.map((error) => `- ${error}`).join("\n"));
   process.exitCode = 1;

@@ -1,0 +1,26 @@
+{
+  "lane": "W",
+  "terms": {
+    "total": 74,
+    "files": {
+      "engine/worker/src/calendar-sync-schedule.test.ts": 30,
+      "engine/worker/src/main.ts": 1,
+      "platform/database/src/planning/agent-wake-sender.integration.test.ts": 2,
+      "platform/database/src/planning/agent-wake-sender.test.ts": 6,
+      "platform/database/src/planning/agent-wake-sender.ts": 1,
+      "platform/database/src/planning/journey-summary.integration.test.ts": 9,
+      "platform/database/src/planning/journey-summary.ts": 22,
+      "platform/database/src/planning/plan-forecast-runtime.ts": 1,
+      "platform/database/src/planning/plan-retention.integration.test.ts": 2
+    }
+  },
+  "agents": {
+    "total": 19,
+    "files": {
+      "engine/worker/src/main.ts": 7,
+      "platform/database/src/planning/agent-wake-sender.test.ts": 8,
+      "platform/database/src/planning/agent-wake-sender.ts": 3,
+      "platform/database/src/planning/agent-wake.ts": 1
+    }
+  }
+}

@@ -1,0 +1,95 @@
+{
+  "lane": "I",
+  "terms": {
+    "total": 628,
+    "files": {
+      "integrations/activity-importers/src/archive.ts": 6,
+      "integrations/activity-importers/src/index.ts": 15,
+      "integrations/activity-importers/src/json-stream.ts": 3,
+      "integrations/activity-importers/src/parsers-takeout.test.ts": 26,
+      "integrations/activity-importers/src/parsers.test.ts": 71,
+      "integrations/activity-importers/src/parsers/access-log.ts": 4,
+      "integrations/activity-importers/src/parsers/apple-health.ts": 17,
+      "integrations/activity-importers/src/parsers/chrome.ts": 7,
+      "integrations/activity-importers/src/parsers/discord.ts": 8,
+      "integrations/activity-importers/src/parsers/fit.ts": 2,
+      "integrations/activity-importers/src/parsers/google-activity.ts": 11,
+      "integrations/activity-importers/src/parsers/google-chat.ts": 11,
+      "integrations/activity-importers/src/parsers/google-photos.ts": 5,
+      "integrations/activity-importers/src/parsers/maps.ts": 5,
+      "integrations/activity-importers/src/parsers/spotify.ts": 14,
+      "integrations/activity-importers/src/parsers/timeline.ts": 3,
+      "integrations/activity-importers/src/plan.test.ts": 80,
+      "integrations/activity-importers/src/plan.ts": 113,
+      "integrations/activity-importers/src/streams.test.ts": 1,
+      "integrations/activity-importers/src/xml-stream.ts": 1,
+      "integrations/activity-importers/src/zip.test.ts": 26,
+      "integrations/activity-importers/src/zip.ts": 4,
+      "integrations/communication-readers/src/classify-message.ts": 1,
+      "integrations/communication-readers/src/fact-act.test.ts": 4,
+      "integrations/communication-readers/src/fact-id-n2.test.ts": 3,
+      "integrations/communication-readers/src/fact-prompt.ts": 1,
+      "integrations/communication-readers/src/fact-state.test.ts": 14,
+      "integrations/communication-readers/src/ground-quote.test.ts": 1,
+      "integrations/communication-readers/src/hosted-eligibility.test.ts": 1,
+      "integrations/communication-readers/src/hosted-eligibility.ts": 1,
+      "integrations/communication-readers/src/link-candidates.test.ts": 3,
+      "integrations/communication-readers/src/message-context.test.ts": 21,
+      "integrations/communication-readers/src/message-context.ts": 6,
+      "tools/cli/src/commands/import-activity.ts": 30,
+      "tools/cli/src/commands/import.ts": 5,
+      "tools/cli/src/commands/sources.test.ts": 12,
+      "tools/cli/src/config.ts": 2,
+      "tools/cli/test/agent-tools.test.ts": 1,
+      "tools/cli/test/config.test.ts": 1,
+      "tools/cli/test/doctor-fixes.test.ts": 1,
+      "tools/cli/test/import-activity.test.ts": 73,
+      "tools/cli/test/outside-text-e2e.test.ts": 4,
+      "tools/cli/test/outside-text.test.ts": 8,
+      "tools/cli/test/self-update.test.ts": 1,
+      "tools/cli/test/skill.test.ts": 1
+    }
+  },
+  "agents": {
+    "total": 85,
+    "files": {
+      "integrations/communication-readers/src/fact-state.test.ts": 1,
+      "tools/cli/README.md": 11,
+      "tools/cli/src/commands/agent-token.ts": 1,
+      "tools/cli/src/commands/deliverable.ts": 1,
+      "tools/cli/src/commands/doctor.ts": 1,
+      "tools/cli/src/commands/mcp-http.ts": 1,
+      "tools/cli/src/commands/mcp.ts": 3,
+      "tools/cli/src/commands/skill.ts": 9,
+      "tools/cli/src/remote-manifest.ts": 4,
+      "tools/cli/src/remote-text.ts": 6,
+      "tools/cli/src/skill-content.ts": 11,
+      "tools/cli/test/agent-text-drift.test.ts": 3,
+      "tools/cli/test/archive-cancel-text.test.ts": 2,
+      "tools/cli/test/deliverable.test.ts": 4,
+      "tools/cli/test/openclaw-plugin.test.ts": 11,
+      "tools/cli/test/plugin-skill-ask-rules.test.ts": 1,
+      "tools/cli/test/plugin-skill-policy.test.ts": 2,
+      "tools/cli/test/skill.test.ts": 13
+    }
+  },
+  "owner": {
+    "total": 1,
+    "files": {
+      "integrations/communication-readers/src/fact-act.test.ts": 1
+    }
+  },
+  "paths": {
+    "total": 8,
+    "files": {
+      "integrations/activity-importers/src/parsers-takeout.test.ts": 1,
+      "integrations/activity-importers/src/parsers/apple-health.ts": 1,
+      "integrations/activity-importers/src/parsers/chrome.ts": 1,
+      "integrations/activity-importers/src/parsers/discord.ts": 1,
+      "integrations/activity-importers/src/parsers/google-activity.ts": 1,
+      "integrations/activity-importers/src/parsers/google-chat.ts": 1,
+      "integrations/activity-importers/src/parsers/google-photos.ts": 1,
+      "integrations/activity-importers/src/parsers/spotify.ts": 1
+    }
+  }
+}

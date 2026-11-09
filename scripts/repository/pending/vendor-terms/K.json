@@ -1,0 +1,91 @@
+{
+  "lane": "K",
+  "terms": {
+    "total": 337,
+    "files": {
+      "platform/contracts/activity-events-schema.v1.json": 12,
+      "platform/contracts/src/activity-batch.test.ts": 2,
+      "platform/contracts/src/activity-derived.test.ts": 10,
+      "platform/contracts/src/activity-derived.ts": 7,
+      "platform/contracts/src/activity-events.test.ts": 23,
+      "platform/contracts/src/activity-events.ts": 21,
+      "platform/contracts/src/activity-physiology.test.ts": 1,
+      "platform/contracts/src/activity-sources-extension.test.ts": 5,
+      "platform/contracts/src/agent-routes.ts": 1,
+      "platform/contracts/src/agent-scopes.ts": 2,
+      "platform/contracts/src/closed-entity.ts": 1,
+      "platform/contracts/src/connections/builtin-connections.ts": 26,
+      "platform/contracts/src/connections/calendar-feed-manifest.test.ts": 4,
+      "platform/contracts/src/connections/calendar-feed-manifest.ts": 1,
+      "platform/contracts/src/connections/capabilities.test.ts": 2,
+      "platform/contracts/src/connections/capabilities.ts": 1,
+      "platform/contracts/src/connections/connection-id.test.ts": 6,
+      "platform/contracts/src/connections/events.test.ts": 12,
+      "platform/contracts/src/connections/events.ts": 1,
+      "platform/contracts/src/connections/model-providers.test.ts": 7,
+      "platform/contracts/src/connections/model-providers.ts": 24,
+      "platform/contracts/src/connections/registry-traits.test.ts": 4,
+      "platform/contracts/src/connections/registry.test.ts": 35,
+      "platform/contracts/src/connections/registry.ts": 2,
+      "platform/contracts/src/connections/wire.test.ts": 1,
+      "platform/contracts/src/connections/wire.ts": 4,
+      "platform/contracts/src/data-flow/data-flow.test.ts": 8,
+      "platform/contracts/src/data-flow/health.test.ts": 3,
+      "platform/contracts/src/data-flow/notes.ts": 1,
+      "platform/contracts/src/data-flow/surfaces.ts": 1,
+      "platform/contracts/src/data-flow/types.ts": 1,
+      "platform/contracts/src/index.ts": 18,
+      "platform/contracts/src/integrations/google-calendar.ts": 30,
+      "platform/contracts/src/integrations/push.ts": 1,
+      "platform/contracts/src/integrations/travel.ts": 2,
+      "platform/contracts/src/mcp-manifest.test.ts": 1,
+      "platform/contracts/src/open-provider-lists.test.ts": 8,
+      "platform/contracts/src/planning/doctor-cadence.test.ts": 2,
+      "platform/contracts/src/planning/doctor-publishing.ts": 1,
+      "platform/contracts/src/planning/doctor.test.ts": 1,
+      "platform/contracts/src/planning/journey.ts": 5,
+      "platform/contracts/src/planning/plan-forecast.ts": 1,
+      "platform/contracts/src/planning/source-match.test.ts": 4,
+      "platform/contracts/src/portal/deliverable-coordination.ts": 1,
+      "platform/contracts/src/portal/state-schema.ts": 2,
+      "platform/contracts/src/removed-field-names.test.ts": 1,
+      "platform/contracts/src/secrets.test.ts": 8,
+      "platform/contracts/src/secrets.ts": 5,
+      "platform/contracts/src/signal-anchors.test.ts": 1,
+      "platform/contracts/src/watch-history.ts": 16
+    }
+  },
+  "agents": {
+    "total": 39,
+    "files": {
+      "platform/contracts/src/agent-contract.ts": 1,
+      "platform/contracts/src/agent-policy-text.ts": 1,
+      "platform/contracts/src/agent-scopes.ts": 1,
+      "platform/contracts/src/agent-sessions.test.ts": 12,
+      "platform/contracts/src/agent-wake.ts": 1,
+      "platform/contracts/src/closed-list.test.ts": 14,
+      "platform/contracts/src/core-only.ts": 1,
+      "platform/contracts/src/mcp-manifest-data.ts": 5,
+      "platform/contracts/src/planning/doctor-recording.ts": 2,
+      "platform/contracts/src/portal/deliverable-coordination.ts": 1
+    }
+  },
+  "paths": {
+    "total": 1,
+    "files": {
+      "platform/contracts/src/integrations/google-calendar.ts": 1
+    }
+  },
+  "schema": {
+    "total": 4,
+    "files": {
+      "platform/contracts/src/secrets.ts": 4
+    }
+  },
+  "defaults": {
+    "total": 1,
+    "files": {
+      "platform/contracts/src/connections/model-providers.ts": 1
+    }
+  }
+}
