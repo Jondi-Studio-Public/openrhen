@@ -120,6 +120,7 @@ export {
   splitCommitmentSourceCommandSchema,
   MAX_PLANNED_SESSION_MINUTES,
   WAKE_MAX_BACK_HOURS,
+  rankConsequenceGroupCommandSchema,
   wakeCommandSchema,
   wakeResultSchema
 } from "./planning/commands.js";
@@ -131,6 +132,8 @@ export type {
   EndRecurrenceGoalCommand,
   OverrideReason,
   PlanningEntityCommand,
+  RankConsequenceGroupCommand,
+  RankConsequenceGroupResult,
   RecalculateCommand,
   RecordCadenceCompletionCommand,
   RevertCommand,
@@ -142,6 +145,26 @@ export type {
   WakeCommand,
   WakeResult
 } from "./planning/commands.js";
+export {
+  CONSEQUENCE_NEXT_CALL,
+  CONSEQUENCE_POOL_NAMES,
+  CONSEQUENCE_QUESTION_TEXT,
+  CONSEQUENCE_WORDINGS,
+  buildConsequenceGroupView,
+  CONSEQUENCE_EVIDENCE_PLACEHOLDER,
+  consequenceAnswerCall,
+  consequenceResendStep,
+  consequenceSaveCallTemplate,
+  consequenceWordingForDay,
+  isConsequenceWording,
+  isPlaceholderEvidence
+} from "./planning/consequence-question.js";
+export type {
+  ConsequenceGroupItemView,
+  ConsequenceGroupView,
+  ConsequencePoolName,
+  ConsequenceWording
+} from "./planning/consequence-question.js";
 export {
   CHANGESET_MAX_ITEMS,
   CHANGESET_PROPOSABLE_ROUTES,

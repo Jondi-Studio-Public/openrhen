@@ -6,6 +6,7 @@ import postgres from "postgres";
 import { resolve } from "node:path";
 import { integrationDatabaseName } from "../operations/integration-database.js";
 import { ConsequenceComparisonError, issueNextConsequenceGroup, recordComparison } from "./comparisons.js";
+import { issueNextConsequenceGroupForUser } from "./issue-any.js";
 import { refitConsequence, refitConsequenceIfStale } from "./refit.js";
 import { loadPoolRows } from "./pool-load.js";
 
@@ -348,6 +349,46 @@ describe("recording a comparison", () => {
     expect(group.itemIds).toHaveLength(4);
   });
 
+  it("a skip (a tie) after a real answer never changes the refined values", async () => {
+    const ids = await fourProjects();
+    await answer("project", (order) => order);
+    // The cool-down is 30 days, so the skip comes later; settle the age decay first so only the skip could move a value.
+    const later = new Date(NOW.getTime() + 31 * 86_400_000);
+    await refitConsequence(sql, userId, "2026-12-10");
+    const before = await Promise.all(ids.map((id) => refinedOf("projects", id)));
+    expect(before.some((row) => row.v !== null)).toBe(true);
+    const skipped = await answer("project", () => [], { tie: true, now: later, evidence: "skipped" });
+    expect(skipped.recorded.replayed).toBe(false);
+    expect(Number((await sql`SELECT count(*)::int AS n FROM consequence_comparisons WHERE tie`)[0]!.n)).toBe(1);
+    const after = await Promise.all(ids.map((id) => refinedOf("projects", id)));
+    expect(after).toEqual(before);
+  });
+
+  it("refuses placeholder evidence on a stated or observed answer, and takes real words", async () => {
+    await fourProjects();
+    const group = (await issueNextConsequenceGroup(sql, userId, "project", { now: NOW }))!;
+    const call = (basis: "stated" | "observed" | "inferred", evidence: string) =>
+      recordComparison(sql, userId, {
+        groupId: group.groupId,
+        rankedIds: group.itemIds,
+        answeredBy: "agent",
+        basis,
+        evidence,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW
+      });
+    for (const basis of ["stated", "observed"] as const)
+      for (const evidence of ["<the person's own words>", "  <what they said> "]) {
+        const error = (await call(basis, evidence).catch((e: unknown) => e)) as ConsequenceComparisonError;
+        expect(error.code).toBe("basis_not_allowed");
+        expect(error.message).toContain("placeholder");
+        expect(error.message).toContain("the person's actual words");
+        expect(error.group).toMatchObject({ groupId: group.groupId });
+      }
+    expect(Number((await sql`SELECT count(*)::int AS n FROM consequence_comparisons`)[0]!.n)).toBe(0);
+    await expect(call("stated", "Bravo first, then Alpha")).resolves.toMatchObject({ replayed: false });
+  });
+
   it("answers a log row at most once per group even under a race", async () => {
     await fourProjects();
     const group = (await issueNextConsequenceGroup(sql, userId, "project", { now: NOW }))!;
@@ -659,5 +700,159 @@ describe("concurrent answers in both pools", () => {
     } finally {
       errors.mockRestore();
     }
+  });
+});
+
+describe("the next group for a person who named no pool", () => {
+  it("returns the waiting group again, asks the pool asked about least, and falls back to the other pool", async () => {
+    const projects = await fourProjects();
+    const first = await issueNextConsequenceGroupForUser(sql, userId, { now: NOW, wording: "most_regret_not_doing" });
+    expect(first).toMatchObject({ pool: "project", wording: "most_regret_not_doing", reissued: false });
+    const again = await issueNextConsequenceGroupForUser(sql, userId, { now: NOW });
+    expect(again).toMatchObject({ groupId: first!.groupId, reissued: true });
+
+    // Answered, the project pool has been asked once and the (empty) action pool never: actions are tried first, find
+    // nothing to ask, and the project pool is the fallback (every pair of four projects is now cooling, so nothing).
+    await recordComparison(sql, userId, {
+      groupId: first!.groupId,
+      rankedIds: first!.itemIds,
+      answeredBy: "person",
+      basis: "stated",
+      idempotencyKey: "k1",
+      now: NOW
+    });
+    expect(await issueNextConsequenceGroupForUser(sql, userId, { now: NOW })).toBeNull();
+
+    const actions = [await addAction(projects[0]!, "a1"), await addAction(projects[0]!, "a2")];
+    const next = await issueNextConsequenceGroupForUser(sql, userId, { now: NOW });
+    expect(next?.pool).toBe("action");
+    expect([...next!.itemIds].sort()).toEqual([...actions].sort());
+    expect(await issueNextConsequenceGroupForUser(sql, userId, { now: NOW, pool: "project" })).toBeNull();
+  });
+});
+
+describe("refusals carry the group they are about, so the caller can build the exact next call", () => {
+  const refusal = async (promise: Promise<unknown>) => {
+    try {
+      await promise;
+    } catch (error) {
+      expect(error).toBeInstanceOf(ConsequenceComparisonError);
+      return error as ConsequenceComparisonError;
+    }
+    throw new Error("expected a refusal");
+  };
+
+  it("names the waiting group for a wrong group id, the issued group for a wrong ranking, and asks for a new group once answered", async () => {
+    await fourProjects();
+    const group = (await issueNextConsequenceGroupForUser(sql, userId, { now: NOW }))!;
+    const answer = (groupId: string, rankedIds: string[], extra: object = {}) =>
+      recordComparison(sql, userId, {
+        groupId,
+        rankedIds,
+        answeredBy: "person",
+        basis: "stated",
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        ...extra
+      });
+
+    const wrong = await refusal(answer("00000000-0000-4000-8000-000000000000", group.itemIds));
+    expect(wrong.code).toBe("group_not_found");
+    expect(wrong.group).toEqual({ groupId: group.groupId, itemIds: group.itemIds });
+
+    const mismatch = await refusal(answer(group.groupId, group.itemIds.slice(0, 3)));
+    expect(mismatch.code).toBe("ranking_mismatch");
+    expect(mismatch.group).toEqual({ groupId: group.groupId, itemIds: group.itemIds });
+
+    const mislabelled = await refusal(answer(group.groupId, group.itemIds, { wording: "most_regret_not_doing" }));
+    expect(mislabelled.code).toBe("bad_input");
+    expect(mislabelled.message).toContain('"only_finish_one"');
+
+    await answer(group.groupId, group.itemIds, { wording: "only_finish_one" });
+    const twice = await refusal(answer(group.groupId, group.itemIds));
+    expect(twice.code).toBe("group_already_answered");
+    expect(twice.group).toEqual({ groupId: group.groupId, itemIds: group.itemIds, askNext: true });
+  });
+
+  it("treats a group with a private item as never issued to an agent-facing answer", async () => {
+    const projects = await fourProjects();
+    const group = (await issueNextConsequenceGroupForUser(sql, userId, { now: NOW }))!;
+    await sql`UPDATE projects SET private = true WHERE id = ${projects[0]!}`;
+    const refused = await refusal(
+      recordComparison(sql, userId, {
+        groupId: group.groupId,
+        rankedIds: group.itemIds,
+        answeredBy: "agent",
+        basis: "inferred",
+        agentFacing: true,
+        idempotencyKey: "agent-1",
+        now: NOW
+      })
+    );
+    expect(refused.code).toBe("group_not_found");
+    expect(refused.message).not.toContain(projects[0]!);
+    // The person's own answer to the same group goes through.
+    await expect(
+      recordComparison(sql, userId, {
+        groupId: group.groupId,
+        rankedIds: group.itemIds,
+        answeredBy: "person",
+        basis: "stated",
+        idempotencyKey: "person-1",
+        now: NOW
+      })
+    ).resolves.toMatchObject({ replayed: false });
+  });
+  describe("never names a private group's items to an agent-facing answer", () => {
+    const agentAnswer = (groupId: string, rankedIds: string[], key: string) =>
+      recordComparison(sql, userId, {
+        groupId,
+        rankedIds,
+        answeredBy: "agent",
+        basis: "inferred",
+        agentFacing: true,
+        idempotencyKey: key,
+        now: NOW
+      });
+    const leaks = (error: ConsequenceComparisonError, ids: string[]) => {
+      const text = JSON.stringify({ message: error.message, group: error.group ?? null });
+      for (const id of ids) expect(text).not.toContain(id);
+      expect(error.group).toBeUndefined();
+    };
+
+    it("for a wrong group id while the waiting group holds private items", async () => {
+      const projects = await fourProjects();
+      const group = (await issueNextConsequenceGroupForUser(sql, userId, { now: NOW }))!;
+      await sql`UPDATE projects SET private = true WHERE id IN ${sql(projects)}`;
+      const refused = await refusal(agentAnswer("00000000-0000-4000-8000-000000000000", group.itemIds, "k-nope"));
+      expect(refused.code).toBe("group_not_found");
+      leaks(refused, [...projects, group.groupId]);
+    });
+
+    it("for the right group id with wrong ids", async () => {
+      const projects = await fourProjects();
+      const group = (await issueNextConsequenceGroupForUser(sql, userId, { now: NOW }))!;
+      await sql`UPDATE projects SET private = true WHERE id IN ${sql(projects)}`;
+      const refused = await refusal(agentAnswer(group.groupId, group.itemIds.slice(0, 1), "k-ids"));
+      expect(refused.code).toBe("group_not_found");
+      leaks(refused, projects);
+    });
+
+    it("for an already answered private group", async () => {
+      const projects = await fourProjects();
+      const group = (await issueNextConsequenceGroupForUser(sql, userId, { now: NOW }))!;
+      await recordComparison(sql, userId, {
+        groupId: group.groupId,
+        rankedIds: group.itemIds,
+        answeredBy: "person",
+        basis: "stated",
+        idempotencyKey: "person-first",
+        now: NOW
+      });
+      await sql`UPDATE projects SET private = true WHERE id IN ${sql(projects)}`;
+      const refused = await refusal(agentAnswer(group.groupId, group.itemIds, "k-twice"));
+      expect(refused.code).toBe("group_not_found");
+      leaks(refused, projects);
+    });
   });
 });

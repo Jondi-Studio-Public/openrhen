@@ -228,6 +228,19 @@ describe("changeset: building", () => {
     expect(noId.exitCode).toBe(EXIT.validation);
     expect(noId.stderr).toContain("needs the id");
   });
+
+  it("keeps a comparison out of a changeset: it answers one group on its own route", async () => {
+    const result = await run([
+      "preview",
+      "--changes",
+      JSON.stringify([{ op: "create", kind: "comparison", fields: { groupId: "g-1", tie: true } }])
+    ]);
+    expect(result.exitCode).toBe(EXIT.validation);
+    expect(result.stderr).toContain("is not part of a changeset");
+    expect(result.stderr).toContain("rhen_save");
+    for (const part of ['"entityType":"comparison"', "groupId", "rankedIds", "tie", "wording", "basis", "evidence"])
+      expect(result.stderr, part).toContain(part);
+  });
 });
 
 describe("changeset: answers to review", () => {

@@ -213,6 +213,12 @@ describe("scopesForRoute: other writes", () => {
     const wake = scopesForRoute("POST", "/api/commands/wake", { commandId: "x", type: "wake" });
     expect(wake).not.toHaveProperty("downgradable");
     expect(wake.kind === "scopes" && wake.floor ? hardFloorReason(wake.floor) : "none").toBeNull();
+    // An answer to a group of items to rank is a log entry: the comparison class's scope, applied directly, never a proposal.
+    expect(scopes("/api/commands/consequence")).toEqual(["write:entity:comparison"]);
+    const rank = scopesForRoute("POST", "/api/commands/consequence", { groupId: "g", rankedIds: ["a", "b"] });
+    expect(rank).not.toHaveProperty("downgradable");
+    expect(rank.kind === "scopes" && rank.floor ? hardFloorReason(rank.floor) : "none").toBeNull();
+    expect(scopesForRoute("GET", "/api/consequence/next")).toMatchObject({ kind: "scopes", scopes: ["read:plan"] });
     expect(scopes("/api/commands/catch-up-settle")).toEqual(["propose:catch-up"]);
     expect(scopes("/api/commands/activity")).toEqual(["write:activity"]);
     expect(scopes("/api/commands/check-in")).toEqual(["write:check-in"]);
