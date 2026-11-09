@@ -119,6 +119,21 @@ describe("validateActivityEvent", () => {
     expect(validateActivityEvent(event({ end: null }), now)).toMatchObject({ ok: true, event: { tsEnd: null } });
   });
 
+  it("accepts every rhen-watch kind the uploader sends, a visit with its URL in content", () => {
+    for (const kind of ["start", "stop", "paused", "degraded", "visit", "input_minute"]) {
+      expect(reason(event({ kind })), `kind ${kind}`).toBeNull();
+      expect(ACTIVITY_SOURCES["rhen-watch"]?.kinds).toContain(kind);
+    }
+    const visit = validateActivityEvent(
+      event({ kind: "visit", content: "https://example.test/page\nExample page", attrs: { browser: "edge" } }),
+      now
+    );
+    expect(visit).toMatchObject({
+      ok: true,
+      event: { kind: "visit", content: "https://example.test/page\nExample page" }
+    });
+  });
+
   it("names the known sources for an unknown one, and the known kinds for an unknown kind", () => {
     expect(reason(event({ source: "myspace" }))).toMatch(/"myspace" is not known\. Use one of: rhen-watch,/);
     expect(reason(event({ source: undefined }))).toMatch(/source is missing/);
