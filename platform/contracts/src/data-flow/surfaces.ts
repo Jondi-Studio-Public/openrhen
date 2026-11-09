@@ -83,6 +83,8 @@ export const BLIND_TABLES: readonly string[] = [
   "activity_source_state",
   "derived_lineage",
   "extractor_state",
+  "derived_settings",
+  "derived_model_calls",
   "app_secrets",
   "youtube_quota_use",
   "offer_log"
