@@ -18,6 +18,8 @@ import type { DataFlowContribution, FlowEntry } from "./types.js";
  * overrides. Everything else is re-exported so a consumer needs one import.
  */
 export * from "./graph.js";
+export * from "./health.js";
+export * from "./view.js";
 export { CORE_DATASET_NOTES } from "./notes.js";
 export * from "./surfaces.js";
 export * from "./types.js";
