@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { withoutContractsExtensions } from "@openrhen/contracts";
 import { buildDataFlowView, dataFlowRegistry, registryTables } from "@openrhen/contracts/data-flow";
 import { layoutFor } from "./components/data-flow-graph";
 import { buildFlowModel } from "./data-flow-model";
@@ -159,7 +160,8 @@ describe("layoutFlow", () => {
 
 describe("the real core registry", () => {
   it("lays out within the recorded crossing bound", () => {
-    const registry = dataFlowRegistry();
+    // Core's registry alone: a build that adds its own entries would move the number, and this bound is core's.
+    const registry = withoutContractsExtensions(() => dataFlowRegistry());
     const view = buildDataFlowView(registryTables(registry), registry);
     const model = buildFlowModel(
       { ...view, generatedAt: new Date(0).toISOString(), health: { unavailable: true, reason: "x", next: "y" } },

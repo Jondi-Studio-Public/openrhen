@@ -1,4 +1,3 @@
-import "@/test/example-calendar-sources";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { config } from "dotenv";
 import { drizzle } from "drizzle-orm/postgres-js";
@@ -6,6 +5,7 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { resolve } from "node:path";
 import { integrationDatabaseName } from "@openrhen/database";
+import { enterCoreOnly } from "@openrhen/contracts";
 import { ensureUser } from "@/server/persistence/postgres/ensure-user";
 import { readDataFlow } from "./data-flow-response";
 import { resetHealthCache } from "./health-reader";
@@ -25,7 +25,13 @@ testUrl.pathname = `/${testDatabaseName}`;
 let sql: postgres.Sql;
 const NOW = new Date("2026-10-18T12:00:00Z");
 
+// Core's tests of core behaviour: a composed build's extensions would add their own entries. The example calendar
+// sources are test fixtures, not extensions, so they are registered after the cut-back.
+let leaveCoreOnly: (() => void) | undefined;
+
 beforeAll(async () => {
+  leaveCoreOnly = enterCoreOnly();
+  await import("@/test/example-calendar-sources");
   const admin = postgres(adminUrl, { max: 1, connect_timeout: 10 });
   try {
     const existing = await admin<{ exists: boolean }[]>`
@@ -45,6 +51,7 @@ beforeAll(async () => {
 }, 30_000);
 
 afterAll(async () => {
+  leaveCoreOnly?.();
   await sql?.end();
 });
 

@@ -8,6 +8,7 @@ import { integrationDatabaseName } from "@openrhen/database";
 import {
   AGENT_SCOPE_PRESETS,
   FEED_OWNS_DOCTOR_CHECKS,
+  enterCoreOnly,
   attentionCallProblem,
   type AttentionItem,
   type DoctorReport
@@ -101,7 +102,11 @@ async function openCheckIn() {
 const recentActivity = () =>
   sql`INSERT INTO catch_up_runs (user_id,window_until,closed_at) VALUES (${userId},${hoursAgo(3)},${hoursAgo(2)})`;
 
+// Core's tests of core behaviour: a composed build's extensions would add their own data-flow items to the count.
+let leaveCoreOnly: (() => void) | undefined;
+
 beforeAll(async () => {
+  leaveCoreOnly = enterCoreOnly();
   const admin = postgres(adminUrl!, { max: 1, connect_timeout: 10 });
   try {
     const existing = await admin<{ exists: boolean }[]>`
@@ -133,6 +138,7 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
+  leaveCoreOnly?.();
   await sql?.end();
 });
 

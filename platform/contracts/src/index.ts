@@ -1433,7 +1433,7 @@ export { UNTRUSTED_SOURCE_LABELS, fenceUntrusted, newFenceNonce } from "./untrus
 export type { UntrustedOutputKind } from "./untrusted-fence.js";
 export { contractsExtensions, extensionContractSnapshotTools, registerContractsExtension } from "./extensions.js";
 export { MCP_COMMON_PARAMS } from "./mcp-common-params.js";
-export { withoutContractsExtensions } from "./core-only.js";
+export { enterCoreOnly, withoutContractsExtensions } from "./core-only.js";
 export type {
   ContractsExtension,
   FixedWriteRoute,
