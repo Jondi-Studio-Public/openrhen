@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const calls: { text: string; values: unknown[] }[] = [];
-const state = { url: "postgres://test" as string | undefined, failInsert: false };
+const state = { url: "postgres://test" as string | undefined, failInsert: false, recent: false };
 
 vi.mock("./ensure-user", () => ({ ensureUser: async () => "user-1" }));
 vi.mock("./sql-pool", () => ({
@@ -11,6 +11,7 @@ vi.mock("./sql-pool", () => ({
         const text = strings.join("?");
         calls.push({ text, values });
         if (state.failInsert && text.includes("INSERT")) throw new Error("connection refused");
+        if (text.includes("SELECT") && state.recent) return [{ one: 1 }];
         return [];
       },
       { json: (value: unknown) => value }
@@ -18,7 +19,7 @@ vi.mock("./sql-pool", () => ({
 }));
 vi.mock("@/server/runtime-env", () => ({ databaseUrl: () => state.url }));
 
-const { recordRun, RUN_RETENTION_DAYS } = await import("./run-log");
+const { recordRun, recordRunThrottled, resetRunThrottle, RUN_RETENTION_DAYS } = await import("./run-log");
 
 const run = {
   provider: "import:timeline",
@@ -33,6 +34,8 @@ beforeEach(() => {
   calls.length = 0;
   state.url = "postgres://test";
   state.failInsert = false;
+  state.recent = false;
+  resetRunThrottle();
 });
 
 describe("recordRun", () => {
@@ -60,5 +63,39 @@ describe("recordRun", () => {
     expect(errors).toHaveBeenCalledOnce();
     expect(String(errors.mock.calls[0]![0])).toContain("connection refused");
     errors.mockRestore();
+  });
+});
+
+describe("recordRunThrottled", () => {
+  const at = new Date("2026-11-09T01:00:00Z");
+  const inserts = () => calls.filter((call) => call.text.includes("INSERT INTO"));
+
+  it("writes the first row, then skips the same provider and status for an hour from memory", async () => {
+    await recordRunThrottled(run, { now: at });
+    expect(inserts()).toHaveLength(1);
+    const before = calls.length;
+    await recordRunThrottled(run, { now: new Date(at.getTime() + 59 * 60_000) });
+    expect(calls.length).toBe(before);
+    await recordRunThrottled(run, { now: new Date(at.getTime() + 61 * 60_000) });
+    expect(inserts()).toHaveLength(2);
+  });
+
+  it("keeps a separate hour for each status and each provider", async () => {
+    await recordRunThrottled(run, { now: at });
+    await recordRunThrottled({ ...run, status: "failed" }, { now: at });
+    await recordRunThrottled({ ...run, provider: "import:spotify" }, { now: at });
+    expect(inserts()).toHaveLength(3);
+  });
+
+  it("skips when the last row in the database is under an hour old, as after a restart", async () => {
+    state.recent = true;
+    await recordRunThrottled(run, { now: at });
+    expect(inserts()).toHaveLength(0);
+  });
+
+  it("writes nothing without a database", async () => {
+    state.url = undefined;
+    await recordRunThrottled(run, { now: at });
+    expect(calls).toHaveLength(0);
   });
 });
