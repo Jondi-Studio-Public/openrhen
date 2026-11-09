@@ -218,6 +218,9 @@ export function MailUnderstandingSection() {
             spellCheck={false}
             onChange={edit("t3Model")}
           />
+          <small>
+            Leave the hosted model empty, or set the daily messages to 0, and nothing leaves your own computer.
+          </small>
         </Field>
         <Field label="Hosted messages a day">
           <input

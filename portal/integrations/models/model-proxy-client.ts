@@ -39,7 +39,8 @@ function interpret(status: number, body: unknown): ModelOutcome {
       text: record.text,
       model: typeof record.model === "string" ? record.model : "",
       tokensIn: typeof record.tokensIn === "number" ? record.tokensIn : null,
-      tokensOut: typeof record.tokensOut === "number" ? record.tokensOut : null
+      tokensOut: typeof record.tokensOut === "number" ? record.tokensOut : null,
+      ...("digest" in record ? { digest: typeof record.digest === "string" ? record.digest : null } : {})
     };
   const named = OUTCOMES.find((outcome) => outcome === record.outcome);
   if (named && typeof record.message === "string") return failure(named, record.message);
@@ -83,7 +84,11 @@ export function createModelTransport(deps: ModelTransportDeps): ModelTransport {
         if (!deps.localAddress)
           return failure("unreachable", `No address is saved for the local model. Enter it in ${SETTINGS_HINT}.`);
         const address = local.body.addressField ? { [local.body.addressField]: deps.localAddress } : {};
-        return call(local.connectionId, { ...request, ...address, ...local.body.fixed }, LOCAL_WAIT_MS);
+        return call(
+          local.connectionId,
+          { ...request, ...address, ...local.body.fixed, withDigest: request.withDigest === true },
+          LOCAL_WAIT_MS
+        );
       }
       const hosted = providers.hosted;
       if (!hosted.secretName) return call(hosted.connectionId, { ...request, ...hosted.body.fixed }, HOSTED_WAIT_MS);

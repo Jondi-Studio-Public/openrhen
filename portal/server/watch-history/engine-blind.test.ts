@@ -66,6 +66,7 @@ const MAY_NAME_BLIND_TABLES = new Set([
   "portal/server/persistence/postgres/activity-store.ts",
   "portal/server/persistence/postgres/derived-lineage-store.ts",
   "portal/server/persistence/postgres/derived-scan-store.ts",
+  "portal/server/persistence/postgres/derived-model-scan-store.ts",
   "portal/server/persistence/postgres/derived-write-store.ts",
   "portal/server/persistence/postgres/activity-retention-store.ts",
   "portal/server/persistence/postgres/derived-source-gone-store.ts",
@@ -211,6 +212,7 @@ describe("watch history is blind to the engine", () => {
     ];
     const MAY_USE_ACTIVITY_CODE = new Set([
       "portal/server/persistence/postgres/activity-store.ts",
+      "portal/server/persistence/postgres/derived-model-scan-store.ts",
       "portal/server/activity-ingest.ts",
       "portal/app/api/activity-events/route.ts",
       "portal/app/api/activity-events/summary/route.ts",

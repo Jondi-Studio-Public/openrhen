@@ -117,6 +117,7 @@ const OWNER_RUNS_ITSELF = new Set([
   "POST /api/integrations/push/drain",
   "POST /api/integrations/travel/tick",
   "POST /api/integrations/derived/tick",
+  "POST /api/integrations/derived/model-tick",
   "POST /api/location/observe",
   "POST /api/offer-log/shown",
   "POST /api/location/ping",
@@ -707,6 +708,7 @@ const OWNER_ROUTES: Record<string, string> = {
   "POST /api/integrations/push/drain": "The push queue",
   "POST /api/integrations/travel/tick": "The travel job",
   "POST /api/integrations/derived/tick": "The derived-rows job",
+  "POST /api/integrations/derived/model-tick": "The model-backed derived-rows job",
   "POST /api/location/observe": "A location report",
   "POST /api/offer-log/shown": "What the open Now page showed",
   "POST /api/location/ping": "A location ping",
@@ -971,6 +973,7 @@ for (const route of ["/api/connections/[connectionId]/sync", "/api/connections/[
 for (const route of [
   "/api/integrations/travel/tick",
   "/api/integrations/derived/tick",
+  "/api/integrations/derived/model-tick",
   "/api/integrations/pulse/tick",
   "/api/integrations/push/drain",
   "/api/plan-map/sweep"

@@ -58,6 +58,7 @@ describe("MailUnderstandingSection", () => {
     );
     expect((screen.getByLabelText("Local model") as HTMLInputElement).value).toBe("qwen3:8b");
     expect((screen.getByLabelText("Hosted model") as HTMLInputElement).value).toBe("Qwen/Qwen3-14B");
+    expect(screen.getByText(/Leave the hosted model empty, or set the daily messages to 0/i)).toBeTruthy();
     expect((screen.getByLabelText("Hosted messages a day") as HTMLInputElement).value).toBe("50");
     expect((screen.getByLabelText("Hosted tokens a day") as HTMLInputElement).value).toBe("200000");
     expect((screen.getByLabelText("Days to look back") as HTMLInputElement).value).toBe("90");
