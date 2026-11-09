@@ -7,6 +7,9 @@ import { commands } from "../src/registry.js";
 import { fakeFetch, type RecordedCall } from "./fake-fetch.js";
 import { fixtureNow, fixtureRawState } from "./fixture-state.js";
 
+/** Pinned from the new-data-sources slice 1.1: no new MCP tool without changing this on purpose. */
+const EXPECTED_TOOL_COUNT = 49;
+
 interface JsonRpcResponse {
   jsonrpc: string;
   id: unknown;
@@ -1005,5 +1008,13 @@ describe("mcp: stdio tool descriptions", () => {
     if (!save) throw new Error("rhen_save is not listed");
     const withoutExamples = save.description.split(" Examples:")[0] ?? "";
     expect(withoutExamples).not.toMatch(/(?<![\w-])--[a-z]/);
+  });
+});
+
+describe("mcp: tool count pin", () => {
+  it("lists exactly the tools the registry defines; a new tool must change this number on purpose", async () => {
+    const { parsed } = await send([req(1, "tools/list")]);
+    const result = parsed[0]?.result as { tools: unknown[] };
+    expect(result.tools).toHaveLength(EXPECTED_TOOL_COUNT);
   });
 });

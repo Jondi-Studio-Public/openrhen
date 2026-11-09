@@ -1230,6 +1230,10 @@ export {
   activityEventsJsonSchema,
   activityImportRefSchema,
   activityKindsOf,
+  activitySourceEntry,
+  activitySourceNames,
+  describeExtensionSourceProblem,
+  KNOWN_ACTIVITY_FAMILIES,
   activityShorthandSchema,
   describeTimeProblem,
   describeUnstorableText,
@@ -1280,6 +1284,33 @@ export type {
   IngestActivityEvents,
   ValidActivityEvent
 } from "./activity-events.js";
+export {
+  EVIDENCE_SUBJECTS,
+  FRESHNESS_MODES,
+  MOTION_STATES,
+  ORIGINS,
+  PRESENCE_VALUES,
+  ROUTE_TIERS,
+  SIGNAL_NAMES,
+  SLOT_BY,
+  TIER_CEILING
+} from "./signal-availability.js";
+export type {
+  Anchor,
+  AnchorKinds,
+  EvidenceItem,
+  EvidenceSubject,
+  FreshnessMode,
+  MotionState,
+  Origin,
+  PresenceValue,
+  RouteTier,
+  SignalFeed,
+  SignalHold,
+  SignalName,
+  SlotBy,
+  SourceAvailability
+} from "./signal-availability.js";
 export { UNTRUSTED_SOURCE_LABELS, fenceUntrusted, newFenceNonce } from "./untrusted-fence.js";
 export type { UntrustedOutputKind } from "./untrusted-fence.js";
 export { contractsExtensions, extensionContractSnapshotTools, registerContractsExtension } from "./extensions.js";
