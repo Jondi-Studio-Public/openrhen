@@ -4,7 +4,7 @@ vi.mock("@/server/agent-activity", () => ({ noteAgentCall: () => {} }));
 vi.mock("@/server/runtime-env", () => ({ databaseUrl: () => "postgres://test" }));
 vi.mock("@/server/persistence/postgres/sql-pool", () => ({ sqlPool: () => async () => [] }));
 vi.mock("@/server/persistence/postgres/ensure-user", () => ({ ensureUser: async () => "user-1" }));
-const runLog = vi.hoisted(() => ({ recordRun: vi.fn(async () => undefined) }));
+const runLog = vi.hoisted(() => ({ recordRun: vi.fn(async () => true) }));
 vi.mock("@/server/persistence/postgres/run-log", () => runLog);
 const stateStore = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock("@/server/persistence/state-store", () => ({ getStateStore: () => stateStore }));

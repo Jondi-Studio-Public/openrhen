@@ -50,16 +50,24 @@ describe("recordRun", () => {
     expect(calls[1]!.values).toEqual(expect.arrayContaining(["user-1", "import:timeline", RUN_RETENTION_DAYS]));
   });
 
+  it("says whether the row landed", async () => {
+    await expect(recordRun(run)).resolves.toBe(true);
+    state.failInsert = true;
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await expect(recordRun(run)).resolves.toBe(false);
+    errors.mockRestore();
+  });
+
   it("does nothing without a database", async () => {
     state.url = undefined;
-    await expect(recordRun(run)).resolves.toBeUndefined();
+    await expect(recordRun(run)).resolves.toBe(false);
     expect(calls).toHaveLength(0);
   });
 
   it("never throws: it logs the error and carries on", async () => {
     state.failInsert = true;
     const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    await expect(recordRun(run)).resolves.toBeUndefined();
+    await expect(recordRun(run)).resolves.toBe(false);
     expect(errors).toHaveBeenCalledOnce();
     expect(String(errors.mock.calls[0]![0])).toContain("connection refused");
     errors.mockRestore();
@@ -78,6 +86,18 @@ describe("recordRunThrottled", () => {
     expect(calls.length).toBe(before);
     await recordRunThrottled(run, { now: new Date(at.getTime() + 61 * 60_000) });
     expect(inserts()).toHaveLength(2);
+  });
+
+  it("releases the hour when the write fails, so the next call tries again", async () => {
+    state.failInsert = true;
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await recordRunThrottled(run, { now: at });
+    state.failInsert = false;
+    await recordRunThrottled(run, { now: new Date(at.getTime() + 60_000) });
+    errors.mockRestore();
+    expect(inserts().length).toBe(2);
+    await recordRunThrottled(run, { now: new Date(at.getTime() + 120_000) });
+    expect(inserts().length).toBe(2);
   });
 
   it("keeps a separate hour for each status and each provider", async () => {

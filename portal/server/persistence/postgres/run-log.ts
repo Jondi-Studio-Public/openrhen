@@ -20,12 +20,13 @@ export interface RunRecord {
 
 /**
  * Records one run, best-effort, and prunes rows older than `RUN_RETENTION_DAYS` for that provider. It never
- * throws: a failed write is logged and the work it describes carries on. A caller that already holds a pool passes it;
+ * throws: a failed write is logged and the work it describes carries on. It answers whether the row landed. A caller that already holds a pool passes it;
  * the rest write through the portal's own database.
  */
-export async function recordRun(run: RunRecord, handle?: PoolSql): Promise<void> {
+export async function recordRun(run: RunRecord, handle?: PoolSql): Promise<boolean> {
   const url = handle ? undefined : databaseUrl();
-  if (!handle && !url) return;
+  if (!handle && !url) return false;
+  let landed = false;
   try {
     const sql = handle ?? sqlPool(url!);
     const userId = await ensureUser(sql);
@@ -33,6 +34,7 @@ export async function recordRun(run: RunRecord, handle?: PoolSql): Promise<void>
       INSERT INTO integration_sync_runs (user_id, provider, trigger, started_at, finished_at, status, summary)
       VALUES (${userId}, ${run.provider}, ${run.trigger}, ${run.startedAt.toISOString()}, ${run.finishedAt.toISOString()}, ${run.status}, ${sql.json(run.summary as never)})
     `;
+    landed = true;
     await sql`
       DELETE FROM integration_sync_runs
       WHERE user_id=${userId} AND provider=${run.provider} AND started_at < now() - (${RUN_RETENTION_DAYS} * INTERVAL '1 day')
@@ -47,6 +49,7 @@ export async function recordRun(run: RunRecord, handle?: PoolSql): Promise<void>
       })
     );
   }
+  return landed;
 }
 
 const lastWritten = new Map<string, number>();
@@ -85,5 +88,8 @@ export async function recordRunThrottled(run: RunRecord, options: { now?: Date; 
   } catch {
     // Write the row anyway: a missed check costs at most one extra row.
   }
-  await recordRun(run, options.sql);
+  // A write that did not land must not mute this provider and status for the hour.
+  if (!(await recordRun(run, options.sql))) {
+    if (lastWritten.get(key) === now.getTime()) lastWritten.delete(key);
+  }
 }

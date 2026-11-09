@@ -50,7 +50,8 @@ export const POST = withRoute("/api/plan-map/sweep", async (request, _context, l
     });
     // A daily sweep that found nothing to do leaves no row; one that deleted, expired or proposed something does.
     const proposed = "error" in proposers ? 0 : proposers.suggested + proposers.revived;
-    if (counts.orphanedLinksDeleted + counts.suggestionsExpired + counts.shadowRowsDeleted + proposed > 0)
+    const worked = counts.orphanedLinksDeleted + counts.suggestionsExpired + counts.shadowRowsDeleted + proposed > 0;
+    if (worked)
       await recordRun({
         provider: "job:plan-map-sweep",
         trigger,
@@ -58,6 +59,20 @@ export const POST = withRoute("/api/plan-map/sweep", async (request, _context, l
         startedAt,
         finishedAt: new Date(),
         summary: { ...counts, suggested: "error" in proposers ? 0 : proposers.suggested }
+      });
+    // Advisory steps never fail the sweep, so a step that errored with nothing else to report would be silent.
+    const steps: Record<string, string> = {};
+    for (const [name, result] of Object.entries({ proposers, reviewer, catchUp, health }))
+      if (result && typeof result === "object" && "error" in result && typeof result.error === "string")
+        steps[name] = result.error.slice(0, 200);
+    if (!worked && Object.keys(steps).length > 0)
+      await recordRun({
+        provider: "job:plan-map-sweep",
+        trigger,
+        status: "needs_review",
+        startedAt,
+        finishedAt: new Date(),
+        summary: { steps }
       });
     return Response.json({ status: "ok", trigger, ...counts, proposers, reviewer, catchUp, health });
   } catch (error) {

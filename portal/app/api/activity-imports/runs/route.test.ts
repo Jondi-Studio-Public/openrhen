@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/server/agent-activity", () => ({ noteAgentCall: () => {} }));
 vi.mock("@/server/runtime-env", () => ({ databaseUrl: vi.fn(() => "postgres://test") }));
-const log = vi.hoisted(() => ({ recordRun: vi.fn(async () => undefined) }));
+const log = vi.hoisted(() => ({ recordRun: vi.fn(async () => true) }));
 vi.mock("@/server/persistence/postgres/run-log", () => log);
 
 const env = await import("@/server/runtime-env");
@@ -78,6 +78,13 @@ describe("POST /api/activity-imports/runs", () => {
   ])("returns 400 for %s", async (_name, body) => {
     expect((await post(body)).status).toBe(400);
     expect(log.recordRun).not.toHaveBeenCalled();
+  });
+
+  it("answers 503 with recorded:false when the row did not land", async () => {
+    log.recordRun.mockResolvedValueOnce(false);
+    const response = await post(valid);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ recorded: false });
   });
 
   it("returns 503 without a database", async () => {

@@ -61,7 +61,7 @@ export const POST = withRoute("/api/activity-imports/runs", async (request) => {
       { status: 400 }
     );
   if (!databaseUrl()) return Response.json({ error: "The run log requires PostgreSQL." }, { status: 503 });
-  await recordRun({
+  const landed = await recordRun({
     provider: `import:${run.source}`,
     trigger: "manual",
     status: run.status,
@@ -69,5 +69,6 @@ export const POST = withRoute("/api/activity-imports/runs", async (request) => {
     finishedAt: new Date(run.finishedAt),
     summary: { ...run.summary, file: baseName(run.summary.file) }
   });
+  if (!landed) return Response.json({ error: "The run could not be recorded.", recorded: false }, { status: 503 });
   return Response.json({ recorded: true });
 });

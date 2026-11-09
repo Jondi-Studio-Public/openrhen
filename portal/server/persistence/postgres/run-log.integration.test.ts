@@ -83,7 +83,7 @@ describe("recordRun", () => {
         { provider: "job:x", trigger: "tick" as never, status: "synced", startedAt: at, finishedAt: at, summary: {} },
         sql
       )
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
     expect(errors).toHaveBeenCalledOnce();
     errors.mockRestore();
     expect(await rows()).toEqual([]);

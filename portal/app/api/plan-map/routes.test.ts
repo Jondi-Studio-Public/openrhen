@@ -29,7 +29,7 @@ vi.mock("@openrhen/database", async (importOriginal) => ({
   ...reviewer
 }));
 
-const runLog = vi.hoisted(() => ({ recordRun: vi.fn(async () => undefined) }));
+const runLog = vi.hoisted(() => ({ recordRun: vi.fn(async () => true) }));
 vi.mock("@/server/persistence/postgres/run-log", () => runLog);
 
 const catchUp = vi.hoisted(() => ({ queueCatchUpNudge: vi.fn() }));
@@ -232,6 +232,32 @@ describe("plan-map routes", () => {
           summary: { error: "boom" }
         })
       );
+    });
+
+    it("writes a needs_review row naming the failed advisory steps when nothing else happened", async () => {
+      store.sweepPlanMap.mockResolvedValue(quiet);
+      proposers.runPlanMapProposers.mockRejectedValue(new Error("p".repeat(400)));
+      health.runPlanHealth.mockRejectedValue(new Error("health boom"));
+      expect((await sweep.POST(post({ trigger: "scheduled" }), undefined)).status).toBe(200);
+      expect(runLog.recordRun).toHaveBeenCalledOnce();
+      const row = (runLog.recordRun.mock.calls as unknown as [unknown][])[0]![0] as {
+        provider: string;
+        trigger: string;
+        status: string;
+        summary: { steps: Record<string, string> };
+      };
+      expect(row).toMatchObject({ provider: "job:plan-map-sweep", trigger: "scheduled", status: "needs_review" });
+      expect(Object.keys(row.summary.steps).sort()).toEqual(["health", "proposers"]);
+      expect(row.summary.steps.proposers!.length).toBeLessThanOrEqual(200);
+      expect(row.summary.steps.health).toBe("health boom");
+    });
+
+    it("keeps the synced row as it is when work was done, even if a step errored", async () => {
+      store.sweepPlanMap.mockResolvedValue({ ...quiet, suggestionsExpired: 1 });
+      health.runPlanHealth.mockRejectedValue(new Error("health boom"));
+      await sweep.POST(post({ trigger: "scheduled" }), undefined);
+      expect(runLog.recordRun).toHaveBeenCalledOnce();
+      expect(runLog.recordRun).toHaveBeenCalledWith(expect.objectContaining({ status: "synced" }));
     });
 
     it("records a manual sweep as manual", async () => {
