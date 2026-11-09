@@ -255,7 +255,8 @@ jobs:
           # The config is written here, not committed: the export audit forbids a .gitleaks.toml and
           # inline allow comments in the tree. It allows exactly the two RFC 8291 section 5 test
           # vectors, and only in the two web-push test files (AND: both the path and the value must
-          # match); every other finding fails the job.
+          # match); every other finding fails the job. A second entry waives one fake test key at one
+          # commit and path, on a stale branch whose history cannot be rewritten from a cloud session.
           cat > "$dir/gitleaks.toml" <<'TOML'
           title = "OpenRhen CI"
 
@@ -273,6 +274,12 @@ jobs:
             '''BTBZMqHH6r4Tts7J_aSIgg''',
             '''yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw''',
           ]
+
+          [[allowlists]]
+          description = "Fake deepinfra test key in one commit of the stale claude/comms-2b-3a branch; main never held it"
+          condition = "AND"
+          commits = ["395b8eecb5ce8ba9036c283ec37e8f85f0880ce9"]
+          paths = ['''integrations/outbound-proxy/src/connections/deepinfra/complete\.test\.ts''']
           TOML
           "$dir/gitleaks" detect --redact --no-banner --exit-code 1 --config "$dir/gitleaks.toml"
 
