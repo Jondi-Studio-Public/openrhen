@@ -46,6 +46,10 @@ Each active project can show:
 
 A pace line (for example "40% done, 65% of time used") compares what is finished with how far the run to the deadline has gone. A project made only of habits shows how well the habit is kept instead. **Time ahead** shows five bands from the next 7 days to days 91 to 180, with the arithmetic behind each.
 
+### Rank these four
+
+Stars are a coarse scale, so two projects with the same stars can tie. **Rank these four**, a card below the areas on Plan, settles ties by asking: it shows four projects (or four actions of one project) with their stars and where they sit, under a question that alternates by day ("If you could only get one of these done, which would you do?" or "A year from now, which would you most regret never having done?"). Drag the items into order, best first, or use **Move up** and **Move down**, then **Submit order**. **These are equal / can't decide** is saved as a tie, and **Skip** is saved as a tie marked "skipped"; the ranking fit ignores ties, so neither changes any ranking. Answering recalculates the plan, so Now reflects it. Every answer is optional and nothing breaks without them: the card suggests three groups a day, then offers **A few more**, and a pair is not asked again for 30 days. The count it shows is kept on this device. `rhen rank` and agents answer the same questions.
+
 ### Fields
 
 - **Area**: name, description, status, and **Private**.

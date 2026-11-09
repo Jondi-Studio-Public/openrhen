@@ -36,6 +36,7 @@ import { recurrenceCommand } from "./commands/recurrence.js";
 import { disruptCommand } from "./commands/disrupt.js";
 import { reenterCommand } from "./commands/reenter.js";
 import { stretchCommand } from "./commands/stretch.js";
+import { rankCommand } from "./commands/rank.js";
 import { freeCommand } from "./commands/free.js";
 import { saveCommand } from "./commands/save.js";
 import { searchCommand } from "./commands/search.js";
@@ -78,6 +79,7 @@ const coreCommands: CommandSpec[] = [
   disruptCommand,
   arriveCommand,
   stretchCommand,
+  rankCommand,
   freeCommand,
   wakeCommand,
   bulkCommand,

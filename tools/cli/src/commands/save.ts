@@ -28,6 +28,7 @@ import {
 import { CliError, EXIT, firstIssueMessage } from "../errors.js";
 import { normalizeForWrite } from "../read-to-write.js";
 import { checkPrerequisites } from "../prerequisite-check.js";
+import { saveComparison } from "./rank.js";
 import { mentionsRecurrence, withRecurrenceIds } from "../recurrence-ids.js";
 import {
   alreadyStored,
@@ -50,7 +51,7 @@ export interface EntityTypeDef {
   /** The wire value: matches `planningEntityCommandSchema`'s `entityType` enum, or "project"/"action" for the dedicated routes. */
   canonical: string;
   aliases: string[];
-  route: "project" | "action" | "entity";
+  route: "project" | "action" | "entity" | "comparison";
   /** The `PortalState` array this kind lives in, for lookups and for showing the saved record back. */
   arrayKey?: keyof PortalState;
   /** Set for the two singletons that live at a fixed path instead of an array. */
@@ -93,7 +94,10 @@ export const ENTITY_TYPES: EntityTypeDef[] = [
   { canonical: "current_availability", aliases: ["current-availability"], route: "entity" },
   { canonical: "sleep_log_entry", aliases: ["sleep-log-entry", "sleep-log"], route: "entity" },
   { canonical: "capture_review", aliases: ["capture-review"], route: "entity" },
-  { canonical: "deliverable_contract_review", aliases: ["deliverable-contract-review"], route: "entity" }
+  { canonical: "deliverable_contract_review", aliases: ["deliverable-contract-review"], route: "entity" },
+  // An answer to a group of items to rank (`rhen rank`): an append-only log entry on its own route, with no record to
+  // look up or update, so `id`, `create` and `expected-version` do not apply.
+  { canonical: "comparison", aliases: ["comparisons"], route: "comparison" }
 ];
 
 export function findEntityType(name: string): EntityTypeDef | undefined {
@@ -635,7 +639,8 @@ export const saveCommand: CommandSpec = {
     "Create or update one entity: <entityType> is area, outcome, project, action, commitment, capture, " +
     "deliverable, routine-step, routine-preset, sleep-plan, planning-focus, span, " +
     "condition-definition, settings, daily-plan, current-availability, sleep-log-entry, " +
-    "capture-review, or deliverable-contract-review (plurals and a few aliases accepted). Give the entity's " +
+    "capture-review, deliverable-contract-review, or comparison (an answer to a group from `rank`: fields groupId and " +
+    "rankedIds best first, or tie; plurals and a few aliases accepted). Give the entity's " +
     "fields as one JSON object with --fields, from --from <file.json>, with repeated --set key=value (dotted keys " +
     "nest, values that parse as JSON are taken as JSON), or any mix: --fields applies over --from and --set over " +
     "both. A field the kind does not take is refused, and the error lists the ones it does; `schema save-<kind>` " +
@@ -716,6 +721,8 @@ export const saveCommand: CommandSpec = {
       def,
       withKnownFields(def, mergeAssignments(mergeAssignments(fromObject, fieldsObject), setObject))
     );
+
+    if (def.canonical === "comparison") return saveComparison(context, args, provided);
 
     const idOption = stringOption(args.values, "id");
     const providedId = typeof provided.id === "string" ? provided.id : undefined;

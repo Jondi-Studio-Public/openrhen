@@ -1,4 +1,4 @@
-import { resolveQuestion, unansweredQuestions } from "@openrhen/contracts";
+import { formatAgentCall, resolveQuestion, unansweredQuestions, type ConsequenceGroupView } from "@openrhen/contracts";
 import { type CommandContext, type CommandSpec, type ParsedArgs } from "../command.js";
 import { CliError, EXIT } from "../errors.js";
 import { toJson } from "../output.js";
@@ -14,7 +14,8 @@ const CORE_ROOMS = [
   ["captured", "Captured"],
   ["calendar", "Calendar & imports"],
   ["map", "Plan map"],
-  ["kept", "Someday & reference"]
+  ["kept", "Someday & reference"],
+  ["compare", "Compare"]
 ] as const;
 type RoomId = string;
 
@@ -93,7 +94,8 @@ export const inboxCommand: CommandSpec = {
       "Captured (thoughts and extractions to classify), Calendar & imports (batches " +
       "held for review), Plan map (open findings and suggested links) and Someday & reference (kept items). Each item " +
       "names the command that acts on it. Pass a room to list only that one. A room whose source cannot be read " +
-      "reports an error instead of hiding the rest. Go through the rooms with the person; act only on their say-so."
+      "reports an error instead of hiding the rest. Go through the rooms with the person; act only on their say-so. " +
+      "Room compare (only when named) hands out the next group of items to rank; answer it with save, entityType comparison."
     );
   },
   // A getter, not a literal: the rooms a command module adds register after this file loads.
@@ -216,6 +218,27 @@ export const inboxCommand: CommandSpec = {
           return [...findings, ...links];
         })
       );
+    // Reading the compare room hands out a group (bookkeeping only), so it is listed only when asked for by name.
+    if (only === "compare")
+      rooms.push(
+        await attempt("compare", labels.get("compare")!, async () => {
+          const { group } = await context.client.get<{ group: ConsequenceGroupView | null }>("/api/consequence/next");
+          if (!group) return [];
+          return [
+            {
+              id: group.groupId,
+              title: group.question,
+              detail: group.items.map((item) => `${item.n}. ${item.title} (${item.stars}★) [${item.id}]`).join(" | "),
+              act: actHint(
+                context,
+                `rank ${group.items.map((item) => item.n).join(" ")} (numbers best first), or rank --tie`,
+                `${formatAgentCall(group.answerCall)}; the person puts the items in order, best first. ${group.instructions}`
+              ),
+              data: { group }
+            }
+          ];
+        })
+      );
     if (wanted("kept"))
       rooms.push(
         await attempt("kept", labels.get("kept")!, async () =>
@@ -245,7 +268,8 @@ export const inboxCommand: CommandSpec = {
       );
       for (const item of room.items.slice(0, 20))
         lines.push(
-          `  - ${item.title}${item.detail ? ` — ${item.detail}` : ""}${item.openQuestions ? ` [${item.openQuestions} open question(s)]` : ""}  [${item.id}]`
+          `  - ${item.title}${item.detail ? ` — ${item.detail}` : ""}${item.openQuestions ? ` [${item.openQuestions} open question(s)]` : ""}  [${item.id}]`,
+          ...(room.room === "compare" && item.act ? [`    ${item.act}`] : [])
         );
       if (room.items.length > 20) lines.push(`  … ${room.items.length - 20} more (use --json or inbox ${room.room})`);
     }

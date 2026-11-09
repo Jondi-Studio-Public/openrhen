@@ -130,8 +130,11 @@ const OWNER_RUNS_ITSELF = new Set([
   "POST /api/travel/refresh"
 ]);
 
-/** What an agent is told when it names an entity type it cannot write: the ones it can. */
-const TYPES_HINT = `Agents can write: ${AGENT_ENTITY_TYPES.filter((type) => type !== "deliverable_contract_review").join(", ")}.`;
+/**
+ * What an agent is told when it names an entity type it cannot write: the ones it can. The contract review is the
+ * person's, and a comparison is answered on its own route (`rhen_save` sends it there), not through `save_entity`.
+ */
+const TYPES_HINT = `Agents can write: ${AGENT_ENTITY_TYPES.filter((type) => type !== "deliverable_contract_review" && type !== "comparison").join(", ")}.`;
 
 const str = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
 const record = (value: unknown): Record<string, unknown> | undefined =>
@@ -616,6 +619,8 @@ const WRITE_RULES: Record<string, Rule> = {
   "POST /api/commands/wake": fixed({ tool: "wake" }),
   // The answer to a stretch offer `rhen_status` shows; the command itself holds an agent to the person's word.
   "POST /api/commands/stretch": fixed({ tool: "stretch" }),
+  // The answer to a group of items to rank; the command holds an agent to the basis rules and a wrong group to the exact next call.
+  "POST /api/commands/consequence": fixed({ tool: "rank" }),
   "POST /api/commands/activity": fixed({ tool: "activity" }),
   "POST /api/commands/check-in": fixed({ tool: "check-in" }),
   // Undo or redo of a session, check-in or catch-up write from its row snapshot; the `undo` tool's scope.
@@ -774,6 +779,7 @@ const READ_RULES: Record<string, string | "public"> = {
   "/api/catch-up": "read:plan",
   "/api/doctor": "read:plan",
   "/api/attention": "read:plan",
+  "/api/consequence/next": "read:plan",
   "/api/pulse/reentry": "read:plan",
   // The same read for a token that can only re-enter (the call it may make while every other is held) or only
   // propose (see `READ_ANY_OF`).

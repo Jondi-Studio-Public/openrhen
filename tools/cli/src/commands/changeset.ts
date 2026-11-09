@@ -332,6 +332,11 @@ function plan(intents: Intent[], key: string, now: Date, state: PortalState, nig
     } else {
       const def = findEntityType(intent.kind);
       if (!def) throw new CliError(`${where}: unknown kind "${intent.kind}".`, EXIT.validation);
+      if (def.route === "comparison")
+        throw new CliError(
+          `${where}: a comparison answers one group on its own route, so it is not part of a changeset. Send it with rhen_save (entityType comparison, fields groupId and rankedIds).`,
+          EXIT.validation
+        );
       if (intent.op === "create") {
         if (id !== undefined)
           throw new CliError(`${where}: a create names no id; give it a ref instead.`, EXIT.validation);
