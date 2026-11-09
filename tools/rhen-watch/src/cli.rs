@@ -257,12 +257,7 @@ fn cmd_categories(args: &[String]) -> Result<(), String> {
             (Some(exe), Some(category)) if args.len() == 3 => {
                 let existing = config::read_text(&path, "categories.toml")?;
                 let (text, warnings) = categories::set_entry(existing.as_deref(), exe, category)?;
-                let tmp = path.with_extension("toml.tmp");
-                std::fs::write(&tmp, &text).map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
-                if let Err(e) = std::fs::rename(&tmp, &path) {
-                    let _ = std::fs::remove_file(&tmp);
-                    return Err(format!("cannot replace {}: {e}", path.display()));
-                }
+                config::write_atomic(&path, &text)?;
                 for w in warnings {
                     crate::log::warn(&w);
                 }
@@ -331,12 +326,26 @@ fn cmd_export(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-/// True while an agent holds `run.lock` (the OS drops it if the process dies).
+/// True while an agent holds `run.lock` (the OS drops it if the process dies). The probe takes a shared lock,
+/// so two probes at once do not see each other as an agent; the agent's exclusive lock still refuses it.
 pub fn agent_running(dir: &std::path::Path) -> bool {
     match std::fs::OpenOptions::new().write(true).open(dir.join("run.lock")) {
-        Ok(f) => matches!(f.try_lock(), Err(std::fs::TryLockError::WouldBlock)),
+        Ok(f) => matches!(f.try_lock_shared(), Err(std::fs::TryLockError::WouldBlock)),
         Err(_) => false,
     }
+}
+
+/// Take the exclusive run lock, trying `tries` times `delay` apart. A `status` or `install` probe holds the file
+/// for a moment, and that must not make a starting agent give up as "already running".
+pub fn lock_with_retry(lock: &std::fs::File, tries: u32, delay: std::time::Duration) -> Result<(), String> {
+    for attempt in 0..tries.max(1) {
+        match lock.try_lock() {
+            Ok(()) => return Ok(()),
+            Err(std::fs::TryLockError::WouldBlock) if attempt + 1 < tries => std::thread::sleep(delay),
+            Err(e) => return Err(lock_error(e)),
+        }
+    }
+    unreachable!("the loop returns on its last try")
 }
 
 fn cmd_status() -> Result<(), String> {
@@ -490,7 +499,7 @@ pub fn report_days(
                 tz: tz.clone(),
                 catalogue,
                 params: &params,
-                idle_collector: cfg.collectors.idle,
+                idle_collector: cfg.idle_enabled(),
             },
         )?);
     }
@@ -543,7 +552,7 @@ or uninstall and install again from a normal PowerShell.";
 #[cfg(windows)]
 fn cmd_stop() -> Result<(), String> {
     use platform::windows::StopSignal;
-    match platform::windows::signal_stop() {
+    match platform::windows::signal_stop(&dir()?) {
         StopSignal::Sent => {
             println!("stop requested; the agent flushes and exits within a few seconds");
             Ok(())
@@ -588,9 +597,10 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
         .truncate(false)
         .open(d.join("run.lock"))
         .map_err(|e| e.to_string())?;
-    lock.try_lock().map_err(lock_error)?;
+    // About a second of retries: a status or install probe may be holding the file for a moment.
+    lock_with_retry(&lock, 10, Duration::from_millis(100))?;
 
-    let stop_event = win::StopEvent::create()?;
+    let stop_event = win::StopEvent::create(&d)?;
     win::install_ctrl_handler();
     win::set_data_dir(&d);
 
@@ -615,10 +625,15 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
             "category \"{category}\" has no group, so it counts as other (add it under [group] in categories.toml)"
         ));
     }
+    if cfg.collectors.idle && !cfg.collectors.foreground {
+        crate::log::warn(
+            "collectors.idle needs collectors.foreground (a game in front could not be spotted), so idle and input are not recorded",
+        );
+    }
     let settings = engine::Settings {
         idle_threshold_ms: cfg.idle_threshold_secs.unwrap_or(120).saturating_mul(1000),
         foreground: cfg.collectors.foreground,
-        idle: cfg.collectors.idle,
+        idle: cfg.idle_enabled(),
         session: cfg.collectors.session,
         power: cfg.collectors.power,
         ..Default::default()
@@ -652,6 +667,10 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
         if !missing.is_empty() {
             crate::log::warn(&format!("could not register for: {} (recorded as degraded)", missing.join(", ")));
             run.degraded(&missing)?;
+            if missing.iter().any(|m| m == "foreground") {
+                crate::log::warn("the foreground hook failed, so idle and input are not recorded (a game in front could not be spotted)");
+                run.disable_idle();
+            }
         }
         loop {
             if win::STOP.load(Ordering::SeqCst) || stop_event.signalled() || limit.is_some_and(|l| started.elapsed() >= l) {
@@ -728,12 +747,13 @@ fn wait_released(files: &[PathBuf]) -> Result<(), String> {
 fn stop_and_wait() -> Result<(), String> {
     use platform::windows::StopSignal;
     use std::time::{Duration, Instant};
-    match platform::windows::signal_stop() {
+    let data = paths::data_dir()?;
+    match platform::windows::signal_stop(&data) {
         StopSignal::Sent => {}
         StopSignal::NotRunning => return Ok(()),
         StopSignal::AccessDenied => return Err(ELEVATED_AGENT.into()),
     }
-    let lock = paths::data_dir()?.join("run.lock");
+    let lock = data.join("run.lock");
     let started = Instant::now();
     while started.elapsed() < Duration::from_secs(10) {
         match std::fs::OpenOptions::new().write(true).open(&lock) {

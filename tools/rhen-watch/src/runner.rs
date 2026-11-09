@@ -39,7 +39,9 @@ pub enum Control {
     Resume,
 }
 
-const HEARTBEAT_EVERY_MS: Ms = 30_000;
+/// How old `last_heartbeat` may get while nothing else is written: one poll cadence, so a crash loses less than
+/// that. Every commit carries a heartbeat, so a bucket is never newer than it.
+const HEARTBEAT_EVERY_MS: Ms = 5_000;
 
 pub struct Runner<S: Sys> {
     sys: S,
@@ -49,6 +51,7 @@ pub struct Runner<S: Sys> {
     dropped: Arc<AtomicU64>,
     dropped_seen: u64,
     last_idle: Ms,
+    /// When the store last committed (every commit writes `last_heartbeat`).
     last_beat: Ms,
     metric_minute: Ms,
     metric_cpu_start: i64,
@@ -81,7 +84,6 @@ const MAX_PENDING: usize = 20_000;
 impl<S: Sys> Runner<S> {
     pub fn new(sys: S, engine: Engine, store: Store, device: String, dropped: Arc<AtomicU64>, cfg: Config) -> Self {
         let now = sys.now_ms();
-        let cpu = sys.proc_stats().0;
         Self {
             sys,
             engine,
@@ -92,7 +94,7 @@ impl<S: Sys> Runner<S> {
             last_idle: now,
             last_beat: now,
             metric_minute: now / 60_000,
-            metric_cpu_start: cpu,
+            metric_cpu_start: 0,
             metric_events: 0,
             metric_dropped: 0,
             cfg,
@@ -228,6 +230,11 @@ impl<S: Sys> Runner<S> {
         self.feed(signal)
     }
 
+    /// The foreground collector is down: stop idle and input sampling, as when it is configured off.
+    pub fn disable_idle(&mut self) {
+        self.engine.disable_idle();
+    }
+
     /// `recording`, `paused`, or `degraded` (writes are failing); shown on the tray icon.
     pub fn state(&self) -> &'static str {
         if self.engine.paused() {
@@ -296,7 +303,7 @@ impl<S: Sys> Runner<S> {
                 match self.sys.idle_ms() {
                     Some(idle_ms) => {
                         let mono_ms = self.sys.mono_ms();
-                        return self.feed_then_beat(Signal::Idle { idle_ms, mono_ms }, now);
+                        return self.feed_tick(Signal::Idle { idle_ms, mono_ms }, now);
                     }
                     None => {
                         if !self.idle_unavailable {
@@ -310,16 +317,13 @@ impl<S: Sys> Runner<S> {
                 }
             }
         }
-        self.feed_then_beat(Signal::Tick, now)
+        self.feed_tick(Signal::Tick, now)
     }
 
-    fn feed_then_beat(&mut self, signal: Signal, now: Ms) -> Result<(), String> {
+    /// A periodic step. `feed` ends in `apply`, which writes the heartbeat when one is due.
+    fn feed_tick(&mut self, signal: Signal, now: Ms) -> Result<(), String> {
         self.daily_purge(now)?;
         self.feed(signal)?;
-        if !(0..HEARTBEAT_EVERY_MS).contains(&(now - self.last_beat)) {
-            self.last_beat = now;
-            self.apply(now, vec![])?;
-        }
         self.flush_metrics(now)
     }
 
@@ -386,10 +390,17 @@ impl<S: Sys> Runner<S> {
     }
 
     fn apply(&mut self, now: Ms, ops: Vec<Op>) -> Result<(), String> {
+        // A quiet second changes nothing on disk: commit only for ops, a retry, or a heartbeat that is due. A
+        // clock stepped back counts as due.
+        let beat_due = !(0..HEARTBEAT_EVERY_MS).contains(&(now - self.last_beat));
+        if ops.is_empty() && self.pending.is_empty() && !beat_due {
+            return Ok(());
+        }
         self.metric_events += ops.iter().filter(|o| o.is_event_op()).count() as i64;
         self.pending.extend(ops);
         match self.store.apply(&self.device, &self.pending, now) {
             Ok(()) => {
+                self.last_beat = now;
                 self.pending.clear();
                 self.failures = 0;
                 Ok(())
