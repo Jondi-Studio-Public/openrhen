@@ -299,7 +299,7 @@ describe("backup format 26", () => {
 
   it("rejects a format newer than this build reads", () => {
     expect(() => validateBackup(backupOf(CURRENT_BACKUP_FORMAT_VERSION + 1, BACKUP_TABLES))).toThrow(
-      /^Unsupported backup formatVersion 26$/
+      /^Unsupported backup formatVersion 27$/
     );
   });
 });
