@@ -61,6 +61,8 @@ function sources(dir: string): { path: string; text: string }[] {
  * purpose, which is the moment to ask whether it should be a plan input.
  */
 const MAY_NAME_BLIND_TABLES = new Set([
+  // Test support for the /data page: a registry-shaped response that names a blind table the way the real one does.
+  "portal/features/data-flow/test-fixtures.ts",
   "portal/server/data-flow/health-reader.ts",
   "portal/server/persistence/postgres/watch-history-store.ts",
   "portal/server/persistence/postgres/video-lengths-store.ts",

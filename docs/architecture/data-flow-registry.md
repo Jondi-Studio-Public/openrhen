@@ -51,6 +51,10 @@ The closure walker (`enumerate.ts`) follows relative imports, the portal's `@/` 
 
 `GET /api/data-flow` (scope `read:plan`, hand-added in `mcp-route-table.ts`) returns `{ generatedAt, build, entries, datasets, devices, edges, unused, health }`; without `DATABASE_URL` it answers 503 and says to set it and call `GET /api/data-flow` again; if the probes fail, `health` is `{ unavailable, reason, next }` with a fixed reason (the real error goes to the server log) and the static graph still comes back. `health.counts.never` is the number of sources not set up. The body carries run-log error text (clipped to 200 characters), so it stays behind `read:plan`; the narrower `read:activity-health` scope is not granted to connectors by default and nothing here changes that. `rhen sources [id] [--problems] [--unused] [--json] [--offline]` prints it. It is a stdio-only MCP tool (`rhen_sources`), so the remote tool list is unchanged, and its output is fenced as untrusted because run-log error text is in it.
 
+## The Data page
+
+`/data` (`portal/features/data-flow/`) is the picture of this graph. `data-flow-model.ts` reshapes the API body into five columns and edges (tables with the same readers and writers draw as one store, `local:` files as one node, an edge from a surface is not drawn), computes which nodes reach `surface:engine` (solid edges) and maps health to a tone; `data-flow-layout.ts` is a pure layout (fixed columns, two barycentre sweeps, cubic edges, same output every run, crossings bounded by a test on a 200-node fixture); `use-data-flow.ts` polls every 60 s while the tab is visible. It only reads, and it adds no dependency: the map is SVG.
+
 ## Not yet built
 
-The Data page and the doctor source checks are later changes. See [Writing a connection](writing-a-connection.md) and [Writing an add-on](writing-an-addon.md) for the code a new entry describes.
+The doctor source checks are a later change. See [Writing a connection](writing-a-connection.md) and [Writing an add-on](writing-an-addon.md) for the code a new entry describes.

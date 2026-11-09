@@ -126,6 +126,12 @@ export const destinations: readonly Destination[] = withExtensionDestinations([
     where: "You",
     keywords: "doctor data quality stale fix check"
   },
+  {
+    href: "/data",
+    label: "Data",
+    where: "You",
+    keywords: "data map flow sources feeds collectors late unused where from to gives"
+  },
   { href: "/history", label: "History", where: "You › Records", keywords: "sessions evidence" },
   { href: "/sleep", label: "Sleep log", where: "You › Records", keywords: "sleep nights" },
   { href: "/photo-checkins", label: "Photo check-ins", where: "You › Records", keywords: "photos" },
@@ -232,6 +238,7 @@ const ownership: readonly (readonly [PrimaryTab, string])[] = withExtensionOwner
   ["you", "/you"],
   ["you", "/more"],
   ["you", "/doctor"],
+  ["you", "/data"],
   ["you", "/settings"],
   ["you", "/sleep"],
   ["you", "/history"],

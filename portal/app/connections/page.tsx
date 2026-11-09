@@ -16,6 +16,7 @@ import {
   DetailStack,
   DetailSubheading
 } from "@/components/connection-detail";
+import { DataFlowCountsLink } from "@/features/data-flow/components/data-flow-counts";
 import { DatabaseStatus } from "@/components/database-status";
 import { useNow } from "@/shared/clock";
 import { formatConnectionDateTime } from "@/shared/connection-date-time";
@@ -332,7 +333,7 @@ export default function ConnectionsPage() {
 
   return (
     <main className={`content-page ${styles.page}`}>
-      <PageHeader title="Connections" answer={connectionsAnswer(summaries)} />
+      <PageHeader title="Connections" answer={connectionsAnswer(summaries)} actions={<DataFlowCountsLink />} />
       <DatabaseStatus />
       <Card className={styles.list}>
         <List>

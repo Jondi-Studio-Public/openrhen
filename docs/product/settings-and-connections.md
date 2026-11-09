@@ -84,6 +84,14 @@ Bundled connections:
 
 To add one, see [Writing a connection](../architecture/writing-a-connection.md).
 
+## Data
+
+**Data** (under **You**, `/data`, linked from the Connections and You headers) is a live map of every data point: where it comes from, where it is stored, what reads it and what that gives you. It is read-only and draws only from the code's registry and the health the server reads, so it cannot drift from what the app does. The header carries a counts line ("4 late · 1 device silent · 11 collected, unused · 5 accepted, nothing sends") that links to it.
+
+Five columns run left to right: outside systems and devices, collectors and shared pipes, stores (tables that share the same readers and writers are drawn as one; the activity store opens into one row per source), readers, and what it gives (pages, the planning engine, tools, push). Each node shows a dot, its status in words and its age, so colour is never the only signal: green is fresh, amber is late or unused, red is stale, failing or a check that cannot run, grey is not tracked or not set up, hollow has never been heard from. Solid lines reach the planning engine; dotted lines are data the engine is blind to on purpose. Backup and raw REST are greyed as pass-through. Planned sources sit dashed in their own lane under the map.
+
+Filter by category, **Reaches the engine**, **Problems only**, **Show planned** and, when a private build adds its own entries, **Core** or **Private**. Open any node for its id and method, what it gives, what it could give, the tables it reads and writes, the live kinds against the registered ones, how it runs and its warning thresholds, credential names (never values), last success, last attempt and last error (shown as plain text, since it comes from outside), and the code behind it. The page reads again every minute while it is visible and stops while the tab is hidden. If the health read fails it says "Health unavailable" over the last graph it had and recovers on the next good read. Under 720 px the map becomes a list, problems first, each row a `from → via → to → reaches` strip. See the [data-flow registry](../architecture/data-flow-registry.md).
+
 ## Reports
 
 **Reports** lists every issue you captured with **Report issue**, outstanding first. Once a problem is dealt with, press **Mark reviewed** and write a line saying what changed. **Reopen** puts it back. Reviewing records a verdict only: the captured evidence is never edited, so a reviewed report still replays exactly as reported.

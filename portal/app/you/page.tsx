@@ -17,6 +17,7 @@ import { PulseBadge } from "@/features/pulse/components/pulse-badge";
 import { pulseSentence } from "@/features/pulse/pulse-view";
 import { usePortal } from "@/state/portal-provider";
 import { SettingsRows } from "@/features/settings/components/settings-rows";
+import { DataFlowCountsLink } from "@/features/data-flow/components/data-flow-counts";
 import { useDoctorReport } from "@/features/doctor/doctor-client";
 import { attentionCount } from "@/features/doctor/doctor-model";
 import { hoursLabel, useYouOverview, type YouOverview } from "@/features/you/use-you-overview";
@@ -121,7 +122,7 @@ export default function YouPage() {
 
   return (
     <main className={`content-page ${styles.page}`}>
-      <PageHeader title="You" answer={connectionsAnswer(summaries)} />
+      <PageHeader title="You" answer={connectionsAnswer(summaries)} actions={<DataFlowCountsLink />} />
       {state.pulse && (
         <Card>
           <List>
@@ -154,6 +155,7 @@ export default function YouPage() {
                 meta={summaries.length ? connectionsLine(summaries) : ""}
               />
               <ListRow href="/doctor" title="Data check" meta={dataCheckMeta} />
+              <ListRow href="/data" title="Data" meta="Where every data point comes from, goes and what it gives" />
             </List>
           </Card>
           <Sheet open={recordsOpen} onClose={() => setRecordsOpen(false)} title="Records">
@@ -168,6 +170,7 @@ export default function YouPage() {
             <Card>
               <List>
                 <ListRow href="/doctor" title="Data check" meta={dataCheckMeta} />
+                <ListRow href="/data" title="Data" meta="Where every data point comes from, goes and what it gives" />
               </List>
             </Card>
           </YouSection>
