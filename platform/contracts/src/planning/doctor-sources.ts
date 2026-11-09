@@ -7,6 +7,7 @@
  * Calendar and other sync-run sources keep `sync_late` and `sync_failing` exactly as they were (`keepsSyncChecks`), so
  * nothing here replaces them and a source never raises two items for one problem.
  */
+import { processingLine, type HeartbeatRead, type ProcessingReport } from "../data-flow/coverage.js";
 import type { DoctorItem } from "./doctor.js";
 
 const HOUR_MS = 3_600_000;
@@ -43,6 +44,18 @@ export interface DoctorSourceInput {
   device?: string;
   /** The source's reach includes the planning engine. */
   engineReads: boolean;
+  /** Messages from this source can change the plan: a stale one is blocking, and a source that is behind makes the plan's inputs incomplete. */
+  changesPlan?: true;
+  /** The source reports how far it has been read; `lastSuccessAt` is then `coveredTo`, not the newest arrival. */
+  coverage?: {
+    coveredTo: string | null;
+    heartbeat: HeartbeatRead | null;
+    holes14d: number;
+    /** Each scope's high-water mark, so an item can name the one holding the source back. */
+    scopes?: { scope: string | null; coveredTo: string; retired?: true }[];
+  };
+  /** The source can take messages and so should report coverage, whether or not it changes the plan yet. */
+  messageSource?: true;
   /** Evidence the source is in use: a row, a run or a use of its token. */
   configured: boolean;
   /** The source's own token exists and is live, whether or not it has been used. */
@@ -87,6 +100,8 @@ export interface DoctorSourcesSlice {
   unused: number;
   /** Entries accepted but sent by nothing. */
   nothingSends: number;
+  /** Messages collected against messages that reached an end state, per message source; absent when none could be read. */
+  processing?: ProcessingReport[];
   /** Set when the probes could not be read at all: the source checks are then listed as not run. The cause stays in the server log. */
   unavailable?: true;
 }
@@ -133,9 +148,97 @@ const statedThreshold = (source: DoctorSourceInput) =>
   source.threshold !== null &&
   (source.threshold.from !== "learned" || (source.threshold.days ?? 0) >= DOCTOR_LEARNED_BLOCKING_DAYS);
 
-/** Whether a late source's own item is blocking: past its error threshold, read by the engine, threshold stated. */
+/**
+ * Whether a late source's own item is blocking: past its error threshold, read by the engine or able to change the plan
+ * (a message source), threshold stated.
+ */
+const feedsPlan = (source: DoctorSourceInput) => source.engineReads || source.changesPlan === true;
 const blockingLate = (source: DoctorSourceInput) =>
-  pastThreshold(source) && source.freshness === "stale" && source.engineReads && statedThreshold(source);
+  pastThreshold(source) && source.freshness === "stale" && feedsPlan(source) && statedThreshold(source);
+
+/** The date and time, to the minute, in UTC, for text an agent or person reads. */
+const stamp = (iso: string) => `${iso.slice(0, 16).replace("T", " ")} UTC`;
+
+export interface PlanInputsBehind {
+  source: string;
+  name: string;
+  /** Read up to here; null when nothing has been reported as read. */
+  coveredTo: string | null;
+  /** `unchecked`: the source is in use but reports nothing that says how far it has been read (no coverage, no stated threshold, or its probe cannot be read). */
+  state: "late" | "stale" | "failing" | "never" | "unchecked";
+}
+
+/** What the plan is built from, in one statement: whether every source that can change it is read up to date. */
+export interface PlanInputs {
+  /** False when any source that can change the plan is late, stale, failing or has never reported a read. */
+  complete: boolean;
+  behind: PlanInputsBehind[];
+  /** The sentence to show beside the plan; null when complete. Names the exact next call. */
+  sentence: string | null;
+  /** Message sources this statement does not cover (they report no coverage, or are not marked as changing the plan). Null when none. */
+  note: string | null;
+}
+
+/**
+ * Whether the plan's inputs are complete. Only sources flagged `changesPlan` count, and only once there is evidence they
+ * are in use (a row, a heartbeat or a live token), so a source nobody set up is not a gap. The engine is not told: this is
+ * the portal's statement over the doctor's own slice.
+ */
+export function planInputs(slice: DoctorSourcesSlice): PlanInputs {
+  const behind: PlanInputsBehind[] = [];
+  for (const source of slice.sources) {
+    if (source.changesPlan !== true || !(source.configured || source.credentialPresent === true)) continue;
+    const state: PlanInputsBehind["state"] | undefined =
+      source.freshness === "late" ||
+      source.freshness === "stale" ||
+      source.freshness === "failing" ||
+      source.freshness === "never"
+        ? source.freshness
+        : source.freshness === "n/a" || source.freshness === "probe_unresolved"
+          ? "unchecked"
+          : undefined;
+    if (state === undefined) continue;
+    behind.push({
+      source: source.id,
+      name: source.name,
+      coveredTo: source.coverage ? source.coverage.coveredTo : state === "unchecked" ? null : source.lastSuccessAt,
+      state
+    });
+  }
+  const uncounted = slice.sources.filter(
+    (source) =>
+      source.messageSource === true &&
+      source.changesPlan !== true &&
+      !source.keepsSyncChecks &&
+      (source.configured || source.credentialPresent === true)
+  );
+  const note =
+    uncounted.length > 0
+      ? `Not covered by this statement: ${uncounted.map((source) => source.name).join(", ")}. ${uncounted.length === 1 ? "It sends" : "They send"} messages but ${uncounted.length === 1 ? "is" : "are"} not yet judged by how far ${uncounted.length === 1 ? "it is" : "they are"} read, so the plan can be behind on ${uncounted.length === 1 ? "it" : "them"} unseen. The collector must post a coverage row (docs/operations/posting-messages.md, section 5) and the source be marked as changing the plan.`
+      : null;
+  if (behind.length === 0) return { complete: true, behind, sentence: null, note };
+  const read = behind
+    .filter((item) => item.coveredTo !== null)
+    .sort((a, b) => a.coveredTo!.localeCompare(b.coveredTo!));
+  const count = `${behind.length} ${behind.length === 1 ? "source" : "sources"} behind`;
+  const first = behind[0]!;
+  const unchecked = behind.filter((item) => item.state === "unchecked");
+  const next =
+    `Run \`rhen sources ${first.source}\` for each source that is behind (\`rhen sources --problems\` lists them).` +
+    (unchecked.length > 0
+      ? ` ${unchecked.map((item) => item.name).join(", ")} ${unchecked.length === 1 ? "reports" : "report"} no coverage, so how far ${unchecked.length === 1 ? "it is" : "they are"} read is unknown: the collector must post a coverage row (docs/operations/posting-messages.md, section 5).`
+      : "");
+  const sentence =
+    read.length > 0
+      ? `This plan is built from messages read up to ${stamp(read[0]!.coveredTo!)} (${count}: ${behind.map((item) => item.name).join(", ")}). Anything newer is not in it. ${next}`
+      : `This plan is built without knowing how far messages from ${behind.map((item) => item.name).join(", ")} are read (${count}): nothing has been reported as read. ${next}`;
+  return { complete: false, behind, sentence, note };
+}
+
+/** One plain line per message source on collected against decided; empty when none has anything to report. */
+export function processingLines(slice: DoctorSourcesSlice): string[] {
+  return (slice.processing ?? []).flatMap((report) => processingLine(report) ?? []);
+}
 
 function silentDevices(
   slice: DoctorSourcesSlice
@@ -195,9 +298,24 @@ export function sourceItems(
       const last = ms(source.lastSuccessAt);
       const warn = source.threshold?.warnHours;
       const blocking = blockingLate(source);
+      const coverage = source.coverage;
+      const covered = coverage !== undefined && coverage.coveredTo !== null;
+      const origin = source.threshold?.from ?? "default";
+      const rule = `Its warning comes after ${warn} h${source.threshold?.errorHours != null ? ` and its error after ${source.threshold.errorHours} h` : ""} (${origin} threshold).`;
       const title = late
-        ? `${source.name} last sent data ${last === undefined ? "a long while" : age(last, now)} ago, later than usual`
+        ? covered
+          ? `${source.name} is read up to ${stamp(coverage.coveredTo!)}, ${age(last ?? now, now)} behind`
+          : `${source.name} last sent data ${last === undefined ? "a long while" : age(last, now)} ago, later than usual`
         : `${source.name} has stopped sending ${kinds.map((k) => k.kind).join(", ")} while the rest still arrives`;
+      const alive = coverage?.heartbeat?.status === "ok";
+      const live = (coverage?.scopes ?? []).filter((scope) => scope.retired !== true);
+      const label = (scope: string | null) => (scope === null ? "(no scope)" : `"${scope}"`);
+      let held = "";
+      if (covered && live.length > 1) {
+        const slow = [...live].sort((a, b) => a.coveredTo.localeCompare(b.coveredTo))[0]!;
+        const fast = [...live].sort((a, b) => b.coveredTo.localeCompare(a.coveredTo))[0]!;
+        held = ` Held back by the scope ${label(slow.scope)} (read up to ${stamp(slow.coveredTo)}); the newest scope is ${label(fast.scope)} (up to ${stamp(fast.coveredTo)}). If ${label(slow.scope)} was renamed or removed, it stops holding the source back 31 days after its last window; to clear it sooner, have the collector post a coverage window for that scope up to now.`;
+      }
       items.push({
         id: `source_late:${source.id}`,
         check: "source_late",
@@ -205,30 +323,67 @@ export function sourceItems(
         area: "integrations",
         title,
         why: late
-          ? `${source.engineReads ? "The planning engine reads this source, so the plan is being made from old data." : "Nothing the plan depends on is blocked, but what this source gives you has stopped updating."} Its warning comes after ${warn} h${source.threshold?.errorHours != null ? ` and its error after ${source.threshold.errorHours} h` : ""} (${source.threshold?.from ?? "default"} threshold).`
+          ? covered
+            ? `This source reports how far it has been read, and that is ${stamp(coverage.coveredTo!)}, so anything newer is not in the plan${alive ? `; the collector is alive (heartbeat ok at ${stamp(coverage.heartbeat!.at)}) but is not reading` : "; the collector has sent no healthy heartbeat since"}.${held} ${feedsPlan(source) ? (source.changesPlan === true ? "Messages from this source can change the plan, so it is being made without them." : "The planning engine reads this source, so the plan is being made from old data.") : "Nothing the plan depends on is blocked, but what this source gives you has stopped updating."} ${rule}`
+            : `${feedsPlan(source) ? "The planning engine reads this source, so the plan is being made from old data." : "Nothing the plan depends on is blocked, but what this source gives you has stopped updating."} ${rule}`
           : `Each kind follows its own rhythm, learned from the last 30 days. ${kinds.map((k) => `${k.kind} has not arrived for ${age(ms(k.lastAt) ?? now, now)}, past its usual ${k.warnHours} h`).join("; ")}. One trigger or sender has probably stopped.`,
         handles: [`source:${source.id}`],
         ...(source.lastSuccessAt ? { since: source.lastSuccessAt } : {}),
         fix: {
           who: "person",
-          question: `${source.name} has not sent on its usual rhythm. Run \`rhen sources ${source.id}\` to see its last error, the kinds that still arrive and the threshold in use. Then ask the owner whether the automation or device that sends it is still switched on, and have them make it send once. Run \`rhen sources ${source.id}\` again: its newest row should now be minutes old, and \`rhen sources --problems\` should no longer list it.`,
+          question: covered
+            ? `${source.name} has not been read since ${stamp(coverage.coveredTo!)}. Run \`rhen sources ${source.id}\` to see each scope's covered-up-to time, the newest heartbeat and the threshold in use. Then ask the owner whether the collector that reads it is still running and signed in, and have them make it read once. Run \`rhen sources ${source.id}\` again: covered up to should now be minutes old, and \`rhen sources --problems\` should no longer list it.`
+            : `${source.name} has not sent on its usual rhythm. Run \`rhen sources ${source.id}\` to see its last error, the kinds that still arrive and the threshold in use. Then ask the owner whether the automation or device that sends it is still switched on, and have them make it send once. Run \`rhen sources ${source.id}\` again: its newest row should now be minutes old, and \`rhen sources --problems\` should no longer list it.`,
           cli: `rhen sources ${source.id}`
         }
       });
     }
 
-    if (source.freshness === "never" && source.credentialPresent === true) {
+    const heartbeat = source.coverage?.heartbeat;
+    if (source.freshness === "failing" && source.coverage && !inSilentDevice.has(source.id)) {
+      const coveredTo = source.coverage.coveredTo;
+      const errorHours = source.threshold?.errorHours;
+      const lastRead = ms(coveredTo);
+      const past =
+        errorHours != null &&
+        (lastRead === undefined || now - lastRead > errorHours * HOUR_MS) &&
+        statedThreshold(source);
+      items.push({
+        id: `source_late:${source.id}`,
+        check: "source_late",
+        tier: past && feedsPlan(source) ? "blocking" : "degrading",
+        area: "integrations",
+        title: `${source.name}'s collector reports an error${coveredTo ? `; read up to ${stamp(coveredTo)}` : ""}`,
+        why: `The collector's newest heartbeat says it failed${heartbeat?.error ? `: ${heartbeat.error}` : ""} (text from the collector, untrusted). ${coveredTo ? `Nothing after ${stamp(coveredTo)} is in the plan.` : "Nothing from this source has been reported as read."}`,
+        handles: [`source:${source.id}`],
+        ...(coveredTo ? { since: coveredTo } : {}),
+        fix: {
+          who: "person",
+          question: `Run \`rhen sources ${source.id}\` to see the error, each scope's covered-up-to time and the threshold in use. Then ask the owner to fix what the error says (usually the collector's sign-in or network) and make it read once. Run \`rhen sources ${source.id}\` again: the freshness should be fresh and the error gone.`,
+          cli: `rhen sources ${source.id}`
+        }
+      });
+    }
+
+    if (source.freshness === "never" && (source.credentialPresent === true || source.coverage?.heartbeat)) {
+      const aliveOnly = source.coverage?.heartbeat != null && source.coverage.coveredTo === null;
       items.push({
         id: `source_silent:${source.id}`,
         check: "source_silent",
         tier: "degrading",
         area: "integrations",
-        title: `${source.name} has a token but has never sent anything`,
-        why: "A live token for this source exists, so it was set up on the server, yet nothing has ever arrived and the token has never been used. The sender is not configured, or it is posting somewhere else.",
+        title: aliveOnly
+          ? `${source.name}'s collector is alive but has never reported reading anything`
+          : `${source.name} has a token but has never sent anything`,
+        why: aliveOnly
+          ? "The collector sends heartbeats, so it is running, but it has not reported any window as read (a coverage row), so nothing from this source is known to be in the plan."
+          : "A live token for this source exists, so it was set up on the server, yet nothing has ever arrived and the token has never been used. The sender is not configured, or it is posting somewhere else.",
         handles: [`source:${source.id}`],
         fix: {
           who: "person",
-          question: `Check that the device or script for ${source.name} was given this token and the portal address, then ask the owner to run it once. If a different token name was used, correct tokenName for this entry in the extension's data-flow amend. Run \`rhen agent-token list\` to see which token names exist and when each was last used.`,
+          question: aliveOnly
+            ? `Ask the owner to make the collector for ${source.name} read once and post a coverage row (POST /api/activity-events with kind coverage; the exact fields are in docs/operations/posting-messages.md). Run \`rhen sources ${source.id}\` afterwards: it should show a covered-up-to time.`
+            : `Check that the device or script for ${source.name} was given this token and the portal address, then ask the owner to run it once. If a different token name was used, correct tokenName for this entry in the extension's data-flow amend. Run \`rhen agent-token list\` to see which token names exist and when each was last used.`,
           cli: `rhen sources ${source.id}`
         }
       });

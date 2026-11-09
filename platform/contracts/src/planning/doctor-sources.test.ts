@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { emptyDoctorSlices, runDoctor, type DoctorSnapshot } from "./doctor.js";
+import { summarizeProcessing } from "../data-flow/coverage.js";
 import {
   DOCTOR_SOURCE_CHECKS,
+  planInputs,
+  processingLines,
   sourceCountsLine,
   sourceItems,
   type DoctorSourceInput,
@@ -427,6 +430,21 @@ describe("inside runDoctor", () => {
     expect(report.sources).toMatchObject({ late: 1, collectedUnused: 3, line: "1 late · 3 collected, unused" });
   });
 
+  it("carries what the plan is built from and the processing report on the doctor report", () => {
+    const processing = summarizeProcessing({ source: "m", name: "M", windowDays: 30, collected: 3, runs: [] });
+    const report = runDoctor({
+      ...base(),
+      sources: slice({
+        sources: [source("m", { changesPlan: true, freshness: "late", lastSuccessAt: hoursAgo(30) })],
+        processing: [processing]
+      })
+    });
+    expect(report.planInputs).toMatchObject({ complete: false, behind: [{ source: "m", state: "late" }] });
+    expect(report.processing).toEqual([processing]);
+    expect(runDoctor({ ...base(), sources: slice({ unavailable: true }) }).planInputs).toBeUndefined();
+    expect(runDoctor({ ...base(), sources: slice({ sources: [source("m")] }) }).processing).toBeUndefined();
+  });
+
   it("lists every source check as not run when the probes could not be read", () => {
     const report = runDoctor({ ...base(), sources: slice({ unavailable: true }) });
     expect(report.notChecked.map((entry) => entry.check)).toEqual(expect.arrayContaining([...DOCTOR_SOURCE_CHECKS]));
@@ -457,5 +475,187 @@ describe("inside runDoctor", () => {
       })
     });
     expect(report.items.map((item) => item.check)).toEqual(["device_silent"]);
+  });
+});
+
+describe("a source that reports coverage", () => {
+  const coverage = (coveredTo: string | null, extra: Partial<NonNullable<DoctorSourceInput["coverage"]>> = {}) => ({
+    coveredTo,
+    heartbeat: null,
+    holes14d: 0,
+    ...extra
+  });
+  const stale = (extra: Partial<DoctorSourceInput> = {}) =>
+    source("inbox", {
+      freshness: "stale",
+      lastSuccessAt: hoursAgo(40),
+      threshold: { warnHours: 12, errorHours: 24, from: "default" },
+      coverage: coverage(hoursAgo(40), { heartbeat: { at: hoursAgo(1), status: "ok" } }),
+      ...extra
+    });
+  const tier = (input: DoctorSourceInput) => sourceItems(slice({ sources: [input] }), NOW).items[0]!.tier;
+
+  it("words the item as read up to, says alive but not reading, and names the exact next call", () => {
+    const [item] = sourceItems(slice({ sources: [stale({ name: "Demo inbox", changesPlan: true })] }), NOW).items;
+    expect(item!.title).toMatch(/^Demo inbox is read up to 2026-11-07 20:00 UTC, 40 h behind$/);
+    expect(item!.why).toContain("alive");
+    expect(item!.why).toContain("not reading");
+    expect(item!.why).toContain("Messages from this source can change the plan");
+    expect(item!.fix.question).toContain("`rhen sources inbox`");
+    expect(item!.fix.cli).toBe("rhen sources inbox");
+  });
+
+  it("is blocking when stale if the source can change the plan, with or without the engine reading it", () => {
+    expect(tier(stale({ changesPlan: true }))).toBe("blocking");
+    expect(tier(stale({ engineReads: true }))).toBe("blocking");
+    expect(tier(stale())).toBe("degrading");
+  });
+
+  it("is degrading when only late, and when the threshold is a young learned one", () => {
+    expect(tier(stale({ changesPlan: true, freshness: "late" }))).toBe("degrading");
+    expect(
+      tier(stale({ changesPlan: true, threshold: { warnHours: 12, errorHours: 24, from: "learned", days: 5 } }))
+    ).toBe("degrading");
+    expect(tier(stale({ changesPlan: true, threshold: { warnHours: 12, errorHours: 24, from: "owner" } }))).toBe(
+      "blocking"
+    );
+  });
+
+  it("raises a failing item with the collector's error text, blocking only once the read point is past 2T", () => {
+    const failing = (hours: number) =>
+      source("inbox", {
+        changesPlan: true,
+        freshness: "failing",
+        lastSuccessAt: hoursAgo(hours),
+        threshold: { warnHours: 12, errorHours: 24, from: "default" },
+        coverage: coverage(hoursAgo(hours), { heartbeat: { at: hoursAgo(1), status: "error", error: "login expired" } })
+      });
+    const [recent] = sourceItems(slice({ sources: [failing(5)] }), NOW).items;
+    expect(recent).toMatchObject({ check: "source_late", tier: "degrading" });
+    expect(recent!.why).toContain("login expired");
+    expect(recent!.why).toContain("untrusted");
+    expect(recent!.fix.question).toContain("`rhen sources inbox`");
+    expect(tier(failing(30))).toBe("blocking");
+  });
+
+  it("names the scope holding a source back, so a rename is not a mystery", () => {
+    const [item] = sourceItems(
+      slice({
+        sources: [
+          stale({
+            changesPlan: true,
+            coverage: {
+              coveredTo: hoursAgo(40),
+              heartbeat: { at: hoursAgo(1), status: "ok" },
+              holes14d: 0,
+              scopes: [
+                { scope: "Inbox", coveredTo: hoursAgo(40) },
+                { scope: "inbox", coveredTo: hoursAgo(1) }
+              ]
+            }
+          })
+        ]
+      }),
+      NOW
+    ).items;
+    expect(item!.why).toContain('Held back by the scope "Inbox"');
+    expect(item!.why).toContain('the newest scope is "inbox"');
+    expect(item!.why).toContain("renamed or removed");
+  });
+
+  it("raises source_silent for a collector that is alive but has read nothing", () => {
+    const [item] = sourceItems(
+      slice({
+        sources: [
+          source("inbox", {
+            freshness: "never",
+            lastSuccessAt: null,
+            coverage: coverage(null, { heartbeat: { at: hoursAgo(1), status: "ok" } })
+          })
+        ]
+      }),
+      NOW
+    ).items;
+    expect(item).toMatchObject({ check: "source_silent", tier: "degrading" });
+    expect(item!.title).toContain("alive but has never reported reading");
+    expect(item!.fix.question).toContain("docs/operations/posting-messages.md");
+  });
+});
+
+describe("planInputs", () => {
+  const msg = (id: string, extra: Partial<DoctorSourceInput> = {}) =>
+    source(id, { changesPlan: true, name: `Name ${id}`, ...extra });
+  it("is complete when every source that can change the plan is fresh, and says nothing", () => {
+    expect(planInputs(slice({ sources: [msg("a")] }))).toEqual({
+      complete: true,
+      behind: [],
+      sentence: null,
+      note: null
+    });
+  });
+  it("is complete with no such source, and ignores sources that cannot change the plan or are not set up", () => {
+    expect(planInputs(slice({ sources: [source("a", { freshness: "stale" })] })).complete).toBe(true);
+    expect(planInputs(slice({ sources: [msg("a", { freshness: "never", configured: false })] })).complete).toBe(true);
+  });
+  it.each(["n/a", "probe_unresolved"] as const)(
+    "is incomplete when a source that changes the plan reports nothing that says how far it is read (%s)",
+    (freshness) => {
+      const result = planInputs(slice({ sources: [msg("a", { freshness, lastSuccessAt: null, threshold: null })] }));
+      expect(result.complete).toBe(false);
+      expect(result.behind).toEqual([{ source: "a", name: "Name a", coveredTo: null, state: "unchecked" }]);
+      expect(result.sentence).toContain("`rhen sources a`");
+      expect(result.sentence).toContain("must post a coverage row");
+      expect(result.sentence).toContain("docs/operations/posting-messages.md");
+    }
+  );
+  it("says plainly that a message source not marked as changing the plan is not covered", () => {
+    const result = planInputs(slice({ sources: [source("mail", { name: "Mail", messageSource: true })] }));
+    expect(result.complete).toBe(true);
+    expect(result.note).toContain("Not covered by this statement: Mail.");
+    expect(result.note).toContain("post a coverage row");
+    expect(planInputs(slice({ sources: [msg("a", { messageSource: true })] })).note).toBeNull();
+  });
+  it.each(["late", "stale", "failing", "never"] as const)("is incomplete when a source is %s", (freshness) => {
+    const result = planInputs(slice({ sources: [msg("a", { freshness, lastSuccessAt: hoursAgo(30) })] }));
+    expect(result.complete).toBe(false);
+    expect(result.behind).toEqual([{ source: "a", name: "Name a", coveredTo: expect.any(String), state: freshness }]);
+  });
+  it("states how far the plan is read, from the oldest read point, and names the exact next call", () => {
+    const result = planInputs(
+      slice({
+        sources: [
+          msg("a", { freshness: "late", lastSuccessAt: "2026-11-08T20:00:00.000Z" }),
+          msg("b", {
+            freshness: "stale",
+            coverage: { coveredTo: "2026-11-07T03:30:00.000Z", heartbeat: null, holes14d: 0 }
+          })
+        ]
+      })
+    );
+    expect(result.sentence).toBe(
+      "This plan is built from messages read up to 2026-11-07 03:30 UTC (2 sources behind: Name a, Name b). Anything newer is not in it. Run `rhen sources a` for each source that is behind (`rhen sources --problems` lists them)."
+    );
+  });
+  it("says the plan is built without a source that has never been read", () => {
+    const result = planInputs(
+      slice({
+        sources: [
+          msg("a", {
+            freshness: "never",
+            lastSuccessAt: null,
+            coverage: { coveredTo: null, heartbeat: null, holes14d: 0 }
+          })
+        ]
+      })
+    );
+    expect(result.sentence).toContain("built without knowing how far messages from Name a are read");
+    expect(result.sentence).toContain("`rhen sources a`");
+  });
+  it("lists the processing lines of a slice", () => {
+    expect(processingLines(slice())).toEqual([]);
+    const report = summarizeProcessing({ source: "s", name: "S", windowDays: 30, collected: 4, runs: [] });
+    expect(processingLines(slice({ processing: [report] }))).toEqual([
+      "S: 4 messages collected in 30 days, no processing run is recorded, 4 not yet decided (approximate until the reconciler records no_effect for the messages it skips)."
+    ]);
   });
 });

@@ -179,13 +179,21 @@ export function describeMessageProblem(event: MessageEventInput): MessageVerdict
     const value = attrs[name];
     if (value === undefined) return required ? null : undefined;
     if (typeof value !== "string" || value.trim() === "") return null;
-    if (value.trim().length > max) return null;
+    // Caps count code points, not UTF-16 units: a 100-emoji subject is 100 characters, not 200.
+    if (Array.from(value.trim()).length > max) return null;
     return value.trim();
   };
-  const plain = (name: string, value: string): MessageVerdict | undefined =>
-    HIDDEN_OR_CONTROL_CHARS.test(value)
-      ? bad(`attrs.${name} holds a character that is not allowed. ${PLAIN_TEXT_FIX}`)
-      : undefined;
+  const plain = (name: string, value: string): MessageVerdict | undefined => {
+    if (!HIDDEN_OR_CONTROL_CHARS.test(value)) return undefined;
+    const reason = `attrs.${name} holds a character that is not allowed. ${PLAIN_TEXT_FIX}`;
+    if (/[\r\n]/u.test(value))
+      return bad(
+        name === "subject"
+          ? `${reason} A subject read from a folded header is on several lines: unfold the header (join its lines into one line with a single space where each break was) and send it again.`
+          : `${reason} Join its lines into one line with a single space where each break was, then send it again.`
+      );
+    return bad(reason);
+  };
   const from = text("from", MESSAGE_SENDER_MAX_CHARS, true);
   if (from === null || from === undefined)
     return bad(
@@ -219,7 +227,10 @@ export function describeMessageProblem(event: MessageEventInput): MessageVerdict
     if (
       !Array.isArray(to) ||
       to.length > MESSAGE_TO_MAX ||
-      to.some((item) => typeof item !== "string" || item.trim() === "" || item.trim().length > MESSAGE_SENDER_MAX_CHARS)
+      to.some(
+        (item) =>
+          typeof item !== "string" || item.trim() === "" || Array.from(item.trim()).length > MESSAGE_SENDER_MAX_CHARS
+      )
     )
       return bad(
         `attrs.to must be a list of at most ${MESSAGE_TO_MAX} recipients, each 1 to ${MESSAGE_SENDER_MAX_CHARS} characters of text, or left out.`

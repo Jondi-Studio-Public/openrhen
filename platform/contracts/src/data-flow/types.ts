@@ -164,6 +164,11 @@ export const flowEntrySchema = z
       .object({ warnAfterHours: z.number().positive(), errorAfterHours: z.number().positive().nullable() })
       .strict()
       .optional(),
+    /**
+     * Messages from this source can change the plan, so a source that is behind makes the plan's inputs incomplete and
+     * a stale one is a blocking data-health item (stated threshold permitting). Message-family extension entries set it.
+     */
+    changesPlan: z.literal(true).optional(),
     /** Names beyond the connection manifest's; never values. */
     credentials: strings.optional(),
     connection: z.string().optional(),
