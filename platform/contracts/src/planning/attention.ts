@@ -509,6 +509,34 @@ export const ATTENTION_DOCTOR_TEMPLATES: Record<DoctorCheck, AttentionDoctorTemp
   closed_stamp_missing: {
     title: "Closed records have no closed time",
     why: "The Closed list sorts and restores by the closed time, so these would be missing from it."
+  },
+  source_late: {
+    title: "A data source has gone quiet",
+    why: "What the source brings in has stopped updating, so anything planned from it is working from old data."
+  },
+  source_silent: {
+    title: "A data source has a token but has never sent",
+    why: "The source was set up on the server but nothing has ever arrived, so it is not feeding the plan."
+  },
+  device_silent: {
+    title: "A device has stopped sending",
+    why: "Every feed from that device is past its usual rhythm, so what the plan learns from it is going stale."
+  },
+  probe_unresolved: {
+    title: "A data source's health cannot be read",
+    why: "The source is shown as unresolved rather than as working, so it could stop without anyone noticing."
+  },
+  token_not_bound: {
+    title: "A data source is judged by its rows alone",
+    why: "Without a bound token, a device that stopped calling can look healthy while old rows are still counted."
+  },
+  sources_collecting_unused: {
+    title: "Data is arriving that nothing uses",
+    why: "Sources are collecting rows that reach no page, plan input or agent tool, which costs storage and gives nothing back."
+  },
+  import_needs_review: {
+    title: "A file import skipped rows",
+    why: "Part of that history is missing, so anything built from it is incomplete."
   }
 };
 

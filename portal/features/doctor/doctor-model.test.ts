@@ -96,6 +96,8 @@ describe("handleLink", () => {
     expect(handleLink(`project:${project.id}`, plan)?.href).toContain(`#project-${project.id}`);
     expect(handleLink("project:missing", plan)).toBeNull();
     expect(handleLink("action:abc", plan)).toBeNull();
+    expect(handleLink("source:some-feed", plan)?.href).toBe("/data");
+    expect(handleLink("device:phone", plan)?.href).toBe("/data");
     expect(handleLink("import_batch:abc", plan)).toBeNull();
     expect(handleLink("nocolon", plan)).toBeNull();
   });

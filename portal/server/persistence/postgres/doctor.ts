@@ -21,6 +21,7 @@ import { readPrerequisitesSlice } from "./doctor-prerequisites";
 import { readPublishingSlice } from "./doctor-publishing";
 import { readRecordingSlice } from "./doctor-recording";
 import { readClosedSlice } from "./doctor-closed";
+import { readSourcesSlice } from "@/server/data-flow/doctor-sources-reader";
 import { ensureUser } from "./ensure-user";
 import { readSessions } from "./readers/sessions";
 import type { PoolSql, Sql } from "./sql-pool";
@@ -412,7 +413,8 @@ export async function readDoctorReport(sql: PoolSql, opts: { now?: Date } = {}):
     cadence,
     duplicates,
     recording,
-    closed
+    closed,
+    sources
   ] = await Promise.all([
     readFreshness(sql, userId, now),
     readPulseOffSince(sql, userId),
@@ -431,7 +433,8 @@ export async function readDoctorReport(sql: PoolSql, opts: { now?: Date } = {}):
     readCadenceSlice(sql, userId, now),
     readDuplicatesSlice(sql, userId, now),
     readRecordingSlice(sql, userId),
-    readClosedSlice(sql, userId)
+    readClosedSlice(sql, userId),
+    readSourcesSlice(sql, now, userId)
   ]);
   return runDoctor({
     now: now.toISOString(),
@@ -453,6 +456,7 @@ export async function readDoctorReport(sql: PoolSql, opts: { now?: Date } = {}):
     cadence,
     duplicates,
     recording,
-    closed
+    closed,
+    sources
   });
 }

@@ -79,7 +79,10 @@ function listRows(body: Body, only?: (node: NodeHealth | undefined) => boolean) 
 function problemLines(body: Body): string[] {
   const health = nodes(body);
   const bad = body.entries.filter(
-    (entry) => entry.planned === undefined && health[entry.id] && PROBLEM_STATES.includes(health[entry.id]!.freshness)
+    (entry) =>
+      entry.planned === undefined &&
+      health[entry.id] &&
+      (PROBLEM_STATES.includes(health[entry.id]!.freshness) || (health[entry.id]!.lateKinds?.length ?? 0) > 0)
   );
   const lines: string[] = [];
   if (body.health?.unavailable) return [unavailableLine(body.health)];
@@ -91,7 +94,12 @@ function problemLines(body: Body): string[] {
           id: entry.id,
           freshness: health[entry.id]!.freshness,
           last: health[entry.id]!.lastSuccessAt ?? "never",
-          error: health[entry.id]!.lastError?.message ?? health[entry.id]!.note ?? ""
+          error:
+            health[entry.id]!.lastError?.message ??
+            health[entry.id]!.note ??
+            (health[entry.id]!.lateKinds?.length
+              ? `late kinds: ${health[entry.id]!.lateKinds!.map((late) => late.kind).join(", ")}`
+              : "")
         })),
         ["id", "freshness", "last", "error"]
       )
@@ -141,6 +149,11 @@ function detailLines(body: Body, id: string): string[] {
       lines.push(
         `rows: ${node.count24h ?? 0} in 24 h, ${node.count7d} in 7 d${node.kindsSeen ? `; kinds ${node.kindsSeen.join(", ")}` : ""}`
       );
+    if (node.lateKinds?.length)
+      lines.push(
+        `late kinds: ${node.lateKinds.map((late) => `${late.kind} (last ${late.lastAt}, usual rhythm ${late.warnHours} h)`).join("; ")}`
+      );
+    if (node.credentialPresent) lines.push("token exists: yes");
     if (node.lastError) lines.push(`last error (${node.lastError.at ?? "time unknown"}): ${node.lastError.message}`);
     if (node.note) lines.push(`note: ${node.note}`);
   }

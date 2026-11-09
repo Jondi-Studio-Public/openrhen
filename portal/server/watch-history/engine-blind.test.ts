@@ -274,7 +274,10 @@ describe("watch history is blind to the engine", () => {
       expect(file.text, `${file.path} imports the health reader`).not.toMatch(/health-reader/);
     }
     // The health reader (PR B) is imported by the data-flow route's body builder, doctor and the header counts loader only.
-    const MAY_IMPORT_HEALTH_READER = new Set(["portal/server/data-flow/data-flow-response.ts"]);
+    const MAY_IMPORT_HEALTH_READER = new Set([
+      "portal/server/data-flow/data-flow-response.ts",
+      "portal/server/data-flow/doctor-sources-reader.ts"
+    ]);
     const importing = ["engine", "portal", "platform", "integrations", "tools", "scripts"]
       .flatMap((name) => sources(join(repo, name)))
       .filter((file) =>
