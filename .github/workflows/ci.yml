@@ -375,13 +375,15 @@ jobs:
             throw "the agent did not become running=$running within $seconds s"
           }
 
-          # 1. Install: a per-user Scheduled Task starts the agent at logon and restarts it on a crash, so the Run
-          # entry is gone (one mechanism) and `status` says so.
+          # 1. Install: two per-user Scheduled Tasks (start at logon; a keep-alive every minute that revives a dead
+          # agent), so the Run entry is gone (one mechanism) and `status` says so.
           Rw $built @('install') | Out-Null
           if (-not (Test-Path "$dest\rhen-watchw.exe")) { throw 'program not installed' }
           if (Get-ItemProperty $runKey -Name 'rhen-watch' -ErrorAction SilentlyContinue) { throw 'the Run entry is set although the task is registered' }
           & schtasks /Query /TN rhen-watch 2>&1 | Out-Null
           if ($LASTEXITCODE -ne 0) { throw 'the rhen-watch scheduled task is not registered' }
+          & schtasks /Query /TN rhen-watch-keepalive 2>&1 | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'the rhen-watch-keepalive scheduled task is not registered' }
           if ((Rw "$dest\rhen-watch.exe" @('status')) -notmatch 'restart on crash: yes') { throw 'status does not report restart on crash' }
 
           # 2. After about 5 s it has recorded something. Its own start is the one event that is certain.
@@ -404,8 +406,8 @@ jobs:
           if (Get-ChildItem $dest -Filter '*.new') { throw 'a staged .new file was left behind' }
           Rw "$dest\rhen-watch.exe" @('report') | Out-Null
 
-          # 4. Kill only our agent as Task Manager or a power cut would. The task must bring it back on its own
-          # (Task Scheduler's restart gap is about a minute) and the report must show the gap as unknown.
+          # 4. Kill only our agent as Task Manager or a power cut would. The keep-alive task must bring it back on its own
+          # (the keep-alive runs every minute) and the report must show the gap as unknown.
           function Get-Agent { Get-Process rhen-watchw -ErrorAction SilentlyContinue | Where-Object { $_.Path -and ([IO.Path]::GetFileName($_.Path) -eq 'rhen-watchw.exe') } }
           $victim = (Get-Agent | Select-Object -First 1).Id
           if (-not $victim) { throw 'could not find our agent process' }
@@ -420,10 +422,10 @@ jobs:
           if (-not $back) {
             # Say what Task Scheduler thinks happened, so the failure explains itself.
             Write-Host '--- schtasks /Query /V (the task after the kill) ---'
-            schtasks /Query /TN rhen-watch /V /FO LIST | Out-Host
+            schtasks /Query /TN rhen-watch-keepalive /V /FO LIST | Out-Host
             Write-Host '--- Task Scheduler operational log, last 15 events ---'
             try { Get-WinEvent -LogName ('Micro' + 'soft-Windows-TaskScheduler/Operational') -MaxEvents 15 -ErrorAction Stop | Format-List TimeCreated, Id, Message | Out-Host } catch { Write-Host "log unavailable: $_" }
-            throw 'the scheduled task did not restart the killed agent within 150 s'
+            throw 'the keep-alive task did not restart the killed agent within 150 s'
           }
           Wait-Agent $true 20
           $report = Rw "$dest\rhen-watch.exe" @('report')
@@ -450,6 +452,8 @@ jobs:
           if (Get-ItemProperty $runKey -Name 'rhen-watch' -ErrorAction SilentlyContinue) { throw 'start-at-logon entry still set' }
           & schtasks /Query /TN rhen-watch 2>&1 | Out-Null
           if ($LASTEXITCODE -eq 0) { throw 'the scheduled task is still registered after uninstall' }
+          & schtasks /Query /TN rhen-watch-keepalive 2>&1 | Out-Null
+          if ($LASTEXITCODE -eq 0) { throw 'the keep-alive task is still registered after uninstall' }
           if (Test-Path $data) { throw "the data folder is still there: $((Get-ChildItem $data).Name -join ', ')" }
       # Whatever the smoke did, leave the runner without a task or an agent.
       - name: Remove the smoke task
@@ -457,6 +461,7 @@ jobs:
         shell: pwsh
         run: |
           schtasks /Delete /TN rhen-watch /F 2>&1 | Out-Null
+          schtasks /Delete /TN rhen-watch-keepalive /F 2>&1 | Out-Null
           Get-Process rhen-watchw -ErrorAction SilentlyContinue | Stop-Process -Force
           exit 0
       # The agent records locally and must stay that way: no network crate in its dependency tree.

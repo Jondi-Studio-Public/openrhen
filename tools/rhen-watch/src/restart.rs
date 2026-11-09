@@ -1,10 +1,22 @@
-//! Restart on crash. On Windows `install` registers a per-user Scheduled Task named `rhen-watch` that starts
-//! the agent at logon and restarts it when it exits non-zero. Everything that can be decided without
+//! Restart on crash. On Windows `install` registers two per-user Scheduled Tasks: `rhen-watch` starts the agent
+//! at logon, and `rhen-watch-keepalive` runs `run --keepalive` every minute, which starts the agent again if it
+//! is not running and nobody asked it to stop. (Task Scheduler's own "restart on failure" setting does not
+//! relaunch a process that dies after it started, which a real Windows runner confirmed.) Everything that can be decided without
 //! Windows lives here, so it is tested on any OS: the task XML, the `schtasks` arguments, whether to fall
 //! back to the HKCU Run entry, the `status` line, and the exit code that tells Task Scheduler "clean stop" (0,
 //! no restart) from "crash" (non-zero, restart).
 
 pub const TASK_NAME: &str = "rhen-watch";
+pub const KEEPALIVE_TASK_NAME: &str = "rhen-watch-keepalive";
+
+/// Which of the two tasks an XML document is for.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum TaskKind {
+    /// Starts the agent at logon.
+    Logon,
+    /// Every minute: start the agent if it died without being asked to stop.
+    Keepalive,
+}
 
 pub fn xml_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -27,20 +39,32 @@ pub const TASK_NS: &str = concat!("http://schemas.", "micro", "soft.com/windows/
 
 /// The task definition. `user_id` is the current user's SID (or `DOMAIN\user`); `command` is the installed
 /// `rhen-watchw.exe`. No admin rights: a logon trigger for this user, the interactive token, least privilege.
-pub fn task_xml(user_id: &str, command: &str) -> String {
+pub fn task_xml(user_id: &str, command: &str, kind: TaskKind) -> String {
     let user = xml_escape(user_id);
     let command = xml_escape(command);
+    let (description, trigger, arguments) = match kind {
+        TaskKind::Logon => (
+            "Starts the rhen-watch activity recorder when you log on.",
+            format!(
+                "<LogonTrigger>\n      <Enabled>true</Enabled>\n      <UserId>{user}</UserId>\n    </LogonTrigger>"
+            ),
+            "run",
+        ),
+        TaskKind::Keepalive => (
+            "Starts the rhen-watch activity recorder again if it stopped without being asked to (a crash or a kill).",
+            "<TimeTrigger>\n      <Repetition>\n        <Interval>PT1M</Interval>\n      </Repetition>\n      <StartBoundary>2020-01-01T00:00:00</StartBoundary>\n      <Enabled>true</Enabled>\n    </TimeTrigger>"
+                .to_string(),
+            "run --keepalive",
+        ),
+    };
     format!(
         r#"<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="{TASK_NS}">
   <RegistrationInfo>
-    <Description>Restarts the rhen-watch activity recorder if it crashes or is killed.</Description>
+    <Description>{description}</Description>
   </RegistrationInfo>
   <Triggers>
-    <LogonTrigger>
-      <Enabled>true</Enabled>
-      <UserId>{user}</UserId>
-    </LogonTrigger>
+    {trigger}
   </Triggers>
   <Principals>
     <Principal id="Author">
@@ -54,21 +78,17 @@ pub fn task_xml(user_id: &str, command: &str) -> String {
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
     <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
     <AllowHardTerminate>true</AllowHardTerminate>
-    <StartWhenAvailable>true</StartWhenAvailable>
+    <StartWhenAvailable>false</StartWhenAvailable>
     <AllowStartOnDemand>true</AllowStartOnDemand>
     <Enabled>true</Enabled>
     <Hidden>false</Hidden>
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
     <Priority>5</Priority>
-    <RestartOnFailure>
-      <Interval>PT1M</Interval>
-      <Count>999</Count>
-    </RestartOnFailure>
   </Settings>
   <Actions Context="Author">
     <Exec>
       <Command>{command}</Command>
-      <Arguments>run</Arguments>
+      <Arguments>{arguments}</Arguments>
     </Exec>
   </Actions>
 </Task>
@@ -86,20 +106,38 @@ pub fn task_file_bytes(xml: &str) -> Vec<u8> {
     out
 }
 
-pub fn create_args(xml_path: &str) -> Vec<String> {
-    ["/Create", "/TN", TASK_NAME, "/XML", xml_path, "/F"].map(String::from).to_vec()
+pub fn create_args(name: &str, xml_path: &str) -> Vec<String> {
+    ["/Create", "/TN", name, "/XML", xml_path, "/F"].map(String::from).to_vec()
 }
 
 pub fn run_args() -> Vec<String> {
     ["/Run", "/TN", TASK_NAME].map(String::from).to_vec()
 }
 
-pub fn delete_args() -> Vec<String> {
-    ["/Delete", "/TN", TASK_NAME, "/F"].map(String::from).to_vec()
+pub fn delete_args(name: &str) -> Vec<String> {
+    ["/Delete", "/TN", name, "/F"].map(String::from).to_vec()
 }
 
-pub fn query_args() -> Vec<String> {
-    ["/Query", "/TN", TASK_NAME].map(String::from).to_vec()
+pub fn query_args(name: &str) -> Vec<String> {
+    ["/Query", "/TN", name].map(String::from).to_vec()
+}
+
+/// Should `run --keepalive` start an agent? Not after a requested stop (`stopped`: the marker file exists), and
+/// not while the last start was refused for a bad configuration until that configuration is edited
+/// (`refused_at`: when the reason was written; `settings_changed_at`: the newest settings file's time).
+pub fn keepalive_should_start(
+    stopped: bool,
+    refused_at: Option<std::time::SystemTime>,
+    settings_changed_at: Option<std::time::SystemTime>,
+) -> bool {
+    if stopped {
+        return false;
+    }
+    match (refused_at, settings_changed_at) {
+        (Some(refused), Some(changed)) => changed > refused,
+        (Some(_), None) => false,
+        (None, _) => true,
+    }
 }
 
 /// One-line reason for a failed `schtasks /Create`, from its exit code and output.

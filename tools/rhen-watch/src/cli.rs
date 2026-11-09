@@ -284,6 +284,10 @@ fn restart_status(dir: &std::path::Path) -> String {
 /// Why the last `run` refused to start (a bad config). Cleared by the next successful start. Listed in `handover::OWNED`.
 const NOT_STARTING_FILE: &str = "not-starting.txt";
 
+/// Present after a requested stop; the keep-alive leaves the agent stopped while it exists. Removed by the next
+/// real start. Listed in `handover::OWNED`.
+const STOPPED_FILE: &str = "stopped-by-user.txt";
+
 /// Why `install` could not register the restart task (absent when it did). Listed in `handover::OWNED`.
 const REASON_FILE: &str = "restart-reason.txt";
 
@@ -457,15 +461,40 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
         None => None,
     };
     let d = dir()?;
+    let keepalive = args.iter().any(|a| a == "--keepalive");
+    if keepalive && !keepalive_wanted(&d) {
+        return Ok(());
+    }
     if let Err(e) = win::restrict_dir(&d) {
         crate::log::warn(&format!("could not restrict the data directory to your user: {e}"));
     }
     if d.to_string_lossy().starts_with("\\\\") {
         crate::log::warn("the data directory is on a network share; SQLite write-ahead logging is unsafe there");
     }
+
+    // One agent per data directory. The OS drops the lock if the process dies. It comes first so a second copy
+    // (the every-minute keep-alive, or a double start) leaves no trace in the data folder.
+    let lock = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(d.join("run.lock"))
+        .map_err(|e| e.to_string())?;
+    match lock.try_lock() {
+        Ok(()) => {}
+        Err(std::fs::TryLockError::WouldBlock) => {
+            if !keepalive {
+                println!("another rhen-watch is already running (use `rhen-watch stop`)");
+            }
+            return Ok(());
+        }
+        // A real I/O error is a failure: it must not look like "already running" and vanish silently.
+        Err(std::fs::TryLockError::Error(e)) => return Err(format!("cannot take the run lock: {e}")),
+    }
+
     // A leftover [categories] table in config.toml stops the agent; a bad categories.toml does not.
-    // A bad config is deterministic: restarting cannot fix it, so say so and exit 0 (Task Scheduler restarts
-    // only a non-zero exit; looping once a minute for hours would only fill the log).
+    // A bad config is deterministic: restarting cannot fix it, so say so and exit 0, and the keep-alive waits for
+    // the file to be edited.
     let (cfg, catalogue, category_error) = match load_run_settings(&d) {
         Ok(v) => v,
         Err(e) => {
@@ -477,26 +506,9 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
         }
     };
 
-    // One agent per data directory. The OS drops the lock if the process dies.
-    let lock = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(false)
-        .open(d.join("run.lock"))
-        .map_err(|e| e.to_string())?;
-    match lock.try_lock() {
-        Ok(()) => {}
-        Err(std::fs::TryLockError::WouldBlock) => {
-            // Not a failure: exiting non-zero would make the task retry every minute for as long as the first copy runs.
-            println!("another rhen-watch is already running (use `rhen-watch stop`)");
-            return Ok(());
-        }
-        // A real I/O error is a failure: it must not look like "already running" and vanish silently.
-        Err(std::fs::TryLockError::Error(e)) => return Err(format!("cannot take the run lock: {e}")),
-    }
-
-    // Past config and the lock: this start is real, so any earlier "not starting" reason is stale.
+    // Past config and the lock: this start is real, so an earlier "not starting" reason or "stopped by you" marker is stale.
     let _ = std::fs::remove_file(d.join(NOT_STARTING_FILE));
+    let _ = std::fs::remove_file(d.join(STOPPED_FILE));
     let stop_event = win::StopEvent::create()?;
     win::install_ctrl_handler();
     win::set_data_dir(&d);
@@ -579,7 +591,23 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
     if let (Ok(Ok(())), Err(e)) = (&result, &stopped) {
         crate::log::error(&format!("the final write at stop failed: {e}"));
     }
+    // Leave a marker for a requested stop so the keep-alive does not bring the agent back; a failure or a panic
+    // leaves none, and the keep-alive revives the agent within a minute.
+    if matches!(&result, Ok(Ok(()))) {
+        let _ = std::fs::write(
+            d.join(STOPPED_FILE),
+            "stopped on request; the keep-alive leaves it alone until the next logon or install\n",
+        );
+    }
     crate::restart::end_of_run(result.ok())
+}
+
+/// The keep-alive's gate (see `restart::keepalive_should_start`).
+#[cfg(windows)]
+fn keepalive_wanted(d: &std::path::Path) -> bool {
+    let mtime = |n: &str| std::fs::metadata(d.join(n)).and_then(|m| m.modified()).ok();
+    let settings = ["config.toml", "categories.toml"].iter().filter_map(|n| mtime(n)).max();
+    crate::restart::keepalive_should_start(d.join(STOPPED_FILE).exists(), mtime(NOT_STARTING_FILE), settings)
 }
 
 #[cfg(not(windows))]

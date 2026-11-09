@@ -144,7 +144,7 @@ This is what a crash or a power cut looks like.
 ```powershell
 & $rw status                                 # must say: restart on crash: yes (scheduled task)
 Stop-Process -Name rhen-watchw -Force
-Start-Sleep -Seconds 90                     # Task Scheduler restarts it after about a minute, on its own
+Start-Sleep -Seconds 90                     # the keep-alive task restarts it within about a minute, on its own
 & $rw status
 & $rw report
 ```

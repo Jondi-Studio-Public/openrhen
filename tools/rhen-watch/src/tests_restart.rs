@@ -12,7 +12,7 @@ fn task_xml_golden() {
         r#"<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="{TASK_NS}">
   <RegistrationInfo>
-    <Description>Restarts the rhen-watch activity recorder if it crashes or is killed.</Description>
+    <Description>Starts the rhen-watch activity recorder when you log on.</Description>
   </RegistrationInfo>
   <Triggers>
     <LogonTrigger>
@@ -32,16 +32,12 @@ fn task_xml_golden() {
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
     <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
     <AllowHardTerminate>true</AllowHardTerminate>
-    <StartWhenAvailable>true</StartWhenAvailable>
+    <StartWhenAvailable>false</StartWhenAvailable>
     <AllowStartOnDemand>true</AllowStartOnDemand>
     <Enabled>true</Enabled>
     <Hidden>false</Hidden>
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
     <Priority>5</Priority>
-    <RestartOnFailure>
-      <Interval>PT1M</Interval>
-      <Count>999</Count>
-    </RestartOnFailure>
   </Settings>
   <Actions Context="Author">
     <Exec>
@@ -52,12 +48,12 @@ fn task_xml_golden() {
 </Task>
 "#
     );
-    assert_eq!(task_xml(SID, EXE), want);
+    assert_eq!(task_xml(SID, EXE, TaskKind::Logon), want);
 }
 
 #[test]
 fn task_xml_escapes_user_and_path() {
-    let xml = task_xml(r"DOM<&>\o'brien", r#"C:\A&B\"x" <y>\rhen-watchw.exe"#);
+    let xml = task_xml(r"DOM<&>\o'brien", r#"C:\A&B\"x" <y>\rhen-watchw.exe"#, TaskKind::Logon);
     assert!(xml.contains(r"<UserId>DOM&lt;&amp;&gt;\o&apos;brien</UserId>"));
     assert!(xml.contains(r"<Command>C:\A&amp;B\&quot;x&quot; &lt;y&gt;\rhen-watchw.exe</Command>"));
     assert!(!xml.contains("<y>"));
@@ -74,12 +70,12 @@ fn task_file_is_utf16le_with_a_bom() {
 #[test]
 fn schtasks_arguments() {
     assert_eq!(
-        create_args(r"C:\t\x.xml"),
-        ["/Create", "/TN", "rhen-watch", "/XML", r"C:\t\x.xml", "/F"]
+        create_args("rhen-watch-keepalive", r"C:\t\x.xml"),
+        ["/Create", "/TN", "rhen-watch-keepalive", "/XML", r"C:\t\x.xml", "/F"]
     );
     assert_eq!(run_args(), ["/Run", "/TN", "rhen-watch"]);
-    assert_eq!(delete_args(), ["/Delete", "/TN", "rhen-watch", "/F"]);
-    assert_eq!(query_args(), ["/Query", "/TN", "rhen-watch"]);
+    assert_eq!(delete_args(TASK_NAME), ["/Delete", "/TN", "rhen-watch", "/F"]);
+    assert_eq!(query_args(KEEPALIVE_TASK_NAME), ["/Query", "/TN", "rhen-watch-keepalive"]);
 }
 
 #[test]
@@ -149,4 +145,31 @@ fn not_starting_line_shows_only_for_a_stopped_agent_with_a_reason() {
     assert_eq!(not_starting_line(true, Some("stale")), None);
     assert_eq!(not_starting_line(false, None), None);
     assert_eq!(not_starting_line(false, Some("  ")), None);
+}
+
+#[test]
+fn keepalive_xml_repeats_every_minute_runs_the_keepalive_and_has_no_failure_restart() {
+    let xml = task_xml(SID, EXE, TaskKind::Keepalive);
+    assert!(xml.contains("<Interval>PT1M</Interval>"));
+    assert!(xml.contains("<TimeTrigger>"));
+    assert!(!xml.contains("<LogonTrigger>"));
+    assert!(xml.contains("<Arguments>run --keepalive</Arguments>"));
+    assert!(xml.contains("<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>"));
+    assert!(xml.contains("<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>"));
+    assert!(!xml.contains("RestartOnFailure"));
+    assert!(task_xml(SID, EXE, TaskKind::Logon).contains("<Arguments>run</Arguments>"));
+}
+
+#[test]
+fn keepalive_starts_unless_stopped_or_refused_until_the_settings_change() {
+    use std::time::{Duration, SystemTime};
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1000);
+    let later = t0 + Duration::from_secs(60);
+    assert!(keepalive_should_start(false, None, None), "died: bring it back");
+    assert!(keepalive_should_start(false, None, Some(t0)));
+    assert!(!keepalive_should_start(true, None, None), "stopped on request");
+    assert!(!keepalive_should_start(true, Some(t0), Some(later)), "a stop beats an edit");
+    assert!(!keepalive_should_start(false, Some(t0), None), "refused, nothing to edit");
+    assert!(!keepalive_should_start(false, Some(t0), Some(t0)), "refused, not edited since");
+    assert!(keepalive_should_start(false, Some(t0), Some(later)), "edited since: try again");
 }
