@@ -175,7 +175,9 @@ describe("watch history is blind to the engine", () => {
       "PhysiologyEventInput",
       "withheldActivitySources",
       "activityHealthSources",
-      "ACTIVITY_HEALTH_"
+      "ACTIVITY_HEALTH_",
+      "ACTIVITY_DEVICES_",
+      "ActivityDeviceSummary"
     ];
     const exported = [
       ...readFileSync(join(repo, "platform", "contracts", "src", "activity-physiology.ts"), "utf8").matchAll(
