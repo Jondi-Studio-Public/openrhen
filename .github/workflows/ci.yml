@@ -387,6 +387,8 @@ jobs:
           running || { echo "::error::the second run did not start"; exit 1; }
           sleep 3
           kill -9 "$agent"; wait "$agent" || true
+          # A gap under 10 s is a restart, not an outage; wait past it.
+          sleep 12
           "$bin" run --for 5 > "$RUNNER_TEMP/after-kill.out" 2>&1
           cat "$RUNNER_TEMP/after-kill.out"
           grep -q 'without a clean stop' "$RHEN_WATCH_DIR/rhen-watch.log"
