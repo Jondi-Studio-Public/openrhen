@@ -34,6 +34,14 @@ export function intervalCalendarSourceIds(): string[] {
     .map((manifest) => manifest.id);
 }
 
+/** The interval sources whose manifest sets `syncByDefault`: what the sync runs for when `CALENDAR_SYNC_PROVIDERS` is unset or blank (none when no manifest asks). */
+export function defaultCalendarSyncProviderIds(): string[] {
+  const interval = new Set(intervalCalendarSourceIds());
+  return calendarSourceConnections()
+    .filter((manifest) => manifest.calendarSource?.syncByDefault === true && interval.has(manifest.id))
+    .map((manifest) => manifest.id);
+}
+
 /** The connection that publishes the plan to a shared calendar (the first declaring `calendar_sink`), if one is registered. */
 export function calendarSinkConnection(): ConnectionManifest | undefined {
   return connectionRegistry().find((manifest) => manifest.capabilities.includes("calendar_sink"));

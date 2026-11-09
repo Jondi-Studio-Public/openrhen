@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { registerConnectionManifest } from "@openrhen/contracts";
+import { defaultCalendarSyncProviderIds, registerConnectionManifest } from "@openrhen/contracts";
 
 // A provider-free interval source, registered before the module reads the registry at load.
 registerConnectionManifest({
@@ -21,9 +21,11 @@ registerConnectionManifest({
 const { enabledCalendarSyncProviders, isCalendarSyncEnabled } = await import("./calendar-sync-providers");
 
 describe("enabledCalendarSyncProviders", () => {
-  it("defaults to Google only when unset or blank", () => {
-    expect(enabledCalendarSyncProviders({})).toEqual(["google_calendar"]);
-    expect(enabledCalendarSyncProviders({ CALENDAR_SYNC_PROVIDERS: "  " })).toEqual(["google_calendar"]);
+  it("defaults to the syncByDefault sources when unset or blank, and never to one that is not marked", () => {
+    const defaults = defaultCalendarSyncProviderIds();
+    expect(enabledCalendarSyncProviders({})).toEqual(defaults);
+    expect(enabledCalendarSyncProviders({ CALENDAR_SYNC_PROVIDERS: "  " })).toEqual(defaults);
+    expect(defaults).not.toContain("example_shared");
   });
 
   it("returns the known providers in registry order and ignores unknown names", () => {

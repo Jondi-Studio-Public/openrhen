@@ -1,10 +1,10 @@
 "use client";
 
 import { dateTimeFormat, displayLocale } from "@/shared/locale";
-import { PARTS_LOCALE } from "@openrhen/contracts";
+import { PARTS_LOCALE, connectionManifest } from "@openrhen/contracts";
 import { useEffect, useState } from "react";
 import { usePortal } from "@/state/portal-provider";
-import { connectionExtensions, withExtensionRows } from "./connection-extensions";
+import { connectionExtensions, replacedRowIds, withExtensionRows } from "./connection-extensions";
 import { type ConnectionInputs, type ProviderStatusView } from "./use-connection-data";
 
 /** "unknown": nothing recorded yet, and the page showing it does not check live (the You overview). */
@@ -24,7 +24,20 @@ export interface ConnectionSummary {
   optional?: boolean;
 }
 
-export const CONNECTION_IDS = ["planner", "google-calendar", "openai", "google-maps"] as const;
+/**
+ * The core rows that show one provider's health. `id` is the stable details-sheet hash; `provider` is the manifest id
+ * and telemetry name, so the title is the manifest's label rather than a name written here. An extension that sets
+ * `replaces` to a row's `id` supplies that row and its details itself (`connection-extensions.ts`).
+ */
+export const PROVIDER_ROWS: readonly { id: string; provider: string; about: string }[] = [
+  { id: "openai", provider: "openai", about: "The deliverable AI assistant, reached through the outbound proxy." },
+  { id: "google-maps", provider: "google", about: "Place search and travel times, reached through the outbound proxy." }
+];
+
+const providerTitle = (row: { provider: string }): string => connectionManifest(row.provider)?.label ?? row.provider;
+
+/** Every core row id, in display order; derived from the same table the rows are built from. */
+export const CONNECTION_IDS: readonly string[] = ["planner", "google-calendar", ...PROVIDER_ROWS.map((row) => row.id)];
 
 export const NEEDS_SETTING = "Needs a setting on the server";
 
@@ -81,9 +94,10 @@ export function deriveConnectionSummaries(inputs: ConnectionInputs, now: Date = 
     [
       plannerSummary(inputs, when),
       googleCalendarSummary(inputs, when),
-      providerSummary("openai", "OpenAI", inputs.providers.openai, when),
-      providerSummary("google-maps", "Google Maps", inputs.providers.google, when)
-    ].map(markOptional),
+      ...PROVIDER_ROWS.map((row) => providerSummary(row.id, providerTitle(row), inputs.providers[row.provider], when))
+    ]
+      .filter((row) => !replacedRowIds().has(row.id))
+      .map(markOptional),
     (extension) => markOptional(extension.summary(inputs.extensions[extension.id], when, now))
   );
 }
@@ -215,7 +229,7 @@ export function deriveRecordedSummaries(inputs: RecordedConnectionInputs, now: D
       markOptional(
         recordedRunSummary({ id: "google-calendar", title: "Google Calendar" }, inputs.googleCalendar, when, "Synced")
       )
-    ],
+    ].filter((row) => !replacedRowIds().has(row.id)),
     (extension) =>
       markOptional(
         recordedRunSummary(

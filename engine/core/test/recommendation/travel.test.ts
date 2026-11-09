@@ -60,7 +60,7 @@ interface Shape {
   commitments?: CommitmentSpec[];
   /** Stored fallback minutes per location; the figure the matcher uses when nothing is measured. */
   travelMinutes?: Record<string, number>;
-  /** A fresh Google sample from the current place, keyed by destination (the journey store's "live"). */
+  /** A fresh measured sample from the current place, keyed by destination (the journey store's "live"). */
   measured?: Record<string, { minutes: number; mode: "car" | "bike" | "walk" }>;
   transportModes?: Array<"car" | "bike" | "walk">;
   locationId?: string | null;

@@ -1537,6 +1537,7 @@ export {
   reviewCalendarSourceIds,
   connectionManifest,
   connectionRegistry,
+  defaultCalendarSyncProviderIds,
   intervalCalendarSourceIds,
   isRegisteredConnection,
   registerConnectionManifest,

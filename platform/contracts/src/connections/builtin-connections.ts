@@ -32,6 +32,7 @@ export const BUILTIN_CONNECTIONS: readonly ConnectionManifest[] = [
       sourceType: "google_calendar_event",
       diffProfile: "calendar",
       relationshipPrefix: "google",
+      syncByDefault: true,
       authFailure: { anyFailure: false, reasons: ["invalid_grant"] },
       schedule: SYNC_INTERVAL
     }

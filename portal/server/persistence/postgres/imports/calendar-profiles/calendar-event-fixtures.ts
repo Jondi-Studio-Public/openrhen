@@ -1,7 +1,7 @@
 import type { CalendarEvent, GoogleCalendarEvent } from "@openrhen/contracts";
 
 /**
- * Test fixtures: a Google event as the Google connection returns it. This is the same mapping as the
+ * Test fixtures: a calendar-source event as the primary calendar connection returns it. This is the same mapping as the
  * proxy's `toCalendarEvent` (`connections/google-calendar/connection.ts`), which the portal cannot import.
  */
 export function toCalendarEvent(event: GoogleCalendarEvent): CalendarEvent {

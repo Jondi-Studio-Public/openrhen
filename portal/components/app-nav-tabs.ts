@@ -3,13 +3,18 @@
  * free of React so the highlighting rule can be tested as a table, and so the phone tab bar, the desk
  * rail, the place sub-tabs and the palette read one list rather than several that drift apart.
  */
-import { calendarSinkConnection } from "@openrhen/contracts";
+import { calendarSinkConnection, connectionRegistry } from "@openrhen/contracts";
 import { withExtensionDestinations, withExtensionOwnership } from "./nav-extensions";
 import "./addon-nav";
 import "./private/index";
 
 /** Palette keywords naming the shared-calendar connection, when one is registered (the registry supplies the name). */
 const sinkKeyword = calendarSinkConnection()?.id ?? "";
+/** Palette keywords naming each registered model provider, so a provider added by a manifest is findable without editing this list. */
+const modelProviderKeywords = connectionRegistry()
+  .filter((manifest) => manifest.capabilities.includes("model_provider"))
+  .map((manifest) => manifest.id)
+  .join(" ");
 const withSink = (words: string) => [words, sinkKeyword].filter(Boolean).join(" ");
 
 export type PrimaryTab = "now" | "day" | "plan" | "inbox" | "you";
@@ -167,7 +172,7 @@ export const destinations: readonly Destination[] = withExtensionDestinations([
     href: "/settings/ai",
     label: "AI and add-ons",
     where: "You › Settings",
-    keywords: "models ollama deepinfra agent tokens map add-ons mcp"
+    keywords: `models ${modelProviderKeywords} agent tokens map add-ons mcp`
   },
   {
     href: "/settings/advanced",
