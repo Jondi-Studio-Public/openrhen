@@ -34,7 +34,7 @@ describe("the core registry", () => {
     expect(graph.reachLabel("youtube-watch-history")).toBe("Review: watch time by day and hour");
     expect(graph.reachLabel("iphone-health")).toBe("accepted, nothing sends");
     expect(graph.writes("iphone-health")).toEqual(["pg:activity_events[source=iphone-health]"]);
-    expect(graph.devices().map((device) => device.id)).toEqual(["pc", "phone"]);
+    expect(graph.devices().map((device) => device.id)).toEqual(["pc", "phone", "wearable"]);
     expect(graph.devices().find((device) => device.id === "phone")?.entries).toContain("iphone-health");
   });
 });

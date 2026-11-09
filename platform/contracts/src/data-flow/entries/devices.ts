@@ -30,6 +30,9 @@ export const DEVICE_ENTRIES: readonly FlowEntry[] = [
     method: "device-agent",
     health: TOKEN_PROBE
   }),
+  accepted("physiology", "Body signals (heart rate, sleep, readiness)", "physiology", {
+    device: "wearable"
+  }),
   accepted("steam", "Game sessions", "steam", { category: "device", method: "api-pull" }),
   accepted("weather", "Weather observations", "weather", { category: "device", method: "api-pull" }),
   accepted("gmail", "Mail messages", "gmail", {
