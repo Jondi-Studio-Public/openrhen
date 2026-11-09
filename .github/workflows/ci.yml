@@ -393,6 +393,43 @@ jobs:
           cat "$RUNNER_TEMP/after-kill.out"
           grep -q 'without a clean stop' "$RHEN_WATCH_DIR/rhen-watch.log"
           "$bin" wipe --yes
+      - name: Install smoke
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export RHEN_WATCH_DIR="$RUNNER_TEMP/rw-install"
+          label=org.openrhen.rhen-watch
+          svc="gui/$(id -u)/$label"
+          app="$HOME/Applications/rhen-watch.app"
+          plist="$HOME/Library/LaunchAgents/$label.plist"
+          ./target/release/rhen-watch install
+          bin="$app/Contents/MacOS/rhen-watch"
+          codesign --verify "$app"
+          plutil -lint "$plist"
+          launchctl print "$svc" > /dev/null
+          running() { local out; out=$("$bin" status) && [[ "$out" == *'agent: running'* ]]; }
+          pid() { tr -dc '0-9' < "$RHEN_WATCH_DIR/run.lock"; }
+          running || { echo "::error::not running after install"; exit 1; }
+          # Installing again replaces the app in place and starts it again.
+          "$bin" install
+          running || { echo "::error::not running after a second install"; exit 1; }
+          # A clean stop exits 0, so launchd must not start it again (it would within its 30 s throttle).
+          "$bin" stop
+          sleep 35
+          if running; then echo "::error::launchd restarted the agent after a clean stop"; exit 1; fi
+          # A crash is restarted.
+          launchctl kickstart "$svc"
+          for _ in $(seq 1 20); do running && break; sleep 1; done
+          running || { echo "::error::kickstart did not start it"; exit 1; }
+          first=$(pid)
+          kill -9 "$first"
+          for _ in $(seq 1 60); do running && [ "$(pid)" != "$first" ] && break; sleep 1; done
+          running && [ "$(pid)" != "$first" ] || { echo "::error::launchd did not restart the agent after a crash"; exit 1; }
+          "$bin" uninstall --purge
+          if launchctl print "$svc" > /dev/null 2>&1; then echo "::error::still loaded after uninstall"; exit 1; fi
+          [ ! -e "$plist" ] && [ ! -e "$app" ] || { echo "::error::uninstall left files behind"; exit 1; }
+          [ ! -e "$RHEN_WATCH_DIR/activity.db" ] || { echo "::error::--purge kept the data"; exit 1; }
       # Observation only: the macOS layer must never take focus, show an alert, or make input.
       - name: No focus or input calls
         shell: bash

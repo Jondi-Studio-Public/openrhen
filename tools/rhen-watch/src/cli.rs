@@ -24,7 +24,8 @@ USAGE
   rhen-watch categories init [--from-config]|path|list [--uncategorised]|set EXE CATEGORY
                                      the per-exe category map (categories.toml); --from-config prints the
                                      [exe] text for an old config.toml [categories] table
-  rhen-watch install                 copy to %LOCALAPPDATA%\\Programs\\rhen-watch, start at logon, start now
+  rhen-watch install                 copy to %LOCALAPPDATA%\\Programs\\rhen-watch (Windows) or
+                                     ~/Applications/rhen-watch.app (macOS), start at logon, start now
   rhen-watch uninstall [--purge]     stop, remove start at logon and the program (--purge also deletes your data)
   rhen-watch wipe --yes              delete the database, its sidecar files and the config
 ";
@@ -523,14 +524,37 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn cmd_install() -> Result<(), String> {
-    Err("install is for Windows".into())
+    Err("install is for Windows and macOS".into())
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn cmd_uninstall(_args: &[String]) -> Result<(), String> {
-    Err("uninstall is for Windows".into())
+    Err("uninstall is for Windows and macOS".into())
+}
+
+#[cfg(target_os = "macos")]
+fn cmd_install() -> Result<(), String> {
+    platform::macos_install::install(&dir()?)
+}
+
+#[cfg(target_os = "macos")]
+fn cmd_uninstall(args: &[String]) -> Result<(), String> {
+    let d = dir()?;
+    platform::macos_install::uninstall(&d)?;
+    if args.iter().any(|a| a == "--purge") {
+        cmd_wipe(&["--yes".to_string()])?;
+        // The logs name the apps that were recorded, so a purge takes them too.
+        for name in ["rhen-watch.log", "rhen-watch.log.1", "launchd.log"] {
+            let _ = std::fs::remove_file(d.join(name));
+        }
+        let _ = std::fs::remove_dir(&d);
+    } else {
+        println!("Your data is kept in {}; add --purge to delete it.", d.display());
+    }
+    println!("Uninstalled.");
+    Ok(())
 }
 
 #[cfg(windows)]

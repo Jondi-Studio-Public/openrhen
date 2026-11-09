@@ -76,3 +76,63 @@ pub const SHELL_BUNDLES: &[&str] = &[
 pub fn is_shell_bundle(id: &str) -> bool {
     SHELL_BUNDLES.contains(&id)
 }
+
+/// The launchd label and the app's bundle id. Generic, so it names no person or organisation.
+pub const LABEL: &str = "org.openrhen.rhen-watch";
+
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// `Info.plist` for the installed app: a menu bar app (`LSUIElement`, no Dock icon), macOS 13 or later.
+pub fn info_plist(version: &str) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>{LABEL}</string>
+  <key>CFBundleName</key><string>rhen-watch</string>
+  <key>CFBundleExecutable</key><string>rhen-watch</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>{v}</string>
+  <key>CFBundleVersion</key><string>{v}</string>
+  <key>LSUIElement</key><true/>
+  <key>LSMinimumSystemVersion</key><string>13.0</string>
+</dict>
+</plist>
+"#,
+        v = xml_escape(version)
+    )
+}
+
+/// The LaunchAgent: start at login in the user's graphical session, restart after a crash (not after a clean
+/// stop or Quit, which exit 0), at most once every 30 s, output to the log in the data folder. The data folder
+/// is pinned so the agent records where `install` checked the config.
+pub fn launch_agent_plist(program: &str, data_dir: &str, home: &str) -> String {
+    let (program, data_dir, home) = (xml_escape(program), xml_escape(data_dir), xml_escape(home));
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>{LABEL}</string>
+  <key>ProgramArguments</key>
+  <array><string>{program}</string><string>run</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>LimitLoadToSessionType</key><string>Aqua</string>
+  <key>ProcessType</key><string>Interactive</string>
+  <key>WorkingDirectory</key><string>{data_dir}</string>
+  <key>EnvironmentVariables</key><dict><key>HOME</key><string>{home}</string><key>RHEN_WATCH_DIR</key><string>{data_dir}</string></dict>
+  <key>StandardOutPath</key><string>{data_dir}/launchd.log</string>
+  <key>StandardErrorPath</key><string>{data_dir}/launchd.log</string>
+</dict>
+</plist>
+"#
+    )
+}

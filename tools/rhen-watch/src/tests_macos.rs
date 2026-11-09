@@ -92,3 +92,28 @@ fn every_shipped_category_key_is_valid() {
         assert_eq!(normalise_exe(exe).as_deref(), Ok(*exe), "{exe}");
     }
 }
+
+#[test]
+fn launch_agent_restarts_only_after_a_crash_and_escapes_paths() {
+    use crate::platform::macos_rules::{LABEL, launch_agent_plist};
+    let p = launch_agent_plist(
+        "/Users/a b/Applications/rhen-watch.app/Contents/MacOS/rhen-watch",
+        "/Users/a b/data&x",
+        "/Users/a b",
+    );
+    assert!(p.contains(&format!("<string>{LABEL}</string>")));
+    assert!(p.contains("<key>SuccessfulExit</key><false/>"));
+    assert!(p.contains("<string>Aqua</string>"));
+    assert!(p.contains("<string>run</string>"));
+    assert!(p.contains("/Users/a b/data&amp;x/launchd.log"));
+    assert!(p.contains("<key>RHEN_WATCH_DIR</key><string>/Users/a b/data&amp;x</string>"));
+    assert!(!p.contains("data&x"));
+}
+
+#[test]
+fn info_plist_is_a_menu_bar_app() {
+    let p = crate::platform::macos_rules::info_plist("0.1.0");
+    assert!(p.contains("<key>LSUIElement</key><true/>"));
+    assert!(p.contains("<string>13.0</string>"));
+    assert!(p.contains("<string>0.1.0</string>"));
+}
