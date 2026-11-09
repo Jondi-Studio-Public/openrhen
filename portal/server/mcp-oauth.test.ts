@@ -42,6 +42,8 @@ describe("SCOPES_SUPPORTED", () => {
 
   it("never offers read:activity-health, so a default grant cannot include it and a client that asks is refused", () => {
     expect(SCOPES_SUPPORTED).not.toContain("read:activity-health");
+    expect(SCOPES_SUPPORTED).not.toContain("read:activity-whereabouts");
+    expect(SCOPES_SUPPORTED).not.toContain("write:place-model");
     expect(SCOPES_SUPPORTED).toContain("read:activity-event");
   });
 

@@ -41,18 +41,69 @@ export const ACTIVITY_HEALTH_CLASS = "health";
 /** The scope that lets a token read health-class sources. Deliberately not offered to OAuth clients (`SCOPES_SUPPORTED`). */
 export const ACTIVITY_HEALTH_SCOPE = "read:activity-health";
 
+/** The class of a source whose rows say where the person is or was. Reading them over a token needs `ACTIVITY_WHEREABOUTS_SCOPE`. */
+export const ACTIVITY_WHEREABOUTS_CLASS = "whereabouts";
+/** The scope that lets a token read whereabouts-class sources. Deliberately not offered to OAuth clients (`SCOPES_SUPPORTED`). */
+export const ACTIVITY_WHEREABOUTS_SCOPE = "read:activity-whereabouts";
+/** The scope that lets a token write the owner's place model (rooms, links, names): its rows count as owner rows. */
+export const PLACE_MODEL_WRITE_SCOPE = "write:place-model";
+
+/** Every source class, frozen. */
+export const ACTIVITY_SOURCE_CLASSES = Object.freeze([ACTIVITY_HEALTH_CLASS, ACTIVITY_WHEREABOUTS_CLASS] as const);
+export type ActivitySourceClass = (typeof ACTIVITY_SOURCE_CLASSES)[number];
+
+/** The read scope each class needs, beside `read:activity-event`. One table: add a class here and every helper follows. */
+export const ACTIVITY_CLASS_READ_SCOPE: Readonly<Record<ActivitySourceClass, string>> = Object.freeze({
+  [ACTIVITY_HEALTH_CLASS]: ACTIVITY_HEALTH_SCOPE,
+  [ACTIVITY_WHEREABOUTS_CLASS]: ACTIVITY_WHEREABOUTS_SCOPE
+});
+
+/**
+ * A position a source supplies, declared as data so a reader holds no source names. `kind` is the row kind;
+ * `accuracyAttr` names the attr holding the error radius in metres (else `defaultAccuracyM` applies); `snapped` marks
+ * positions snapped to a known place; `mints` says whether the position may start a new place or only join one.
+ */
+export interface PositionInput {
+  kind: string;
+  accuracyAttr?: string;
+  defaultAccuracyM: number;
+  snapped: boolean;
+  mints: boolean;
+}
+
+/**
+ * What the hint reader may copy from a source's rows into `place_context` hints, declared as data. `nameFrom` is
+ * `"content-first-line"` (only when `content` has two lines) or the name of an attr; `typeAttr` is the attr holding an
+ * imported place type, whose home and work values are listed so the reader holds no enum strings.
+ */
+export interface PlaceHintDeclaration {
+  nameFrom: "content-first-line" | (string & {});
+  typeAttr?: string;
+  homeValues: readonly string[];
+  workValues: readonly string[];
+  inferredHomeValues: readonly string[];
+  inferredWorkValues: readonly string[];
+  listAttr?: string;
+}
+
 export interface ActivitySourceEntry {
   /** Bumped when the meaning of a source's kinds or attrs changes, so the predictor can tell old rows from new. */
   schemaVersion: number;
   kinds: readonly string[];
-  /** Optional. `health`: a token reads this source only with `read:activity-health` (and `read:activity-event`). */
-  class?: typeof ACTIVITY_HEALTH_CLASS;
+  /** Optional. A token reads a classed source only with that class's scope (`ACTIVITY_CLASS_READ_SCOPE`) as well as `read:activity-event`. */
+  class?: ActivitySourceClass;
   /** The one family the source posts (a name and version, e.g. `name@1`); absent for legacy sources. */
   family?: `${string}@${number}`;
   /** How the source reaches us and what it supplies; absent for legacy sources and for projections such as `derived`. */
   availability?: SourceAvailability;
   /** Kinds that are read out of other events (clusters, stays) rather than sensed: they feed no signal, take a derived write scope and are deleted with their inputs. */
   projectionKinds?: readonly string[];
+  /** Positions this source supplies, for the stay detector. Absent: the source supplies none. */
+  positionInputs?: readonly PositionInput[];
+  /** Attr names whose value is a stable place id from the export; the place extractor joins on them. */
+  extIdAttrs?: readonly string[];
+  /** What the hint reader may copy out of this source's rows. */
+  placeHints?: PlaceHintDeclaration;
 }
 
 /** Every source the store accepts, with its kinds. `correction` is also accepted for every source. */
@@ -88,16 +139,51 @@ export const ACTIVITY_SOURCES: Readonly<Record<string, ActivitySourceEntry>> = {
   },
   "chrome-takeout": { schemaVersion: 1, kinds: ["visit"] },
   "google-activity": { schemaVersion: 1, kinds: ["search", "view", "ask"] },
-  "maps-places": { schemaVersion: 1, kinds: ["place"] },
+  "maps-places": {
+    schemaVersion: 1,
+    kinds: ["place"],
+    placeHints: {
+      nameFrom: "name",
+      homeValues: [],
+      workValues: [],
+      inferredHomeValues: [],
+      inferredWorkValues: [],
+      listAttr: "list"
+    }
+  },
   fit: { schemaVersion: 1, kinds: ["steps", "activity"] },
   // Takeout Timeline. place_visit/activity_segment have an end; point is an instant. attrs: lat, lng, place_id, ...; content is the place name and address.
-  timeline: { schemaVersion: 1, kinds: ["place_visit", "activity_segment", "point"] },
+  timeline: {
+    schemaVersion: 1,
+    kinds: ["place_visit", "activity_segment", "point"],
+    positionInputs: [
+      { kind: "point", accuracyAttr: "accuracy_m", defaultAccuracyM: 50, snapped: false, mints: true },
+      { kind: "place_visit", defaultAccuracyM: 50, snapped: true, mints: true }
+    ],
+    extIdAttrs: ["place_id"],
+    placeHints: {
+      nameFrom: "content-first-line",
+      typeAttr: "semantic_type",
+      homeValues: ["HOME"],
+      workValues: ["WORK"],
+      inferredHomeValues: ["INFERRED_HOME"],
+      inferredWorkValues: ["INFERRED_WORK"]
+    }
+  },
   // Takeout Google Chat. Reuses the gmail attrs shape (thread_id = space id, from, from_self, direction); content is the message text.
   "google-chat": { schemaVersion: 1, kinds: ["message"] },
   // Takeout Access Log Activity. attrs: product, activity_type only; the IP address and user-agent are never read.
   "google-access-log": { schemaVersion: 1, kinds: ["access"] },
   // Takeout Google Photos sidecar metadata only (never the media). attrs: lat, lng, uploaded_at; content is the file name and description.
-  "google-photos": { schemaVersion: 1, kinds: ["photo", "video"] },
+  "google-photos": {
+    schemaVersion: 1,
+    kinds: ["photo", "video"],
+    // Photo positions only join places that other sources found; they never start one.
+    positionInputs: [
+      { kind: "photo", defaultAccuracyM: 50, snapped: false, mints: false },
+      { kind: "video", defaultAccuracyM: 50, snapped: false, mints: false }
+    ]
+  },
   spotify: { schemaVersion: 1, kinds: ["play"] },
   "discord-package": { schemaVersion: 1, kinds: ["message"] },
   "apple-health": { schemaVersion: 1, kinds: ["sleep", "workout", "steps"], class: ACTIVITY_HEALTH_CLASS },
@@ -147,21 +233,61 @@ export const ACTIVITY_SOURCES: Readonly<Record<string, ActivitySourceEntry>> = {
 
 export const ACTIVITY_SOURCE_NAMES: readonly string[] = Object.keys(ACTIVITY_SOURCES);
 
-/** The sources of class `health`, sorted. */
-export function activityHealthSources(): string[] {
+/** The sources of one class, sorted. */
+export function activitySourcesOfClass(sourceClass: ActivitySourceClass): string[] {
   return Object.entries(ACTIVITY_SOURCES)
-    .filter(([, entry]) => entry.class === ACTIVITY_HEALTH_CLASS)
+    .filter(([, entry]) => entry.class === sourceClass)
     .map(([name]) => name)
     .sort();
 }
 
+/** The sources of class `health`, sorted. */
+export function activityHealthSources(): string[] {
+  return activitySourcesOfClass(ACTIVITY_HEALTH_CLASS);
+}
+
 /**
- * The health-class sources a read must leave out for these token scopes. `undefined` scopes (the owner, an environment
- * token, a background writer) withhold nothing; a token without `read:activity-health` withholds every health source.
+ * The classed sources a read must leave out for these token scopes, grouped by class (a class with nothing withheld is
+ * absent). `undefined` scopes (the owner, an environment token, a background writer) withhold nothing; a token without
+ * a class's read scope withholds every source of that class.
  */
+export function withheldActivityClasses(
+  scopes: readonly string[] | undefined
+): Partial<Record<ActivitySourceClass, string[]>> {
+  const withheld: Partial<Record<ActivitySourceClass, string[]>> = {};
+  if (scopes === undefined) return withheld;
+  for (const sourceClass of ACTIVITY_SOURCE_CLASSES) {
+    const needed = ACTIVITY_CLASS_READ_SCOPE[sourceClass];
+    if (scopes.some((held) => scopeCovers(held, needed))) continue;
+    const sources = activitySourcesOfClass(sourceClass);
+    if (sources.length > 0) withheld[sourceClass] = sources;
+  }
+  return withheld;
+}
+
+/** The classed sources a read must leave out for these token scopes, sorted. */
 export function withheldActivitySources(scopes: readonly string[] | undefined): string[] {
-  if (scopes === undefined || scopes.some((held) => scopeCovers(held, ACTIVITY_HEALTH_SCOPE))) return [];
-  return activityHealthSources();
+  return Object.values(withheldActivityClasses(scopes)).flat().sort();
+}
+
+/** Groups withheld source names by their class; a source with no class is left out of the result. */
+export function groupWithheldByClass(sources: readonly string[]): Partial<Record<ActivitySourceClass, string[]>> {
+  const grouped: Partial<Record<ActivitySourceClass, string[]>> = {};
+  for (const source of sources) {
+    const sourceClass = activitySourceEntry(source)?.class;
+    if (sourceClass !== undefined) (grouped[sourceClass] ??= []).push(source);
+  }
+  return grouped;
+}
+
+/**
+ * The text that names why sources were left out of a read: which classes, and the scopes that would let a token read them.
+ */
+export function describeWithheldClasses(withheld: Partial<Record<ActivitySourceClass, string[]>>): string {
+  const classes = ACTIVITY_SOURCE_CLASSES.filter((sourceClass) => withheld[sourceClass] !== undefined);
+  const scopes = classes.map((sourceClass) => ACTIVITY_CLASS_READ_SCOPE[sourceClass]);
+  const kinds = classes.join(" and ");
+  return `These sources hold ${kinds} data and are left out: this token lacks the ${scopes.join(" and ")} scope. Create a token with --scopes read:activity-event,${scopes.join(",")} to read them.`;
 }
 
 const FAMILY_REF = /^[a-z0-9][a-z0-9-]*@[1-9][0-9]*$/;
@@ -665,9 +791,11 @@ export interface ActivityEventsPage {
   events: ActivityEventRow[];
   /** Pass as `after` for the next page; null on the last. */
   next: string | null;
-  /** Present when sources were left out of this read because the token lacks `read:activity-health`: their names. */
+  /** Present when sources were left out of this read because the token lacks their class's read scope: their names. */
   withheld?: string[];
-  /** Present with `withheld`: the scope that is missing and how to get it. */
+  /** Present with `withheld`: how many withheld sources each class holds. */
+  withheldClasses?: Partial<Record<ActivitySourceClass, number>>;
+  /** Present with `withheld`: the scopes that are missing and how to get them. */
   withheldNote?: string;
 }
 

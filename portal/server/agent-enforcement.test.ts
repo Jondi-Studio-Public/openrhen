@@ -900,6 +900,11 @@ describe("activity store", () => {
     expect(withheldActivitySources(["read:activity-event", "read:activity-health"])).toEqual([]);
   });
 
+  it("knows the whereabouts read scope and the place-model write scope as scopes an agent token may hold", () => {
+    expect(isKnownScope("read:activity-whereabouts")).toBe(true);
+    expect(isKnownScope("write:place-model")).toBe(true);
+  });
+
   it("lets only the derived scope post fact rows, and keeps fact_status and override with the event scope", async () => {
     const one = (kind: string) => ({
       schema: 1,
