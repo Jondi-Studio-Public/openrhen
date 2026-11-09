@@ -159,6 +159,11 @@ export const flowEntrySchema = z
     gives: z.string().optional(),
     /** Absent: learned from observed gaps for push sources, from the connection for pulls, none otherwise. */
     freshness: z.union([freshnessSchema, z.literal("from-connection")]).optional(),
+    /** A push or device source with too few arrivals to learn from: the numbers to judge it by until it has them. */
+    coldStart: z
+      .object({ warnAfterHours: z.number().positive(), errorAfterHours: z.number().positive().nullable() })
+      .strict()
+      .optional(),
     /** Names beyond the connection manifest's; never values. */
     credentials: strings.optional(),
     connection: z.string().optional(),

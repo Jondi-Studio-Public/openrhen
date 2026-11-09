@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { registerContractsExtension } from "../extensions.js";
 import { withoutContractsExtensions } from "../core-only.js";
+import type { FlowEntry } from "./types.js";
 import { CORE_FLOW_ENTRIES, dataFlowGraph, dataFlowRegistry, PLAN_INPUT_TABLES } from "./data-flow.js";
 
 const TABLES = [
@@ -79,5 +80,28 @@ describe("the extension seam", () => {
         .reach("fixture-feed")
         .map((r) => r.surface)
     ).toEqual(["surface:page/review"]);
+  });
+});
+
+describe("core push entries", () => {
+  const tokenJudged = (entries: readonly FlowEntry[]) => entries.filter((entry) => entry.health.kind === "last-used");
+
+  it("each judges a bound agent token, falling back to its rows until a tokenName is set", () => {
+    const found = tokenJudged(withoutContractsExtensions(() => dataFlowRegistry()).entries);
+    expect(found.length).toBeGreaterThanOrEqual(5);
+    for (const entry of found) {
+      expect(entry.health, entry.id).toEqual({ kind: "last-used", table: "agent_tokens" });
+      expect(entry.activitySource, entry.id).toBeDefined();
+    }
+  });
+
+  it("takes an overlay amend's tokenName into the probe", () => {
+    const target = tokenJudged(withoutContractsExtensions(() => dataFlowRegistry()).entries)[0]!;
+    registerContractsExtension({
+      id: "token-fixture",
+      dataFlow: () => ({ amend: { [target.id]: { tokenName: "bound-token" } } })
+    });
+    const entry = dataFlowRegistry().entries.find((candidate) => candidate.id === target.id)!;
+    expect(entry.health).toEqual({ kind: "last-used", table: "agent_tokens", tokenName: "bound-token" });
   });
 });

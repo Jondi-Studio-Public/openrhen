@@ -17,21 +17,41 @@ const accepted = (id: string, name: string, activitySource: string, extra: Parti
     ...extra
   });
 
+/** A push source judged by its agent token's last use once the overlay binds a `tokenName`; until then by its rows. */
+const TOKEN_PROBE: FlowEntry["health"] = { kind: "last-used", table: "agent_tokens" };
+
 /** Device feeds and their registered-but-silent siblings. */
 export const DEVICE_ENTRIES: readonly FlowEntry[] = [
-  accepted("iphone-shortcuts", "Phone shortcuts feed", "iphone-shortcuts", { device: "phone" }),
-  accepted("iphone-health", "Health summary", "iphone-health", { device: "phone" }),
+  accepted("iphone-shortcuts", "Phone shortcuts feed", "iphone-shortcuts", {
+    device: "phone",
+    health: TOKEN_PROBE,
+    coldStart: { warnAfterHours: 24, errorAfterHours: 72 }
+  }),
+  accepted("iphone-health", "Health summary", "iphone-health", {
+    device: "phone",
+    health: TOKEN_PROBE,
+    coldStart: { warnAfterHours: 36, errorAfterHours: 72 }
+  }),
   accepted("rhen-watch", "PC activity agent", "rhen-watch", {
     device: "pc",
     category: "device",
-    method: "device-agent"
+    method: "device-agent",
+    health: TOKEN_PROBE,
+    coldStart: { warnAfterHours: 24, errorAfterHours: 72 }
   }),
   accepted("physiology", "Body signals (heart rate, sleep, readiness)", "physiology", {
-    device: "wearable"
+    device: "wearable",
+    health: TOKEN_PROBE,
+    coldStart: { warnAfterHours: 36, errorAfterHours: 72 }
   }),
   accepted("steam", "Game sessions", "steam", { category: "device", method: "api-pull" }),
   accepted("weather", "Weather observations", "weather", { category: "device", method: "api-pull" }),
-  accepted("gmail", "Mail messages", "gmail", { category: "communications", method: "api-pull" }),
+  accepted("gmail", "Mail messages", "gmail", {
+    category: "communications",
+    method: "api-pull",
+    health: TOKEN_PROBE,
+    coldStart: { warnAfterHours: 12, errorAfterHours: 48 }
+  }),
   flow({
     id: "phone-location",
     name: "Phone location",
@@ -56,7 +76,8 @@ export const DEVICE_ENTRIES: readonly FlowEntry[] = [
       table: "user_preferences",
       column: "device_location_state",
       path: ["lastPhonePingAt"]
-    }
+    },
+    coldStart: { warnAfterHours: 48, errorAfterHours: null }
   }),
   flow({
     id: "handheld-actions",

@@ -780,6 +780,7 @@ const READ_RULES: Record<string, string | "public"> = {
   "/api/integrations/calendar-sync/review-count": "read:plan",
   "/api/catch-up": "read:plan",
   "/api/doctor": "read:plan",
+  "/api/data-flow": "read:plan",
   "/api/attention": "read:plan",
   "/api/consequence/next": "read:plan",
   "/api/pulse/reentry": "read:plan",
