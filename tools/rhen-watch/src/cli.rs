@@ -635,6 +635,8 @@ fn cmd_install() -> Result<(), String> {
     }
     let gui = dest.join("rhen-watchw.exe");
     platform::windows::set_autostart(&format!("\"{}\" run", gui.display()))?;
+    // The agent must not hold this command's output pipe open, or a script capturing it never finishes.
+    platform::windows::stop_std_handle_inheritance();
     // DETACHED_PROCESS | CREATE_NO_WINDOW: the agent outlives this console and shows no window of its own.
     let mut child = std::process::Command::new(&gui)
         .arg("run")

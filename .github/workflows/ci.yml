@@ -349,6 +349,8 @@ jobs:
       # event that is certain is the agent's own start; the app switches are checked by hand (TESTING.md).
       - name: Install and uninstall smoke
         if: runner.os == 'Windows'
+        # A hung step fails here in minutes instead of holding the job to its limit.
+        timeout-minutes: 5
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
