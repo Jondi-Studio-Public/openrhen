@@ -417,7 +417,14 @@ jobs:
             Start-Sleep -Seconds 2
             $back = Get-Agent | Where-Object { $_.Id -ne $victim } | Select-Object -First 1
           }
-          if (-not $back) { throw 'the scheduled task did not restart the killed agent within 150 s' }
+          if (-not $back) {
+            # Say what Task Scheduler thinks happened, so the failure explains itself.
+            Write-Host '--- schtasks /Query /V (the task after the kill) ---'
+            schtasks /Query /TN rhen-watch /V /FO LIST | Out-Host
+            Write-Host '--- Task Scheduler operational log, last 15 events ---'
+            try { Get-WinEvent -LogName ('Micro' + 'soft-Windows-TaskScheduler/Operational') -MaxEvents 15 -ErrorAction Stop | Format-List TimeCreated, Id, Message | Out-Host } catch { Write-Host "log unavailable: $_" }
+            throw 'the scheduled task did not restart the killed agent within 150 s'
+          }
           Wait-Agent $true 20
           $report = Rw "$dest\rhen-watch.exe" @('report')
           if ($report -notmatch 'Gaps where nothing is known' -or $report -notmatch '\d\d:\d\d-\d\d:\d\d\s+agent not running') { throw 'the kill left no unknown gap' }
