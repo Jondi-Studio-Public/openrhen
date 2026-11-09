@@ -7,8 +7,9 @@ import { commands } from "../src/registry.js";
 import { fakeFetch, type RecordedCall } from "./fake-fetch.js";
 import { fixtureNow, fixtureRawState } from "./fixture-state.js";
 
-/** Pinned from the new-data-sources slice 1.1: no new MCP tool without changing this on purpose. */
-const EXPECTED_TOOL_COUNT = 49;
+/** Pinned at 51: 49 from the new-data-sources slice 1.1, plus rhen_sources (#197) and rhen_rank (#193), which merged
+ * from bases older than the pin. No new MCP tool without changing this on purpose. */
+const EXPECTED_TOOL_COUNT = 51;
 
 interface JsonRpcResponse {
   jsonrpc: string;
