@@ -128,7 +128,10 @@ jobs:
         env:
           UNIT_FILTER: ${{ needs.plan.outputs.unit-filter }}
           UNIT_SHARDED: ${{ needs.plan.outputs.unit-sharded }}
-        run: pnpm -r --if-present $UNIT_FILTER $UNIT_SHARDED test
+        run: |
+          read -ra filter <<< "$UNIT_FILTER"
+          read -ra sharded <<< "$UNIT_SHARDED"
+          pnpm -r --if-present "${filter[@]}" "${sharded[@]}" test
 
   benchmark:
     name: Engine benchmark
