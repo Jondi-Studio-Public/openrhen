@@ -52,6 +52,9 @@ pub enum Signal {
     Power(PowerEvt),
     /// A periodic wake with nothing to report; detects stalls and clock jumps.
     Tick,
+    /// The user paused recording from the tray.
+    Pause,
+    Resume,
 }
 
 #[derive(Debug, Clone)]
@@ -105,6 +108,7 @@ pub struct Engine {
     suspended: Option<String>,
     display_off: Option<String>,
     remote: Option<String>,
+    paused: Option<String>,
     /// Lock and suspend each hold the foreground closed; both must clear before it reopens.
     holds: HashSet<&'static str>,
 }
@@ -123,6 +127,7 @@ impl Engine {
             suspended: None,
             display_off: None,
             remote: None,
+            paused: None,
             holds: HashSet::new(),
         }
     }
@@ -137,8 +142,18 @@ impl Engine {
         if self.last_tick.is_none() {
             self.floor = now;
         }
+        if self.paused.is_some() {
+            // Paused: nothing is recorded, not even gaps; only Resume does anything.
+            if signal == Signal::Resume {
+                self.resume(now, &mut out);
+            }
+            self.last_tick = Some(now);
+            return out;
+        }
         self.check_stall(now, &mut out);
         match signal {
+            Signal::Pause => self.pause(now, &mut out),
+            Signal::Resume => {}
             Signal::Tick => {}
             Signal::Foreground(fg) => self.on_foreground(now, fg, &mut out),
             Signal::Idle(idle_ms) => self.on_idle(now, idle_ms, &mut out),
@@ -147,6 +162,25 @@ impl Engine {
         }
         self.last_tick = Some(now);
         out
+    }
+
+    pub fn paused(&self) -> bool {
+        self.paused.is_some()
+    }
+
+    fn pause(&mut self, now: Ms, out: &mut Step) {
+        self.close_all(now, &mut out.ops);
+        self.holds.clear();
+        let id = self.open(SRC_AGENT, "paused", now, Default::default(), &mut out.ops);
+        self.paused = Some(id);
+    }
+
+    fn resume(&mut self, now: Ms, out: &mut Step) {
+        if let Some(id) = self.paused.take() {
+            out.ops.push(Op::Close { id, ts: now });
+        }
+        self.floor = now;
+        out.refresh_foreground = true;
     }
 
     /// Close every open interval at `now` (a clean shutdown).
@@ -203,6 +237,9 @@ impl Engine {
     }
 
     fn close_all(&mut self, at: Ms, ops: &mut Vec<Op>) {
+        if let Some(id) = self.paused.take() {
+            ops.push(Op::Close { id, ts: at });
+        }
         if let Some(fg) = self.fg.take() {
             ops.push(Op::Close { id: fg.id, ts: at });
         }
