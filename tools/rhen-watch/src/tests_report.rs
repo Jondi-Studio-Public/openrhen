@@ -77,7 +77,7 @@ impl Setup {
     fn new() -> Self {
         Setup {
             store: Store::in_memory().unwrap(),
-            catalogue: Catalogue::new(&HashMap::new(), &[]),
+            catalogue: Catalogue::new(&HashMap::from([("chat.exe".to_string(), "chat".to_string())]), &[]),
             tz: TzOffset::fixed(0),
             idle_collector: true,
             from: at(0),
@@ -112,7 +112,7 @@ fn busy_day() -> Setup {
         ops.push(bucket(k, "code.exe", 20));
     }
     for k in 556..558 {
-        ops.push(bucket(k, "discord.exe", 20));
+        ops.push(bucket(k, "chat.exe", 20));
     }
     for k in 558..570 {
         ops.push(bucket(k, "code.exe", 20));
@@ -128,7 +128,7 @@ fn busy_day() -> Setup {
         &mut s.store,
         &[
             ("code.exe", 540, 556, "editor"),
-            ("discord.exe", 556, 558, "chat"),
+            ("chat.exe", 556, 558, "chat"),
             ("code.exe", 558, 600, "editor"),
             ("chrome.exe", 900, 930, "browser"),
             ("foo.exe", 930, 971, "other"),
@@ -328,7 +328,7 @@ fn the_report_re_resolves_categories_from_the_current_map_not_the_stored_one() {
     let mut s = busy_day();
     let before = s.text();
     assert!(before.contains("foo.exe") && before.contains("other"));
-    let file = CategoryFile::parse("[exe]\n\"foo.exe\" = \"media\"\n\"code.exe\" = \"terminal\"\n").unwrap();
+    let file = CategoryFile::parse("[exe]\n\"foo.exe\" = \"media\"\n\"code.exe\" = \"terminal\"\n\"chat.exe\" = \"chat\"\n").unwrap();
     s.catalogue = Catalogue::with_file(&file, &[]);
     let after = s.text();
     let row = after

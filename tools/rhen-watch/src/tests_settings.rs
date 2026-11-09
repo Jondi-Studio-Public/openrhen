@@ -28,7 +28,7 @@ fn exe_and_group_tables_override_the_defaults() {
     let c = Catalogue::with_file(&f, &[]);
     assert_eq!(c.lookup("foo.exe"), Some("editor"));
     assert_eq!(c.lookup("chrome.exe"), Some("play"), "the file wins over the shipped default");
-    assert_eq!(c.lookup("discord.exe"), Some("chat"), "untouched defaults stay");
+    assert_eq!(c.lookup("code.exe"), Some("editor"), "untouched defaults stay");
     assert_eq!(c.group_of_category("mine"), "work");
     assert_eq!(c.group_of_category("editor"), "work");
 }
