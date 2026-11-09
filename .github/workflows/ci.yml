@@ -455,6 +455,8 @@ jobs:
           & schtasks /Query /TN rhen-watch-keepalive 2>&1 | Out-Null
           if ($LASTEXITCODE -eq 0) { throw 'the keep-alive task is still registered after uninstall' }
           if (Test-Path $data) { throw "the data folder is still there: $((Get-ChildItem $data).Name -join ', ')" }
+          # The two /Query calls above failed on purpose; do not let their exit code become the step's.
+          $global:LASTEXITCODE = 0
       # Whatever the smoke did, leave the runner without a task or an agent.
       - name: Remove the smoke task
         if: always() && runner.os == 'Windows'
