@@ -98,6 +98,7 @@ export const CORE_MCP_ROUTE_TABLE: Record<string, () => Promise<RouteModule>> = 
   "/api/imports/watch-history/[id]": () => import("@/app/api/imports/watch-history/[id]/route"),
   "/api/integrations/calendar-sync/review-count": () =>
     import("@/app/api/integrations/calendar-sync/review-count/route"),
+  "/api/integrations/derived/model-tick": () => import("@/app/api/integrations/derived/model-tick/route"),
   "/api/integrations/derived/tick": () => import("@/app/api/integrations/derived/tick/route"),
   "/api/integrations/pulse/tick": () => import("@/app/api/integrations/pulse/tick/route"),
   "/api/integrations/push/drain": () => import("@/app/api/integrations/push/drain/route"),

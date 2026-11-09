@@ -90,6 +90,7 @@ let nextLeaveByTickAt = 0;
 const LEAVE_BY_TICK_INTERVAL_MS = 60_000;
 let nextPulseTickAt = 0;
 let nextDerivedTickAt = 0;
+let nextDerivedModelTickAt = 0;
 /**
  * The pulse recorder's tick: "the worker's 60s
  * tick", posted to the portal's route since the recorder itself lives in the portal (it needs the
@@ -252,6 +253,8 @@ await runIndependentLoops(
     { name: "leave-by-push", run: afterPortalReady(tickLeaveByPush) },
     { name: "pulse-tick", run: afterPortalReady(tickPulseRecorder) },
     { name: "derived-tick", run: afterPortalReady(tickDerivedRows) },
+    // Its own loop: a model call takes minutes, and this must never hold up the T0 tick or the jobs beside it.
+    { name: "derived-model-tick", run: afterPortalReady(tickDerivedModelRows) },
     { name: "plan-map-sweep", run: afterPortalReady(tickPlanMapSweep) },
     { name: "calendar-sync", run: afterPortalReady(tickCalendarSync) },
     ...extraLoopSteps({
@@ -720,6 +723,38 @@ async function tickDerivedRows() {
     nextDerivedTickAt = Date.now() + derivedTickDelayMs({ ok: false, body: null });
     process.stderr.write(
       `${JSON.stringify({ level: "error", message: "Derived rows tick request failed", workerId, error: error instanceof Error ? error.message : "Unknown error" })}\n`
+    );
+  }
+}
+
+/**
+ * The model-backed derived-rows tick (communication understanding, slice 2b-4): the same hand-off as `tickDerivedRows`
+ * (only POSTs `{trigger:"scheduled"}`; pacing from `derivedTickDelayMs`), to the portal's own route, because a run
+ * calls a language model and may take up to the run's 5 minute call budget plus writing. So it waits 20 minutes for the
+ * answer (a 5 minute call budget, then at most one message still running, which is bounded by the 15 minute lease it renews), not 120 seconds, and it is a separate loop so a slow run never delays the T0 tick. The route is idempotent and
+ * leases its batch, so a second POST while one is running does nothing. No extractor registered is a normal idle answer.
+ */
+async function tickDerivedModelRows() {
+  if (!portalInternalUrl || Date.now() < nextDerivedModelTickAt) return;
+  nextDerivedModelTickAt = Date.now() + derivedTickDelayMs({ ok: true, body: null });
+  try {
+    const response = await fetch(`${portalInternalUrl}/api/integrations/derived/model-tick`, {
+      method: "POST",
+      headers: portalHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({ trigger: "scheduled" }),
+      signal: AbortSignal.timeout(1_200_000)
+    });
+    const body = await response.json().catch(() => null);
+    nextDerivedModelTickAt = Date.now() + derivedTickDelayMs({ ok: response.ok, body });
+    if (!response.ok) {
+      process.stderr.write(
+        `${JSON.stringify({ level: "error", message: "Derived model tick request failed", workerId, httpStatus: response.status })}\n`
+      );
+    }
+  } catch (error) {
+    nextDerivedModelTickAt = Date.now() + derivedTickDelayMs({ ok: false, body: null });
+    process.stderr.write(
+      `${JSON.stringify({ level: "error", message: "Derived model tick request failed", workerId, error: error instanceof Error ? error.message : "Unknown error" })}\n`
     );
   }
 }
