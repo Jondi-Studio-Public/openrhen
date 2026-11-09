@@ -143,10 +143,10 @@ Rules for reading the report:
 This is what a crash or a power cut looks like.
 
 ```powershell
+& $rw status                                 # must say: restart on crash: yes (scheduled task)
 Stop-Process -Name rhen-watchw -Force
-Start-Sleep -Seconds 15
-Start-Process "$env:LOCALAPPDATA\Programs\rhen-watch\rhen-watchw.exe" -ArgumentList 'run'
-Start-Sleep -Seconds 5
+Start-Sleep -Seconds 90                     # the keep-alive task restarts it within about a minute, on its own
+& $rw status
 & $rw report
 ```
 
@@ -157,7 +157,7 @@ Gaps where nothing is known:
   14:03-14:04  agent not running
 ```
 
-and `Unknown (agent not running or machine stalled): 1m` (the gap is the time from the last heartbeat to the restart). `status` must say `agent: running` again. A kill shorter than 10 seconds records no gap.
+and `Unknown (agent not running or machine stalled): 1m` (the gap is the time from the last heartbeat to the restart). `status` must say `agent: running` again without you starting it. If `status` said `restart on crash: no (...)`, the task could not be registered and the Run entry was used instead; start the agent by hand as `Start-Process "$env:LOCALAPPDATA\Programs\rhen-watch\rhen-watchw.exe" -ArgumentList 'run'`. A kill shorter than 10 seconds records no gap.
 
 A clean Quit must not look like this. It shows `Agent off`, not `Unknown`.
 

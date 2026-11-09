@@ -23,8 +23,8 @@ USAGE
   rhen-watch categories init [--from-config]|path|list [--uncategorised]|set EXE CATEGORY
                                      the per-exe category map (categories.toml); --from-config prints the
                                      [exe] text for an old config.toml [categories] table
-  rhen-watch install                 copy to %LOCALAPPDATA%\\Programs\\rhen-watch, start at logon, start now
-  rhen-watch uninstall [--purge]     stop, remove start at logon and the program (--purge also deletes your data: the
+  rhen-watch install                 copy to %LOCALAPPDATA%\\Programs\\rhen-watch, start at logon (restarted if it crashes), start now
+  rhen-watch uninstall [--purge]     stop, remove start at logon, the restart task and the program (--purge also deletes your data: the
                                      database, config, logs and the data folder)
   rhen-watch wipe --yes              delete the database, its sidecar files, the config and the log files
 ";
@@ -161,11 +161,15 @@ pub fn check_settings_for_install(dir: &std::path::Path) -> Result<(), String> {
 /// The error `run` returns when another agent holds the lock. A duplicate start needs no message box.
 pub const ALREADY_RUNNING: &str = "another rhen-watch is already running (use `rhen-watch stop`)";
 
+/// Starts the error of a keep-alive start that failed for the same reason as the last one: logged, but no
+/// message box, because the first refusal already showed one.
+pub const REPEATED_REFUSAL: &str = "(repeated) ";
+
 /// The title of the message box the no-console build shows for a failed command, or `None` for no box.
 /// Only `run` gets one: "did not start" before recording began, "stopped" after (for example when writes
 /// kept failing). A duplicate start is not an error the user needs to see.
 pub fn error_box_title(args: &[String], recording: bool, error: &str) -> Option<&'static str> {
-    if args.first().map(String::as_str) != Some("run") || error == ALREADY_RUNNING {
+    if args.first().map(String::as_str) != Some("run") || error == ALREADY_RUNNING || error.starts_with(REPEATED_REFUSAL) {
         return None;
     }
     Some(if recording {
@@ -368,6 +372,11 @@ pub fn status_report(d: &std::path::Path, out: &mut String) -> Result<(), String
     use std::fmt::Write;
     let _ = writeln!(out, "data directory: {}", d.display());
     let _ = writeln!(out, "agent: {}", if agent_running(d) { "running" } else { "not running" });
+    let _ = writeln!(out, "{}", restart_status(d));
+    let reason = std::fs::read_to_string(d.join(NOT_STARTING_FILE)).ok();
+    if let Some(line) = crate::restart::not_starting_line(agent_running(d), reason.as_deref()) {
+        let _ = writeln!(out, "{line}");
+    }
     for line in settings_lines(d) {
         out.push_str(&line);
         out.push('\n');
@@ -400,6 +409,30 @@ pub fn status_report(d: &std::path::Path, out: &mut String) -> Result<(), String
     let _ = writeln!(out, "open intervals: {}", store.open_rows().len());
     Ok(())
 }
+
+/// The `restart on crash:` line: a live look at the task, and the reason `install` saved if it could not register one.
+fn restart_status(dir: &std::path::Path) -> String {
+    #[cfg(windows)]
+    let present = platform::windows::task_present();
+    #[cfg(not(windows))]
+    let present = false;
+    let reason = std::fs::read_to_string(dir.join(REASON_FILE)).ok();
+    let reason = reason.as_deref().map(str::trim).filter(|r| !r.is_empty());
+    #[cfg(not(windows))]
+    let reason = reason.or(Some("Windows only"));
+    crate::restart::status_line(present, reason)
+}
+
+/// Why the last `run` refused to start (a bad config). Cleared by the next successful start. Listed in `handover::OWNED`.
+const NOT_STARTING_FILE: &str = "not-starting.txt";
+
+/// Present after a requested stop; the keep-alive leaves the agent stopped while it exists. Removed by the next
+/// real start. Listed in `handover::OWNED`.
+const STOPPED_FILE: &str = "stopped-by-user.txt";
+const STOPPED_TEXT: &str = "stopped on request; the keep-alive leaves it alone until the next logon or install\n";
+
+/// Why `install` could not register the restart task (absent when it did). Listed in `handover::OWNED`.
+const REASON_FILE: &str = "restart-reason.txt";
 
 pub fn now_ms() -> Ms {
     std::time::SystemTime::now()
@@ -542,6 +575,12 @@ fn cmd_run(_args: &[String]) -> Result<(), String> {
     Err("rhen-watch records on Windows only in this version (report, status and config work anywhere)".into())
 }
 
+/// A held run lock is a duplicate start, not a refusal: the keep-alive says nothing, a hand start reports it, and
+/// neither writes `not-starting.txt` (which would hold off a later keep-alive revival). `None` for any other lock error.
+pub(crate) fn duplicate_start(keepalive: bool, error: &str) -> Option<Result<(), String>> {
+    (error == ALREADY_RUNNING).then(|| if keepalive { Ok(()) } else { Err(error.to_string()) })
+}
+
 #[cfg(windows)]
 const ELEVATED_AGENT: &str = "an agent is running as administrator; use tray Quit or an elevated prompt";
 #[cfg(windows)]
@@ -558,7 +597,12 @@ fn cmd_stop() -> Result<(), String> {
             Ok(())
         }
         StopSignal::AccessDenied => Err(ELEVATED_AGENT.into()),
-        StopSignal::NotRunning => Err("no running agent found in this logon session".into()),
+        StopSignal::NotRunning => {
+            // Nothing to signal, but the user's intent stands: a crashed agent must not come back at the next
+            // keep-alive tick.
+            let _ = std::fs::write(dir()?.join(STOPPED_FILE), STOPPED_TEXT);
+            Err("no running agent found in this logon session (the keep-alive will leave it stopped)".into())
+        }
     }
 }
 
@@ -581,30 +625,58 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
         None => None,
     };
     let d = dir()?;
-    if let Err(e) = win::restrict_dir(&d) {
-        crate::log::warn(&format!("could not restrict the data directory to your user: {e}"));
+    let keepalive = args.iter().any(|a| a == "--keepalive");
+    if keepalive && !keepalive_wanted(&d) {
+        return Ok(());
     }
-    if d.to_string_lossy().starts_with("\\\\") {
-        crate::log::warn("the data directory is on a network share; SQLite write-ahead logging is unsafe there");
-    }
-    // A leftover [categories] table in config.toml stops the agent; a bad categories.toml does not.
-    let (cfg, catalogue, category_error) = load_run_settings(&d)?;
 
-    // One agent per data directory. The OS drops the lock if the process dies.
+    // One agent per data directory. The OS drops the lock if the process dies. It comes first so a second copy
+    // (the every-minute keep-alive, or a double start) does no work and leaves no trace in the data folder.
     let lock = OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(false)
         .open(d.join("run.lock"))
         .map_err(|e| e.to_string())?;
-    // About a second of retries: a status or install probe may be holding the file for a moment.
-    lock_with_retry(&lock, 10, Duration::from_millis(100))?;
+    // About a second of retries: a status or install probe may be holding the file for a moment. The
+    // every-minute keep-alive does not wait, and finding the agent already running is its normal case: say nothing.
+    match lock_with_retry(&lock, if keepalive { 1 } else { 10 }, Duration::from_millis(100)) {
+        Ok(()) => {}
+        Err(e) => match duplicate_start(keepalive, &e) {
+            Some(result) => return result,
+            None => return Err(refused(&d, keepalive, e)),
+        },
+    }
+    // The keep-alive checked the marker before it had the lock. A `stop` in between ends the agent and frees the
+    // lock, so look again now that the lock is ours.
+    if keepalive && !keepalive_wanted(&d) {
+        return Ok(());
+    }
+    if let Err(e) = win::restrict_dir(&d) {
+        crate::log::warn(&format!("could not restrict the data directory to your user: {e}"));
+    }
+    if d.to_string_lossy().starts_with("\\\\") {
+        crate::log::warn("the data directory is on a network share; SQLite write-ahead logging is unsafe there");
+    }
 
-    let stop_event = win::StopEvent::create(&d)?;
+    // A leftover [categories] table in config.toml stops the agent; a bad categories.toml does not.
+    // A bad config is deterministic: restarting cannot fix it.
+    let (cfg, catalogue, category_error) = match load_run_settings(&d) {
+        Ok(v) => v,
+        Err(e) => {
+            // Say it once (the error box, the log) and leave the reason where `status` shows it; the keep-alive
+            // then waits until the settings are edited.
+            return Err(refused(&d, keepalive, e));
+        }
+    };
+
+    // Past config and the lock: an earlier "stopped by you" marker is stale.
+    let _ = std::fs::remove_file(d.join(STOPPED_FILE));
+    let stop_event = win::StopEvent::create(&d).map_err(|e| refused(&d, keepalive, e))?;
     win::install_ctrl_handler();
     win::set_data_dir(&d);
 
-    let mut store = store::Store::open(&d.join("activity.db")).map_err(|e| e.to_string())?;
+    let mut store = store::Store::open(&d.join("activity.db")).map_err(|e| refused(&d, keepalive, e.to_string()))?;
     store.set_tz(local_tz());
     let device = match store.meta("device").map_err(|e| e.to_string())? {
         Some(v) => v,
@@ -650,7 +722,8 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
     });
 
     let (tx, rx) = std::sync::mpsc::sync_channel::<runner::Raw>(1024);
-    let (mut hooks, missing) = win::Hooks::start(tx, cfg.collectors.foreground, cfg.collectors.session, cfg.collectors.power)?;
+    let (mut hooks, missing) = win::Hooks::start(tx, cfg.collectors.foreground, cfg.collectors.session, cfg.collectors.power)
+        .map_err(|e| refused(&d, keepalive, e))?;
     crate::log::info(&format!(
         "rhen-watch recording to {} (Ctrl+C or `rhen-watch stop` to end)",
         d.display()
@@ -660,6 +733,8 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(), String> {
         run.start()?;
         RECORDING.store(true, Ordering::SeqCst);
+        // Recording: any earlier "not starting" reason is stale.
+        let _ = std::fs::remove_file(d.join(NOT_STARTING_FILE));
         if let Some(e) = &category_error {
             crate::log::warn(&format!("{e}; recording with the built-in categories"));
             run.degraded(&["categories.toml".to_string()])?;
@@ -698,11 +773,41 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
     let stopped = if result.is_err() { run.stop_after_panic() } else { run.stop() };
     win::STOPPED.store(true, Ordering::SeqCst);
     hooks.stop();
-    match result {
-        Ok(Ok(())) => stopped,
-        Ok(Err(e)) => Err(e),
-        Err(_) => Err("internal error (panic); the open intervals were closed".into()),
+    // A requested stop exits 0 even if the final write failed (said in the log), so the restart task leaves it
+    // stopped; a failure or a panic exits non-zero and the task brings the agent back.
+    if let (Ok(Ok(())), Err(e)) = (&result, &stopped) {
+        crate::log::error(&format!("the final write at stop failed: {e}"));
     }
+    // Leave a marker for a requested stop so the keep-alive does not bring the agent back; a failure or a panic
+    // leaves none, and the keep-alive revives the agent within a minute.
+    if matches!(&result, Ok(Ok(()))) {
+        let _ = std::fs::write(d.join(STOPPED_FILE), STOPPED_TEXT);
+    }
+    crate::restart::end_of_run(result.ok())
+}
+
+/// The keep-alive's gate (see `restart::keepalive_should_start`).
+#[cfg(windows)]
+fn keepalive_wanted(d: &std::path::Path) -> bool {
+    let mtime = |n: &str| std::fs::metadata(d.join(n)).and_then(|m| m.modified()).ok();
+    let settings = ["config.toml", "categories.toml"].iter().filter_map(|n| mtime(n)).max();
+    crate::restart::keepalive_should_start(
+        d.join(STOPPED_FILE).exists(),
+        mtime(NOT_STARTING_FILE),
+        settings,
+        std::time::SystemTime::now(),
+    )
+}
+
+/// A start that failed before recording: leave the reason where `status` shows it, so the keep-alive does not
+/// try (and show an error box) every minute. Returns the error; a keep-alive that fails for the same reason as
+/// the last refusal gets it with `REPEATED_REFUSAL` in front, so it is logged but shows no second box.
+#[cfg(windows)]
+fn refused(d: &std::path::Path, keepalive: bool, e: String) -> String {
+    let path = d.join(NOT_STARTING_FILE);
+    let same = keepalive && std::fs::read_to_string(&path).is_ok_and(|old| old == e);
+    let _ = std::fs::write(&path, &e);
+    if same { format!("{REPEATED_REFUSAL}{e}") } else { e }
 }
 
 #[cfg(not(windows))]
@@ -813,23 +918,74 @@ fn cmd_install() -> Result<(), String> {
         }
     }
     let gui = dest.join("rhen-watchw.exe");
-    platform::windows::set_autostart(&format!("\"{}\" run", gui.display()))?;
-    // The agent must not hold this command's output pipe open, or a script capturing it never finishes.
-    platform::windows::stop_std_handle_inheritance();
-    // DETACHED_PROCESS | CREATE_NO_WINDOW: the agent outlives this console and shows no window of its own.
-    let mut child = std::process::Command::new(&gui)
-        .arg("run")
-        .creation_flags(0x0000_0008 | 0x0800_0000)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|e| format!("installed, but could not start it: {e}"))?;
-    // Prove it is alive: it holds run.lock once it is recording, and it must not have exited.
     let data = paths::data_dir()?;
+    // Prefer a per-user Scheduled Task: it starts the agent at logon and restarts it if it crashes or is killed.
+    // If it cannot be registered (or started), fall back to the HKCU Run entry, which only starts it at logon.
+    let mut autostart = crate::restart::plan(platform::windows::register_task(&gui));
+    if autostart.start_via_task() {
+        // A task only restarts a process it launched, so the agent must be started through it.
+        if let Err(e) = platform::windows::run_task() {
+            let _ = platform::windows::delete_task();
+            autostart = crate::restart::plan(Err(e));
+        } else {
+            // The task can register and "run" yet never launch (no interactive session). Prove the agent is up;
+            // if not, undo the task and fall back to the Run entry, so the user is never left with nothing.
+            let until = std::time::Instant::now() + std::time::Duration::from_secs(15);
+            while !agent_running(&data) && std::time::Instant::now() < until {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+            if !agent_running(&data) {
+                let _ = platform::windows::delete_task();
+                autostart = crate::restart::plan(Err("the task was registered but did not start the agent".into()));
+            }
+        }
+    }
+    let reason_file = data.join(REASON_FILE);
+    match autostart.reason() {
+        Some(reason) => {
+            crate::log::warn(&format!(
+                "restart on crash is off: {reason}; using the start-at-logon entry instead"
+            ));
+            let _ = std::fs::create_dir_all(&data);
+            let _ = std::fs::write(&reason_file, reason);
+        }
+        None => {
+            let _ = std::fs::remove_file(&reason_file);
+        }
+    }
+    if autostart.keep_run_entry() {
+        platform::windows::set_autostart(&format!("\"{}\" run", gui.display()))?;
+    } else {
+        // One mechanism: with the task registered, the Run entry would start a second copy at logon.
+        platform::windows::clear_autostart()?;
+    }
+    // With a Run entry the agent is started directly; DETACHED_PROCESS | CREATE_NO_WINDOW lets it outlive this
+    // console and show no window of its own. Through the task there is no child of ours to watch.
+    let mut child = if autostart.start_via_task() {
+        None
+    } else {
+        // The agent must not hold this command's output pipe open, or a script capturing it never finishes.
+        platform::windows::stop_std_handle_inheritance();
+        Some(
+            std::process::Command::new(&gui)
+                .arg("run")
+                .creation_flags(0x0000_0008 | 0x0800_0000)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .map_err(|e| format!("installed, but could not start it: {e}"))?,
+        )
+    };
+    // Prove it is alive: it holds run.lock once it is recording, and it must not have exited.
     let started = std::time::Instant::now();
     loop {
-        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+        if let Some(status) = child
+            .as_mut()
+            .map(|c| c.try_wait().map_err(|e| e.to_string()))
+            .transpose()?
+            .flatten()
+        {
             return Err(format!(
                 "installed, but the agent exited at once ({status}); see rhen-watch.log in {}",
                 data.display()
@@ -838,9 +994,10 @@ fn cmd_install() -> Result<(), String> {
         if agent_running(&data) {
             break;
         }
-        if started.elapsed() > std::time::Duration::from_secs(5) {
+        let patience = if autostart.start_via_task() { 15 } else { 5 };
+        if started.elapsed() > std::time::Duration::from_secs(patience) {
             return Err(format!(
-                "installed, but the agent did not start recording within 5 seconds; see rhen-watch.log in {}",
+                "installed, but the agent did not start recording within {patience} seconds; see rhen-watch.log in {}",
                 data.display()
             ));
         }
@@ -848,6 +1005,7 @@ fn cmd_install() -> Result<(), String> {
     }
     crate::log::info(&format!("installed to {}", dest.display()));
     println!("It starts when you log on and is running now (look for the tray icon).");
+    println!("{}", crate::restart::status_line(autostart.start_via_task(), autostart.reason()));
     println!("Report:    {}\\rhen-watch.exe report", dest.display());
     println!("Stop:      {}\\rhen-watch.exe stop", dest.display());
     println!(
@@ -860,6 +1018,9 @@ fn cmd_install() -> Result<(), String> {
 #[cfg(windows)]
 fn cmd_uninstall(args: &[String]) -> Result<(), String> {
     let dest = install_dir()?;
+    // Remove the tasks first, or the keep-alive could restart an agent that had crashed earlier, between the stop
+    // and the delete.
+    platform::windows::delete_task()?;
     stop_and_wait()?;
     let gui = dest.join("rhen-watchw.exe");
     wait_released(&[gui])?;
