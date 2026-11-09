@@ -96,7 +96,10 @@ export async function saveExtractorProgressTx(
  * Makes `version` the active one for `extractor`, atomically (the partial unique index allows one active version per
  * person and extractor, so the old one is cleared first, inside the same transaction), and records `promotedAt` in the
  * promoted version's cursor. A version with no row yet gets one. Already active is a no-op and records nothing. No UI
- * and no route: a promotion is a deliberate act by whoever has compared the versions.
+ * and no route: a promotion is a deliberate act by whoever has compared the versions. It also changes what Mark sees:
+ * the open-facts read (`readOpenFacts`, behind the attention feed's `fact_open` items) takes fact rows of the active
+ * version only, so facts the old version wrote stop being listed at once and the new version's appear as it extracts.
+ * Read `?report=eval` for both versions and record the numbers before promoting.
  */
 export async function promoteExtractorVersion(
   sql: PoolSql,

@@ -76,7 +76,9 @@ export const POST = withRoute("/api/activity-events", async (request, _context, 
 
 /**
  * Reads events back in time order (start, then id) for the predictor: `source`, `kind`, `from` and `to` (RFC 3339,
- * `to` exclusive), `limit` (up to 1000) and `after` (the `next` of the previous page). `as_of` (RFC 3339) reads as the
+ * `to` exclusive), `limit` (up to 1000) and `after` (the `next` of the previous page). `include=evidence` (limit 100 or
+ * less) adds to each `fact` row its span resolved to the mail text, marked untrusted, or `source_removed` /
+ * `source_changed`. `as_of` (RFC 3339) reads as the
  * store stood then: rows ingested at or before it, and the derived extractor version that was active at that time.
  * Rows of source `derived` come from the active extractor version only. Content comes back too, so a
  * token needs `read:activity-event`; the owner session may always read. Sources of class `health` (physiology and the
@@ -111,8 +113,14 @@ export const GET = withRoute("/api/activity-events", async (request) => {
     const limit = rawLimit === null ? undefined : Number(rawLimit);
     if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > ACTIVITY_READ_MAX_LIMIT))
       throw new ActivityInputError(`limit must be a whole number from 1 to ${ACTIVITY_READ_MAX_LIMIT}.`);
+    const include = params.get("include");
+    if (include !== null && include !== "evidence")
+      throw new ActivityInputError(
+        'include must be "evidence" (resolve each fact\'s span to its mail text) or left out.'
+      );
     return Response.json(
       await readActivityEvents(sqlPool(connectionString), {
+        includeEvidence: include === "evidence",
         source: params.get("source") ?? undefined,
         kind: params.get("kind") ?? undefined,
         from: date("from"),

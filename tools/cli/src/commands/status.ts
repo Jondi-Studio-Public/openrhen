@@ -147,12 +147,16 @@ interface PulseRecordSummary {
 }
 
 /**
- * The status answer's trigger for `rhen_attention`: two counts
- * and the tool to call. Present only when a count is above zero.
+ * The status answer's trigger for `rhen_attention`: the counts
+ * and the tool to call. Present only when `now`, `decided`, soon mail items (`facts`) or a failed mail read is above zero.
  */
 export interface AttentionLine {
   now: number;
   decided: number;
+  /** Open mail items (derived facts) that are `soon`; present only when above zero. Never part of `now`. */
+  facts?: number;
+  /** 1 when the mail could not be read; present only then. Never part of `now`. */
+  factsFailed?: 1;
   call: "rhen_attention";
 }
 
@@ -163,11 +167,22 @@ function attentionLine(reply: unknown): AttentionLine | undefined {
   const { viewer, healthBlocking, sourcesFailed, decided } = counts;
   const open = counts.checkInOpen ?? 0;
   const dueNow = counts.catchUpDue ?? 0;
+  const { factsOpen: mailOpen = 0, factsSoon: facts = 0, factsFailed: failed = 0 } = counts;
   const whole = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0;
   if (viewer !== "agent" || !whole(healthBlocking) || !whole(sourcesFailed) || !whole(decided)) return undefined;
-  if (!whole(open) || !whole(dueNow)) return undefined;
+  if (!whole(open) || !whole(dueNow) || !whole(facts) || !whole(mailOpen) || (failed !== 0 && failed !== 1))
+    return undefined;
   const now = healthBlocking + sourcesFailed + open + dueNow;
-  return now > 0 || decided > 0 ? { now, decided, call: "rhen_attention" } : undefined;
+  // Open mail items nudge only when some are `soon`; fyi-only ones wait for the next time the feed is read.
+  return now > 0 || decided > 0 || facts > 0 || failed === 1
+    ? {
+        now,
+        decided,
+        ...(facts > 0 ? { facts } : {}),
+        ...(failed === 1 ? { factsFailed: 1 as const } : {}),
+        call: "rhen_attention"
+      }
+    : undefined;
 }
 
 /** `status`'s catch-up line: `due` only when the switch is on and the window is due. */
@@ -859,7 +874,10 @@ function addOnsLine(addOns: Record<string, string>): string {
 }
 
 function attentionText(line: AttentionLine): string {
-  return `${line.now} need action now, ${line.decided} decided (rhen attention)`;
+  const mail =
+    (line.facts === undefined ? "" : `, ${line.facts} open mail items to look at soon`) +
+    (line.factsFailed === 1 ? ", mail could not be read" : "");
+  return `${line.now} need action now, ${line.decided} decided${mail} (rhen attention)`;
 }
 
 function catchUpText(line: CatchUpLine, timezone: string, now: Date): string {

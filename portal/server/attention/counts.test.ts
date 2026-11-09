@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DoctorItem, DoctorReport } from "@openrhen/contracts";
+import { factOpenItem, type AttentionItem, type DoctorItem, type DoctorReport } from "@openrhen/contracts";
 import type { PoolSql } from "@/server/persistence/postgres/sql-pool";
-import { readAttentionCounts, resetAttentionCountsMemo } from "./counts";
+import { FACTS_READ_TIMEOUT_MS, readAttentionCounts, resetAttentionCountsMemo } from "./counts";
 import { readAttention } from "./read-attention";
 import type { AttentionReaders } from "./readers";
 
@@ -48,6 +48,7 @@ function readers(over: Partial<AttentionReaders> = {}) {
     pulse: vi.fn(),
     refusal: vi.fn(),
     proposals: vi.fn(),
+    facts: vi.fn(async (): Promise<AttentionItem[]> => []),
     ...over
   } satisfies AttentionReaders;
 }
@@ -68,7 +69,10 @@ describe("readAttentionCounts", () => {
       sourcesFailed: 0,
       decided: 3,
       checkInOpen: 0,
-      catchUpDue: 0
+      catchUpDue: 0,
+      factsOpen: 0,
+      factsSoon: 0,
+      factsFailed: 0
     });
     for (const unread of [r.pulse, r.proposals]) expect(unread).not.toHaveBeenCalled();
   });
@@ -95,7 +99,10 @@ describe("readAttentionCounts", () => {
       sourcesFailed: 0,
       decided: 0,
       checkInOpen: 0,
-      catchUpDue: 0
+      catchUpDue: 0,
+      factsOpen: 0,
+      factsSoon: 0,
+      factsFailed: 0
     });
     expect(r.decided).toHaveBeenCalledTimes(2);
     expect(fourth).toEqual({
@@ -104,7 +111,10 @@ describe("readAttentionCounts", () => {
       sourcesFailed: 0,
       decided: 0,
       checkInOpen: 0,
-      catchUpDue: 0
+      catchUpDue: 0,
+      factsOpen: 0,
+      factsSoon: 0,
+      factsFailed: 0
     });
     expect([first, second].map((c) => c.viewer)).toEqual(["agent", "agent"]);
   });
@@ -137,7 +147,10 @@ describe("readAttentionCounts", () => {
       sourcesFailed: 1,
       decided: 3,
       checkInOpen: 0,
-      catchUpDue: 0
+      catchUpDue: 0,
+      factsOpen: 0,
+      factsSoon: 0,
+      factsFailed: 0
     });
     const retried = await readAttentionCounts(sql, { agent: "scribe", scopes: undefined, now: later(5) }, r);
     expect(retried).toEqual({
@@ -146,7 +159,10 @@ describe("readAttentionCounts", () => {
       sourcesFailed: 0,
       decided: 3,
       checkInOpen: 0,
-      catchUpDue: 0
+      catchUpDue: 0,
+      factsOpen: 0,
+      factsSoon: 0,
+      factsFailed: 0
     });
     expect(doctor).toHaveBeenCalledTimes(2);
     expect(vi.mocked(console.error).mock.calls.join("\n")).not.toContain(SENTINEL);
@@ -161,7 +177,10 @@ describe("readAttentionCounts", () => {
       sourcesFailed: 1,
       decided: 0,
       checkInOpen: 0,
-      catchUpDue: 0
+      catchUpDue: 0,
+      factsOpen: 0,
+      factsSoon: 0,
+      factsFailed: 0
     });
     expect(vi.mocked(console.error).mock.calls.join("\n")).not.toContain(SENTINEL);
   });
@@ -217,5 +236,86 @@ describe("readAttentionCounts agrees with the feed", () => {
     const over = { entries: vi.fn(() => Promise.reject(new Error(SENTINEL))) };
     resetAttentionCountsMemo();
     expect(await countsNow(readers(over))).toBe(await feedNow(readers(over)));
+  });
+});
+
+describe("readAttentionCounts: open mail facts", () => {
+  const ID = (n: number) => String(n).padStart(40, "c");
+  const items = (count: number) =>
+    Array.from({ length: count }, (_, n) =>
+      factOpenItem({
+        factId: ID(n),
+        factType: "ask",
+        direction: "in",
+        at: "2026-11-04T10:00:00.000Z",
+        held: undefined,
+        generatedAt: T0.toISOString()
+      })!
+    );
+  const request = { agent: "scribe", scopes: undefined, now: T0 };
+
+  it("counts the facts the reader returns, reads them without quotes, and is zero for a token without read:plan or the owner", async () => {
+    const facts = vi.fn(async () => items(3));
+    const r = readers({ facts });
+    expect((await readAttentionCounts(sql, request, r)).factsOpen).toBe(3);
+    expect(facts).toHaveBeenCalledWith(T0, undefined, { quotes: false });
+    resetAttentionCountsMemo();
+    const none = readers({ facts });
+    facts.mockClear();
+    expect(
+      (await readAttentionCounts(sql, { agent: "scribe", scopes: ["read:proposals"], now: T0 }, none)).factsOpen
+    ).toBe(0);
+    expect((await readAttentionCounts(sql, { agent: null, scopes: undefined, now: T0 }, none)).factsOpen).toBe(0);
+    expect(facts).not.toHaveBeenCalled();
+  });
+
+  it("counts as soon only the facts the feed lists as soon, so an old open ask adds to factsOpen and not factsSoon", async () => {
+    const old = factOpenItem({
+      factId: ID(90),
+      factType: "ask",
+      direction: "in",
+      at: "2026-10-20T10:00:00.000Z",
+      held: undefined,
+      generatedAt: T0.toISOString()
+    })!;
+    expect(old.urgency).toBe("fyi");
+    const r = readers({ facts: vi.fn(async () => [...items(2), old]) });
+    expect(await readAttentionCounts(sql, request, r)).toMatchObject({ factsOpen: 3, factsSoon: 2, factsFailed: 0 });
+  });
+
+  it("weighs a fold as the members it stands for, as the feed's counts do", async () => {
+    const r = readers({ facts: vi.fn(async () => items(8)) });
+    expect((await readAttentionCounts(sql, request, r)).factsOpen).toBe(8);
+  });
+
+  it("memoises the facts half for 30 s per user, and a failure is counted once and never kept", async () => {
+    const facts = vi.fn(async () => items(2));
+    const r = readers({ facts });
+    await readAttentionCounts(sql, request, r);
+    await readAttentionCounts(sql, { ...request, now: later(10) }, r);
+    expect(facts).toHaveBeenCalledTimes(1);
+    await readAttentionCounts(sql, { ...request, now: later(31) }, r);
+    expect(facts).toHaveBeenCalledTimes(2);
+
+    resetAttentionCountsMemo();
+    const failing = vi.fn(() => Promise.reject(new Error(SENTINEL)));
+    const bad = readers({ facts: failing as never });
+    const failed = await readAttentionCounts(sql, request, bad);
+    expect(failed).toMatchObject({ factsOpen: 0, factsSoon: 0, factsFailed: 1, sourcesFailed: 0 });
+    await readAttentionCounts(sql, { ...request, now: later(5) }, bad);
+    expect(failing).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(console.error).mock.calls.join("\n")).not.toContain(SENTINEL);
+  });
+
+  it("a facts read that never answers is a failed source, not a hung status", async () => {
+    vi.useFakeTimers();
+    try {
+      const r = readers({ facts: vi.fn(() => new Promise<AttentionItem[]>(() => {})) });
+      const pending = readAttentionCounts(sql, request, r);
+      await vi.advanceTimersByTimeAsync(FACTS_READ_TIMEOUT_MS + 1);
+      expect(await pending).toMatchObject({ factsOpen: 0, factsFailed: 1, sourcesFailed: 0 });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -30,6 +30,8 @@ export const LINK_CHAIN_MAX = 3;
 /** An event with a start and no end runs this long, so a meeting that began minutes ago is not already over. */
 export const EVENT_DEFAULT_DURATION_HOURS = 3;
 /** `repeat` links extend a fact's life at most this far from its own message, in all. */
+/** A status's own end (`expiresAt`) reaches at most this many days past when the status was recorded. */
+export const STATUS_HOLD_MAX_DAYS = 90;
 export const REPEAT_LIFE_MAX_DAYS = 90;
 /** A `reschedule` moving a fact further than this past its own message is not applied. */
 export const RESCHEDULE_MAX_DAYS = 366;
@@ -150,6 +152,18 @@ const ms = (value: string | null | undefined): number => {
   const parsed = Date.parse(value);
   return Number.isNaN(parsed) || parsed < MIN_MS || parsed >= MAX_MS ? NEG : parsed;
 };
+/**
+ * A status's own end, kept only on a `confirmed` or `rescheduled` status and only inside [recorded, recorded +
+ * STATUS_HOLD_MAX_DAYS]: a later value is cut to the cap (so no status pins a fact for ever) and an earlier one, or a
+ * value that is not a time, is dropped (so no status hides a fresh ask). Null when there is nothing to keep.
+ */
+function boundedHold(status: { status: string; expiresAt?: string | null | undefined }, base: number): string | null {
+  if (status.status !== "confirmed" && status.status !== "rescheduled") return null;
+  if (base === NEG || typeof status.expiresAt !== "string" || !RFC3339.test(status.expiresAt)) return null;
+  const end = Date.parse(status.expiresAt);
+  if (Number.isNaN(end) || end < base) return null;
+  return iso(Math.min(end, base + STATUS_HOLD_MAX_DAYS * DAY_MS));
+}
 const iso = (value: number): string => new Date(value).toISOString();
 const isFactType = (value: unknown): value is (typeof FACT_TYPES)[number] =>
   typeof value === "string" && (FACT_TYPES as readonly string[]).includes(value);
@@ -261,7 +275,8 @@ export function foldFactStates(input: FoldInput): FactFold[] {
   for (const raw of input.statuses ?? []) {
     // A status takes effect no later than it was recorded, so a far-future valid_from cannot pin a fact's status.
     const [said, recorded] = [ms(raw.validFrom), ms(raw.ingestedAt)];
-    const status = recorded !== NEG && said !== NEG && recorded < said ? { ...raw, validFrom: iso(recorded) } : raw;
+    const clamped = recorded !== NEG && said !== NEG && recorded < said ? { ...raw, validFrom: iso(recorded) } : raw;
+    const status = { ...clamped, expiresAt: boundedHold(clamped, recorded !== NEG ? recorded : said) };
     statusesBy.set(status.factId, [...(statusesBy.get(status.factId) ?? []), status]);
   }
   const overridesBy = new Map<string, FoldOverride[]>();
