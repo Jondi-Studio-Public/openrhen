@@ -17,7 +17,7 @@
 // Exports: isAddonOwned, SINGLE_SLOT_STUBS, changedPaths, ownershipViolations, composeViolations, envViolations,
 // routeViolations, conformance.
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -194,6 +194,9 @@ export function conformance({
       )
     );
 
+    // The AST structure rules import oxc-parser; the copy has no node_modules, so link the repository's for this check.
+    if (existsSync(join(repoRoot, "node_modules")))
+      symlinkSync(join(repoRoot, "node_modules"), join(work, "node_modules"), "dir");
     const structure = spawnSync(process.execPath, ["scripts/repository/check-structure.mjs"], {
       cwd: work,
       encoding: "utf8"

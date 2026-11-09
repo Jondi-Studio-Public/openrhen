@@ -1,0 +1,19 @@
+{
+  "lane": "H",
+  "state": {
+    "total": 5,
+    "files": {
+      "portal/server/events/state-events.ts": 4,
+      "portal/server/search/plan-search.ts": 1
+    }
+  },
+  "snapshots": {
+    "total": 4,
+    "files": {
+      "portal/app/api/connections/status/route.ts": 1,
+      "portal/server/agent-enforcement.ts": 1,
+      "portal/server/imports/calendar-sync-providers.ts": 1,
+      "portal/server/telemetry/provider-call-recorder.ts": 1
+    }
+  }
+}

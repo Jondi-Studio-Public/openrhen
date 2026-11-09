@@ -1,0 +1,9 @@
+{
+  "lane": "X",
+  "reads": {
+    "total": 1,
+    "files": {
+      "integrations/addon-example/overlay/addons/example/service.mjs": 1
+    }
+  }
+}

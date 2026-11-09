@@ -1,0 +1,16 @@
+{
+  "lane": "K",
+  "state": {
+    "total": 2,
+    "files": {
+      "platform/contracts/src/activity-derived.ts": 1,
+      "platform/contracts/src/agent-scopes.ts": 1
+    }
+  },
+  "snapshots": {
+    "total": 1,
+    "files": {
+      "platform/contracts/src/activity-events.ts": 1
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "lane": "P",
+  "reads": {
+    "total": 24,
+    "files": {
+      "integrations/outbound-proxy/clear-provider-env.ts": 2,
+      "integrations/outbound-proxy/src/connections/deepinfra/embeddings-client.ts": 2,
+      "integrations/outbound-proxy/src/connections/google-calendar/google-calendar-auth.ts": 2,
+      "integrations/outbound-proxy/src/connections/google-calendar/google-calendar-client.ts": 2,
+      "integrations/outbound-proxy/src/connections/google-routes/google-routes-client.ts": 1,
+      "integrations/outbound-proxy/src/connections/ollama/connection.ts": 1,
+      "integrations/outbound-proxy/src/connections/openai/openai-client.ts": 1,
+      "integrations/outbound-proxy/src/connections/pulse/pulse-publish.ts": 1,
+      "integrations/outbound-proxy/src/host/capability-router.ts": 1,
+      "integrations/outbound-proxy/src/host/connection-host.ts": 2,
+      "integrations/outbound-proxy/src/host/http.ts": 1,
+      "integrations/outbound-proxy/src/main.ts": 4,
+      "integrations/outbound-proxy/src/server.ts": 3,
+      "integrations/outbound-proxy/src/web-push.ts": 1
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "lane": "P",
+  "effects": {
+    "total": 3,
+    "files": {
+      "integrations/outbound-proxy/src/drop-ins.ts": 1,
+      "integrations/outbound-proxy/src/host/bundled-connections.ts": 1,
+      "integrations/outbound-proxy/src/server.ts": 1
+    }
+  }
+}

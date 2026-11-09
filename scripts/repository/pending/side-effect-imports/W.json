@@ -1,0 +1,9 @@
+{
+  "lane": "W",
+  "effects": {
+    "total": 1,
+    "files": {
+      "engine/worker/src/main.ts": 1
+    }
+  }
+}

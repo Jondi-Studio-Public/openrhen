@@ -1,0 +1,11 @@
+{
+  "lane": "other",
+  "reads": {
+    "total": 3,
+    "files": {
+      "integrations/openclaw-plugin/pack.mjs": 1,
+      "platform/database/src/client.ts": 1,
+      "portal/scripts/export-round-trip.mjs": 1
+    }
+  }
+}

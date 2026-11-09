@@ -52,6 +52,12 @@
       "scripts/repository/rules/platform-tokens.json",
       "scripts/test/vendor-terms.test.mjs"
     ],
-    "globs": ["scripts/repository/pending/vendor-terms/**", "scripts/test/fixtures/vendor-terms/**"]
+    "globs": [
+      "scripts/repository/pending/vendor-terms/**",
+      "scripts/repository/pending/env-readers/**",
+      "scripts/repository/pending/module-state/**",
+      "scripts/repository/pending/side-effect-imports/**",
+      "scripts/test/fixtures/vendor-terms/**"
+    ]
   }
 }

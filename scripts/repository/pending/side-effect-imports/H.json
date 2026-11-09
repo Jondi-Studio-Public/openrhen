@@ -1,0 +1,28 @@
+{
+  "lane": "H",
+  "effects": {
+    "total": 23,
+    "files": {
+      "portal/app/api/events/route.ts": 1,
+      "portal/app/api/integrations/push/drain/route.ts": 1,
+      "portal/server/agent-enforcement.ts": 1,
+      "portal/server/drop-ins.ts": 1,
+      "portal/server/imports/calendar-providers.ts": 1,
+      "portal/server/mcp-cli-runner.ts": 1,
+      "portal/server/owner-auth.ts": 1,
+      "portal/server/persistence/postgres/commitment-source-commands.ts": 1,
+      "portal/server/persistence/postgres/delete-guard.ts": 1,
+      "portal/server/persistence/postgres/deliverable-proposal-store.ts": 1,
+      "portal/server/persistence/postgres/doctor-cadence.ts": 1,
+      "portal/server/persistence/postgres/doctor-publishing.ts": 1,
+      "portal/server/persistence/postgres/doctor.ts": 1,
+      "portal/server/persistence/postgres/entity-commands.ts": 1,
+      "portal/server/persistence/postgres/entity-snapshot.ts": 1,
+      "portal/server/persistence/postgres/import-store.ts": 2,
+      "portal/server/persistence/postgres/imports/calendar-diff.ts": 2,
+      "portal/server/persistence/postgres/imports/commit-records.ts": 2,
+      "portal/server/persistence/postgres/imports/source-match-records.ts": 1,
+      "portal/server/persistence/postgres/plan-health-store.ts": 1
+    }
+  }
+}

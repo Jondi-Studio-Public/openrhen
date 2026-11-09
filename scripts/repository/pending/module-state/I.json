@@ -1,0 +1,9 @@
+{
+  "lane": "I",
+  "state": {
+    "total": 1,
+    "files": {
+      "integrations/communication-readers/src/resolve-when.ts": 1
+    }
+  }
+}

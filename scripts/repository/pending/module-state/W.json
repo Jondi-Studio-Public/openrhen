@@ -1,0 +1,15 @@
+{
+  "lane": "W",
+  "state": {
+    "total": 17,
+    "files": {
+      "engine/worker/src/main.ts": 17
+    }
+  },
+  "snapshots": {
+    "total": 2,
+    "files": {
+      "engine/worker/src/calendar-sync-schedule.ts": 2
+    }
+  }
+}
