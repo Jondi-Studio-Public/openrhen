@@ -399,6 +399,20 @@ fn a_change_across_an_interruption_is_not_a_switch() {
 }
 
 #[test]
+fn a_change_across_a_hole_in_the_record_is_not_a_switch_but_flicker_is_not_a_hole() {
+    // nothing recorded between 10 and 20 minutes: unknown, not a switch
+    let events = [app("code.exe", at(0), at(10)), app("chrome.exe", at(20), at(30))];
+    assert_eq!(switch_facts(&events, 30).switches.unwrap().between_apps, 0);
+    // a one second flicker between two apps leaves a one second hole that is accounted for
+    let events = [
+        app("code.exe", at(0), at(10)),
+        app("wt.exe", at(10), at(10) + 1_000),
+        app("chrome.exe", at(10) + 1_000, at(20)),
+    ];
+    assert_eq!(switch_facts(&events, 20).switches.unwrap().between_apps, 1);
+}
+
+#[test]
 fn the_rate_is_n_a_when_under_half_of_the_foreground_time_was_observed() {
     let events = [app("code.exe", at(0), at(30)), app("chrome.exe", at(30), at(60))];
     assert!(switch_facts(&events, 29).switches.is_none(), "29 of 60 minutes");
