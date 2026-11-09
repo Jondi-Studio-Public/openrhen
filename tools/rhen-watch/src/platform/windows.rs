@@ -194,7 +194,11 @@ impl Sys for WinSys {
                 exe = Some(real);
             }
         }
-        Fg { class, exe }
+        Fg {
+            class,
+            exe,
+            declared: None,
+        }
     }
 
     fn current_foreground(&self) -> Option<Fg> {

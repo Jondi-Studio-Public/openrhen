@@ -307,8 +307,8 @@ jobs:
           node-version: 24
       - run: node scripts/addon/conformance.mjs
 
-  # The device agent in tools/rhen-watch (Rust). Its rules are pure and tested on any OS; the Windows layer is
-  # compiled and linted on windows-latest, which is the only place that proves it builds. No Rust toolchain
+  # The device agent in tools/rhen-watch (Rust). Its rules are pure and tested on any OS; the Windows and macOS
+  # layers are compiled and linted on windows-latest and macos-latest, the only places that prove they build. No Rust toolchain
   # action: the hosted images carry stable Rust, and the org only allows GitHub-owned actions.
   rhen-watch:
     name: rhen-watch (${{ matrix.runner }})
@@ -320,6 +320,7 @@ jobs:
         include:
           - runner: ubuntu-latest
           - runner: windows-latest
+          - runner: macos-latest
     defaults:
       run:
         working-directory: tools/rhen-watch
@@ -475,6 +476,121 @@ jobs:
           schtasks /Delete /TN rhen-watch-keepalive /F 2>&1 | Out-Null
           Get-Process rhen-watchw -ErrorAction SilentlyContinue | Stop-Process -Force
           exit 0
+      # The real macOS binary on a hosted runner (a throwaway VM with a logged-in session): record, stop, and check
+      # what was written, not just exit codes. Observation only: it never types, clicks or focuses anything.
+      - name: Record and stop smoke
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export RHEN_WATCH_DIR="$RUNNER_TEMP/rw-data"
+          bin=./target/release/rhen-watch
+          "$bin" run --for 60 > "$RUNNER_TEMP/run.out" 2>&1 &
+          agent=$!
+          running() { local out; out=$("$bin" status) && [[ "$out" == *'agent: running'* ]]; }
+          for _ in $(seq 1 30); do running && break; sleep 1; done
+          "$bin" status | tee "$RUNNER_TEMP/status.txt"
+          grep -q 'agent: running' "$RUNNER_TEMP/status.txt"
+          [ "$(stat -f '%Lp' "$RHEN_WATCH_DIR")" = 700 ] || { echo "::error::data folder is not private"; exit 1; }
+          if "$bin" run --for 5 > "$RUNNER_TEMP/second.out" 2>&1; then echo "::error::a second agent started"; exit 1; fi
+          grep -q 'already running' "$RUNNER_TEMP/second.out"
+          sleep 8
+          "$bin" stop
+          for _ in $(seq 1 10); do kill -0 "$agent" 2>/dev/null || break; sleep 1; done
+          if kill -0 "$agent" 2>/dev/null; then echo "::error::the agent did not stop"; exit 1; fi
+          wait "$agent"
+          cat "$RUNNER_TEMP/run.out"
+          "$bin" report | tee "$RUNNER_TEMP/report.txt"
+          sqlite3 "$RHEN_WATCH_DIR/activity.db" "select source, kind, count(*) from events group by 1, 2" | tee "$RUNNER_TEMP/rows.txt"
+          grep -q '^agent|start|' "$RUNNER_TEMP/rows.txt"
+          grep -q '^agent|stop|' "$RUNNER_TEMP/rows.txt"
+          grep -q '^power|' "$RUNNER_TEMP/rows.txt" || echo "::warning::no power row (no power source on this runner)"
+          grep -q '^foreground|' "$RUNNER_TEMP/rows.txt" || { echo "::error::no foreground row"; exit 1; }
+          # A kill without a clean stop is recorded as an unknown gap at the next start.
+          "$bin" run --for 120 > /dev/null 2>&1 &
+          agent=$!
+          for _ in $(seq 1 30); do running && break; sleep 1; done
+          running || { echo "::error::the second run did not start"; exit 1; }
+          sleep 3
+          kill -9 "$agent"; wait "$agent" || true
+          # A gap under 10 s is a restart, not an outage; wait past it.
+          sleep 12
+          "$bin" run --for 5 > "$RUNNER_TEMP/after-kill.out" 2>&1
+          cat "$RUNNER_TEMP/after-kill.out"
+          grep -q 'without a clean stop' "$RHEN_WATCH_DIR/rhen-watch.log"
+          "$bin" wipe --yes
+      - name: Install smoke
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export RHEN_WATCH_DIR="$RUNNER_TEMP/rw-install"
+          label=org.openrhen.rhen-watch
+          svc="gui/$(id -u)/$label"
+          app="$HOME/Applications/rhen-watch.app"
+          plist="$HOME/Library/LaunchAgents/$label.plist"
+          ./target/release/rhen-watch install
+          bin="$app/Contents/MacOS/rhen-watch"
+          codesign --verify "$app"
+          plutil -lint "$plist"
+          launchctl print "$svc" > /dev/null
+          running() { local out; out=$("$bin" status) && [[ "$out" == *'agent: running'* ]]; }
+          pid() { tr -dc '0-9' < "$RHEN_WATCH_DIR/run.lock"; }
+          running || { echo "::error::not running after install"; exit 1; }
+          # Installing again replaces the app in place and starts it again.
+          "$bin" install
+          running || { echo "::error::not running after a second install"; exit 1; }
+          # A clean stop exits 0, so launchd must not start it again (it would within its 30 s throttle).
+          "$bin" stop
+          sleep 35
+          if running; then echo "::error::launchd restarted the agent after a clean stop"; exit 1; fi
+          # A crash is restarted.
+          launchctl kickstart "$svc"
+          for _ in $(seq 1 20); do running && break; sleep 1; done
+          running || { echo "::error::kickstart did not start it"; exit 1; }
+          first=$(pid)
+          kill -9 "$first"
+          for _ in $(seq 1 60); do running && [ "$(pid)" != "$first" ] && break; sleep 1; done
+          running && [ "$(pid)" != "$first" ] || { echo "::error::launchd did not restart the agent after a crash"; exit 1; }
+          "$bin" uninstall --purge
+          if launchctl print "$svc" > /dev/null 2>&1; then echo "::error::still loaded after uninstall"; exit 1; fi
+          [ ! -e "$plist" ] && [ ! -e "$app" ] || { echo "::error::uninstall left files behind"; exit 1; }
+          [ ! -e "$RHEN_WATCH_DIR/activity.db" ] || { echo "::error::--purge kept the data"; exit 1; }
+      # The one-paste installer as a release ships it, fed from a local folder instead of the release page:
+      # a bad checksum installs nothing, a good one installs and starts the agent.
+      - name: Install script smoke
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export RHEN_WATCH_DIR="$RUNNER_TEMP/rw-script"
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          asset="rhen-watch-$version-macos-universal.tar.gz"
+          rel="$RUNNER_TEMP/release"
+          mkdir -p "$rel/pack"
+          cp target/release/rhen-watch "$rel/pack/"
+          tar -C "$rel/pack" -czf "$rel/$asset" rhen-watch
+          sed "s/@VERSION@/$version/g" ../../scripts/install/rhen-watch.sh > "$rel/install.sh"
+          export RHEN_WATCH_RELEASE_BASE="file://$rel"
+          app="$HOME/Applications/rhen-watch.app"
+          echo "0000000000000000000000000000000000000000000000000000000000000000  $asset" > "$rel/SHA256SUMS"
+          if sh < "$rel/install.sh" > "$RUNNER_TEMP/bad.out" 2>&1; then echo "::error::installed despite a bad checksum"; exit 1; fi
+          grep -q 'checksum mismatch' "$RUNNER_TEMP/bad.out"
+          [ ! -e "$app" ] || { echo "::error::a bad checksum left an app behind"; exit 1; }
+          (cd "$rel" && shasum -a 256 "$asset" > SHA256SUMS)
+          sh < "$rel/install.sh"
+          bin="$app/Contents/MacOS/rhen-watch"
+          out=$("$bin" status); [[ "$out" == *'agent: running'* ]] || { echo "::error::not running after install.sh"; exit 1; }
+          "$bin" uninstall --purge
+          [ ! -e "$app" ] || { echo "::error::uninstall left the app"; exit 1; }
+      # Observation only: the macOS layer must never take focus, show an alert, or make input.
+      - name: No focus or input calls
+        shell: bash
+        run: |
+          if grep -nE 'activateIgnoringOtherApps|activateWithOptions|\.activate\(|NSAlert|CGEventPost|CGEventCreate(Keyboard|Mouse)Event|CGWarpMouse' src/platform/macos*.rs; then
+            echo "::error::the macOS layer must not take focus, show an alert or make input"
+            exit 1
+          fi
       # The agent records locally and must stay that way. A crate-name list alone cannot see std::net or a
       # Win32 networking feature, so this also checks the source and the windows-sys features. It is a
       # tripwire for review, not a proof.

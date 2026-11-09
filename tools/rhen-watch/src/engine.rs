@@ -22,6 +22,8 @@ pub struct Fg {
     pub class: String,
     /// Lower-cased executable file name; `None` when the OS refused the lookup.
     pub exe: Option<String>,
+    /// The category the app declares for itself (macOS `LSApplicationCategoryType`), if any.
+    pub declared: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -371,14 +373,17 @@ impl Engine {
                 &mut out.ops,
             )
         } else if let Some(exe) = &fg.exe {
-            let category = self.catalogue.category(exe).to_string();
-            self.open(
-                SRC_FOREGROUND,
-                "app",
-                now,
-                attrs([("exe", json!(exe)), ("category", json!(category))]),
-                &mut out.ops,
-            )
+            let category = self
+                .catalogue
+                .lookup(exe)
+                .map(str::to_string)
+                .or_else(|| fg.declared.as_deref().and_then(crate::categories::declared_category))
+                .unwrap_or_else(|| "other".to_string());
+            let mut a = attrs([("exe", json!(exe)), ("category", json!(category))]);
+            if let Some(d) = &fg.declared {
+                a.insert("declared".to_string(), json!(d));
+            }
+            self.open(SRC_FOREGROUND, "app", now, a, &mut out.ops)
         } else {
             self.open(
                 SRC_FOREGROUND,

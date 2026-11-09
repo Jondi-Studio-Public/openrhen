@@ -131,8 +131,34 @@ pub const DEFAULT_GROUPS: &[(&str, &str)] = &[
     ("meeting", "comms"),
     ("media", "media"),
     ("games", "play"),
+    // The categories macOS apps declare for themselves (see `declared_category`).
+    ("developer-tools", "work"),
+    ("productivity", "work"),
+    ("business", "work"),
+    ("graphics-design", "work"),
+    ("reference", "work"),
+    ("education", "work"),
+    ("finance", "work"),
+    ("utilities", "work"),
+    ("social-networking", "comms"),
+    ("music", "media"),
+    ("video", "media"),
+    ("entertainment", "media"),
+    ("photography", "media"),
     ("other", "other"),
 ];
+
+/// The category an app declares for itself, from its OS-defined type (macOS `LSApplicationCategoryType`, for
+/// example `public.app-category.developer-tools`): the part after the prefix, and every kind of game is
+/// `games`. `None` for anything else. The user's `categories.toml` still wins over it.
+pub fn declared_category(declared: &str) -> Option<String> {
+    let name = declared.trim().to_ascii_lowercase();
+    let name = name.strip_prefix("public.app-category.")?;
+    if name == "games" || name.ends_with("-games") {
+        return Some("games".to_string());
+    }
+    valid_word(name).then(|| name.to_string())
+}
 
 /// The contents of `categories.toml`: overrides on top of the compiled defaults. A missing file is valid.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -155,14 +181,27 @@ fn valid_word(w: &str) -> bool {
     !w.is_empty() && w.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
-/// An exe name as stored: lower case, and it must end in `.exe`.
+/// An app identity as stored, lower case: a Windows executable file name ending in `.exe`, or a macOS bundle
+/// identifier in reverse-DNS form (`com.example.app`), which is what the macOS agent records.
 pub fn normalise_exe(exe: &str) -> Result<String, String> {
     let e = exe.trim().to_ascii_lowercase();
-    let stem = e.strip_suffix(".exe").unwrap_or("");
-    if stem.is_empty() || e.chars().any(|c| c.is_control() || matches!(c, '"' | '\\' | '/' | ':')) {
-        return Err(format!("\"{exe}\": an executable name must be a file name ending in .exe"));
+    let bad_chars = e.chars().any(|c| c.is_control() || matches!(c, '"' | '\\' | '/' | ':'));
+    let windows = e.strip_suffix(".exe").is_some_and(|stem| !stem.is_empty());
+    if !bad_chars && (windows || is_bundle_id(&e)) {
+        return Ok(e);
     }
-    Ok(e)
+    Err(format!(
+        "\"{exe}\": an app must be an executable file name ending in .exe, or a macOS bundle id such as com.example.app"
+    ))
+}
+
+/// Reverse-DNS: at least two dot-separated labels of letters, digits, `-` and `_`.
+fn is_bundle_id(id: &str) -> bool {
+    let labels: Vec<&str> = id.split('.').collect();
+    labels.len() >= 2
+        && labels
+            .iter()
+            .all(|l| !l.is_empty() && l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'))
 }
 
 /// `prefix` plus the chain of single-key tables under it: the name a dotted key was meant to be.
@@ -247,6 +286,8 @@ pub struct Catalogue {
     categories: HashMap<String, String>,
     groups: HashMap<String, String>,
     games: Vec<String>,
+    /// app -> the category it declared for itself; used only for apps in neither table.
+    declared: HashMap<String, String>,
 }
 
 impl Catalogue {
@@ -271,17 +312,32 @@ impl Catalogue {
         }
         let mut games: Vec<String> = DEFAULT_GAMES.iter().map(|g| g.to_string()).collect();
         games.extend(extra_games.iter().map(|g| g.trim().to_ascii_lowercase()));
-        Self { categories, groups, games }
+        Self {
+            categories,
+            groups,
+            games,
+            declared: HashMap::new(),
+        }
     }
 
     /// The category of an exe, or `None` when it is in no table (so the report can list it as not categorised).
     pub fn lookup(&self, exe: &str) -> Option<&str> {
-        self.categories.get(exe).map(String::as_str)
+        self.categories.get(exe).or_else(|| self.declared.get(exe)).map(String::as_str)
     }
 
     /// What is written on a foreground row: the category, `other` for an exe in no table.
     pub fn category(&self, exe: &str) -> &str {
         self.lookup(exe).unwrap_or("other")
+    }
+
+    /// Add what apps declared for themselves, as (app, declared type) pairs the store kept.
+    pub fn with_declared(mut self, pairs: impl IntoIterator<Item = (String, String)>) -> Self {
+        for (exe, declared) in pairs {
+            if let Some(category) = declared_category(&declared) {
+                self.declared.insert(exe, category);
+            }
+        }
+        self
     }
 
     /// The group of a category; one with no group counts as `other`.
@@ -438,4 +494,5 @@ pub fn is_shell_window(class: &str, exe: Option<&str>) -> bool {
     SHELL_CLASSES.contains(&class.as_str())
         || exe.is_some_and(|e| SHELL_EXES.contains(&e))
         || exe.is_some_and(|e| SHELL_PAIRS.iter().any(|(c, x)| *c == class && *x == e))
+        || exe.is_some_and(crate::platform::macos_rules::is_shell_bundle)
 }
