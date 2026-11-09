@@ -1,5 +1,7 @@
 import { withRoute } from "@/server/logging";
+import { nameOnlyError } from "@/server/drift/name-only-error";
 import { saveReason } from "@/server/drift/drift-reasons";
+import { readReasonTags } from "@/server/drift/reason-tags";
 import { sqlPool } from "@/server/persistence/postgres/sql-pool";
 import { databaseUrl } from "@/server/runtime-env";
 
@@ -28,8 +30,31 @@ export const POST = withRoute("/api/drift-reasons", async (request: Request) => 
     checkInId: body?.checkInId,
     text: body?.text,
     requestId: body?.requestId
+  }).catch((error: unknown) => {
+    throw nameOnlyError(error);
   });
   return result.ok
     ? Response.json({ id: result.id, created: result.created })
     : Response.json({ error: result.error }, { status: result.status });
+});
+
+/**
+ * The owner's recent reasons with the tags that stand for each, for the correction card on Review:
+ * `{ modelConfigured, reasons: [{ checkInId, text, savedAt, tags, origin, stale }] }`, newest first, the last 14 days,
+ * at most 200. The words are private, so the answer is never cached. Owner only: no token may read it.
+ */
+export const GET = withRoute("/api/drift-reasons", async () => {
+  const connectionString = databaseUrl();
+  if (!connectionString)
+    return Response.json(
+      {
+        error:
+          "Reasons require PostgreSQL. Set DATABASE_URL for the portal to a reachable PostgreSQL database, restart it, then call GET /api/drift-reasons again."
+      },
+      { status: 503 }
+    );
+  const answer = await readReasonTags(sqlPool(connectionString)).catch((error: unknown) => {
+    throw nameOnlyError(error);
+  });
+  return Response.json(answer, { headers: { "cache-control": "no-store" } });
 });

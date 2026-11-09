@@ -549,6 +549,8 @@ describe("coverage of every entry point (PR A2, PR C)", () => {
       expect(bucket("unused")).toEqual(
         [
           "drift",
+          // Two owner-written entries: the words, and the correction of their tags.
+          "drift-reason",
           "drift-reason",
           "chrome-takeout",
           "google-activity",

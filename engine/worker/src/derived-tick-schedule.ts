@@ -38,3 +38,16 @@ export function workLabelTickDelayMs(outcome: DerivedTickOutcome): number {
   if ((body?.status === "ok" || body?.status === "discarded") && body.more === true) return DERIVED_TICK_MORE_MS * 5;
   return WORK_LABEL_TICK_IDLE_MS;
 }
+
+/** The reason-tag loop's idle and failure pace: reasons arrive a few a day, and a model that is down should not be asked every minute. */
+export const REASON_TAG_TICK_IDLE_MS = 300_000;
+
+/** How long the reason-tag loop waits after an answer: soon when more reasons wait or the store was busy, else the slow pace. A failure waits the slow pace, so a reason that keeps failing is not hammered. */
+export function reasonTagTickDelayMs(outcome: DerivedTickOutcome): number {
+  if (!outcome.ok) return REASON_TAG_TICK_IDLE_MS;
+  const body = outcome.body as { status?: unknown; more?: unknown; tagged?: unknown } | null;
+  if (body?.status === "failed" && (body.tagged === 0 || body.tagged === undefined)) return REASON_TAG_TICK_IDLE_MS;
+  if (body?.status === "busy") return DERIVED_TICK_BUSY_MS;
+  if ((body?.status === "ok" || body?.status === "discarded") && body.more === true) return DERIVED_TICK_MORE_MS * 5;
+  return REASON_TAG_TICK_IDLE_MS;
+}

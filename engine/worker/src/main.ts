@@ -35,7 +35,7 @@ import { planMapSweepDue } from "./plan-map-sweep-schedule.js";
 import { extraLoopSteps } from "./extra-loops.js";
 import "./private/index.js";
 import { travelLookupTickDue } from "./travel-lookup-schedule.js";
-import { derivedTickDelayMs, workLabelTickDelayMs } from "./derived-tick-schedule.js";
+import { derivedTickDelayMs, reasonTagTickDelayMs, workLabelTickDelayMs } from "./derived-tick-schedule.js";
 import { runIndependentLoops } from "./independent-loops.js";
 import { postTrigger, runLeaveByPushTick } from "./drain-log.js";
 import { createOwnerTimezone } from "./owner-timezone.js";
@@ -266,6 +266,40 @@ const tickWorkLabels = (() => {
   };
 })();
 
+/**
+ * Tags the owner's recent reasons, oldest first, with their local model: posts `{trigger:"scheduled"}`
+ * to the portal's own route and only posts (pacing from `reasonTagTickDelayMs`). A few reasons a call, so the shared model
+ * queue is held briefly; with no model set the route answers `not_configured` and nothing happens. Never switched off.
+ */
+const tickReasonTags = (() => {
+  // The gate lives in this closure, not at module level.
+  let nextAt = 0;
+  return async () => {
+    if (!portalInternalUrl || Date.now() < nextAt) return;
+    nextAt = Date.now() + reasonTagTickDelayMs({ ok: true, body: null });
+    try {
+      const response = await fetch(`${portalInternalUrl}/api/integrations/reason-tag/tick`, {
+        method: "POST",
+        headers: portalHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({ trigger: "scheduled" }),
+        signal: AbortSignal.timeout(600_000)
+      });
+      const body = await response.json().catch(() => null);
+      nextAt = Date.now() + reasonTagTickDelayMs({ ok: response.ok, body });
+      if (!response.ok) {
+        process.stderr.write(
+          `${JSON.stringify({ level: "error", message: "Reason tag tick request failed", workerId, httpStatus: response.status })}\n`
+        );
+      }
+    } catch (error) {
+      nextAt = Date.now() + reasonTagTickDelayMs({ ok: false, body: null });
+      process.stderr.write(
+        `${JSON.stringify({ level: "error", message: "Reason tag tick request failed", workerId, error: error instanceof Error ? error.message : "Unknown error" })}\n`
+      );
+    }
+  };
+})();
+
 // Each step gets its own loop: the integration triggers wait on network calls of up to five
 // minutes, and plan-forecast jobs must never wait behind them. The ticks gate themselves on their own
 // schedules, so looping each one every second only re-checks that gate.
@@ -291,6 +325,8 @@ await runIndependentLoops(
     { name: "derived-model-tick", run: afterPortalReady(tickDerivedModelRows) },
     // Its own loop too: it holds the local model for one call at a time, and an idle run only reads the plan.
     { name: "work-label-tick", run: afterPortalReady(tickWorkLabels) },
+    // Its own loop for the same reason: it holds the local model for a few calls, one at a time.
+    { name: "reason-tag-tick", run: afterPortalReady(tickReasonTags) },
     { name: "plan-map-sweep", run: afterPortalReady(tickPlanMapSweep) },
     { name: "calendar-sync", run: afterPortalReady(tickCalendarSync) },
     ...extraLoopSteps({

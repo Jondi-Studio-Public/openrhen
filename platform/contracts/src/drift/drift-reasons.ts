@@ -83,7 +83,8 @@ export function normaliseReasonTag(raw: string): string {
 /** What is wrong with a list of tags, or null. Open-ended: shape and size only, no vocabulary. Never repeats a tag. */
 export function describeReasonTagsProblem(tags: unknown): string | null {
   if (!Array.isArray(tags)) return "attrs.tags must be a list of short phrases.";
-  if (tags.length > REASON_TAGS_MAX) return `attrs.tags holds ${tags.length} tags; the limit is ${REASON_TAGS_MAX}.`;
+  if (tags.length > REASON_TAGS_MAX)
+    return `A reason can have at most ${REASON_TAGS_MAX} tags; this has ${tags.length}.`;
   const seen = new Set<string>();
   for (const tag of tags) {
     if (typeof tag !== "string") return "Each tag must be text.";

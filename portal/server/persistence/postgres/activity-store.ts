@@ -962,6 +962,25 @@ export async function deleteReasonRowsTx(tx: TxSql, userId: string, checkInId: s
   return removed.length;
 }
 
+/**
+ * Deletes the model's tag row stored under one key, inside the caller's transaction (which holds the activity lock), so
+ * a fresh row under the same key can replace tags made for words the owner has since saved again. Only a row the model
+ * made (`ingested_via` is the given stamp) goes; the owner's own rows never do. Answers whether one went.
+ */
+export async function deleteInferredReasonTagTx(
+  tx: TxSql,
+  userId: string,
+  eventKey: string,
+  inferredVia: string
+): Promise<boolean> {
+  const removed = await tx<{ id: string }[]>`
+    DELETE FROM activity_events
+    WHERE user_id = ${userId} AND source = 'drift-reason' AND kind = 'reason_tag'
+      AND event_key = ${eventKey} AND ingested_via = ${inferredVia}
+    RETURNING id`;
+  return removed.length > 0;
+}
+
 /** Deletes every event of one source, and the import records for it (so a file is not still "held" with nothing in it). */
 export async function purgeActivitySource(sql: PoolSql, source: string): Promise<{ removed: number }> {
   if (!isKnownActivitySource(source))

@@ -35,6 +35,7 @@ import {
   useAgentProposals
 } from "@/features/agent-proposals/agent-proposals-store";
 import { CheckInTally } from "@/features/check-in/components/check-in-tally";
+import { ReasonTagsCard } from "@/features/check-in/components/reason-tags-card";
 import { addDays, reviewProgress } from "@/features/review/review-progress";
 import { expectedOccurrences } from "@/features/review/expected-occurrences";
 import {
@@ -1019,6 +1020,7 @@ export default function ReviewPage() {
           <div className={styles.tally}>
             <CheckInTally />
           </div>
+          <ReasonTagsCard />
         </aside>
       </div>
 
