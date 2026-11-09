@@ -2,7 +2,7 @@
 
 A small Windows program that records which app was in front, when you were idle, and when the screen was locked or the machine slept, into a database on your own computer. It never sends anything anywhere and it has no network code (CI fails if a network crate is added). The design and its rules are in [Desktop activity agent](../../docs/architecture/desktop-activity-agent.md).
 
-It is visible and stoppable: a tray icon shows whenever it runs, with Pause and Quit; `rhen-watch stop` ends it; `install` makes it start at logon (listed in Task Manager > Startup) and `uninstall` removes that. `rhen-watch wipe --yes` deletes everything it recorded. It never installs a service.
+It is visible and stoppable: a tray icon shows whenever it runs, with Pause and Quit; `rhen-watch stop` ends it; `install` makes it start at logon and come back by itself if it crashes or is killed, and `uninstall` removes that. `rhen-watch wipe --yes` deletes everything it recorded. It never installs a service.
 
 ## Install
 
@@ -14,9 +14,9 @@ cargo build --release
 .\target\release\rhen-watch.exe install
 ```
 
-This copies `rhen-watch.exe` (the command line) and `rhen-watchw.exe` (the same program with no console window) to `%LOCALAPPDATA%\Programs\rhen-watch`, makes the second one start at logon (the Startup tab of Task Manager lists it) and starts it. A tray icon shows while it runs; its menu has Pause or Resume, Open settings (opens the data folder, where `config.toml` and `categories.toml` live), Open data folder and Quit. Pause is recorded as paused time and survives a restart, so a reboot does not silently start recording again. Errors go to `rhen-watch.log` in the data folder.
+This copies `rhen-watch.exe` (the command line) and `rhen-watchw.exe` (the same program with no console window) to `%LOCALAPPDATA%\Programs\rhen-watch`, registers a per-user Scheduled Task named `rhen-watch` (no admin rights) that starts the second one at logon and restarts it about a minute after a crash or kill, and starts it through that task. If the task cannot be registered (policy, `schtasks.exe` missing), `install` says why in `rhen-watch.log`, falls back to a Start-at-logon entry (listed in Task Manager > Startup) and `status` prints `restart on crash: no (reason)`; with the task it prints `restart on crash: yes (scheduled task)`. A tray icon shows while it runs; its menu has Pause or Resume, Open settings (opens the data folder, where `config.toml` and `categories.toml` live), Open data folder and Quit. Pause is recorded as paused time and survives a restart, so a reboot does not silently start recording again. Errors go to `rhen-watch.log` in the data folder.
 
-`rhen-watch.exe uninstall` stops it, removes start-at-logon and the program, and keeps your data; `uninstall --purge` deletes the data too (database, config, `rhen-watch.log` and its rotated copy, and the data folder when nothing else is in it). Run it from a copy outside the install folder to remove that folder as well: a program cannot delete itself. The build is unsigned, so Windows SmartScreen may warn on first run of a downloaded copy.
+`rhen-watch.exe uninstall` stops it, removes the task, start-at-logon and the program, and keeps your data; `uninstall --purge` deletes the data too (database, config, `rhen-watch.log` and its rotated copy, and the data folder when nothing else is in it). Run it from a copy outside the install folder to remove that folder as well: a program cannot delete itself. The build is unsigned, so Windows SmartScreen may warn on first run of a downloaded copy.
 
 ## Build and run
 
@@ -64,3 +64,7 @@ While an executable from the built-in anti-cheat game list (or `extra_games` in 
 CI proves the code builds and the rules work; only a real Windows session proves the hooks. [TESTING.md](TESTING.md) is the script: install from a normal prompt, a day-1 list where each step has the `report` line to expect, a kill test, an upgrade test, a week run, how to hand the data back, uninstall and purge checks, and the known limits. It never simulates input and never touches other apps. Do not do it with a game open.
 
 `rhen-watch stop` works within the same logon session only; from a remote desktop session use Ctrl+C in the console that is running it. `report` and `status` open the database read-only and are safe to run while the agent records. Closing the console window, logging off or shutting down all stop it cleanly.
+
+**Restart on crash.** The task restarts the agent only when it exits with a non-zero code (a panic, a lost hook thread, a kill). Every requested stop exits 0 and is left alone: `rhen-watch stop`, tray Quit, Ctrl+C, closing the console, logoff and shutdown, and `run --for`, even if the final write failed (that is logged). A second `run` while one is already recording prints a line and exits 0. The restart gap (about a minute) shows in `report` as `agent not running`. Task Scheduler gives up after 999 tries, one minute apart.
+
+**Manual check as a standard user.** CI cannot prove the no-admin claim because the hosted Windows runner is an administrator. On a real machine, sign in as a standard (non-admin) user, run `rhen-watch.exe install` from a normal prompt, and confirm `status` says `restart on crash: yes (scheduled task)` and `schtasks /Query /TN rhen-watch` lists the task. Then `Stop-Process -Name rhen-watchw -Force`, wait about 90 seconds and confirm `status` says `agent: running`; `rhen-watch.exe stop` must leave it stopped. If `status` says `no (...)`, the reason is also in `rhen-watch.log`.

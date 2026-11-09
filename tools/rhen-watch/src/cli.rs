@@ -23,8 +23,8 @@ USAGE
   rhen-watch categories init [--from-config]|path|list [--uncategorised]|set EXE CATEGORY
                                      the per-exe category map (categories.toml); --from-config prints the
                                      [exe] text for an old config.toml [categories] table
-  rhen-watch install                 copy to %LOCALAPPDATA%\\Programs\\rhen-watch, start at logon, start now
-  rhen-watch uninstall [--purge]     stop, remove start at logon and the program (--purge also deletes your data: the
+  rhen-watch install                 copy to %LOCALAPPDATA%\\Programs\\rhen-watch, start at logon (restarted if it crashes), start now
+  rhen-watch uninstall [--purge]     stop, remove start at logon, the restart task and the program (--purge also deletes your data: the
                                      database, config, logs and the data folder)
   rhen-watch wipe --yes              delete the database, its sidecar files, the config and the log files
 ";
@@ -33,14 +33,12 @@ pub fn main() {
     // The no-console build has nowhere to show a panic, so put it in the log.
     std::panic::set_hook(Box::new(|info| crate::log::error(&format!("internal error: {info}"))));
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let code = match real_main(&args) {
-        Ok(()) => 0,
-        Err(e) => {
-            crate::log::error(&e);
-            1
-        }
-    };
-    std::process::exit(code);
+    // Exit 0 only for success: Task Scheduler restarts the agent after any other code (restart.rs).
+    let result = real_main(&args);
+    if let Err(e) = &result {
+        crate::log::error(e);
+    }
+    std::process::exit(crate::restart::exit_code(&result));
 }
 
 pub fn real_main(args: &[String]) -> Result<(), String> {
@@ -246,6 +244,7 @@ fn cmd_status() -> Result<(), String> {
     let d = dir()?;
     println!("data directory: {}", d.display());
     println!("agent: {}", if agent_running(&d) { "running" } else { "not running" });
+    println!("{}", restart_status(&d));
     let db = d.join("activity.db");
     if !db.exists() {
         println!("no database yet; run `rhen-watch run`");
@@ -264,6 +263,22 @@ fn cmd_status() -> Result<(), String> {
     println!("open intervals: {}", store.open_rows().len());
     Ok(())
 }
+
+/// The `restart on crash:` line: a live look at the task, and the reason `install` saved if it could not register one.
+fn restart_status(dir: &std::path::Path) -> String {
+    #[cfg(windows)]
+    let present = platform::windows::task_present();
+    #[cfg(not(windows))]
+    let present = false;
+    let reason = std::fs::read_to_string(dir.join(REASON_FILE)).ok();
+    let reason = reason.as_deref().map(str::trim).filter(|r| !r.is_empty());
+    #[cfg(not(windows))]
+    let reason = reason.or(Some("Windows only"));
+    crate::restart::status_line(present, reason)
+}
+
+/// Why `install` could not register the restart task (absent when it did). Listed in `handover::OWNED`.
+const REASON_FILE: &str = "restart-reason.txt";
 
 pub fn now_ms() -> Ms {
     std::time::SystemTime::now()
@@ -451,8 +466,11 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
         .truncate(false)
         .open(d.join("run.lock"))
         .map_err(|e| e.to_string())?;
-    lock.try_lock()
-        .map_err(|_| "another rhen-watch is already running (use `rhen-watch stop`)".to_string())?;
+    if lock.try_lock().is_err() {
+        // Not a failure: exiting non-zero would make the task retry every minute for as long as the first copy runs.
+        println!("another rhen-watch is already running (use `rhen-watch stop`)");
+        return Ok(());
+    }
 
     let stop_event = win::StopEvent::create()?;
     win::install_ctrl_handler();
@@ -531,11 +549,12 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
     let stopped = run.stop();
     win::STOPPED.store(true, Ordering::SeqCst);
     hooks.stop();
-    match result {
-        Ok(Ok(())) => stopped,
-        Ok(Err(e)) => Err(e),
-        Err(_) => Err("internal error (panic); the open intervals were closed".into()),
+    // A requested stop exits 0 even if the final write failed (said in the log), so the restart task leaves it
+    // stopped; a failure or a panic exits non-zero and the task brings the agent back.
+    if let (Ok(Ok(())), Err(e)) = (&result, &stopped) {
+        crate::log::error(&format!("the final write at stop failed: {e}"));
     }
+    crate::restart::end_of_run(result.ok())
 }
 
 #[cfg(not(windows))]
@@ -634,21 +653,61 @@ fn cmd_install() -> Result<(), String> {
         }
     }
     let gui = dest.join("rhen-watchw.exe");
-    platform::windows::set_autostart(&format!("\"{}\" run", gui.display()))?;
-    // DETACHED_PROCESS | CREATE_NO_WINDOW: the agent outlives this console and shows no window of its own.
-    let mut child = std::process::Command::new(&gui)
-        .arg("run")
-        .creation_flags(0x0000_0008 | 0x0800_0000)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|e| format!("installed, but could not start it: {e}"))?;
-    // Prove it is alive: it holds run.lock once it is recording, and it must not have exited.
     let data = paths::data_dir()?;
+    // Prefer a per-user Scheduled Task: it starts the agent at logon and restarts it if it crashes or is killed.
+    // If it cannot be registered (or started), fall back to the HKCU Run entry, which only starts it at logon.
+    let mut autostart = crate::restart::plan(platform::windows::register_task(&gui));
+    if autostart.start_via_task() {
+        // A task only restarts a process it launched, so the agent must be started through it.
+        if let Err(e) = platform::windows::run_task() {
+            let _ = platform::windows::delete_task();
+            autostart = crate::restart::plan(Err(e));
+        }
+    }
+    let reason_file = data.join(REASON_FILE);
+    match autostart.reason() {
+        Some(reason) => {
+            crate::log::warn(&format!(
+                "restart on crash is off: {reason}; using the start-at-logon entry instead"
+            ));
+            let _ = std::fs::create_dir_all(&data);
+            let _ = std::fs::write(&reason_file, reason);
+        }
+        None => {
+            let _ = std::fs::remove_file(&reason_file);
+        }
+    }
+    if autostart.keep_run_entry() {
+        platform::windows::set_autostart(&format!("\"{}\" run", gui.display()))?;
+    } else {
+        // One mechanism: with the task registered, the Run entry would start a second copy at logon.
+        platform::windows::clear_autostart()?;
+    }
+    // With a Run entry the agent is started directly; DETACHED_PROCESS | CREATE_NO_WINDOW lets it outlive this
+    // console and show no window of its own. Through the task there is no child of ours to watch.
+    let mut child = if autostart.start_via_task() {
+        None
+    } else {
+        Some(
+            std::process::Command::new(&gui)
+                .arg("run")
+                .creation_flags(0x0000_0008 | 0x0800_0000)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .map_err(|e| format!("installed, but could not start it: {e}"))?,
+        )
+    };
+    // Prove it is alive: it holds run.lock once it is recording, and it must not have exited.
     let started = std::time::Instant::now();
     loop {
-        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+        if let Some(status) = child
+            .as_mut()
+            .map(|c| c.try_wait().map_err(|e| e.to_string()))
+            .transpose()?
+            .flatten()
+        {
             return Err(format!(
                 "installed, but the agent exited at once ({status}); see rhen-watch.log in {}",
                 data.display()
@@ -657,9 +716,10 @@ fn cmd_install() -> Result<(), String> {
         if agent_running(&data) {
             break;
         }
-        if started.elapsed() > std::time::Duration::from_secs(5) {
+        let patience = if autostart.start_via_task() { 15 } else { 5 };
+        if started.elapsed() > std::time::Duration::from_secs(patience) {
             return Err(format!(
-                "installed, but the agent did not start recording within 5 seconds; see rhen-watch.log in {}",
+                "installed, but the agent did not start recording within {patience} seconds; see rhen-watch.log in {}",
                 data.display()
             ));
         }
@@ -667,6 +727,7 @@ fn cmd_install() -> Result<(), String> {
     }
     crate::log::info(&format!("installed to {}", dest.display()));
     println!("It starts when you log on and is running now (look for the tray icon).");
+    println!("{}", crate::restart::status_line(autostart.start_via_task(), autostart.reason()));
     println!("Report:    {}\\rhen-watch.exe report", dest.display());
     println!("Stop:      {}\\rhen-watch.exe stop", dest.display());
     println!(
@@ -682,6 +743,7 @@ fn cmd_uninstall(args: &[String]) -> Result<(), String> {
     stop_and_wait()?;
     let gui = dest.join("rhen-watchw.exe");
     wait_released(&[gui])?;
+    platform::windows::delete_task()?;
     platform::windows::clear_autostart()?;
     let mut leftovers = Vec::new();
     for n in ["rhen-watch.exe", "rhen-watchw.exe"] {

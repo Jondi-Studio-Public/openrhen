@@ -698,6 +698,59 @@ pub fn restrict_dir(dir: &std::path::Path) -> Result<(), String> {
     }
 }
 
+// ---- restart on crash: the per-user Scheduled Task ----
+
+/// Run `schtasks.exe` with no window. Returns its exit code and its combined output.
+fn schtasks(args: &[String]) -> Result<(i32, String), String> {
+    use std::os::windows::process::CommandExt;
+    let out = std::process::Command::new("schtasks")
+        .creation_flags(CREATE_NO_WINDOW)
+        .args(args)
+        .output()
+        .map_err(|e| format!("schtasks: {e}"))?;
+    let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
+    text.push_str(&String::from_utf8_lossy(&out.stderr));
+    Ok((out.status.code().unwrap_or(-1), text))
+}
+
+/// Register (or replace) the `rhen-watch` task for the current user. Needs no admin rights.
+pub fn register_task(command: &std::path::Path) -> Result<(), String> {
+    let sid = current_sid()?;
+    let xml = crate::restart::task_xml(&sid, &command.to_string_lossy());
+    let file = std::env::temp_dir().join(format!("rhen-watch-task-{}.xml", std::process::id()));
+    std::fs::write(&file, crate::restart::task_file_bytes(&xml)).map_err(|e| format!("cannot write the task file: {e}"))?;
+    let result = schtasks(&crate::restart::create_args(&file.to_string_lossy()));
+    let _ = std::fs::remove_file(&file);
+    match result? {
+        (0, _) => Ok(()),
+        (code, text) => Err(crate::restart::create_failure(code, &text)),
+    }
+}
+
+/// Start the registered task now (the agent it launches is the one the task will restart).
+pub fn run_task() -> Result<(), String> {
+    match schtasks(&crate::restart::run_args())? {
+        (0, _) => Ok(()),
+        (code, text) => Err(format!("schtasks /Run failed (exit {code}): {}", text.trim())),
+    }
+}
+
+/// True when the `rhen-watch` task is registered.
+pub fn task_present() -> bool {
+    matches!(schtasks(&crate::restart::query_args()), Ok((0, _)))
+}
+
+/// Remove the task. Not being registered is not an error.
+pub fn delete_task() -> Result<(), String> {
+    let (code, _) = schtasks(&crate::restart::delete_args())?;
+    let after = if code == 0 {
+        None
+    } else {
+        schtasks(&crate::restart::query_args()).ok().map(|(c, _)| c)
+    };
+    crate::restart::classify_delete(code, after)
+}
+
 // ---- start at logon ----
 
 const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";

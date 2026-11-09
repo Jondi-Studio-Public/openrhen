@@ -107,7 +107,7 @@ fn fill(dir: &std::path::Path, names: &[&str]) {
     }
 }
 
-const ALL: [&str; 10] = [
+const ALL: [&str; 11] = [
     "activity.db",
     "activity.db-wal",
     "activity.db-shm",
@@ -117,6 +117,7 @@ const ALL: [&str; 10] = [
     "run.lock",
     "rhen-watch.log",
     "rhen-watch.log.1",
+    "restart-reason.txt",
     "unrelated.txt",
 ];
 
@@ -125,8 +126,8 @@ fn wipe_deletes_the_logs_too_and_keeps_the_folder() {
     let dir = tmp("wipe");
     fill(&dir, &ALL);
     let gone = wipe_files(&dir, false).unwrap();
-    assert_eq!(gone.len(), 9);
-    for n in &ALL[..9] {
+    assert_eq!(gone.len(), 10);
+    for n in &ALL[..10] {
         assert!(!dir.join(n).exists(), "{n} should be deleted");
     }
     assert!(dir.join("unrelated.txt").exists(), "files the user added stay");
@@ -137,7 +138,7 @@ fn wipe_deletes_the_logs_too_and_keeps_the_folder() {
 #[test]
 fn purge_removes_the_folder_when_empty_and_keeps_it_when_not() {
     let empty = tmp("purge-empty");
-    fill(&empty, &ALL[..9]);
+    fill(&empty, &ALL[..10]);
     wipe_files(&empty, true).unwrap();
     assert!(!empty.exists(), "an empty data folder goes");
 
