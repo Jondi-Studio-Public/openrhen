@@ -36,7 +36,10 @@ export function handEntryMatchFrom(
   const match = matchHandEntry({ ...input, localDate: localDateOf(new Date(input.startsAt), timezone) }, commitments);
   if ((match.kind !== "strong" && match.kind !== "possible") || !match.commitmentId) return null;
   const found = commitments.find((item) => item.id === match.commitmentId);
-  return found ? { kind: match.kind, id: found.id, title: found.title, startsAt: found.startsAt } : null;
+  // A tie is a notice on the earliest of the tied commitments, never the "same one" claim of a strong match.
+  return found
+    ? { kind: match.tie ? "possible" : match.kind, id: found.id, title: found.title, startsAt: found.startsAt }
+    : null;
 }
 
 /** Loads the plan's commitments for the day either side of the entry and matches against them. */

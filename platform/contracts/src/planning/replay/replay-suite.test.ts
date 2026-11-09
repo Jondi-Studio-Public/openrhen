@@ -86,9 +86,12 @@ describe("replay suite against the baseline", () => {
     }
   });
 
-  it("is first-wins on a tie today (PR 3 changes this)", () => {
-    const twins = runs.deterministic.find((r) => r.testCase.id === "event-twin-records")!;
-    expect(twins.outcome).toMatchObject({ endState: "duplicate", tie: true });
+  it("asks on a tie instead of picking the first, and no chooser settles it", () => {
+    for (const path of PATHS) {
+      const twins = runs[path].find((r) => r.testCase.id === "event-twin-records")!;
+      expect(twins.outcome, path).toMatchObject({ endState: "asked", tie: true, usedChooser: false });
+    }
+    expect(baseline.knownViolations.tieGuess).toEqual([]);
   });
 
   it("reruns only the asked cases on the chooser paths, and that equals running everything", () => {
@@ -169,6 +172,18 @@ describe("generated replay suite against its baseline", () => {
     for (const kind of KINDS) expect(gen.metrics.deterministic.byTag[kind], kind).toBeDefined();
   });
 
+  it("keeps the tie kinds at 20x and asks on every one of them", () => {
+    const tieKinds = ["twin", "twin-contact", "deadline-twin", "ask-twin", "numbered"];
+    const at20 = generatedRuns.deterministic.filter((r) => r.testCase.tags.includes("20x"));
+    for (const kind of tieKinds) {
+      const ofKind = at20.filter((r) => r.testCase.id.endsWith(`-${kind}`));
+      expect(ofKind.length, kind).toBeGreaterThanOrEqual(2);
+    }
+    const twins = at20.filter((r) => r.outcome.tie);
+    expect(twins.length).toBeGreaterThanOrEqual(8);
+    for (const r of twins) expect(r.outcome.endState, r.testCase.id).toBe("asked");
+  });
+
   it("calls a chooser only for asked cases, and never on the deterministic path", () => {
     expect(generatedRuns.deterministic.some((r) => r.outcome.usedChooser)).toBe(false);
     expect(generatedRuns.oracle.some((r) => r.outcome.usedChooser)).toBe(true);
@@ -195,8 +210,7 @@ describe.skipIf(!env.REPLAY_LARGE)("large replay sweep (REPLAY_LARGE)", () => {
     }
     expect(newApplies(sweep.deterministic, sweep.adversarial)).toEqual([]);
     expect(sweep.deterministic.some((r) => r.outcome.usedChooser)).toBe(false);
-    // The tie-result change empties this: no resolved guess on a tied top rank, outside the known kinds.
-    const kinds = new Set(violations(sweep.deterministic).tieGuess.map((id) => id.split("-").slice(3).join("-")));
-    expect([...kinds].sort()).toEqual(["ask-twin", "deadline-twin", "numbered", "twin", "twin-contact"]);
+    // No resolved guess on a tied top rank, at any size.
+    expect(violations(sweep.deterministic).tieGuess).toEqual([]);
   });
 });

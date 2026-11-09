@@ -145,6 +145,87 @@ describe("matchCommitment", () => {
   });
 });
 
+describe("matchCommitment ties", () => {
+  const twin = (id: string, startsAt = "2026-09-30T09:00:00.000Z") => commitment({ id, startsAt });
+
+  it("returns a tie, not the first, when two commitments are equally strong", () => {
+    const result = matchCommitment(candidate(), [twin("b"), twin("a")], []);
+    expect(result).toMatchObject({ kind: "strong", tie: true, candidates: ["a", "b"], commitmentId: "a" });
+  });
+
+  it("returns a tie for two equal possible matches", () => {
+    const remote = candidate({ title: "Dentist" });
+    expect(matchCommitment(remote, [twin("b"), twin("a")], [])).toMatchObject({
+      kind: "possible",
+      tie: true,
+      candidates: ["a", "b"]
+    });
+  });
+
+  it("is no tie when one match outranks the other", () => {
+    const weaker = commitment({ id: "w", title: "Dentist" });
+    const result = matchCommitment(candidate(), [weaker, twin("s")], []);
+    expect(result).toMatchObject({ kind: "strong", commitmentId: "s" });
+    expect(result.tie).toBeUndefined();
+    expect(result.candidates).toBeUndefined();
+  });
+
+  it("lists the tied commitments earliest first, at most five, whatever the input order", () => {
+    const items = ["g", "f", "e", "d", "c", "b", "a"].map((id) => twin(id));
+    const forward = matchCommitment(candidate(), items, []);
+    const backward = matchCommitment(candidate(), [...items].reverse(), []);
+    expect(forward).toEqual(backward);
+    expect(forward.candidates).toEqual(["a", "b", "c", "d", "e"]);
+    const earlier = twin("z", "2026-09-30T09:05:00.000Z");
+    const earliest = commitment({ id: "y", startsAt: "2026-09-30T08:55:00.000Z" });
+    expect(matchCommitment(candidate(), [earlier, earliest], []).candidates).toEqual(["y", "z"]);
+  });
+
+  it("is invariant under every permutation of the commitments", () => {
+    const items = [twin("a"), twin("b"), twin("c"), commitment({ id: "x", title: "Dentist" })];
+    const perms = (xs: SourceCommitment[]): SourceCommitment[][] =>
+      xs.length <= 1
+        ? [xs]
+        : xs.flatMap((x, i) => perms([...xs.slice(0, i), ...xs.slice(i + 1)]).map((r) => [x, ...r]));
+    const results = perms(items).map((p) => matchCommitment(candidate(), p, []));
+    for (const r of results) expect(r).toEqual(results[0]);
+  });
+
+  it("returns a tie for two exact matches (a corrupt link), and exact still beats a strong tie", () => {
+    const linked = (id: string) => commitment({ id, links: [{ provider: "example_shared", externalId: "sk1" }] });
+    expect(matchCommitment(candidate(), [linked("b"), linked("a")], [])).toMatchObject({
+      kind: "exact",
+      tie: true,
+      candidates: ["a", "b"]
+    });
+    const result = matchCommitment(candidate(), [twin("s1"), twin("s2"), linked("l")], []);
+    expect(result).toMatchObject({ kind: "exact", commitmentId: "l" });
+    expect(result.tie).toBeUndefined();
+  });
+
+  it("skips cancelled commitments when counting a tie", () => {
+    const result = matchCommitment(candidate(), [twin("a"), commitment({ id: "b", status: "cancelled" })], []);
+    expect(result).toMatchObject({ kind: "strong", commitmentId: "a" });
+    expect(result.tie).toBeUndefined();
+  });
+
+  it("keeps a single-id reader working: a tie still names the earliest commitment", () => {
+    const result = matchCommitment(candidate(), [twin("b"), twin("a")], []);
+    expect(result.kind).not.toBe("none");
+    expect(result.commitmentId).toBe("a");
+  });
+
+  it("gives a hand entry the same tie", () => {
+    const entry = {
+      title: "Harbor Mart shift",
+      startsAt: "2026-09-30T09:00:00.000Z",
+      endsAt: "2026-09-30T17:00:00.000Z",
+      localDate: "2026-09-30"
+    };
+    expect(matchHandEntry(entry, [twin("b"), twin("a")])).toMatchObject({ tie: true, candidates: ["a", "b"] });
+  });
+});
+
 describe("sourceRole", () => {
   it("makes only a source whose manifest says primary primary", () => {
     expect(sourceRole(EXAMPLE_DAILY_SOURCE)).toBe("primary");

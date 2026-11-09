@@ -275,6 +275,7 @@ export { commitmentFreedAt } from "./planning/commitment-freed.js";
 export {
   aliasTitleNorm,
   carriesPublishMarker,
+  MAX_TIE_CANDIDATES,
   matchCommitment,
   matchHandEntry,
   matchSeriesToRule,
