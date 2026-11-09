@@ -430,7 +430,7 @@ export function validateBackup(value: unknown): OpenRhenBackup {
             legacyRequiredTables(CURRENT_BACKUP_FORMAT_VERSION - 1)
               ? ` and format ${CURRENT_BACKUP_FORMAT_VERSION - 1} ones`
               : ""
-          } only`
+          } only. Restore this backup on the build that wrote it, then take a fresh backup there and restore that one here`
         : "";
     throw new Error(`Unsupported backup formatVersion ${String(version)}${reason}`);
   }
