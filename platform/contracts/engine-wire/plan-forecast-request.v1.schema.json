@@ -688,6 +688,16 @@
                 "minimum": 1,
                 "maximum": 5
               },
+              "consequenceRefined": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 6
+              },
+              "consequenceRefinedForStars": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5
+              },
               "actualCompletionRatio": {
                 "type": "number",
                 "minimum": 0,
@@ -852,6 +862,16 @@
                 "maximum": 5
               },
               "consequence": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5
+              },
+              "consequenceRefined": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 6
+              },
+              "consequenceRefinedForStars": {
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 5

@@ -148,6 +148,27 @@ export function effectiveConsequence(action: Action, project: Project | undefine
   return 0.6 * p + 0.4 * action.consequence;
 }
 
+/**
+ * The same mix without the 1-5 clamp (each input only made finite and bounded to 0..6), so the ordinary
+ * tiebreak still orders items whose refined values lie beyond the stars scale. Tiebreak only; never scored.
+ */
+export function effectiveConsequenceRefinedUnclamped(action: Action, project: Project | undefined): number {
+  const bounded = (value: number) => (Number.isFinite(value) ? Math.min(6, Math.max(0, value)) : 0);
+  const p = bounded(project ? (project.consequenceRefined ?? project.consequence) : 1);
+  return 0.6 * p + 0.4 * bounded(action.consequenceRefined ?? action.consequence);
+}
+
+/**
+ * Like `effectiveConsequence`, but each input is the comparison-refined value when present (else its
+ * stars), clamped to 1-5 separately before the 0.6/0.4 mix. For the ordinary consequence score only (the
+ * tiebreak uses the unclamped mix above); deadline tiers and continuation stay on `effectiveConsequence`.
+ */
+export function effectiveConsequenceRefined(action: Action, project: Project | undefined): number {
+  const clamp15 = (value: number) => Math.min(5, Math.max(1, value));
+  const p = clamp15(project ? (project.consequenceRefined ?? project.consequence) : 1);
+  return 0.6 * p + 0.4 * clamp15(action.consequenceRefined ?? action.consequence);
+}
+
 export interface ScoreActionInput {
   now: Date;
   horizonEnd: Date;
@@ -312,7 +333,7 @@ export function scoreAction(input: ScoreActionInput): RecommendationCandidate {
   const scoreComponents = {
     // A stale date applies no deadline pressure: every term of urgency() derives from the lapsed date.
     capacityPressure: Math.round((critical.tier === "stale_date" ? 0 : urgency(args)) * scoreWeights.capacityPressure),
-    consequence: Math.round(normalizeFive(effectiveConsequence(action, project)) * scoreWeights.consequence),
+    consequence: Math.round(normalizeFive(effectiveConsequenceRefined(action, project)) * scoreWeights.consequence),
     outcomeValue: Math.round(normalizeFive(project?.value ?? action.importance) * scoreWeights.outcomeValue),
     importance: action.cadence ? 0 : (normalizeFive(action.importance) - 0.5) * scoreWeights.importance,
     neglect: Math.round(neglect(action, project, args.now) * scoreWeights.neglect),
