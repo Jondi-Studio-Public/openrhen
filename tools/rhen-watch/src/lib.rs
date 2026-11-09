@@ -5,6 +5,7 @@ pub mod activity;
 pub mod categories;
 pub mod cli;
 pub mod config;
+pub mod derive;
 pub mod engine;
 pub mod ids;
 pub mod log;
@@ -17,6 +18,8 @@ pub mod runner;
 pub mod store;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_derive;
 #[cfg(test)]
 mod tests_meter;
 #[cfg(test)]
