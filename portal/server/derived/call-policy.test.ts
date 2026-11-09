@@ -219,6 +219,22 @@ describe("hosted tier", () => {
     expect(calls).toEqual([]);
   });
 
+  it("counts the tokens of failed and repaired attempts, and the warm-up, in the result", async () => {
+    const { deps } = setup({}, [ok("OK", 10, 5), ok("nope", 100, 20), ok("fixed", 100, 20)]);
+    const result = await callModel(deps, { ...t2, validate: (text) => (text === "fixed" ? null : "bad") });
+    // warm-up 15 + first attempt 120 + repair 120
+    expect(result).toMatchObject({ kind: "ok", tokens: 255 });
+  });
+
+  it("a cap that is not a positive number (0, NaN) refuses every send", async () => {
+    for (const cap of [0, Number.NaN]) {
+      const { deps, calls } = setup();
+      deps.settings.t3DailyMessageCap = cap;
+      expect(await callModel(deps, t3)).toMatchObject({ kind: "refused", reason: "message_cap" });
+      expect(calls).toEqual([]);
+    }
+  });
+
   it("a cap of 0 refuses every send and says how to change it", async () => {
     const { deps } = setup();
     deps.settings.t3DailyMessageCap = 0;

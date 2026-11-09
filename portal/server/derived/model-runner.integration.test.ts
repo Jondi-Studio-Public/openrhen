@@ -25,7 +25,6 @@ import {
   MODEL_BATCH,
   NO_CONTENT_KEPT,
   trimSkipped,
-  DENY_HOSTED,
   MODEL_MESSAGE_BUDGET,
   runModelTick,
   type ModelExtractorResult,
@@ -232,7 +231,7 @@ describe("the model tick", () => {
     const { transport, calls } = fakeTransport();
     const result = await run(0, [], transport);
     expect(result).toMatchObject({ status: "no_extractors", more: false, extractors: [] });
-    expect((result as { summary: string }).summary).toContain("2b-6");
+    expect((result as { summary: string }).summary).toContain("No model extractor is registered");
     expect(calls).toHaveLength(0);
     expect(await sql`SELECT 1 FROM extractor_state`).toHaveLength(0);
   });
@@ -708,7 +707,7 @@ describe("the model tick", () => {
   });
 
   describe("hosted models", () => {
-    it("never sends to the hosted tier without an eligibility checker: the default refuses, and says why", async () => {
+    it("never sends to the hosted tier by default: with no hosted key saved the real rule refuses, and says why", async () => {
       await saveDerivedSettings(sql, { t3Model: "meta-llama/Llama-3.3-70B-Instruct" });
       const replies: string[] = [];
       const { extractor: ex } = extractor(async (message, ctx) => {
@@ -722,9 +721,52 @@ describe("the model tick", () => {
       await run(600, [ex], transport);
       expect(replies).toHaveLength(1);
       expect(replies[0]).toContain("not_eligible");
-      expect(replies[0]).toContain("no hosted-eligibility rule is installed");
+      expect(replies[0]).toContain("no hosted API key is saved");
       expect(calls.filter((c) => c.tier === "t3")).toHaveLength(0);
       expect(await sql`SELECT 1 FROM derived_model_calls`).toHaveLength(0);
+    });
+
+    it("a shadow version sends to the hosted tier only up to SHADOW_HOSTED_SHARE of the daily cap, and the active version keeps the rest", async () => {
+      await saveDerivedSettings(sql, { t3Model: "vendor/big-model", t3DailyMessageCap: 20 });
+      const yes: HostedEligibilityChecker = async () => ({ eligible: true });
+      const outcomes = { shadow: [] as string[], active: [] as string[] };
+      const hostedCaller = (into: string[]) => async (message: ModelSourceMessage, ctx: ModelExtractContext) => {
+        const reply = await ctx.call({ tier: "t3", messages: [{ role: "user", content: message.content }] });
+        into.push(reply.kind === "refused" ? reply.reason : reply.kind);
+        return { kind: "rows" as const, rows: [] };
+      };
+      const v1 = extractor(hostedCaller(outcomes.active));
+      const v2 = extractor(hostedCaller(outcomes.shadow), { version: "2" });
+      await run(0, [v1.extractor, v2.extractor], fakeTransport().transport, { isHostedEligible: yes });
+      for (let i = 0; i < 8; i += 1) await mail(at(10 + i));
+      const { transport } = fakeTransport();
+      await run(600, [v1.extractor, v2.extractor], transport, { isHostedEligible: yes });
+      // The active version is read first and has the whole cap of 20, so all 8 sends go.
+      expect(outcomes.active.filter((o) => o === "ok")).toHaveLength(8);
+      // The shadow version sees 8 sends already used in the last 24 hours, which is over its share of 4: every send is refused.
+      expect(outcomes.shadow).toHaveLength(8);
+      expect(new Set(outcomes.shadow)).toEqual(new Set(["message_cap"]));
+    });
+
+    it("a shadow version sends while the last 24 hours' sends are under its share", async () => {
+      await saveDerivedSettings(sql, { t3Model: "vendor/big-model", t3DailyMessageCap: 20 });
+      const yes: HostedEligibilityChecker = async () => ({ eligible: true });
+      const shadow: string[] = [];
+      const v1 = extractor();
+      const v2 = extractor(
+        async (message, ctx) => {
+          const reply = await ctx.call({ tier: "t3", messages: [{ role: "user", content: message.content }] });
+          shadow.push(reply.kind === "refused" ? reply.reason : reply.kind);
+          return { kind: "rows", rows: [] };
+        },
+        { version: "2" }
+      );
+      await run(0, [v1.extractor, v2.extractor], fakeTransport().transport, { isHostedEligible: yes });
+      for (let i = 0; i < 7; i += 1) await mail(at(10 + i));
+      await run(600, [v1.extractor, v2.extractor], fakeTransport().transport, { isHostedEligible: yes });
+      // Cap 20 gives a share of 4: the first four sends go, the rest are refused at the share.
+      expect(shadow.filter((o) => o === "ok")).toHaveLength(4);
+      expect(shadow.filter((o) => o === "message_cap")).toHaveLength(3);
     });
 
     it("sends once an eligibility checker says yes, and passes it the event key", async () => {
@@ -776,11 +818,11 @@ describe("review findings", () => {
     });
     expect(contexts.get("target")).toEqual(["ctx-good"]);
     expect(asked).toContain("ctx-bad");
-    // without a checker nothing is eligible, so a hosted-capable version sees no context at all
+    // without a test checker the real rule runs on the database: plain mail from a person passes it
     contexts.clear();
     await mail(at(700), { thread: "T", key: "later" });
     await run(1200, [ex], fakeTransport().transport);
-    expect(contexts.get("later")).toEqual([]);
+    expect(contexts.get("later")).toEqual(["ctx-bad", "ctx-good", "target"]);
   });
 
   it("F2: a version promoted while its run was calling the model writes nothing, and releases its lease", async () => {
@@ -1065,7 +1107,6 @@ describe("review round 2", () => {
     expect(down.message).toContain("No message was read");
     expect(down.message).toContain('POST /api/derived-settings/test {"tier":"t2"}');
     expect(down.message).toContain('{"tier":"t3"}');
-    expect((await DENY()).reason).toContain("No call enables it");
   });
 
   it("a failed message's note names when and what to call", async () => {
@@ -1079,12 +1120,6 @@ describe("review round 2", () => {
     expect(result.message).toContain(at(600 + RETRY_COOLDOWN_MS[0]! / 1000).toISOString());
   });
 });
-
-async function DENY() {
-  const verdict = await DENY_HOSTED({ sourceEventKey: "x", model: "m" });
-  if (verdict.eligible) throw new Error("expected a refusal");
-  return verdict;
-}
 
 describe("trimSkipped", () => {
   const entry = (i: number, code: string) => ({ id: `i${i}`, key: `k${i}`, code, at: "t" });

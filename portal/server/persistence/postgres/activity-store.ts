@@ -458,6 +458,23 @@ export async function readActivitySummary(sql: Sql, now: Date = new Date()): Pro
   };
 }
 
+/** Per-message tokens and seconds a model extractor recorded in its cursor (`usage`: running totals), or nothing while it has read none. */
+function measuredCost(
+  usage: unknown
+): { measured: NonNullable<ActivityExtractorSummary["measured"]> } | Record<string, never> {
+  if (usage === null || typeof usage !== "object") return {};
+  const { messages, tokens, seconds } = usage as Record<string, unknown>;
+  if (typeof messages !== "number" || !(messages > 0) || typeof tokens !== "number" || typeof seconds !== "number")
+    return {};
+  return {
+    measured: {
+      messages,
+      tokensPerMessage: Math.round((tokens / messages) * 10) / 10,
+      secondsPerMessage: Math.round((seconds / messages) * 100) / 100
+    }
+  };
+}
+
 const isMark = (value: unknown): value is Mark =>
   value !== null &&
   typeof value === "object" &&
@@ -512,7 +529,8 @@ async function extractorSummaries(
       behind,
       skipped: typeof state.cursor.skipped === "number" ? state.cursor.skipped : 0,
       lastOkAt: state.lastOkAt?.toISOString() ?? null,
-      lastError: state.lastError
+      lastError: state.lastError,
+      ...measuredCost(state.cursor.usage)
     });
   }
   return { extractors: out, derivedBehind };

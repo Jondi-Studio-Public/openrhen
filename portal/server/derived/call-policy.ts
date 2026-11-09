@@ -70,7 +70,17 @@ export interface PolicyRequest {
  * `msg_class: person`, no auth failure, no one-time code, no banking word or sender, no sender labelled sensitive) is
  * implemented with the communication readers; this slice only calls it, at the call site, with the event key.
  */
-export type HostedEligibility = { eligible: true } | { eligible: false; reason: string };
+export type HostedEligibility =
+  | { eligible: true }
+  | {
+      eligible: false;
+      reason: string;
+      /**
+       * True when the refusal is a verdict about THIS message (the rule says no, the text is gone), which will not change
+       * on a retry; absent for a setting (a cap of 0, no key saved) that the owner can change.
+       */
+      settled?: boolean;
+    };
 export type HostedEligibilityChecker = (subject: {
   sourceEventKey: string;
   model: string;
@@ -117,13 +127,24 @@ export type PolicyResult =
       /** The model digest when the request asked for it and the host reported one. */
       digest?: string | null;
       attempts: number;
+      /** Tokens (in plus out) of EVERY attempt, repairs and a warm-up included; a failed attempt counts its prompt's estimate. */
+      tokens: number;
     }
   | {
       kind: "refused";
       reason: "not_eligible" | "message_cap" | "token_cap" | "model_retention";
       message: string;
+      /** For `not_eligible`: the checker said the refusal is about this message, not a setting (see `HostedEligibility`). */
+      settled?: boolean;
     }
-  | { kind: "failed"; outcome: Exclude<ModelOutcome["outcome"], "ok">; message: string; attempts: number };
+  | {
+      kind: "failed";
+      outcome: Exclude<ModelOutcome["outcome"], "ok">;
+      message: string;
+      attempts: number;
+      /** As on `ok`: the tokens every attempt used. */
+      tokens: number;
+    };
 
 /** Waits before the first and second retry of a timeout. */
 export const TIMEOUT_BACKOFF_MS = [5_000, 20_000] as const;
@@ -194,11 +215,16 @@ async function attempts(
   let timeouts = 0;
   let repaired = false;
   let sent = 0;
+  let spent = 0;
   for (;;) {
     const refusal = await hooks.beforeSend?.(messages);
     if (refusal) return refusal;
     const outcome = await deps.transport.complete(request.tier, { ...base, messages });
     sent += 1;
+    spent +=
+      outcome.outcome === "ok"
+        ? (outcome.tokensIn ?? estimateTokens(messages)) + (outcome.tokensOut ?? 0)
+        : estimateTokens(messages);
     let verdict: string | null = null;
     let reason: string = outcome.outcome;
     if (outcome.outcome === "ok") {
@@ -215,7 +241,8 @@ async function attempts(
         tokensIn: outcome.tokensIn,
         tokensOut: outcome.tokensOut,
         ...(outcome.digest === undefined ? {} : { digest: outcome.digest }),
-        attempts: sent
+        attempts: sent,
+        tokens: spent
       };
     if (outcome.outcome === "timeout" && timeouts < TIMEOUT_BACKOFF_MS.length) {
       await deps.sleep(TIMEOUT_BACKOFF_MS[timeouts]!);
@@ -233,14 +260,16 @@ async function attempts(
         kind: "failed",
         outcome: "bad_output",
         message: `The model's reply was refused twice (${verdict}). Nothing was kept.`,
-        attempts: sent
+        attempts: sent,
+        tokens: spent
       };
-    return { kind: "failed", outcome: outcome.outcome, message: outcome.message, attempts: sent };
+    return { kind: "failed", outcome: outcome.outcome, message: outcome.message, attempts: sent, tokens: spent };
   }
 }
 
 async function runLocal(deps: PolicyDeps, request: PolicyRequest, base: ModelRequest): Promise<PolicyResult> {
   const key = request.model;
+  let warmTokens = 0;
   if (!deps.state.warmed.has(key)) {
     const { validate: _unused, ...unchecked } = request;
     const warm = await attempts(
@@ -251,9 +280,11 @@ async function runLocal(deps: PolicyDeps, request: PolicyRequest, base: ModelReq
     );
     // A warm-up reply is whatever the model says; only a transport failure matters (validate is not applied to it).
     if (warm.kind === "failed" && warm.outcome !== "bad_output") return warm;
+    if (warm.kind !== "refused") warmTokens = warm.tokens;
     deps.state.warmed.add(key);
   }
-  return attempts(deps, request, base, {});
+  const real = await attempts(deps, request, base, {});
+  return real.kind === "refused" ? real : { ...real, tokens: real.tokens + warmTokens };
 }
 
 async function runHosted(deps: PolicyDeps, request: PolicyRequest, base: ModelRequest): Promise<PolicyResult> {
@@ -264,20 +295,21 @@ async function runHosted(deps: PolicyDeps, request: PolicyRequest, base: ModelRe
     return {
       kind: "refused",
       reason: "not_eligible",
-      message: `This message is not sent to the hosted model: ${eligibility.reason}.`
+      message: `This message is not sent to the hosted model: ${eligibility.reason}.`,
+      ...(eligibility.settled === true ? { settled: true } : {})
     };
   return attempts(deps, request, base, {
     async beforeSend(messages) {
       const { t3DailyMessageCap, t3DailyTokenCap } = deps.settings;
       const used = await deps.usage();
-      if (used.messages + 1 > t3DailyMessageCap)
+      if (!(used.messages + 1 <= t3DailyMessageCap))
         return {
           kind: "refused",
           reason: "message_cap",
           message: `The hosted model's daily limit of ${t3DailyMessageCap} messages is reached (${used.messages} sent in the last 24 hours). Raise it in Settings > Mail understanding, or wait.`
         };
       const needed = estimateTokens(messages) + base.maxTokens;
-      if (used.tokens + needed > t3DailyTokenCap)
+      if (!(used.tokens + needed <= t3DailyTokenCap))
         return {
           kind: "refused",
           reason: "token_cap",

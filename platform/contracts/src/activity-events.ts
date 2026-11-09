@@ -867,6 +867,12 @@ export interface ActivityExtractorSummary {
   skipped: number;
   lastOkAt: string | null;
   lastError: string | null;
+  /**
+   * Model extractors only, once a model has read a message: what the model calls cost per message, measured over every
+   * message this version has read. Pass these as `tokens_per_message` and `seconds_per_message` to
+   * `GET /api/activity-events/summary?report=eval` for the backfill estimate.
+   */
+  measured?: { messages: number; tokensPerMessage: number; secondsPerMessage: number };
 }
 
 /** The window the per-device view looks back over. */

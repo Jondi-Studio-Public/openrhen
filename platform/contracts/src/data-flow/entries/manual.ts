@@ -178,7 +178,13 @@ export const MANUAL_ENTRIES: readonly FlowEntry[] = [
       routes: ["PUT /api/derived-settings", "POST /api/derived-settings/test"]
     },
     to: ["pg:derived_settings"],
-    incidentalWrites: [{ table: "derived_model_calls", reason: "the Test button records its one model call" }],
+    incidentalWrites: [
+      { table: "derived_model_calls", reason: "the Test button records its one model call" },
+      {
+        table: "extractor_state",
+        reason: "saving a model that no version of the mail extractor runs with creates its next (inactive) version"
+      }
+    ],
     health: { kind: "none", reason: "the owner's settings; nothing arrives on a schedule" }
   })
 ];
