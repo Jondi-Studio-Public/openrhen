@@ -867,6 +867,15 @@ describe("the proposal summary", () => {
   });
 });
 
+describe("drift report", () => {
+  it("opens to a token that can read the plan, and to nothing narrower", async () => {
+    expect(await call("GET", "/api/drift-report", principal(["read:plan"]))).toBeNull();
+    const refused = await call("GET", "/api/drift-report", principal(["read:activity-event", "write:session"]));
+    expect(refused?.status).toBe(403);
+    expect(await refused?.json()).toMatchObject({ missingScopes: ["read:plan"] });
+  });
+});
+
 describe("activity store", () => {
   const events = { schema: 1, events: [] };
   const everyActivityScope = principal(["read:plan", "write:activity-event", "read:activity-event"]);

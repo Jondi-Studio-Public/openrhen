@@ -179,6 +179,22 @@ export const READER_ENTRIES: readonly FlowEntry[] = [
     health: { kind: "none", reason: "pass-through read; nothing to be late" }
   }),
   flow({
+    id: "rest-drift-report",
+    name: "Drift report",
+    role: "reader",
+    category: "operations",
+    method: "derived",
+    trigger: { kind: "on-request", by: "owner" },
+    passThrough: true,
+    code: {
+      paths: ["portal/server/drift/drift-report.ts"],
+      routes: ["GET /api/drift-report"]
+    },
+    from: ["pg:check_in", "pg:sessions"],
+    to: ["surface:rest"],
+    health: { kind: "none", reason: "pass-through read; nothing to be late" }
+  }),
+  flow({
     id: "eval-report",
     name: "Derived rows evaluation report",
     role: "reader",
