@@ -143,6 +143,12 @@
         "unknown",
         "clock_jump",
         "dropped",
+        "paused",
+        "degraded",
+        "start",
+        "stop",
+        "visit",
+        "input_minute",
         "title",
         "ocr",
         "correction"
