@@ -313,6 +313,32 @@ for (const absolute of markdownFiles) {
   }
 }
 
+// A proof named in the behaviour contract must be a file that exists: a renamed test otherwise leaves a row that
+// claims an invariant is proven by something that cannot run. Only backticked `*.test.ts(x)` citations are checked.
+// A citation with a `/` is a path from the repository root; a bare name matches a test file of that name anywhere in
+// the source trees.
+const contractPath = "docs/product/behaviour-contract.md";
+if (existsSync(resolve(root, contractPath))) {
+  const contract = readFileSync(resolve(root, contractPath), "utf8");
+  const testNames = new Set();
+  const collectTests = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (!ignoredDirectories.has(entry.name)) collectTests(resolve(directory, entry.name));
+      } else if (/\.test\.tsx?$/u.test(entry.name)) testNames.add(entry.name);
+    }
+  };
+  for (const tree of ["engine", "portal", "platform", "tools", "integrations", "overlay", "scripts"]) {
+    if (existsSync(resolve(root, tree))) collectTests(resolve(root, tree));
+  }
+  const proofPath = /`([A-Za-z0-9_./-]+\.test\.tsx?)`/g;
+  for (const match of contract.matchAll(proofPath)) {
+    const cited = match[1];
+    const found = cited.includes("/") ? existsSync(resolve(root, cited)) : testNames.has(cited);
+    if (!found) errors.push(`${contractPath} cites a test file that does not exist: ${cited}`);
+  }
+}
+
 const indexPath = resolve(root, "docs/README.md");
 if (!existsSync(indexPath)) {
   errors.push("Missing docs/README.md");
