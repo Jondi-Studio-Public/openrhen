@@ -6,6 +6,8 @@ import { ASSUMABLE_ACTION_FIELDS } from "./action-defaults.js";
 import { requirementPathwaySchema, transportModeSchema } from "./context-model.js";
 import { removedFieldMessage } from "../removed-field-names.js";
 import { prerequisiteRefSchema } from "./prerequisites.js";
+import { agentBasisSchema } from "../agent-proposals.js";
+import { CONSEQUENCE_WORDINGS } from "./consequence-question.js";
 
 /** A session cannot be planned for longer than a day. */
 export const MAX_PLANNED_SESSION_MINUTES = 1440;
@@ -578,6 +580,53 @@ export const recalculateCommandSchema = z.object({
   now: offsetDateTime(),
   assertedConditions: z.array(z.string().trim().min(1)).optional()
 });
+
+/**
+ * `rankConsequenceGroup`: the answer to a group of items the server handed out ("which would you do if you could only
+ * finish one?"). The portal card, `rhen rank` and an agent's `rhen_save comparison` all send this. `rankedIds` are
+ * every id of the group once, best first; `tie` says they are equal or the person cannot decide. The server derives
+ * who answered from the caller (a person in the portal, or the agent token), forces a person's basis to `stated`, and
+ * holds an agent to the basis rules (`stated` and `observed` need evidence; `inferred` counts for half). `wording` is
+ * optional: when sent it must be the wording the group was asked under. The command id is the idempotency key.
+ */
+export const rankConsequenceGroupCommandSchema = z
+  .object({
+    commandId: z.string().uuid(),
+    groupId: z.string().trim().min(1).max(100),
+    rankedIds: z.array(z.string().trim().min(1).max(200)).max(8).optional(),
+    tie: z.boolean().optional(),
+    wording: z.enum(CONSEQUENCE_WORDINGS).optional(),
+    basis: agentBasisSchema.optional(),
+    evidence: z.string().trim().min(1).max(300).optional()
+  })
+  .superRefine((command, context) => {
+    if (command.tie === true && (command.rankedIds?.length ?? 0) > 0)
+      context.addIssue({
+        code: "custom",
+        path: ["rankedIds"],
+        message: "Send either rankedIds (every id of the group once, best first) or tie: true, not both."
+      });
+    if (command.tie !== true && (command.rankedIds?.length ?? 0) === 0)
+      context.addIssue({
+        code: "custom",
+        path: ["rankedIds"],
+        message:
+          "Send rankedIds (every id of the group once, best first), or tie: true if the person says they are equal or cannot decide."
+      });
+  });
+export type RankConsequenceGroupCommand = z.infer<typeof rankConsequenceGroupCommandSchema>;
+
+/** What a recorded answer returns. */
+export interface RankConsequenceGroupResult {
+  comparisonId: string;
+  groupId: string;
+  /** True when this exact answer had already been recorded under the same command id. */
+  replayed: boolean;
+  by: "person" | "agent";
+  basis: "stated" | "observed" | "inferred";
+  /** What to do next, in words. */
+  next: string;
+}
 
 /** How far back a wake or a sleep start may be told (the same bound as a backfilled session start). */
 export const WAKE_MAX_BACK_HOURS = 24;

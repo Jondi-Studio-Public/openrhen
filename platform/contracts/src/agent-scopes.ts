@@ -58,7 +58,7 @@ export function downgradeScope(scope: string): string {
   return scope.startsWith("write:") ? `propose:${scope.slice("write:".length)}` : scope;
 }
 
-/** Every `entityType` `save` and `bulk` can write: the 17-value entity enum plus the dedicated project and action routes. */
+/** Every `entityType` `save` and `bulk` can write: the 17-value entity enum plus the dedicated project, action and comparison routes. */
 export const AGENT_ENTITY_TYPES = [
   "area",
   "outcome",
@@ -78,7 +78,8 @@ export const AGENT_ENTITY_TYPES = [
   "current_availability",
   "sleep_log_entry",
   "capture_review",
-  "deliverable_contract_review"
+  "deliverable_contract_review",
+  "comparison"
 ] as const;
 export type AgentEntityType = (typeof AGENT_ENTITY_TYPES)[number];
 
@@ -118,6 +119,9 @@ const FIXED_TOOL_SCOPES = {
   // When the person woke is a fact about last night's sleep, so it takes the sleep log's scope, as the wake-only
   // settings save does (`WAKE_SETTINGS_FIELDS`). Applied directly with no proposal: it records what happened.
   wake: ["write:entity:sleep_log_entry"],
+  // The answer to a group of items to rank (`rhen rank`, `rhen_save comparison`): a log entry, never a proposal, so the
+  // comparison class's scope. The group itself is read from the compare room of `rhen_inbox` under `read:plan`.
+  rank: ["write:entity:comparison"],
   // "I'm free" is a commitment save that sends `free` alone, so it takes the commitment save's scope.
   free: ["write:entity:commitment"],
   session: ["write:session"],
