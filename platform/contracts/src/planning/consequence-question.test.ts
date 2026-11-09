@@ -4,8 +4,12 @@ import {
   CONSEQUENCE_WORDINGS,
   buildConsequenceGroupView,
   consequenceAnswerCall,
+  CONSEQUENCE_EVIDENCE_PLACEHOLDER,
+  consequenceResendStep,
+  consequenceSaveCallTemplate,
   consequenceWordingForDay,
-  isConsequenceWording
+  isConsequenceWording,
+  isPlaceholderEvidence
 } from "./consequence-question.js";
 import { rankConsequenceGroupCommandSchema } from "./commands.js";
 import { addLocalDays, localDateOf } from "./cadence-due.js";
@@ -108,5 +112,40 @@ describe("rankConsequenceGroupCommandSchema", () => {
     expect(
       rankConsequenceGroupCommandSchema.safeParse({ ...base, basis: "stated", evidence: "yes, that one" }).success
     ).toBe(true);
+  });
+});
+
+describe("placeholder evidence", () => {
+  it("recognises the placeholder an answering call carries, and anything written as <...>", () => {
+    expect(consequenceAnswerCall("g1", ["a", "b"]).arguments).toMatchObject({
+      evidence: CONSEQUENCE_EVIDENCE_PLACEHOLDER
+    });
+    expect(isPlaceholderEvidence(CONSEQUENCE_EVIDENCE_PLACEHOLDER)).toBe(true);
+    expect(isPlaceholderEvidence("  <what they said>  ")).toBe(true);
+    expect(isPlaceholderEvidence("<>")).toBe(true);
+  });
+
+  it("lets real words through, even ones that mention angle brackets", () => {
+    expect(isPlaceholderEvidence("Bravo first, then Alpha")).toBe(false);
+    expect(isPlaceholderEvidence("<b>Alpha</b> matters more")).toBe(false);
+    expect(isPlaceholderEvidence("a < b")).toBe(false);
+    expect(isPlaceholderEvidence("")).toBe(false);
+  });
+});
+
+describe("the next-step texts an agent is given", () => {
+  it("spells the resend step with the read call, the groupId and the rankedIds", () => {
+    const step = consequenceResendStep();
+    expect(step).toContain('rhen_inbox {"room":"compare"}');
+    expect(step).toContain("GET /api/consequence/next");
+    expect(step).toContain("groupId");
+    expect(step).toContain("rankedIds");
+  });
+
+  it("spells the whole save call with every field and where its value comes from", () => {
+    const template = consequenceSaveCallTemplate();
+    for (const word of ["rhen_save", "comparison", "groupId", "rankedIds", "tie", "wording", "basis", "evidence"])
+      expect(template).toContain(word);
+    expect(template).toContain("the person's own words");
   });
 });

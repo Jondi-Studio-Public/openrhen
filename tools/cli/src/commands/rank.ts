@@ -1,4 +1,5 @@
 import {
+  consequenceSaveCallTemplate,
   formatAgentCall,
   rankConsequenceGroupCommandSchema,
   type ConsequenceGroupView,
@@ -31,10 +32,14 @@ export interface ComparisonAnswer {
 
 /** The group as text: the question, the numbered items, and how to answer. */
 export function describeGroup(context: CommandContext, group: ConsequenceGroupView): string {
+  const inOrder = group.items.map((item) => item.n).join(" ");
   const how = context.mcp
-    ? `Answer with ${formatAgentCall(group.answerCall)}`
-    : `Answer with the numbers, best first: rhen rank ${group.items.map((item) => item.n).join(" ")} (reorder them). ` +
-      "Equal or cannot decide: rhen rank --tie. Not now: rhen rank --skip.";
+    ? `groupId: ${group.groupId}\nAnswer with ${formatAgentCall(group.answerCall)}`
+    : `groupId: ${group.groupId}\n` +
+      `Answer with the numbers, best first (reorder them): rhen rank ${inOrder} --group ${group.groupId}\n` +
+      `Equal or cannot decide: rhen rank --tie --group ${group.groupId}\n` +
+      "Not now: rhen rank --skip\n" +
+      "--group makes a retry safe: if the first try's reply was lost, a repeat is refused instead of answering the next group.";
   return [
     group.question,
     ...group.items.map((item) => `  ${item.n}. ${item.title} (${item.stars} star${item.stars === 1 ? "" : "s"})`),
@@ -116,7 +121,8 @@ export const rankCommand: CommandSpec = {
   description:
     "Shows the next group of items to rank (projects with projects; actions with actions of the same project) with " +
     "numbered items, and the question for today. Answer with the numbers best first (`rank 2 1 4 3`), --tie when they are " +
-    "equal or you cannot decide, or --skip to leave it for now. Only the person's answer counts in full: an agent sends " +
+    "equal or you cannot decide, or --skip to leave it for now; the numbers and --tie need --group <groupId> from the " +
+    "group shown (run `rank` with nothing first), so a retry cannot land on the next group. Only the person's answer counts in full: an agent sends " +
     "--basis stated with --evidence (their words), or --basis inferred (a guess, counted at half). Nothing changes until " +
     "you answer; an unanswered group stays the next one.",
   positionals: [
@@ -137,12 +143,19 @@ export const rankCommand: CommandSpec = {
     group: {
       type: "string",
       placeholder: "id",
-      description: "Answer only if this is still the group shown (its groupId)"
+      description:
+        "The groupId shown by `rhen rank`; required with the numbers or --tie (a repeat after a lost reply is then refused)"
     },
     "dry-run": { type: "boolean", description: "Print the answer that would be sent instead of sending it" }
   },
   mutates: true,
-  examples: ["rank", "rank 2 1 4 3", "rank --tie", "rank --skip", "rank --pool action"],
+  examples: [
+    "rank",
+    "rank 2 1 4 3 --group <groupId>",
+    "rank --tie --group <groupId>",
+    "rank --skip",
+    "rank --pool action"
+  ],
   async run(context, args) {
     const pool = stringOption(args.values, "pool");
     if (pool !== undefined && pool !== "project" && pool !== "action")
@@ -153,6 +166,13 @@ export const rankCommand: CommandSpec = {
     if ((tie || skip) && typed.length > 0)
       throw new CliError("Give the numbers, or --tie, or --skip: not more than one.", EXIT.usage);
     if (tie && skip) throw new CliError("Give --tie or --skip, not both.", EXIT.usage);
+    if ((typed.length > 0 || tie) && stringOption(args.values, "group") === undefined)
+      throw new CliError(
+        "Answering needs --group <groupId>, so a retry after a lost reply cannot land on the next group. " +
+          "To fix this, run `rhen rank` first to see the group, its groupId and the exact answer command, then send " +
+          "`rhen rank <numbers best first> --group <groupId>` (or `rhen rank --tie --group <groupId>`). Nothing was changed.",
+        EXIT.usage
+      );
 
     const { group } = await context.client.get<{ group: ConsequenceGroupView | null }>(
       pool ? `${NEXT}?pool=${pool}` : NEXT
@@ -199,21 +219,31 @@ export async function saveComparison(
   for (const name of ["id", "create", "expected-version"])
     if (args.values[name] !== undefined)
       throw new CliError(
-        `A comparison is an answer, not a record: --${name} does not apply. Send fields groupId and rankedIds (or tie).`,
+        `A comparison is an answer, not a record: --${name} does not apply. Leave --id, --create and --expected-version off and send: ${consequenceSaveCallTemplate()}`,
         EXIT.usage
       );
   const { groupId, rankedIds, tie, wording } = provided;
   if (typeof groupId !== "string" || groupId.trim() === "")
     throw new CliError(
       `A comparison needs the groupId of the group it answers. Get the group with ${formatAgentCall({ tool: "rhen_inbox", arguments: { room: "compare" } })} ` +
-        `(CLI: rhen rank), then send fields {"groupId": "<its groupId>", "rankedIds": [ids best first]} or {"groupId": "<its groupId>", "tie": true}.`,
+        `(CLI: rhen rank), then send: ${consequenceSaveCallTemplate()}`,
       EXIT.validation
     );
   if (rankedIds !== undefined && (!Array.isArray(rankedIds) || rankedIds.some((id) => typeof id !== "string")))
-    throw new CliError("rankedIds must be a list of the group's item ids, best first.", EXIT.validation);
-  if (tie !== undefined && typeof tie !== "boolean") throw new CliError("tie must be true or false.", EXIT.validation);
+    throw new CliError(
+      `rankedIds must be a list of the group's item ids, best first. Nothing was changed. Send: ${consequenceSaveCallTemplate()}`,
+      EXIT.validation
+    );
+  if (tie !== undefined && typeof tie !== "boolean")
+    throw new CliError(
+      `tie must be true or false. Nothing was changed. Send: ${consequenceSaveCallTemplate()}`,
+      EXIT.validation
+    );
   if (wording !== undefined && typeof wording !== "string")
-    throw new CliError("wording must be the group's wording name, or left out.", EXIT.validation);
+    throw new CliError(
+      `wording must be the group's wording name (only_finish_one or most_regret_not_doing), or left out. Nothing was changed. Send: ${consequenceSaveCallTemplate()}`,
+      EXIT.validation
+    );
   await sendComparison(context, args, {
     groupId,
     ...(tie === true ? { tie: true } : { rankedIds: (rankedIds as string[] | undefined) ?? [] }),

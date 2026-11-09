@@ -349,6 +349,46 @@ describe("recording a comparison", () => {
     expect(group.itemIds).toHaveLength(4);
   });
 
+  it("a skip (a tie) after a real answer never changes the refined values", async () => {
+    const ids = await fourProjects();
+    await answer("project", (order) => order);
+    // The cool-down is 30 days, so the skip comes later; settle the age decay first so only the skip could move a value.
+    const later = new Date(NOW.getTime() + 31 * 86_400_000);
+    await refitConsequence(sql, userId, "2026-12-10");
+    const before = await Promise.all(ids.map((id) => refinedOf("projects", id)));
+    expect(before.some((row) => row.v !== null)).toBe(true);
+    const skipped = await answer("project", () => [], { tie: true, now: later, evidence: "skipped" });
+    expect(skipped.recorded.replayed).toBe(false);
+    expect(Number((await sql`SELECT count(*)::int AS n FROM consequence_comparisons WHERE tie`)[0]!.n)).toBe(1);
+    const after = await Promise.all(ids.map((id) => refinedOf("projects", id)));
+    expect(after).toEqual(before);
+  });
+
+  it("refuses placeholder evidence on a stated or observed answer, and takes real words", async () => {
+    await fourProjects();
+    const group = (await issueNextConsequenceGroup(sql, userId, "project", { now: NOW }))!;
+    const call = (basis: "stated" | "observed" | "inferred", evidence: string) =>
+      recordComparison(sql, userId, {
+        groupId: group.groupId,
+        rankedIds: group.itemIds,
+        answeredBy: "agent",
+        basis,
+        evidence,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW
+      });
+    for (const basis of ["stated", "observed"] as const)
+      for (const evidence of ["<the person's own words>", "  <what they said> "]) {
+        const error = (await call(basis, evidence).catch((e: unknown) => e)) as ConsequenceComparisonError;
+        expect(error.code).toBe("basis_not_allowed");
+        expect(error.message).toContain("placeholder");
+        expect(error.message).toContain("the person's actual words");
+        expect(error.group).toMatchObject({ groupId: group.groupId });
+      }
+    expect(Number((await sql`SELECT count(*)::int AS n FROM consequence_comparisons`)[0]!.n)).toBe(0);
+    await expect(call("stated", "Bravo first, then Alpha")).resolves.toMatchObject({ replayed: false });
+  });
+
   it("answers a log row at most once per group even under a race", async () => {
     await fourProjects();
     const group = (await issueNextConsequenceGroup(sql, userId, "project", { now: NOW }))!;

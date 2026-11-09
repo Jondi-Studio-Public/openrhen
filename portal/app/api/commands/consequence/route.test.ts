@@ -51,7 +51,12 @@ describe("POST /api/commands/consequence", () => {
     expect((await call({ commandId })).status).toBe(400);
     const neither = await call({ commandId, groupId: "g1" });
     expect(neither.status).toBe(400);
-    expect(((await neither.json()) as { error: string }).error).toContain("rankedIds");
+    const neitherError = ((await neither.json()) as { error: string }).error;
+    expect(neitherError).toContain("rankedIds");
+    // every 400 ends with the exact read and resend, not a bare validation message
+    expect(neitherError).toContain("GET /api/consequence/next");
+    expect(neitherError).toContain('rhen_inbox {"room":"compare"}');
+    expect(neitherError).toContain("groupId");
     expect((await call({ commandId, groupId: "g1", tie: true, rankedIds: ["a"] })).status).toBe(400);
     expect((await call({ commandId, groupId: "g1", rankedIds: ["a"], wording: "nonsense" })).status).toBe(400);
     expect(rank).not.toHaveBeenCalled();
@@ -70,7 +75,13 @@ describe("POST /api/commands/consequence", () => {
 
   it("says plainly when the portal has no database", async () => {
     env.url = undefined;
-    expect((await call({ commandId, groupId: "g1", tie: true })).status).toBe(503);
+    const response = await call({ commandId, groupId: "g1", tie: true });
+    expect(response.status).toBe(503);
+    const { error } = (await response.json()) as { error: string };
+    expect(error).toContain("PostgreSQL");
+    expect(error).toContain("Nothing was changed");
+    expect(error).toContain("retry");
+    expect(error).toContain('rhen_inbox {"room":"compare"}');
     expect(rank).not.toHaveBeenCalled();
   });
 });

@@ -231,7 +231,7 @@ export const inboxCommand: CommandSpec = {
               detail: group.items.map((item) => `${item.n}. ${item.title} (${item.stars}★) [${item.id}]`).join(" | "),
               act: actHint(
                 context,
-                `rank ${group.items.map((item) => item.n).join(" ")} (numbers best first), or rank --tie`,
+                `rank ${group.items.map((item) => item.n).join(" ")} --group ${group.groupId} (numbers best first), or rank --tie --group ${group.groupId}`,
                 `${formatAgentCall(group.answerCall)}; the person puts the items in order, best first. ${group.instructions}`
               ),
               data: { group }

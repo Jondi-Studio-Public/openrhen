@@ -238,6 +238,8 @@ describe("changeset: building", () => {
     expect(result.exitCode).toBe(EXIT.validation);
     expect(result.stderr).toContain("is not part of a changeset");
     expect(result.stderr).toContain("rhen_save");
+    for (const part of ['"entityType":"comparison"', "groupId", "rankedIds", "tie", "wording", "basis", "evidence"])
+      expect(result.stderr, part).toContain(part);
   });
 });
 

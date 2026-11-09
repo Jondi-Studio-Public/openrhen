@@ -1,6 +1,6 @@
 import type postgres from "postgres";
 import { fitConsequence, isConsequenceFitActive } from "@openrhen/contracts/consequence-fit";
-import { CONSEQUENCE_WORDINGS } from "@openrhen/contracts/consequence-question";
+import { CONSEQUENCE_WORDINGS, isPlaceholderEvidence } from "@openrhen/contracts/consequence-question";
 import { loadComparisons, loadPoolRows, pgArrayLiteral, type ConsequencePool } from "./pool-load.js";
 import { nextConsequenceGroup, PAIR_COOLDOWN_DAYS, type GroupCandidate } from "./next-group.js";
 import { inTransaction, lockConsequencePool, lockConsequencePools, refitConsequence, userLocalDay } from "./refit.js";
@@ -316,6 +316,12 @@ export async function recordComparison(
       throw new ConsequenceComparisonError(
         "basis_not_allowed",
         'An "observed" answer needs evidence naming what was observed. Resend with evidence set.',
+        { groupId: group.id, itemIds: group.item_ids }
+      );
+    if (input.basis !== "inferred" && input.evidence != null && isPlaceholderEvidence(input.evidence))
+      throw new ConsequenceComparisonError(
+        "basis_not_allowed",
+        `The evidence "${input.evidence.trim()}" is a placeholder (text in <angle brackets>), not what was said or seen. A "${input.basis}" answer is counted in full, so it needs the person's actual words (or, for "observed", what you saw them do). Resend with evidence set to those words, or with basis "inferred" (your own guess, counted at half weight).`,
         { groupId: group.id, itemIds: group.item_ids }
       );
 

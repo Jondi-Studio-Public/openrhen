@@ -93,6 +93,15 @@ describe("the next group", () => {
     });
   });
 
+  it("falls back to UTC for the wording day when the stored time zone is invalid or empty", async () => {
+    await arrange();
+    await sql`UPDATE users SET timezone='Not/AZone'`; // set after arranging: the full state read itself needs a valid zone
+    // 2026-11-08T22:00Z is 2026-11-08 in UTC, an odd day
+    expect((await group(MONDAY_LOCAL)).wording).toBe("most_regret_not_doing");
+    await sql`UPDATE users SET timezone=''`;
+    expect((await group(MONDAY_LOCAL)).wording).toBe("most_regret_not_doing");
+  });
+
   it("asks the regret question on the next local day", async () => {
     await arrange();
     expect((await group(TUESDAY_LOCAL)).wording).toBe("most_regret_not_doing");
@@ -264,6 +273,22 @@ describe("answering", () => {
     const ok = await asAgent(() => run({ ...cmd, evidence: "the Alpha one, then the others" }));
     expect(ok.result).toMatchObject({ by: "agent", basis: "stated" });
     expect((await comparisons())[0]!.evidence).toBe("the Alpha one, then the others");
+  });
+
+  it("refuses an agent's placeholder evidence as the person's words, naming the exact call to send", async () => {
+    await arrange();
+    const view = await group(MONDAY_LOCAL);
+    const cmd = command(view, { basis: "stated", evidence: "<the person's own words>" });
+    const refused = await refusal(asAgent(() => run(cmd)));
+    expect(refused).toBeInstanceOf(InvalidCommandError);
+    expect(refused.message).toContain("placeholder");
+    expect(refused.message).toContain("Nothing was changed. Next: rhen_save ");
+    expect(await comparisons()).toHaveLength(0);
+    const viaClaim = await refusal(
+      asAgent(() => run(command(view)), { basis: "observed", evidence: "<what you saw>" })
+    );
+    expect(viaClaim.message).toContain("placeholder");
+    expect(await comparisons()).toHaveLength(0);
   });
 
   it("refuses a wrong group id with the group that is waiting and the exact call to answer it", async () => {

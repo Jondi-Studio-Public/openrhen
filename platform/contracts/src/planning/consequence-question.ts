@@ -1,4 +1,4 @@
-import type { AgentCall } from "../agent-error.js";
+import { formatAgentCall, type AgentCall } from "../agent-error.js";
 import { dateOrdinal } from "./cadence-due.js";
 
 /**
@@ -63,6 +63,43 @@ export const CONSEQUENCE_NEXT_CALL: AgentCall = {
   note: "read-only for the plan; hands out the next group to rank, or the one still waiting for an answer"
 };
 
+/** The evidence text `consequenceAnswerCall` carries as a stand-in. The server refuses it as real evidence. */
+export const CONSEQUENCE_EVIDENCE_PLACEHOLDER = "<the person's own words>";
+
+/** True for evidence that is only a stand-in (`<...>`, such as the placeholder above), which must never be stored as what the person said. */
+export function isPlaceholderEvidence(text: string): boolean {
+  const trimmed = text.trim();
+  return trimmed.length >= 2 && trimmed.startsWith("<") && trimmed.endsWith(">");
+}
+
+/**
+ * What to do after a refused answer, as words with the exact calls: read the group, then resend the answer with the
+ * groupId and the rankedIds the read returned.
+ */
+export function consequenceResendStep(): string {
+  return (
+    `Next: read the group waiting for an answer with GET /api/consequence/next (${formatAgentCall(CONSEQUENCE_NEXT_CALL)}; CLI: rhen rank), ` +
+    "then resend the answer with the groupId it returns and, in rankedIds, every id of that group once, best first " +
+    "(or tie: true if the person says they are equal or cannot decide). Nothing was changed."
+  );
+}
+
+/**
+ * The whole save call spelled out for an error message, every field named with where its value comes from. The
+ * `<...>` parts are for the caller to fill in; the server refuses `<...>` left in `evidence`.
+ */
+export function consequenceSaveCallTemplate(): string {
+  return (
+    'rhen_save {"entityType":"comparison","fields":{"groupId":"<the groupId the group returned>",' +
+    '"rankedIds":["<every id of the group once, best first>"]},"basis":"stated","evidence":"<the person\'s own words>"}. ' +
+    'For equal items use "fields":{"groupId":"<the groupId>","tie":true} instead of rankedIds. ' +
+    '"wording" (optional, inside fields) is the wording name the group was asked under; leave it out if unsure. ' +
+    '"basis" is "stated" when the person told you the order (evidence is their words), "observed" when you saw it in their behaviour (evidence says what you saw), or "inferred" for your own guess (counted at half weight; evidence optional). ' +
+    "Read the group first with " +
+    formatAgentCall(CONSEQUENCE_NEXT_CALL)
+  );
+}
+
 /** The call that answers `groupId`: `itemIds` in any order (the caller reorders them, best first), or `tie` instead. */
 export function consequenceAnswerCall(groupId: string, itemIds: readonly string[]): AgentCall {
   return {
@@ -71,7 +108,7 @@ export function consequenceAnswerCall(groupId: string, itemIds: readonly string[
       entityType: "comparison",
       fields: { groupId, rankedIds: [...itemIds] },
       basis: "stated",
-      evidence: "<the person's own words>"
+      evidence: CONSEQUENCE_EVIDENCE_PLACEHOLDER
     },
     note: 'rankedIds: every id once, best first (or fields {"groupId": ..., "tie": true} when the person says they are equal); only a person\'s answer is "stated"'
   };

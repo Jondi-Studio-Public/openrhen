@@ -151,9 +151,13 @@ export {
   CONSEQUENCE_QUESTION_TEXT,
   CONSEQUENCE_WORDINGS,
   buildConsequenceGroupView,
+  CONSEQUENCE_EVIDENCE_PLACEHOLDER,
   consequenceAnswerCall,
+  consequenceResendStep,
+  consequenceSaveCallTemplate,
   consequenceWordingForDay,
-  isConsequenceWording
+  isConsequenceWording,
+  isPlaceholderEvidence
 } from "./planning/consequence-question.js";
 export type {
   ConsequenceGroupItemView,

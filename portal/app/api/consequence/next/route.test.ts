@@ -31,7 +31,9 @@ describe("GET /api/consequence/next", () => {
     expect(read).toHaveBeenCalledWith(expect.anything(), { pool: "action" });
     const bad = await get("?pool=deliverable");
     expect(bad.status).toBe(400);
-    expect(((await bad.json()) as { error: string }).error).toContain("project");
+    const badError = ((await bad.json()) as { error: string }).error;
+    expect(badError).toContain("project");
+    expect(badError).toContain('rhen_inbox {"room":"compare"}');
   });
 
   it("answers null when nothing can be asked", async () => {
@@ -41,6 +43,11 @@ describe("GET /api/consequence/next", () => {
 
   it("says plainly when the portal has no database", async () => {
     env.url = undefined;
-    expect((await get()).status).toBe(503);
+    const response = await get();
+    expect(response.status).toBe(503);
+    const { error } = (await response.json()) as { error: string };
+    expect(error).toContain("PostgreSQL");
+    expect(error).toContain("retry");
+    expect(error).toContain('rhen_inbox {"room":"compare"}');
   });
 });

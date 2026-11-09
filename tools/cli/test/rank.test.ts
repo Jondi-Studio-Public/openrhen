@@ -70,8 +70,10 @@ describe("rank", () => {
     expect(stdout).toContain("If you could only get one of these done, which would you do?");
     expect(stdout).toContain("1. Alpha (3 stars)");
     expect(stdout).toContain("4. Delta (1 star)");
-    expect(stdout).toContain("rhen rank 1 2 3 4");
-    expect(stdout).toContain("rhen rank --tie");
+    expect(stdout).toContain("rhen rank 1 2 3 4 --group g-1");
+    expect(stdout).toContain("rhen rank --tie --group g-1");
+    expect(stdout).toContain("rhen rank --skip");
+    expect(stdout).toContain("groupId: g-1");
     expect(posts(calls)).toEqual([]);
   });
 
@@ -82,7 +84,7 @@ describe("rank", () => {
   });
 
   it("answers with the numbers best first, mapping each to the group's id", async () => {
-    const { exitCode, stdout, calls } = await run(["3", "1", "4", "2"]);
+    const { exitCode, stdout, calls } = await run(["3", "1", "4", "2", "--group", "g-1"]);
     expect(exitCode).toBe(EXIT.ok);
     const [sent] = posts(calls);
     expect(sent!.path).toBe(ANSWER);
@@ -92,14 +94,25 @@ describe("rank", () => {
   });
 
   it("records --tie as a tie and --skip as a tie that says it was skipped", async () => {
-    const tie = await run(["--tie"]);
+    const tie = await run(["--tie", "--group", "g-1"]);
     expect(posts(tie.calls)[0]!.body).toEqual({ commandId: ID, groupId: "g-1", tie: true });
     const skip = await run(["--skip"]);
     expect(posts(skip.calls)[0]!.body).toEqual({ commandId: ID, groupId: "g-1", tie: true, evidence: "skipped" });
   });
 
   it("sends an agent's basis and evidence along", async () => {
-    const { calls } = await run(["2", "1", "3", "4", "--basis", "stated", "--evidence", "Bravo first, then Alpha"]);
+    const { calls } = await run([
+      "2",
+      "1",
+      "3",
+      "4",
+      "--group",
+      "g-1",
+      "--basis",
+      "stated",
+      "--evidence",
+      "Bravo first, then Alpha"
+    ]);
     expect(posts(calls)[0]!.body).toMatchObject({ basis: "stated", evidence: "Bravo first, then Alpha" });
   });
 
@@ -110,15 +123,36 @@ describe("rank", () => {
       ["1", "2", "3", "5"],
       ["a", "b", "c", "d"]
     ]) {
-      const { exitCode, stderr, calls } = await run(bad);
+      const { exitCode, stderr, calls } = await run([...bad, "--group", "g-1"]);
       expect(exitCode, bad.join(" ")).not.toBe(EXIT.ok);
       expect(stderr).toContain("Give all 4 numbers once, best first");
       expect(stderr).toContain("Nothing was changed");
       expect(posts(calls)).toEqual([]);
     }
-    const mixed = await run(["1", "2", "3", "4", "--tie"]);
+    const mixed = await run(["1", "2", "3", "4", "--tie", "--group", "g-1"]);
     expect(mixed.exitCode).not.toBe(EXIT.ok);
     expect(mixed.stderr).toContain("not more than one");
+  });
+
+  it("refuses numbers or --tie without --group, explaining how, before reading or sending anything", async () => {
+    for (const argv of [["3", "1", "4", "2"], ["--tie"]]) {
+      const { exitCode, stderr, calls } = await run(argv);
+      expect(exitCode, argv.join(" ")).toBe(EXIT.usage);
+      expect(stderr).toContain("--group");
+      expect(stderr).toContain("run `rhen rank` first");
+      expect(stderr).toContain("groupId");
+      expect(stderr).toContain("Nothing was changed");
+      expect(stderr).toContain("rhen rank <numbers best first> --group <groupId>");
+      expect(posts(calls)).toEqual([]);
+      expect(calls.map((call) => call.path)).not.toContain(NEXT);
+    }
+  });
+
+  it("still lets --skip and a plain look go without --group", async () => {
+    const skip = await run(["--skip"]);
+    expect(skip.exitCode).toBe(EXIT.ok);
+    expect(posts(skip.calls)).toHaveLength(1);
+    expect((await run([])).exitCode).toBe(EXIT.ok);
   });
 
   it("refuses to answer when --group is no longer the one waiting", async () => {
@@ -129,7 +163,7 @@ describe("rank", () => {
   });
 
   it("dry-run prints the answer and sends nothing", async () => {
-    const { exitCode, stdout, calls } = await run(["2", "1", "3", "4", "--dry-run", "--json"]);
+    const { exitCode, stdout, calls } = await run(["2", "1", "3", "4", "--group", "g-1", "--dry-run", "--json"]);
     expect(exitCode).toBe(EXIT.ok);
     expect(JSON.parse(stdout)).toMatchObject({
       dryRun: true,
@@ -141,7 +175,7 @@ describe("rank", () => {
 
   it("shows the portal's refusal text, which names the next call", async () => {
     const message = 'Group g-1 was already answered. Nothing was changed. Next: rhen_inbox {"room":"compare"}';
-    const { exitCode, stderr } = await run(["1", "2", "3", "4"], {
+    const { exitCode, stderr } = await run(["1", "2", "3", "4", "--group", "g-1"], {
       [ANSWER]: { status: 409, body: { error: message } }
     });
     expect(exitCode).toBe(EXIT.conflict);
@@ -169,6 +203,8 @@ describe("save comparison", () => {
     const missing = await run(["comparison", "--fields", '{"rankedIds":["p-a","p-b"]}'], {}, "save");
     expect(missing.exitCode).not.toBe(EXIT.ok);
     expect(missing.stderr).toContain('rhen_inbox {"room":"compare"}');
+    expect(missing.stderr).toContain('"entityType":"comparison"');
+    expect(missing.stderr).toContain('"rankedIds"');
     expect(posts(missing.calls)).toEqual([]);
   });
 
@@ -176,6 +212,22 @@ describe("save comparison", () => {
     const { exitCode, stderr } = await run(["comparison", "--fields", '{"groupId":"g-1","order":[1,2]}'], {}, "save");
     expect(exitCode).not.toBe(EXIT.ok);
     expect(stderr).toContain("groupId, rankedIds, tie, wording");
+  });
+
+  it("spells out the whole call when the fields are malformed", async () => {
+    const cases: [string, string][] = [
+      ['{"groupId":"g-1","rankedIds":"p-a"}', "rankedIds must be a list"],
+      ['{"groupId":"g-1","tie":"yes"}', "tie must be true or false"],
+      ['{"groupId":"g-1","tie":true,"wording":5}', "wording must be"]
+    ];
+    for (const [fields, text] of cases) {
+      const { exitCode, stderr, calls } = await run(["comparison", "--fields", fields], {}, "save");
+      expect(exitCode, fields).not.toBe(EXIT.ok);
+      expect(stderr).toContain(text);
+      for (const part of ['"entityType":"comparison"', "groupId", "rankedIds", "tie", "wording", "basis", "evidence"])
+        expect(stderr, `${fields}: ${part}`).toContain(part);
+      expect(posts(calls)).toEqual([]);
+    }
   });
 
   it("refuses --id and --expected-version, which a log entry has no use for", async () => {
@@ -186,6 +238,8 @@ describe("save comparison", () => {
     );
     expect(exitCode).not.toBe(EXIT.ok);
     expect(stderr).toContain("an answer, not a record");
+    expect(stderr).toContain('"entityType":"comparison"');
+    expect(stderr).toContain("rankedIds");
   });
 });
 
@@ -205,7 +259,8 @@ describe("inbox compare", () => {
       "p-c",
       "p-d"
     ]);
-    expect(rooms[0].items[0].act).toContain("rank 1 2 3 4");
+    expect(rooms[0].items[0].act).toContain("rank 1 2 3 4 --group g-1");
+    expect(rooms[0].items[0].act).toContain("rank --tie --group g-1");
   });
 
   it("is empty, not an error, when nothing can be asked", async () => {

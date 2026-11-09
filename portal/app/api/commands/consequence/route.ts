@@ -1,4 +1,9 @@
-import { rankConsequenceGroupCommandSchema } from "@openrhen/contracts";
+import {
+  CONSEQUENCE_NEXT_CALL,
+  consequenceResendStep,
+  formatAgentCall,
+  rankConsequenceGroupCommandSchema
+} from "@openrhen/contracts";
 import { notifyStateChanged } from "@openrhen/database";
 import { withRoute } from "@/server/logging";
 import { runRankConsequenceGroup } from "@/server/persistence/postgres/consequence-commands";
@@ -23,13 +28,22 @@ export const POST = withRoute("/api/commands/consequence", async (request, _cont
   );
   if (!parsed.success)
     return Response.json(
-      { error: parsed.error.issues[0]?.message ?? "Invalid answer.", issues: parsed.error.issues },
+      {
+        error: `${parsed.error.issues[0]?.message ?? "Invalid answer."} ${consequenceResendStep()}`,
+        issues: parsed.error.issues,
+        nextCall: CONSEQUENCE_NEXT_CALL
+      },
       { status: 400 }
     );
   const connectionString = databaseUrl();
   if (!connectionString)
     return Response.json(
-      { error: "Ranking requires PostgreSQL, and the portal has no database right now." },
+      {
+        error:
+          "Ranking requires PostgreSQL, and the portal has no database connection right now, so this answer was not recorded. " +
+          `Nothing was changed. Next: wait a minute and retry the same call with the same command id; to check the portal is back, read the waiting group with ${formatAgentCall(CONSEQUENCE_NEXT_CALL)} (GET /api/consequence/next).`,
+        nextCall: CONSEQUENCE_NEXT_CALL
+      },
       { status: 503 }
     );
   log.setCommandType("rank_consequence_group");

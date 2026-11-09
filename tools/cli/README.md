@@ -138,11 +138,11 @@ never export it where an agent runs.
   filters, `--ids a,b,c`, or `--targets`/`--targets-json`; `--dry-run` to preview, `--yes` to apply.
 - `session <start|alternative|pause|resume|continue|finish|block|did-not-start|feedback|set-start>` — drive a work session. A recurring action is worked through its occurrence: `--action` takes an occurrence id, or the series' title when exactly one occurrence is open (otherwise it lists the ids); the portal refuses a session on the series itself.
 - `archive <type> <id> close|restore` and `cancel <type> <id> close|restore` (or `--restore`) — close or reopen one row. Archive: area, outcome, project, action, deliverable, routine preset, condition (place, contact, capability, live) when finished or retired; cancel: outcome, project, action, deliverable, commitment when dropped. Options: `--reason` (an agent gives one), `--expected-version`, `--include-children` (area, outcome, project). A call over 20 rows, one that would pass 20 closures in a rolling hour (counting the call), or one touching something the owner decides, is filed as one proposal; a save that sets status archived or cancelled is refused. Every closed row in `list` and `show` carries its restore call. Over MCP these are `rhen_archive` and `rhen_cancel`; `do` is always required there.
-- `rank [<n> <n> <n> <n>] [--tie] [--skip] [--pool project|action] [--group <id>]` — refine how much each project (or each
+- `rank [<n> <n> <n> <n>] [--tie] [--skip] [--pool project|action] [--group <groupId>]` — refine how much each project (or each
   action of one project) matters by ranking a few at a time. With no numbers it shows the next group, four items numbered
   from 1, and the question for today's date (it alternates by local calendar day between "If you could only get one of
   these done, which would you do?" and "A year from now, which of these would you most regret never having done?").
-  `rank 2 1 4 3` answers with the numbers best first, `--tie` says they are equal or you cannot decide, `--skip` leaves
+  `rank 2 1 4 3 --group <groupId>` answers with the numbers best first and `--tie --group <groupId>` says they are equal or you cannot decide; both require `--group` (printed with the group, together with the exact command lines), so a retry after a lost reply is refused instead of answering the next group. `--skip` leaves
   it for now (recorded as a tie with the evidence "skipped"; the fit ignores ties). Handing a group out only records that it was issued; an
   unanswered group stays the next one, and nothing changes in the plan until you answer. An agent reads the group with
   `rhen_inbox` room `compare` (never a private item) and answers with `rhen_save` entityType `comparison`

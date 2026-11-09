@@ -47,6 +47,18 @@ export interface NextGroupOptions {
   now?: Date;
 }
 
+/**
+ * The local day that picks today's wording. The stored time zone is free text, so an invalid or empty one reads as UTC
+ * rather than failing the read (the rank card uses the settings zone, and may differ only when this one is bad).
+ */
+function wordingDay(now: Date, timezone: string | null | undefined): string {
+  try {
+    return localDateOf(now, timezone || DEFAULT_TIMEZONE);
+  } catch {
+    return localDateOf(now, "UTC");
+  }
+}
+
 /** The next group to rank as it is shown, or null when nothing can be asked (too few comparable items, or every pair is cooling). */
 export async function readNextConsequenceGroup(
   sql: PoolSql,
@@ -55,7 +67,7 @@ export async function readNextConsequenceGroup(
   const userId = await ensureUser(sql);
   const now = options.now ?? new Date();
   const user = (await sql<{ timezone: string | null }[]>`SELECT timezone FROM users WHERE id=${userId}`)[0];
-  const wording = consequenceWordingForDay(localDateOf(now, user?.timezone ?? DEFAULT_TIMEZONE));
+  const wording = consequenceWordingForDay(wordingDay(now, user?.timezone));
   const issued = await issueNextConsequenceGroupForUser(sql, userId, {
     now,
     wording,
