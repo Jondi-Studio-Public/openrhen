@@ -1,8 +1,8 @@
 /**
  * Source-availability contracts: the vocabularies and shapes a source's route declares (what it observes, through
- * which vantage point, how fresh and how far to trust it) and the evidence a reader hands to fusion. Types and constants
- * only: no functions, no database access, no I/O. The pure rules (`classifySource`, `fuseState`, `fuseLedger`) arrive
- * in a later slice and import from here. Nothing in the engine, the pulse or the scheduler reads this file.
+ * which vantage point, how fresh and how far to trust it) and the evidence a reader hands to fusion. Types and constants,
+ * plus two small pure helpers (`isRoute`, `describeFeedProblems`): no database access, no I/O. The fusion rules
+ * (`classifySource`, `fuseState`, `fuseLedger`) live in their own modules and import from here. Nothing in the engine, the pulse or the scheduler reads this file.
  * See the new-data-sources design, sections 2.1 and 2.4, and 14 for the room-posture fields.
  */
 
