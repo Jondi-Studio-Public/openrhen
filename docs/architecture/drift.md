@@ -1,6 +1,6 @@
 # Drift detector
 
-Status: PR 1 implemented (the pure episode detector, `GET /api/drift-report`, `rhen drift report`); activity mismatch is held back, see "Held back". Owns: what counts as one drift, how its time and its pinning are decided, and the read route that reports episodes (`platform/contracts/src/drift/`, `portal/server/drift/`).
+Status: PR 1 implemented; PR 2 pure parts implemented (`drift-rules.ts`, `drift-eval.ts`, no flag writer yet) (the pure episode detector, `GET /api/drift-report`, `rhen drift report`); activity mismatch is held back, see "Held back". Owns: what counts as one drift, how its time and its pinning are decided, and the read route that reports episodes (`platform/contracts/src/drift/`, `portal/server/drift/`).
 
 A drift is a moment the person stopped doing what the plan sanctioned. The detector turns stored rows into **episodes**, one per drift however many signals saw it, so a later measure of "did we see it coming" counts drifts and not signals. It only measures. Nothing under `engine/`, `now-activity.ts`, the planning contracts or `plan-input-tables.json` imports or reads it (`drift-boundary.test.ts`), so a detection never reorders what the plan offers. It sets nothing, sends nothing and has no switch.
 
@@ -26,3 +26,13 @@ A drift is a moment the person stopped doing what the plan sanctioned. The detec
 ## Held back: activity mismatch
 
 The plan's third type, foreground activity that does not fit the planned item, needs to know whether the planned item is "work". No field says so: `actions`, `commitments`, `projects` and `outcomes` carry no work or leisure class, `areas` has only a free-text `name`, and `deviation_category` classifies what the person did instead. Reading a name such as "Work" would be a guess, so the type is not built and is recorded as an escalation. When an owner-editable field exists, the type returns with its category table (`games` and `game` folded, unmapped meaning unknown, never a mismatch), and with rules that idle, lock, display-off, pause and capture gaps break an interval and never count, that liveness comes from `heartbeat` and `coverage` rows, and that applied corrections (`attrs.corrects`) are honoured first.
+
+## Shadow rules and the evaluation (PR 2, pure parts)
+
+`drift-rules.ts` holds two baseline rules, run in shadow (a flag sends nothing). Rule B flags the first 30 minutes after a shift end that the caller measured from activity (not pulse's shift-grace lapse). Rule A, a hidden denylist interval or a game/media foreground during a work item, is a pure function over an injected `isWorkItem` predicate; with none wired it never fires, because no field marks a work item yet. Thresholds live in one frozen object. A moment is eligible when pulse is `on`, capture is live, and it is at least 5 minutes after a switch; each rule has a 15-minute cooldown and a 5-minute flag bucket for the idempotent key `user|rule|bucket`.
+
+A rule is scored only on drift types whose definition shares none of its signals (`labelSignals`, `ruleSignals`; rule A is never scored on activity mismatch). Features may not touch pulse-state internals; `drift-features.test.ts` walks the import graph to prove it.
+
+`drift-eval.ts` scores flags: a hit is a pinned episode of a scorable type starting 2 to 5 minutes after the flag; a false alarm is a flag with none; rates are per waking day (capture-off days reported apart). Intervals come from a day-resampled bootstrap with a fixed seed and a fixed threshold; below 30 scorable pinned drifts in the scored subset the result is "not testable". The report prints the drifts lost to the 5-minute post-switch window, compares with random flags at the same alarm budget, and records the 20% holdout hash assignment without using it to subset. A chronological split with a one-horizon embargo is available for threshold tuning.
+
+Not built: the flag writer (an activity-store source `drift`, kind `flag`), its registry entries and probe, and the report route.
