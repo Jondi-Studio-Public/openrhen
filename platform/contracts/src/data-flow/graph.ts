@@ -83,17 +83,21 @@ export function buildFlowGraph(tables: readonly string[], registry: FlowRegistry
   const byId = new Map(entries.map((entry) => [entry.id, entry]));
   const parsed = (ref: string) => parseDatasetRef(ref);
 
-  /** What an entry writes: its `to` plus, behind a pipe, the partition of its activity source. */
+  /**
+   * What an entry writes: its `to` plus, behind a pipe, the partition of its activity source, or, with no activity
+   * source, the datasets the pipe writes.
+   */
   function writes(id: string): DatasetRef[] {
     const entry = byId.get(id);
     if (!entry) return [];
     const out = new Set<DatasetRef>(entry.to);
-    if (entry.activitySource !== undefined)
-      for (const pipeId of entry.via ?? []) {
-        const pipe = byId.get(pipeId);
-        for (const ref of pipe?.to ?? [])
-          if (ref === "pg:activity_events") out.add(`pg:activity_events[source=${entry.activitySource}]`);
+    for (const pipeId of entry.via ?? []) {
+      const pipe = byId.get(pipeId);
+      for (const ref of pipe?.to ?? []) {
+        if (entry.activitySource === undefined) out.add(ref);
+        else if (ref === "pg:activity_events") out.add(`pg:activity_events[source=${entry.activitySource}]`);
       }
+    }
     return [...out];
   }
 

@@ -343,3 +343,181 @@ describe("E1 engine input", () => {
     ).toEqual(["actions is both a plan input and a blind table"]);
   });
 });
+
+import {
+  checkA1,
+  checkC1,
+  checkD1,
+  checkL1,
+  checkM1,
+  checkP1,
+  checkPlannedLanded,
+  checkR1,
+  checkR2,
+  checkT1,
+  checkV1,
+  checkStaleIncidental,
+  checkV1Reverse,
+  checkV2,
+  checkV3
+} from "./registry-coverage-rules";
+
+describe("coverage rules (A2)", () => {
+  const src = (id: string, extra: Partial<FlowEntry> = {}) => entry({ id, ...extra });
+  const planned = (id: string, extra: Partial<FlowEntry> = {}) =>
+    entry({ id, planned: { landsAs: { table: "t" } }, ...extra });
+
+  it("A1: each activity source needs a present entry, and planned entries do not count", () => {
+    expect(checkA1(["alpha"], [src("a", { activitySource: "alpha" })])).toEqual([]);
+    expect(checkA1(["alpha"], [])).toEqual(["activity source alpha has no entry"]);
+    expect(checkA1(["alpha"], [planned("a", { activitySource: "alpha" })])).toEqual([
+      "activity source alpha has no entry"
+    ]);
+    expect(checkA1(["alpha"], [src("a", { activitySource: "alpha", noProducer: true })])).toEqual([]);
+  });
+
+  it("P1: each parser file is in some code.paths", () => {
+    expect(checkP1(["p/a.ts"], [src("a", { code: { paths: ["p/a.ts"] } })])).toEqual([]);
+    expect(checkP1(["p/a.ts"], [src("a", { code: { paths: ["p/b.ts"] } })])).toEqual([
+      "parser or extractor p/a.ts is in no entry's code.paths"
+    ]);
+  });
+
+  it("C1: each connection is some entry's connection", () => {
+    expect(checkC1(["c"], [src("a", { connection: "c" })])).toEqual([]);
+    expect(checkC1(["c"], [])).toEqual(["connection c is no entry's connection"]);
+  });
+
+  it("L1/L2: each loop is in some code.loops or in the infra list with a reason", () => {
+    expect(checkL1(["tick"], [src("a", { code: { loops: ["tick"] } })], {})).toEqual([]);
+    expect(checkL1(["tick"], [], { tick: "bookkeeping" })).toEqual([]);
+    expect(checkL1(["tick"], [], {})).toEqual(["loop tick is in no entry's code.loops and not an infra loop"]);
+    expect(checkL1(["tick"], [], { tick: " " })).toEqual(["infra loop tick needs a reason"]);
+  });
+
+  it("R1: each write route is an exact code.routes value or an infra route with a reason", () => {
+    expect(checkR1(["POST /api/x"], [src("a", { code: { routes: ["POST /api/x"] } })], {})).toEqual([]);
+    expect(checkR1(["POST /api/x"], [], { "POST /api/x": "auth" })).toEqual([]);
+    expect(checkR1(["POST /api/x"], [src("a", { code: { routes: ["GET /api/x"] } })], {})).toEqual([
+      "write route POST /api/x is in no entry and not an infra route"
+    ]);
+    expect(checkR1(["POST /api/x"], [], { "POST /api/x": "" })).toEqual(["infra route POST /api/x needs a reason"]);
+  });
+
+  it("R2: GET writers are checked both ways", () => {
+    const e = src("a", { code: { routes: ["GET /api/g"] } });
+    expect(checkR2({ "GET /api/g": ["offer_log"] }, [e], () => new Set(["offer_log", "x"]))).toEqual([]);
+    expect(checkR2({ "GET /api/g": ["offer_log"] }, [e], () => new Set())).toEqual([
+      "GET writer GET /api/g: its closure does not write offer_log"
+    ]);
+    expect(checkR2({ "GET /api/g": ["offer_log"] }, [], () => new Set(["offer_log"]))).toEqual([
+      "GET writer GET /api/g is in no entry's code.routes"
+    ]);
+  });
+
+  it("M1: each write or propose tool is in some code.mcpTools", () => {
+    expect(checkM1(["rhen_x"], [src("a", { code: { mcpTools: ["rhen_x"] } })])).toEqual([]);
+    expect(checkM1(["rhen_x"], [])).toEqual(["write tool rhen_x is in no entry's code.mcpTools"]);
+  });
+
+  it("T1: each table is in some from/to, or a note marks it infrastructure or dead", () => {
+    const e = src("a", { to: ["pg:t1", "pg:activity_events[source=alpha]"] });
+    expect(checkT1(["t1", "activity_events"], [e], [])).toEqual([]);
+    expect(checkT1(["t2"], [e], [])).toEqual([
+      "table t2 is in no entry's from or to and has no infrastructure or dead note"
+    ]);
+    expect(checkT1(["t2"], [e], [{ ref: "pg:t2", infrastructure: "bookkeeping" }])).toEqual([]);
+    expect(checkT1(["t2"], [e], [{ ref: "pg:t2", dead: "nothing" }])).toEqual([]);
+    expect(checkT1(["t2"], [planned("p", { to: ["pg:t2"] })], [])).toHaveLength(1);
+  });
+
+  it("D1: each device has an entry with a real probe", () => {
+    expect(checkD1([src("a", { device: "phone", health: { kind: "activity", source: "x" } })])).toEqual([]);
+    expect(checkD1([src("a", { device: "phone" })])).toEqual(["device phone has no entry with a probe"]);
+  });
+
+  it("V1: each to table has a writer in the closure or a via pipe", () => {
+    const pipe = src("pipe", { role: "pipe", to: ["pg:activity_events"] });
+    const e = src("a", { code: { paths: ["p.ts"] }, to: ["pg:t1", "pg:t2"] });
+    const writes = (x: FlowEntry) => (x.id === "a" ? new Set(["t1"]) : new Set<string>());
+    expect(checkV1([e, pipe], writes)).toEqual(["a: writes pg:t2 in no file of its closure"]);
+    const viaPipe = src("b", { code: { paths: ["p.ts"] }, to: ["pg:activity_events[source=alpha]"], via: ["pipe"] });
+    expect(checkV1([viaPipe, pipe], () => new Set())).toEqual([]);
+    expect(checkV1([src("c", { to: ["pg:t9"] })], () => new Set())).toEqual([]);
+  });
+
+  it("V1-reverse: a table written near the entry must be in to or incidentalWrites", () => {
+    const e = src("a", { code: { paths: ["p.ts"] }, to: ["pg:t1"], incidentalWrites: [{ table: "t3", reason: "r" }] });
+    expect(checkV1Reverse([e], () => new Set(["t1", "t3"]))).toEqual([]);
+    expect(checkV1Reverse([e], () => new Set(["t1", "t4"]))).toEqual([
+      "a: writes t4, which is neither in to nor in incidentalWrites"
+    ]);
+    const pipe = src("pipe", { role: "pipe", to: ["pg:t5"] });
+    const viaPipe = src("b", { code: { paths: ["p.ts"] }, via: ["pipe"] });
+    expect(checkV1Reverse([viaPipe, pipe], (x) => (x.id === "b" ? new Set(["t5"]) : new Set()))).toEqual([]);
+  });
+
+  it("stale incidentalWrites: a listed incidental write must still be reached by the closure", () => {
+    const e = src("a", {
+      code: { paths: ["p.ts"] },
+      incidentalWrites: [
+        { table: "t3", reason: "r" },
+        { table: "t9", reason: "r" }
+      ]
+    });
+    expect(checkStaleIncidental([e], () => new Set(["t3", "t1"]))).toEqual([
+      "a: incidentalWrites lists t9, which its closure no longer writes"
+    ]);
+    expect(checkStaleIncidental([e], () => new Set(["t3", "t9"]))).toEqual([]);
+  });
+
+  it("V2: a source-partition reader names the source in its closure, or [source=*] with a note", () => {
+    const named = src("r", { role: "reader", from: ["pg:activity_events[source=alpha]"], code: { paths: ["p.ts"] } });
+    expect(checkV2([named], () => 'x = "alpha"')).toEqual([]);
+    expect(checkV2([named], () => "nothing")).toEqual(['r: reads source alpha but its closure never names "alpha"']);
+    const all = src("r", { role: "reader", from: ["pg:activity_events[source=*]"] });
+    expect(checkV2([all], () => "")).toEqual(["r: reads [source=*] without a value.note giving the reason"]);
+    expect(checkV2([{ ...all, value: { note: "every source" } }], () => "")).toEqual([]);
+  });
+
+  it("V3: a reader claims a surface only with evidence in the code", () => {
+    const reader = (to: string, code: FlowEntry["code"]) => src("r", { role: "reader", to: [to as never], code });
+    const ev = {
+      pageClosure: () => ({ files: ["portal/features/panel.tsx"], text: 'fetch("/api/review/x")' }),
+      toolText: () => 'client.get("/api/review/x")'
+    };
+    const page = reader("surface:page/review", { routes: ["GET /api/review/x"] });
+    expect(checkV3([page], ev)).toEqual([]);
+    const byPath = reader("surface:page/review", { paths: ["portal/features/panel.tsx"] });
+    expect(checkV3([byPath], ev)).toEqual([]);
+    const none = reader("surface:page/review", { routes: ["GET /api/other"] });
+    expect(checkV3([none], ev)).toEqual([
+      "r: surface:page/review is not backed by its page closure (no route or path of the reader appears)"
+    ]);
+    expect(checkV3([reader("surface:tool/rhen_x", { routes: ["GET /api/review/x"] })], ev)).toEqual([]);
+    expect(checkV3([reader("surface:tool/rhen_x", { routes: ["GET /api/nope"] })], ev)).toEqual([
+      "r: surface:tool/rhen_x is not backed by the tool's command (no route of the reader appears)"
+    ]);
+    expect(checkV3([reader("surface:device/api/d", { routes: ["GET /api/d"] })], ev)).toEqual([]);
+    expect(checkV3([reader("surface:device/api/d", { routes: ["GET /api/e"] })], ev)).toEqual([
+      "r: surface:device/api/d is not one of the reader's routes"
+    ]);
+    expect(checkV3([reader("surface:external/c", {})], ev)).toEqual([
+      "r: surface:external/c needs the reader's connection to be c"
+    ]);
+  });
+
+  it("planned entries fail once the thing they land as exists", () => {
+    const env = { activitySources: new Set(["alpha"]), tables: new Set(["t"]), routes: new Set(["GET /api/x"]) };
+    const at = (landsAs: FlowEntry["planned"]) => [entry({ id: "p", planned: landsAs })];
+    expect(checkPlannedLanded(at({ landsAs: { activitySource: "beta" } }), env)).toEqual([]);
+    expect(checkPlannedLanded(at({ landsAs: { activitySource: "alpha" } }), env)).toEqual([
+      "p: this has landed: drop planned"
+    ]);
+    expect(checkPlannedLanded(at({ landsAs: { table: "t" } }), env)).toEqual(["p: this has landed: drop planned"]);
+    expect(checkPlannedLanded(at({ landsAs: { route: "GET /api/x" } }), env)).toEqual([
+      "p: this has landed: drop planned"
+    ]);
+    expect(checkPlannedLanded([entry({ id: "present" })], env)).toEqual([]);
+  });
+});

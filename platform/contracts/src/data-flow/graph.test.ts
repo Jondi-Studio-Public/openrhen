@@ -60,6 +60,14 @@ describe("effective writes", () => {
   });
 });
 
+describe("effective writes behind a pipe without an activity source", () => {
+  it("gives the source the datasets the pipe writes", () => {
+    const queue = entry({ id: "queue", role: "pipe", to: ["pg:batches"] });
+    const importer = entry({ id: "importer", role: "source", via: ["queue"] });
+    expect(graph([queue, importer], ["batches"]).writes("importer")).toEqual(["pg:batches"]);
+  });
+});
+
 describe("reach", () => {
   const panel = entry({
     id: "panel",
