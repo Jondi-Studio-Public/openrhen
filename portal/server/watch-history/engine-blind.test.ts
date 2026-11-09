@@ -61,6 +61,7 @@ function sources(dir: string): { path: string; text: string }[] {
  * purpose, which is the moment to ask whether it should be a plan input.
  */
 const MAY_NAME_BLIND_TABLES = new Set([
+  "portal/server/data-flow/health-reader.ts",
   "portal/server/persistence/postgres/watch-history-store.ts",
   "portal/server/persistence/postgres/video-lengths-store.ts",
   "portal/server/persistence/postgres/activity-store.ts",
@@ -268,11 +269,13 @@ describe("watch history is blind to the engine", () => {
       expect(file.text, `${file.path} imports the data-flow registry`).not.toMatch(/data-flow/);
       expect(file.text, `${file.path} imports the health reader`).not.toMatch(/health-reader/);
     }
-    // The health reader (PR B) is imported by the data-flow route, doctor and the header counts loader only.
-    const MAY_IMPORT_HEALTH_READER = new Set(["portal/app/api/data-flow/route.ts"]);
+    // The health reader (PR B) is imported by the data-flow route's body builder, doctor and the header counts loader only.
+    const MAY_IMPORT_HEALTH_READER = new Set(["portal/server/data-flow/data-flow-response.ts"]);
     const importing = ["engine", "portal", "platform", "integrations", "tools", "scripts"]
       .flatMap((name) => sources(join(repo, name)))
-      .filter((file) => /from\s+["'][^"']*health-reader(?:\.js)?["']/.test(file.text))
+      .filter((file) =>
+        /(?:from\s+|\bimport\s*\(\s*|\brequire\s*\(\s*)["'][^"']*health-reader(?:\.js)?["']/.test(file.text)
+      )
       .map((file) => relative(repo, file.path).split(sep).join("/"));
     expect(importing.filter((path) => !MAY_IMPORT_HEALTH_READER.has(path))).toEqual([]);
   });

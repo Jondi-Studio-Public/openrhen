@@ -75,6 +75,7 @@ export const CORE_MCP_ROUTE_TABLE: Record<string, () => Promise<RouteModule>> = 
   "/api/derived-settings/test": () => import("@/app/api/derived-settings/test/route"),
   "/api/device/action": () => import("@/app/api/device/action/route"),
   "/api/device/now": () => import("@/app/api/device/now/route"),
+  "/api/data-flow": () => import("@/app/api/data-flow/route"),
   "/api/doctor": () => import("@/app/api/doctor/route"),
   "/api/events": () => import("@/app/api/events/route"),
   "/api/health/database": () => import("@/app/api/health/database/route"),

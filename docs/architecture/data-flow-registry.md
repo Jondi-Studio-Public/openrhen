@@ -1,6 +1,6 @@
 # Data-flow registry
 
-Status: implemented for the registry, the full set of core entries and the coverage rules; the health reader and the Data page follow. Owns: the typed registry of every data entry point (`platform/contracts/src/data-flow/`), the checks that hold it to the code (`portal/server/data-flow/`), and the seam an extension uses to add its own entries.
+Status: implemented for the registry, the full set of core entries and the coverage rules; the health reader, `GET /api/data-flow` and `rhen sources` are in; the Data page follows. Owns: the typed registry of every data entry point (`platform/contracts/src/data-flow/`), the checks that hold it to the code (`portal/server/data-flow/`), and the seam an extension uses to add its own entries.
 
 Every collector, shared pipe, reader and sink is one entry, so "where does this data come from, where does it go, and what does it give" has one answer that CI keeps true. Tables come from the schema; activity data is split per source and kind (`pg:activity_events[source=<source>,kind=<kind>]`).
 
@@ -40,6 +40,17 @@ The closure walker (`enumerate.ts`) follows relative imports, the portal's `@/` 
 
 `portal/server/watch-history/engine-blind.test.ts` keeps the registry out of planning: the `data-flow/` folder may import only zod and a short list of contracts modules, and no planning code may import it.
 
+## Live health
+
+`portal/server/data-flow/health-reader.ts` reads one signal per entry from tables that already exist (no migration, no writes; a read-only database connection can run it). Probes are batched by kind, including those nested under a `lag`, and cached for 60 seconds per database handle and probe set; concurrent reads share one query round and a transient failure is not cached.
+
+- **Probe kinds:** `sync-runs` (latest run per provider, `summaryMatch` to split stages, `needs_review` counts as success), `sync-status`, `activity` (newest row, 24 h and 7 d counts, kinds seen, and the `import:` and `ingest:` run rows), `extractor`, `telemetry` (real calls only), `max`, `last-used`, `json-stamp` and `lag`.
+- **Freshness:** `fresh`, `late`, `stale`, `never`, `failing`, `n/a` or `probe_unresolved`. A threshold is the entry's own, then the connection's cadence, then learned from 30 days of hourly arrivals (warn at 1.5 x and error at 3 x the p95 gap, clamped to 2 h to 14 d, at least 20 buckets), then the entry's own `coldStart` numbers (set on the entry by its owner; core holds no table keyed by product). A failing attempt shows as `failing` even with no threshold. Imports and manual sources are `n/a` and show their age. Learned thresholds carry the days of arrivals they rest on; the issue tiering that limits a short history to the degrading tier is applied by the checks, not the reader.
+- **`probe_unresolved`** means the probe query errored or its token or stamp is gone; the issue's `next` line says what to change. Only connection, timeout and resource errors (SQLSTATE 08, 57, 53) are called transient and told to retry with `rhen doctor`; any other error means the entry or its probe is wrong. **`token_not_bound`** (tidy) means a push source has no `tokenName`, so it is judged by its rows.
+- **Devices** (`phone`, `pc` and `wearable`; the `physiology` source is accepted and nothing sends yet) roll up by `device`: last seen is the newest success among their entries, with the entry it came from.
+
+`GET /api/data-flow` (scope `read:plan`, hand-added in `mcp-route-table.ts`) returns `{ generatedAt, build, entries, datasets, devices, edges, unused, health }`; without `DATABASE_URL` it answers 503 and says to set it and call `GET /api/data-flow` again; if the probes fail, `health` is `{ unavailable, reason, next }` with a fixed reason (the real error goes to the server log) and the static graph still comes back. `health.counts.never` is the number of sources not set up. The body carries run-log error text (clipped to 200 characters), so it stays behind `read:plan`; the narrower `read:activity-health` scope is not granted to connectors by default and nothing here changes that. `rhen sources [id] [--problems] [--unused] [--json] [--offline]` prints it. It is a stdio-only MCP tool (`rhen_sources`), so the remote tool list is unchanged, and its output is fenced as untrusted because run-log error text is in it.
+
 ## Not yet built
 
-The health reader, `GET /api/data-flow`, `rhen sources` and the Data page are later changes. See [Writing a connection](writing-a-connection.md) and [Writing an add-on](writing-an-addon.md) for the code a new entry describes.
+The Data page and the doctor source checks are later changes. See [Writing a connection](writing-a-connection.md) and [Writing an add-on](writing-an-addon.md) for the code a new entry describes.
