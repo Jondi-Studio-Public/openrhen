@@ -1250,6 +1250,9 @@ export {
   ACTIVITY_CLOCK_SKEW_MINUTES,
   ACTIVITY_COVERAGE_FLOOR,
   ACTIVITY_COVERAGE_KIND,
+  ACTIVITY_MESSAGE_FAMILY,
+  activityCoverageScopeRequired,
+  coverageScopeRequiredFor,
   ACTIVITY_COVERAGE_LIVE_DAYS,
   ACTIVITY_COVERAGE_MAX_DAYS,
   ACTIVITY_COVERAGE_SCOPE_MAX_CHARS,
@@ -1332,8 +1335,13 @@ export {
   physiologyJsonSchema
 } from "./activity-physiology.js";
 export type { PhysiologyEventInput } from "./activity-physiology.js";
-export { applyCoverageRule, validateActivityBatch } from "./activity-batch.js";
-export type { ActivityBatchOptions, ActivityBatchResult, CoverageRuleInput } from "./activity-batch.js";
+export { applyCoverageRule, judgeActivityEvents, validateActivityBatch } from "./activity-batch.js";
+export type {
+  ActivityBatchOptions,
+  ActivityBatchResult,
+  CoverageRuleInput,
+  JudgeEventsOptions
+} from "./activity-batch.js";
 export type {
   ActivityDeviceSummary,
   ActivityEventInput,

@@ -5,7 +5,7 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { resolve } from "node:path";
 import { integrationDatabaseName } from "@openrhen/database";
-import { withheldActivitySources } from "@openrhen/contracts";
+import { ACTIVITY_SOURCES, coverageKey, heartbeatKey, withheldActivitySources } from "@openrhen/contracts";
 import {
   ActivityInputError,
   deleteActivityImport,
@@ -378,6 +378,113 @@ describe("import batches are one source", () => {
       ingest([event("z", { source: "nope" })], { import: { sha256: sha("4"), filename: "x.json" } })
     ).rejects.toThrow(/import\.source is needed because every event in this batch was rejected/);
     expect(await count("activity_imports")).toBe(1);
+  });
+});
+
+describe("heartbeat and coverage rows", () => {
+  // The one core source that declares availability with no feeds: the message collector.
+  const collector = Object.keys(ACTIVITY_SOURCES).find(
+    (name) => ACTIVITY_SOURCES[name]!.availability?.feeds.length === 0
+  )!;
+  const hbRow = (device: string | undefined, extra: Record<string, unknown> = {}) => ({
+    id: heartbeatKey(device, new Date("2026-11-07T11:30:00Z"), "ok"),
+    source: collector,
+    kind: "heartbeat",
+    start: "2026-11-07T11:30:00Z",
+    attrs: { status: "ok" },
+    ...extra
+  });
+  const covRow = (start: string, end: string, extra: Record<string, unknown> = {}) => ({
+    id: coverageKey("inbox", new Date(start), new Date(end)),
+    source: collector,
+    kind: "coverage",
+    start,
+    end,
+    attrs: { complete: true, scope: "inbox" },
+    ...extra
+  });
+  const message = (id: string) => ({ id, source: collector, kind: "message", start: "2026-11-07T10:00:00Z" });
+
+  it("stores a heartbeat whose key names the batch device, and a coverage window", async () => {
+    const result = await ingest([hbRow("box"), covRow("2026-11-06T00:00:00Z", "2026-11-07T11:00:00Z")], {
+      device: "box"
+    });
+    expect(result).toMatchObject({ added: 2, rejected: [] });
+    const rows = await sql<{ kind: string; device: string | null; ts_end: Date | null }[]>`
+      SELECT kind, device, ts_end FROM activity_events WHERE source = ${collector} ORDER BY kind`;
+    expect(rows.map((r) => [r.kind, r.device])).toEqual([
+      ["coverage", "box"],
+      ["heartbeat", "box"]
+    ]);
+    expect(rows[0]!.ts_end?.toISOString()).toBe("2026-11-07T11:00:00.000Z");
+  });
+
+  it("rejects a heartbeat key that does not match the batch device, naming the key and the fix", async () => {
+    const result = await ingest([hbRow("box")], { device: "other" });
+    expect(result).toMatchObject({ added: 0 });
+    expect(result.rejected[0]!.reason).toContain('must be "hb:other:2026-11-07T11:ok"');
+    expect(result.rejected[0]!.reason).toContain('send "device" at the top of the batch');
+    const none = await ingest([hbRow("box")]);
+    expect(none.rejected[0]!.reason).toContain('must be "hb:_:2026-11-07T11:ok"');
+  });
+
+  it("refuses a heartbeat or coverage row for a source that does not declare availability", async () => {
+    const result = await ingest([
+      hbRow(undefined, { source: "rhen-watch" }),
+      covRow("2026-11-06T00:00:00Z", "2026-11-07T11:00:00Z", { source: "rhen-watch" })
+    ]);
+    expect(result.added).toBe(0);
+    expect(result.rejected[0]!.reason).toContain("heartbeat is not accepted");
+    expect(result.rejected[1]!.reason).toContain("coverage is not accepted");
+    expect(await count()).toBe(0);
+  });
+
+  it("refuses coverage when a row of the same source in the batch was rejected, and stores the good rows", async () => {
+    const result = await ingest([
+      message("m1"),
+      { ...message("m2"), kind: "nope" },
+      covRow("2026-11-06T00:00:00Z", "2026-11-07T11:00:00Z")
+    ]);
+    expect(result).toMatchObject({ added: 1 });
+    expect(result.rejected.map((r) => r.index)).toEqual([1, 2]);
+    expect(result.rejected[1]!.reason).toContain(`coverage refused: event #1 of ${collector} was rejected`);
+    const again = await ingest([message("m2"), covRow("2026-11-06T00:00:00Z", "2026-11-07T11:00:00Z")]);
+    expect(again).toMatchObject({ added: 2, rejected: [] });
+  });
+
+  it("refuses a coverage row with no scope, saying the scope and the id to send", async () => {
+    const bare = covRow("2026-11-06T00:00:00Z", "2026-11-07T11:00:00Z", {
+      id: coverageKey(undefined, new Date("2026-11-06T00:00:00Z"), new Date("2026-11-07T11:00:00Z")),
+      attrs: { complete: true }
+    });
+    const result = await ingest([bare]);
+    expect(result.added).toBe(0);
+    expect(result.rejected[0]!.reason).toContain("attrs.scope is required");
+    expect(result.rejected[0]!.reason).toContain('Add "scope": "<name>" to attrs');
+    expect(result.rejected[0]!.reason).toContain("cov:<name>:2026-11-06T00:00:00.000Z:2026-11-07T11:00:00.000Z");
+    expect(await count()).toBe(0);
+  });
+
+  it("is idempotent for a repeated coverage window", async () => {
+    const row = covRow("2026-11-06T00:00:00Z", "2026-11-07T11:00:00Z");
+    await ingest([row]);
+    expect(await ingest([row])).toMatchObject({ added: 0, alreadyHeld: 1 });
+  });
+
+  it("allows a window older than 400 days inside an import, not in a live batch", async () => {
+    const old = covRow("2025-01-01T00:00:00Z", "2025-01-31T00:00:00Z");
+    const live = await ingest([old]);
+    expect(live.rejected[0]!.reason).toContain("400 days");
+    const imported = await ingest([old], { import: { sha256: sha("7"), filename: "export.json" } });
+    expect(imported).toMatchObject({ added: 1, rejected: [] });
+  });
+
+  it("keeps coverage of the import's source when a row of another source is refused", async () => {
+    const result = await ingest([message("m1"), event("w1"), covRow("2025-01-01T00:00:00Z", "2025-01-31T00:00:00Z")], {
+      import: { sha256: sha("8"), filename: "export.json" }
+    });
+    expect(result.added).toBe(2);
+    expect(result.rejected.map((r) => r.index)).toEqual([1]);
   });
 });
 
