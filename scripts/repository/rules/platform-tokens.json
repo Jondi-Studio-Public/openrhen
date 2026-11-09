@@ -133,6 +133,15 @@
       "path": "integrations/outbound-proxy/src/connections/calendar-feed/parse.test.ts",
       "strings": ["Outlook"],
       "why": "Dialect names in the tests of a standard parser, which must say whose output they replay."
+    },
+    {
+      "category": "toolchain",
+      "path": "mobile/ios/ci-build.sh",
+      "strings": [
+        "  -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \\",
+        "cp -R build/Build/Products/Release-iphoneos/OpenRhen.app Payload/"
+      ],
+      "why": "The iOS SDK name and the build output folder xcodebuild defines; the build toolchain, not something a deployment chooses."
     }
   ]
 }

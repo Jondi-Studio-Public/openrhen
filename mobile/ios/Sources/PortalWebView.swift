@@ -3,7 +3,7 @@ import WebKit
 
 /// The portal's own screens, locked to the portal origin (main frame and subframes). Camera uploads work through the page's
 /// file input, so the photo check-in page needs no native bridge. Anything off the portal opens in
-/// Safari; a failed load shows a message with Retry.
+/// the system browser; a failed load shows a message with Retry.
 struct PortalWebView: View {
     let url: URL
     @StateObject private var model = WebModel()
@@ -74,13 +74,13 @@ private struct WebContainer: UIViewRepresentable {
                      decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
             guard let portal, let target = navigationAction.request.url else { return decisionHandler(.cancel) }
             if HostPolicy.isPortalOrigin(target, portal: portal) { return decisionHandler(.allow) }
-            // Subframes are locked to the portal origin too; an off-portal embed is dropped, not sent to Safari.
+            // Subframes are locked to the portal origin too; an off-portal embed is dropped, not sent to the system browser.
             if navigationAction.targetFrame?.isMainFrame == false { return decisionHandler(.cancel) }
             if target.scheme == "http" || target.scheme == "https" { UIApplication.shared.open(target) }
             decisionHandler(.cancel)
         }
 
-        // target=_blank: portal links load in this view, external ones go to Safari.
+        // target=_blank: portal links load in this view, external ones open in the system browser.
         func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                      for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
             guard let portal, let target = navigationAction.request.url else { return nil }
