@@ -6,11 +6,18 @@ import {
   ACTIVITY_SCHEMA_VERSION,
   ACTIVITY_SOURCES,
   ACTIVITY_SOURCE_NAMES,
+  ACTIVITY_MESSAGE_FAMILY,
   DERIVED_EXTRACTOR_KINDS,
   PHYSIOLOGY_SOURCE,
   activityCoverageScopeRequired,
   applyCoverageRule,
   activityHealthSources,
+  activitySourceEntry,
+  activitySourceNames,
+  findMessageDuplicates,
+  isMessageCopyCandidate,
+  MESSAGE_FINGERPRINT_TIME_TOLERANCE_SECONDS,
+  MESSAGE_KIND,
   describeWithheldClasses,
   groupWithheldByClass,
   isKnownActivitySource,
@@ -23,6 +30,9 @@ import {
   type ActivityHeldEntry,
   type ActivityIngestResult,
   type ActivityRejection,
+  type HeldMessageRef,
+  type MessageCopyProbe,
+  type MessageDuplicate,
   type ActivitySourceSettings,
   type ActivitySummary,
   type ValidActivityEvent
@@ -221,6 +231,13 @@ async function ingestJudged(
   }
   rejected.sort((x, y) => x.index - y.index);
 
+  // A copy of a message another source already holds is not stored (and not counted as collected): see dropMessageCopies.
+  const duplicates = await dropMessageCopies(tx, userId, valid, indexOfKey);
+  if (duplicates.length > 0) {
+    const dropped = new Set(duplicates.map((copy) => `${copy.source}\u0000${copy.key}`));
+    valid.splice(0, valid.length, ...valid.filter((event) => !dropped.has(`${event.source}\u0000${event.key}`)));
+  }
+
   const sources = [...new Set(valid.map((event) => event.source))];
   const states =
     sources.length === 0
@@ -295,13 +312,95 @@ async function ingestJudged(
   return {
     schema: ACTIVITY_SCHEMA_VERSION,
     added,
-    alreadyHeld: valid.length - added + duplicatesInBatch,
+    alreadyHeld: valid.length - added + duplicatesInBatch + duplicates.length,
     contentDropped,
     rejected,
     held,
+    duplicates,
     importId,
     ingestedVia: via
   };
+}
+
+/** The sources registered in the neutral message family, core or extension. */
+function messageFamilySources(): string[] {
+  return activitySourceNames().filter((name) => activitySourceEntry(name)?.family === ACTIVITY_MESSAGE_FAMILY);
+}
+
+/**
+ * Cross-source dedupe of messages: finds the events of `valid` that are copies of a message another source already
+ * holds (or of an earlier event of this batch from another source); `findMessageDuplicates` has the rules. The
+ * caller drops them, so a copy is never stored and never counted as collected; it is reported in `duplicates` with the
+ * end state `duplicate`. Two rows of one source are never compared (the unique key decides those). The lookup reads
+ * held rows of the message family within the 60 second window of each fingerprint (served by
+ * `activity_events_user_source_time_idx`), and the rows holding the `mid:` key of an event (served by
+ * `activity_events_key_idx`). It runs under the per-person activity lock, which is held to the end of the
+ * transaction that inserts the survivors, so two posts of one message from two sources cannot both pass the lookup.
+ * Nothing here changes a row or needs a migration.
+ */
+async function dropMessageCopies(
+  tx: TxSql,
+  userId: string,
+  valid: readonly ValidActivityEvent[],
+  indexOfKey: ReadonlyMap<string, number>
+): Promise<MessageDuplicate[]> {
+  const family = messageFamilySources();
+  if (family.length === 0) return [];
+  const probes: MessageCopyProbe[] = [];
+  for (const event of valid) {
+    if (event.kind !== MESSAGE_KIND || !family.includes(event.source)) continue;
+    const probe = {
+      index: indexOfKey.get(`${event.source}\u0000${event.key}`) ?? -1,
+      source: event.source,
+      key: event.key,
+      tsStart: event.tsStart,
+      attrs: event.attrs
+    };
+    if (isMessageCopyCandidate(probe)) probes.push(probe);
+  }
+  if (probes.length === 0) return [];
+  await lockActivityUser(tx, userId);
+
+  const held: HeldMessageRef[] = [];
+  const withFp = probes.flatMap((probe) => {
+    const fp = probe.attrs.fp;
+    return typeof fp === "string" && fp !== "" ? [{ fp, probe }] : [];
+  });
+  const windowSeconds = MESSAGE_FINGERPRINT_TIME_TOLERANCE_SECONDS;
+  for (let at = 0; at < withFp.length; at += INSERT_CHUNK) {
+    const chunk = withFp.slice(at, at + INSERT_CHUNK);
+    const probesJson = chunk.map((item) => ({
+      fp: item.fp,
+      ts: item.probe.tsStart.toISOString(),
+      src: item.probe.source
+    }));
+    const rows = await tx<{ source: string; event_key: string; ts_start: Date; fp: string }[]>`
+      SELECT DISTINCT e.source, e.event_key, e.ts_start, e.attrs->>'fp' AS fp
+      FROM jsonb_to_recordset(${tx.json(probesJson as never)}) AS q(fp text, ts timestamptz, src text)
+      JOIN activity_events e
+        ON e.user_id = ${userId} AND e.source IN ${tx(family)} AND e.source <> q.src AND e.kind = ${MESSAGE_KIND}
+       AND e.ts_start BETWEEN q.ts - make_interval(secs => ${windowSeconds}::float8)
+                          AND q.ts + make_interval(secs => ${windowSeconds}::float8)
+       AND e.attrs->>'fp' = q.fp`;
+    for (const row of rows) held.push({ source: row.source, key: row.event_key, tsStart: row.ts_start, fp: row.fp });
+  }
+  // Every probe key, whatever its form: the rows holding it (any source) give both the cross-source `mid:` matches and
+  // which probes are already held under their own (source, key). A probe already held is `alreadyHeld` only; without
+  // this, a message held in two sources (legacy data) would report a re-post of the first as a duplicate of the second.
+  const ownHeld = new Set<string>();
+  const keys = [...new Set(probes.map((probe) => probe.key))];
+  for (let at = 0; at < keys.length; at += INSERT_CHUNK) {
+    const rows = await tx<{ source: string; event_key: string; ts_start: Date; fp: string | null }[]>`
+      SELECT source, event_key, ts_start, attrs->>'fp' AS fp FROM activity_events
+      WHERE user_id = ${userId} AND source IN ${tx(family)} AND kind = ${MESSAGE_KIND}
+        AND event_key IN ${tx(keys.slice(at, at + INSERT_CHUNK))}`;
+    for (const row of rows) {
+      ownHeld.add(`${row.source}\u0000${row.event_key}`);
+      held.push({ source: row.source, key: row.event_key, tsStart: row.ts_start, fp: row.fp });
+    }
+  }
+  const fresh = probes.filter((probe) => !ownHeld.has(`${probe.source}\u0000${probe.key}`));
+  return findMessageDuplicates(fresh, held);
 }
 
 /**

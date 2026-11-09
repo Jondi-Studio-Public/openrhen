@@ -2,6 +2,7 @@ import { z } from "zod";
 import { describeDerivedProblem } from "./activity-derived.js";
 import { describeDriftProblem } from "./activity-drift.js";
 import { HIDDEN_OR_CONTROL_CHARS, MESSAGE_FAMILY, describeMessageProblem } from "./activity-message.js";
+import type { MessageDuplicate } from "./activity-message-dedupe.js";
 import {
   PHYSIOLOGY_KINDS,
   PHYSIOLOGY_SCHEMA_VERSION,
@@ -506,6 +507,8 @@ export interface ActivityIngestResult {
   rejected: ActivityRejection[];
   /** For each physiology event answered `alreadyHeld`: what is already stored under its key. Empty for every other source. */
   held: ActivityHeldEntry[];
+  /** Message copies not stored because another source already holds the message (or an earlier event of this batch does). Each also counts in `alreadyHeld`. Empty for every other event. */
+  duplicates: MessageDuplicate[];
   /** The import record this batch belongs to, when it named one. */
   importId: string | null;
   /** The agent that posted the batch (the row's `ingested_via`); null for the owner. */
