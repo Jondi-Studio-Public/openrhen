@@ -38,7 +38,7 @@ pub fn fmt_duration(ms: Ms) -> String {
     }
 }
 
-fn fmt_clock(ts: Ms, offset_min: i32) -> String {
+pub fn fmt_clock(ts: Ms, offset_min: i32) -> String {
     let secs = (ts / 1000) + i64::from(offset_min) * 60;
     let day_secs = secs.rem_euclid(86_400);
     format!("{:02}:{:02}", day_secs / 3600, (day_secs % 3600) / 60)
