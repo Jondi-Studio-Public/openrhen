@@ -79,8 +79,7 @@
         "# (scripts/smoke/production-click.mjs) against its own throwaway database. Chrome for Testing has",
         "- name: Install Chrome for Testing",
         "echo \"::error::Chrome needs shared libraries this runner lacks:\"",
-        "if (-not (Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name 'rhen-watch' -ErrorAction SilentlyContinue)) { throw 'no start-at-logon entry' }",
-        "if (Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name 'rhen-watch' -ErrorAction SilentlyContinue) { throw 'start-at-logon entry still set' }"
+        "$runKey = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'"
       ],
       "why": "Chrome for Testing for puppeteer, and the Windows Run key: the build and test toolchain, not something a deployment chooses."
     },
