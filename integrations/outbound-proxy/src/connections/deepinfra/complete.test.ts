@@ -100,6 +100,11 @@ describe("deepinfra complete", () => {
       expect(r).toMatchObject({ status: 502, outcome: "unreachable" });
       expect(JSON.stringify(r)).not.toContain(KEY);
     });
+    it("a 500 names DeepInfra and gives no local-model advice", async () => {
+      const r = await outcome(reply({}, 500));
+      expect(JSON.stringify(r)).toContain("DeepInfra failed while answering (500)");
+      expect(JSON.stringify(r)).not.toContain("out of memory");
+    });
     it("unreachable: 503", async () => {
       expect(await outcome(reply({}, 503))).toMatchObject({ outcome: "unreachable" });
     });

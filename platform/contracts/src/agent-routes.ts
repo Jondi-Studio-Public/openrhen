@@ -700,6 +700,8 @@ const OWNER_ROUTES: Record<string, string> = {
   // Where mail text is sent (a local model's LAN address, the hosted tier's caps, how far back to backfill): a data-flow
   // setting, so never an agent's to read or change. The hosted key is a saved key and is covered above.
   "PUT /api/derived-settings": "Setting where mail understanding runs, its models and caps",
+  // Sends fixed synthetic text to the local or hosted model: reaches a LAN address and spends the hosted allowance.
+  "POST /api/derived-settings/test": "Testing the mail-understanding models",
   "POST /api/review/watch-history/lengths": "Fetching video lengths with the saved YouTube key",
   "POST /api/integrations/pulse/tick": "The pulse job",
   "POST /api/integrations/push/drain": "The push queue",

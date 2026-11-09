@@ -5,6 +5,9 @@ vi.mock("@/server/runtime-env", () => ({ databaseUrl: () => "postgres://test" })
 vi.mock("@/server/persistence/postgres/sql-pool", () => ({ sqlPool: () => ({}) }));
 const store = vi.hoisted(() => ({ readDerivedSettings: vi.fn(), saveDerivedSettings: vi.fn() }));
 vi.mock("@/server/persistence/postgres/derived-settings-store", () => store);
+const calls = vi.hoisted(() => ({ hostedUsageLast24Hours: vi.fn(), recordModelCall: vi.fn() }));
+vi.mock("@/server/persistence/postgres/derived-model-calls-store", () => calls);
+vi.mock("@/server/persistence/postgres/ensure-user", () => ({ ensureUser: async () => "u1" }));
 
 const { GET, PUT } = await import("./route");
 
@@ -25,6 +28,8 @@ const saved = {
 };
 
 beforeEach(() => {
+  calls.hostedUsageLast24Hours.mockReset();
+  calls.hostedUsageLast24Hours.mockResolvedValue({ messages: 3, tokens: 1200 });
   store.readDerivedSettings.mockReset();
   store.saveDerivedSettings.mockReset();
   vi.spyOn(console, "log").mockImplementation(() => {});
@@ -43,6 +48,12 @@ describe("GET /api/derived-settings", () => {
     expect(body.note).toContain("restore");
     expect(body.note).toContain("outbound proxy refuses loopback");
     expect(JSON.stringify(body).toLowerCase()).not.toContain("sk-");
+  });
+
+  it("returns the hosted sends and tokens of the last 24 hours for the card", async () => {
+    store.readDerivedSettings.mockResolvedValue(saved);
+    const response = await GET(new Request("http://localhost/api/derived-settings"), undefined as never);
+    expect(((await response.json()) as { usage: unknown }).usage).toEqual({ messages: 3, tokens: 1200 });
   });
 });
 
@@ -81,7 +92,7 @@ describe("PUT /api/derived-settings", () => {
   });
 
   it("does not accept the hosted key, and says where it goes", async () => {
-    const response = await put({ deepinfraApiKey: "abc" });
+    const response = await put({ hostedModelApiKey: "abc" });
     expect(response.status).toBe(400);
     expect(((await response.json()) as { error: string }).error).toContain("Passwords and keys");
     expect(store.saveDerivedSettings).not.toHaveBeenCalled();

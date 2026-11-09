@@ -8,7 +8,10 @@
 // `require()` whose argument is not a plain string literal is refused too, and so is the folder itself
 // (`@/server/secrets`), which would be a barrel re-exporting both.
 export const SECRET_READER_MODULE = "portal/server/secrets/read-secret.ts";
-export const ALLOWED_SECRET_READERS = ["portal/integrations/youtube/youtube-proxy-client.ts"];
+export const ALLOWED_SECRET_READERS = [
+  "portal/integrations/youtube/youtube-proxy-client.ts",
+  "portal/integrations/models/model-proxy-client.ts"
+];
 export const SECRET_CRYPTO_MODULE = "portal/server/secrets/secrets-crypto.ts";
 export const ALLOWED_SECRET_CRYPTO_USERS = [
   "portal/server/persistence/postgres/app-secrets-store.ts",
