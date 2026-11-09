@@ -267,13 +267,15 @@ describe("the closure walker over the real repository", () => {
 });
 
 // ---------------------------------------------------------------------------------------------------------------
-// PR A2: coverage of core-owned entry points, and the write and surface evidence rules.
+// PR A2 and PR C: coverage of every entry point, whoever owns it, and the write and surface evidence rules.
 // ---------------------------------------------------------------------------------------------------------------
 
 /**
- * Overlay-owned entry points are exempt until the extension's own entries cover them: the composed tree's
- * `.sync-core.json` `overlayFiles`, every `private/` seam folder, and the runtime registrations (tables in a registered
- * group, extension connection manifests and tools). Nothing here changes in this repository alone.
+ * Every entry point the checkout holds must be covered by some registered entry, core or extension: the write routes,
+ * loops, parsers, tables, connections and tools of an extension or overlay file are held to the same rules as core's.
+ * In a checkout with no extensions the extra files and registrations do not exist, so the same lists are core's alone.
+ * The composed tree's `.sync-core.json` `overlayFiles` and every `private/` seam folder are how a file is told apart as
+ * extension-owned, and only the count assertions below still ask for the core subset.
  */
 const lockFile = join(root, ".sync-core.json");
 const overlayFileSet = new Set<string>(
@@ -289,27 +291,70 @@ const coreTableIdents = new Set(
   )
 );
 const coreTables = [...drizzleNames.entries()].filter(([ident]) => coreTableIdents.has(ident)).map(([, name]) => name);
-// The calendar feed is a core connection that registers outside the built-in list, so the core-only view omits it.
-const coreConnections = [
-  ...withoutContractsExtensions(() => connectionRegistry().map((manifest) => manifest.id)),
-  "calendar_feed"
-].filter((id, index, all) => !id.startsWith("example_") && all.indexOf(id) === index);
-const coreWriteTools = MCP_CORE_TOOL_MANIFEST.filter((tool) =>
-  tool.scopes.some((scope) => /^(?:write|propose):/.test(scope))
-).map((tool) => tool.name);
-const coreWorkerLoops = workerLoopNames(read("engine/worker/src/main.ts"), workerSources.filter(isCoreFile).map(read));
-const coreServiceLoops = serviceLoopNames(serviceSources.filter(isCoreFile).map(read));
-const coreWriteRoutes = routeFiles
-  .filter((route) => isCoreFile(route.file))
-  .flatMap((route) =>
-    (routes.get(route.url) ?? []).filter((method) => method !== "GET").map((method) => `${method} ${route.url}`)
-  );
+// The 2.5 acceptance list below is about core's own tables; the coverage rules take every table the schema exports.
+const allTables = [...drizzleNames.values()];
+// The calendar feed is a core connection that registers outside the built-in list, so the registry view omits it.
+const allConnections = [...connectionRegistry().map((manifest) => manifest.id), "calendar_feed"].filter(
+  (id, index, all) => !id.startsWith("example_") && all.indexOf(id) === index
+);
+const isWriteTool = (tool: { scopes: readonly string[] }) =>
+  tool.scopes.some((scope) => /^(?:write|propose):/.test(scope));
+const coreWriteTools = MCP_CORE_TOOL_MANIFEST.filter(isWriteTool).map((tool) => tool.name);
+// The extended manifest, so a tool an extension adds is held to M1 too.
+const allWriteTools = MCP_TOOL_MANIFEST.filter(isWriteTool).map((tool) => tool.name);
+const allLoops = [
+  ...workerLoopNames(read("engine/worker/src/main.ts"), workerSources.map(read)),
+  ...serviceLoopNames(serviceSources.map(read))
+];
+const writeRoutesOf = (accept: (file: string) => boolean) =>
+  routeFiles
+    .filter((route) => accept(route.file))
+    .flatMap((route) =>
+      (routes.get(route.url) ?? []).filter((method) => method !== "GET").map((method) => `${method} ${route.url}`)
+    );
+const allWriteRoutes = writeRoutesOf(() => true);
+const coreWriteRoutes = writeRoutesOf(isCoreFile);
 const parserFiles = [
   ...sourceFiles("integrations/activity-importers/src/parsers"),
   ...sourceFiles("portal/server/imports").filter((file) =>
     /(?:-parser|-extractor|\/deliverable-source-file)\.ts$/.test(file)
   )
-].filter(isCoreFile);
+];
+const coreParserFiles = parserFiles.filter(isCoreFile);
+const coreConnections = [
+  ...withoutContractsExtensions(() => connectionRegistry().map((manifest) => manifest.id)),
+  "calendar_feed"
+].filter((id, index, all) => !id.startsWith("example_") && all.indexOf(id) === index);
+const coreLoops = [
+  ...workerLoopNames(read("engine/worker/src/main.ts"), workerSources.filter(isCoreFile).map(read)),
+  ...serviceLoopNames(serviceSources.filter(isCoreFile).map(read))
+];
+
+/** The entry points a list of entries is held to: every one in the checkout, or core's alone. */
+interface EntryPoints {
+  parsers: readonly string[];
+  connections: readonly string[];
+  loops: readonly string[];
+  routes: readonly string[];
+  tools: readonly string[];
+  tables: readonly string[];
+}
+const ALL_POINTS: EntryPoints = {
+  parsers: parserFiles,
+  connections: allConnections,
+  loops: allLoops,
+  routes: allWriteRoutes,
+  tools: allWriteTools,
+  tables: allTables
+};
+const CORE_POINTS: EntryPoints = {
+  parsers: coreParserFiles,
+  connections: coreConnections,
+  loops: coreLoops,
+  routes: coreWriteRoutes,
+  tools: coreWriteTools,
+  tables: coreTables
+};
 
 /** Write routes that are not data entry points: sign-in, tokens, the MCP endpoint and connection probes. */
 const INFRA_ROUTES: Record<string, string> = {
@@ -336,11 +381,22 @@ const INFRA_LOOPS: Record<string, string> = {
 const GET_WRITERS: Record<string, string[]> = { "GET /api/device/now": ["offer_log"] };
 
 const stopMapAll = stops(registry.entries);
+const stopMapScanningOverlay = new Map([...stopMapAll].filter(([, reason]) => reason !== "overlay"));
+const isOverlayFile = (file: string) => !isCoreFile(file);
 const routeFileByUrl = new Map(routeFiles.map((route) => [route.url, route.file]));
+// Tables outside the default schema have no Drizzle export; the registry's own `pg:<schema>.<table>` refs name them,
+// so an extension entry's writes to one are found by the same scan.
+const qualifiedTables = new Set(
+  registry.entries
+    .flatMap((entry) => [...entry.from, ...entry.to])
+    .filter((ref) => ref.startsWith("pg:") && ref.includes("."))
+    .map((ref) => ref.slice(3))
+);
+const writableTables = new Set([...tableNames, ...qualifiedTables]);
 const writesIn = (closure: { files: string[] }) => {
   const written = new Set<string>();
   for (const file of closure.files)
-    for (const table of tablesWrittenIn(read(file), tableNames, drizzleNames)) written.add(table);
+    for (const table of tablesWrittenIn(read(file), writableTables, drizzleNames)) written.add(table);
   return written;
 };
 
@@ -357,7 +413,10 @@ function startsOf(entry: FlowEntry): string[] {
 /** The walker stops at pipe modules; an entry's own paths are still scanned, so a pipe sees its own writes. */
 function stopsFor(entry: FlowEntry): Map<string, StopReason> {
   const own = new Set(entry.code.paths ?? []);
-  return new Map([...stopMapAll].filter(([path]) => !own.has(path)));
+  // A core entry stops at an extension's file (its writes belong to the extension's entry); an extension's entry
+  // scans the extension's own files, which is how PR C credits them to the entry that owns them.
+  const base = entry.owner === "core" ? stopMapAll : stopMapScanningOverlay;
+  return new Map([...base].filter(([path]) => !own.has(path)));
 }
 const memo = <T>(compute: (entry: FlowEntry) => T) => {
   const cache = new Map<string, T>();
@@ -387,7 +446,11 @@ const pageCache = new Map<string, { files: string[]; text: string }>();
 const evidence = {
   pageClosure(pageFile: string) {
     if (!pageCache.has(pageFile)) {
-      const closure = resolveClosure([pageFile], { root, stops: stopMapAll });
+      // A page the extension owns is read through the extension's files; a core page stops at them.
+      const closure = resolveClosure([pageFile], {
+        root,
+        stops: isOverlayFile(pageFile) ? stopMapScanningOverlay : stopMapAll
+      });
       pageCache.set(pageFile, { files: closure.files, text: closure.files.map(read).join("\n") });
     }
     return pageCache.get(pageFile)!;
@@ -401,7 +464,7 @@ const evidence = {
 };
 
 /** Every rule, run over a list of entries; the entries a rule would flag for the whole tree are the caller's concern. */
-function allProblems(entries: readonly FlowEntry[]): string[] {
+function allProblems(entries: readonly FlowEntry[], points: EntryPoints = ALL_POINTS): string[] {
   const getWriterWrites = (route: string) => {
     const file = routeFileByUrl.get(route.slice(route.indexOf(" ") + 1));
     return file ? writesIn(resolveClosure([file], { root, stops: stopMapAll })) : new Set<string>();
@@ -419,13 +482,13 @@ function allProblems(entries: readonly FlowEntry[]): string[] {
     ...checkX2(entries, registry.datasets),
     ...checkE1(entries, PLAN_INPUT_TABLES, BLIND_TABLES),
     ...checkA1(Object.keys(ACTIVITY_SOURCES), entries),
-    ...checkP1(parserFiles, entries),
-    ...checkC1(coreConnections, entries),
-    ...checkL1([...coreWorkerLoops, ...coreServiceLoops], entries, INFRA_LOOPS),
-    ...checkR1(coreWriteRoutes, entries, INFRA_ROUTES),
+    ...checkP1(points.parsers, entries),
+    ...checkC1(points.connections, entries),
+    ...checkL1(points.loops, entries, INFRA_LOOPS),
+    ...checkR1(points.routes, entries, INFRA_ROUTES),
     ...checkR2(GET_WRITERS, entries, getWriterWrites),
-    ...checkM1(coreWriteTools, entries),
-    ...checkT1(coreTables, entries, registry.datasets),
+    ...checkM1(points.tools, entries),
+    ...checkT1(points.tables, entries, registry.datasets),
     ...checkD1(entries),
     ...checkV1(entries, closureWrites),
     ...checkV1Reverse(entries, nearWrites),
@@ -435,36 +498,38 @@ function allProblems(entries: readonly FlowEntry[]): string[] {
   ];
 }
 
-describe("coverage of core entry points (PR A2)", () => {
-  const core = registry.entries.filter((entry) => entry.owner === "core");
-  it("has no problem anywhere in the core entries", () => expect(allProblems(core)).toEqual([]));
-  it("A1: every activity source has an entry", () => expect(checkA1(Object.keys(ACTIVITY_SOURCES), core)).toEqual([]));
+describe("coverage of every entry point (PR A2, PR C)", () => {
+  // Every registered entry, whoever owns it: an extension's entries cover the extension's entry points.
+  const all = registry.entries;
+  const core = all.filter((entry) => entry.owner === "core");
+  it("has no problem anywhere in the entries", () => expect(allProblems(all)).toEqual([]));
+  it("A1: every activity source has an entry", () => expect(checkA1(Object.keys(ACTIVITY_SOURCES), all)).toEqual([]));
   it("P1: every parser and extractor file is in an entry", () => {
-    expect(parserFiles.length).toBeGreaterThanOrEqual(15);
-    expect(checkP1(parserFiles, core)).toEqual([]);
+    expect(coreParserFiles.length).toBeGreaterThanOrEqual(15);
+    expect(checkP1(parserFiles, all)).toEqual([]);
   });
-  it("C1: every connection is some entry's", () => expect(checkC1(coreConnections, core)).toEqual([]));
+  it("C1: every connection is some entry's", () => expect(checkC1(allConnections, all)).toEqual([]));
   it("L1/L2: every loop is an entry's or infrastructure", () =>
-    expect(checkL1([...coreWorkerLoops, ...coreServiceLoops], core, INFRA_LOOPS)).toEqual([]));
+    expect(checkL1(allLoops, all, INFRA_LOOPS)).toEqual([]));
   it("R1: every write route is an entry's or infrastructure", () => {
     expect(coreWriteRoutes.length).toBeGreaterThan(80);
-    expect(checkR1(coreWriteRoutes, core, INFRA_ROUTES)).toEqual([]);
+    expect(checkR1(allWriteRoutes, all, INFRA_ROUTES)).toEqual([]);
   });
   it("R2: GET writers are in an entry and write what they say", () =>
     expect(
-      checkR2(GET_WRITERS, core, (route) =>
+      checkR2(GET_WRITERS, all, (route) =>
         writesIn(resolveClosure([routeFileByUrl.get(route.split(" ")[1]!)!], { root, stops: stopMapAll }))
       )
     ).toEqual([]));
   it("M1: every write tool is an entry's", () => {
     expect(coreWriteTools.length).toBeGreaterThan(25);
-    expect(checkM1(coreWriteTools, core)).toEqual([]);
+    expect(checkM1(allWriteTools, all)).toEqual([]);
   });
-  it("T1: every table is on an edge or noted", () => expect(checkT1(coreTables, core, registry.datasets)).toEqual([]));
-  it("D1: every device has a probe", () => expect(checkD1(core)).toEqual([]));
+  it("T1: every table is on an edge or noted", () => expect(checkT1(allTables, all, registry.datasets)).toEqual([]));
+  it("D1: every device has a probe", () => expect(checkD1(all)).toEqual([]));
   it("keeps planned entries planned only until they land", () =>
     expect(
-      checkPlannedLanded(core, {
+      checkPlannedLanded(all, {
         activitySources: new Set(Object.keys(ACTIVITY_SOURCES)),
         tables: tableNames,
         routes: new Set([...routes].flatMap(([url, methods]) => methods.map((method) => `${method} ${url}`)))
@@ -564,9 +629,17 @@ describe("coverage of core entry points (PR A2)", () => {
       "deliverables-view": "the data pages test (page claimed, tables read)",
       "consequence-refit": "the consequence test: answers still reach the engine through the refit reader"
     };
+    // Core's own entries are held to core's own entry points: an extension's entry that covers the same ground (the
+    // producer for a core source, say) would otherwise make a core entry look removable in a composed build.
     const survivors = core
       .filter((entry) => entry.planned === undefined && !(entry.id in CAUGHT_ELSEWHERE))
-      .filter((entry) => allProblems(core.filter((other) => other.id !== entry.id)).length === 0)
+      .filter(
+        (entry) =>
+          allProblems(
+            core.filter((other) => other.id !== entry.id),
+            CORE_POINTS
+          ).length === 0
+      )
       .map((entry) => entry.id);
     expect(survivors).toEqual([]);
   }, 600_000);
