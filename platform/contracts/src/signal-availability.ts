@@ -96,8 +96,6 @@ export interface SignalFeed {
   kinds: readonly string[];
   /** Slot key for fusion; default `origin`. */
   slotBy?: SlotBy;
-  /** The kind may carry absence coverage (room-posture). */
-  absence?: boolean;
   /** 0..1; clamped to `TIER_CEILING[tier]` at read time too, so an extension source cannot exceed it. */
   weight: number;
   /** Freshness mode; default `decay`. */

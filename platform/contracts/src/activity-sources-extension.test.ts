@@ -65,14 +65,12 @@ describe("extension activity sources", () => {
 });
 
 describe("optional source entry fields", () => {
-  it("accepts projectionKinds and readClass on an extension source entry type", () => {
+  it("accepts projectionKinds on an extension source entry type", () => {
     const entry: import("./activity-events.js").ActivitySourceEntry = {
       schemaVersion: 1,
       kinds: ["a", "b"],
-      projectionKinds: ["b"],
-      readClass: "whereabouts"
+      projectionKinds: ["b"]
     };
     expect(entry.projectionKinds).toEqual(["b"]);
-    expect(entry.readClass).toBe("whereabouts");
   });
 });

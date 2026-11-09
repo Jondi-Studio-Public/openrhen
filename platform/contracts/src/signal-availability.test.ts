@@ -69,7 +69,6 @@ describe("signal-availability vocabularies", () => {
       tier: "live",
       kinds: ["state"],
       slotBy: "route",
-      absence: true,
       weight: 0.5,
       freshness: "refreshed-held",
       staleAfterMinutes: 10,

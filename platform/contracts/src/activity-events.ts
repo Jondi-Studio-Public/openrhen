@@ -53,8 +53,6 @@ export interface ActivitySourceEntry {
   availability?: SourceAvailability;
   /** Kinds that are read out of other events (clusters, stays) rather than sensed: they feed no signal, take a derived write scope and are deleted with their inputs. */
   projectionKinds?: readonly string[];
-  /** The read-scope class a whole-source read needs (for example `whereabouts` for location-bearing sources); absent means the ordinary activity read scope. */
-  readClass?: string;
 }
 
 /** Every source the store accepts, with its kinds. `correction` is also accepted for every source. */
