@@ -655,6 +655,15 @@ describe("scopesForRoute: mail understanding settings", () => {
     for (const method of ["POST", "PATCH", "DELETE"])
       expect(scopesForRoute(method, "/api/derived-settings", {}).kind, method).toBe("refused");
   });
+
+  it("keeps the model test, which reaches a LAN address and spends the hosted allowance, to the owner", () => {
+    expect(scopesForRoute("POST", "/api/derived-settings/test", { tier: "t2" })).toMatchObject({
+      kind: "refused",
+      reason: "owner-only"
+    });
+    for (const method of ["GET", "PUT", "DELETE"])
+      expect(scopesForRoute(method, "/api/derived-settings/test", {}).kind, method).toBe("refused");
+  });
 });
 
 describe("scopesForRoute: re-entry", () => {

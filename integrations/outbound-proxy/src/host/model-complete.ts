@@ -157,8 +157,16 @@ export function isJsonDocument(text: string): boolean {
   }
 }
 
-/** The status-to-outcome rules both providers share. Null means the status is a success. */
-export function failureForStatus(status: number, who: string): CompleteResult | null {
+/**
+ * The status-to-outcome rules both providers share. Null means the status is a success. `who` names the backend that
+ * answered ("Ollama at ..." or "DeepInfra"); `serverErrorHint` is that backend's own advice for a 5xx, because what a
+ * failure usually means differs (a local model out of memory is not a hosted-service outage).
+ */
+export function failureForStatus(
+  status: number,
+  who: string,
+  serverErrorHint = "Retry in a few minutes."
+): CompleteResult | null {
   if (status >= 200 && status < 300) return null;
   if (status === 429)
     return fail(
@@ -172,10 +180,6 @@ export function failureForStatus(status: number, who: string): CompleteResult | 
     );
   if (status === 502 || status === 503)
     return fail("unreachable", `${who} is not available right now (${status}). Retry in a few minutes.`);
-  if (status >= 500)
-    return fail(
-      "bad_output",
-      `${who} failed while answering (${status}). This is usually the model running out of memory or failing to load; try a smaller model.`
-    );
+  if (status >= 500) return fail("bad_output", `${who} failed while answering (${status}). ${serverErrorHint}`);
   return fail("bad_output", `${who} rejected the request (${status}). Check the model id and the format.`);
 }

@@ -57,13 +57,12 @@ import type { PoolSql, Sql } from "./sql-pool";
  *     three kinds (there is no index on `kind`; the pass is complete because a label must never be missed);
  *   - predictions about a message come from `derived_lineage` (indexed on `source_id`) and the message from its event
  *     key (unique index);
- *   - fact rows have no index by `fact_id` yet, so only the newest `window` rows (of any kind) of each `derived` source are
- *     looked at. Every `kind = 'fact'` and `source IN ('derived', 'derived-shadow')` predicate there is a SQL literal,
- *     so the partial indexes of the 2b-2 migration can serve the read once it lands;
+ *   - fact rows are read by `fact_id` exactly (the partial index of migration 0151, no window) and by message key from
+ *     the newest `window` fact rows of each `derived` source (no index on `source_event_id`). Every `kind = 'fact'` and
+ *     `source IN ('derived', 'derived-shadow')` predicate there is a SQL literal, so a prepared statement keeps using the
+ *     partial indexes;
  *   - the T0 share is taken over the newest `window` raw messages (an ordered index scan), joined through lineage.
- * Each cut-short read says so in the entry's `problems`. Until the 2b-2 migration lands (partial indexes on
- * (user_id, (attrs ->> 'fact_id')) WHERE kind = 'fact' and on (user_id, source, kind) WHERE source IN
- * ('derived', 'derived-shadow')) the window stays; with them it can go.
+ * Each cut-short read says so in the entry's `problems`.
  */
 
 /** Rows looked at per bounded read unless the caller narrows or widens it. */
@@ -368,34 +367,45 @@ async function readInTransaction(sql: Sql, userId: string, options: EvalReportOp
     return read;
   };
 
-  // Fact rows: only the newest `window` rows of each source are looked at (there is no index by fact id until the
-  // 2b-2 migration lands). `kind = 'fact'` and `source IN (...)` are literals so its partial indexes can serve this read;
-  // `source = ${source}` narrows to one of the two.
+  // Fact rows, two reads per source. Both keep `kind = 'fact'` and `source IN (...)` as SQL literals so the partial
+  // indexes of migration 0151 serve them (a bound parameter there would make a prepared statement pick a generic plan
+  // that cannot use a partial index); `source = ${source}` narrows to one of the two.
+  //  - By fact id: exact, no window, served by (the `= ANY(ARRAY(...))` form, checked with EXPLAIN on 1.2M seeded rows and a
+  //    generic plan; `IN (SELECT ...)` made Postgres hash-join over the whole derived partial index instead) `(user_id, (attrs ->> 'fact_id')) WHERE kind = 'fact'`.
+  //  - By message key (`attrs.source_event_id`, which has no index): the newest `window` FACT rows of the source, counted
+  //    in fact rows (`kind = 'fact'` inside the LIMIT; the planner walks the person's newest derived rows of the source
+  //    and filters on kind, so this is fast while facts are dense among them), then filtered to the messages. This is the
+  //    only read that can be cut short.
   const factsBySource = new Map<string, { attrs: Record<string, unknown>; at: Date }[]>();
   const factCut = new Map<string, Date | null>();
-  // The window is the newest `window` rows of the source of ANY kind, then filtered to facts: `kind = 'fact'` before the
-  // LIMIT would make Postgres walk every derived row of the person to find few facts (the (user_id, source, ingested_at)
-  // index serves only this form) and hit the statement timeout. After the 2b-2 migration (PR 135) lands, switch to the
-  // direct form (`kind = 'fact'` inside the LIMIT, served by the partial index) and count the window in fact rows; the
-  // floor logic below counts the window in whatever rows the query limits.
   const readFacts = async (source: string, ids: string[], messages: string[]) => {
-    const found = await sql<{ attrs: unknown; at: Date | null; scanned: number; floor: Date | null }[]>`
-      WITH newest AS MATERIALIZED (
-        SELECT kind, attrs, ingested_at FROM activity_events
-        WHERE user_id = ${userId} AND source IN ('derived', 'derived-shadow') AND source = ${source}
-        ORDER BY ingested_at DESC LIMIT ${window}),
-      hit AS (
-        SELECT attrs, ingested_at FROM newest
-        WHERE kind = 'fact'
-          AND (attrs ->> 'fact_id' IN (SELECT jsonb_array_elements_text(${sql.json(ids)}))
-            OR attrs ->> 'source_event_id' IN (SELECT jsonb_array_elements_text(${sql.json(messages)}))))
-      SELECT attrs, ingested_at AS at, (SELECT count(*)::int FROM newest) AS scanned,
-             (SELECT min(ingested_at) FROM newest) AS floor FROM hit
-      UNION ALL
-      SELECT NULL, NULL, (SELECT count(*)::int FROM newest), (SELECT min(ingested_at) FROM newest)
-      WHERE NOT EXISTS (SELECT 1 FROM hit)`;
+    const found: { attrs: unknown; at: Date | null }[] = [];
+    if (ids.length > 0)
+      found.push(
+        ...(await sql<{ attrs: unknown; at: Date }[]>`
+          SELECT attrs, ingested_at AS at FROM activity_events
+          WHERE user_id = ${userId} AND kind = 'fact' AND source IN ('derived', 'derived-shadow') AND source = ${source}
+            AND attrs ->> 'fact_id' = ANY(ARRAY(SELECT jsonb_array_elements_text(${sql.json(ids)})))`)
+      );
+    if (messages.length > 0) {
+      const byMessage = await sql<{ attrs: unknown; at: Date | null; scanned: number; floor: Date | null }[]>`
+        WITH newest AS MATERIALIZED (
+          SELECT attrs, ingested_at FROM activity_events
+          WHERE user_id = ${userId} AND kind = 'fact' AND source IN ('derived', 'derived-shadow') AND source = ${source}
+          ORDER BY ingested_at DESC LIMIT ${window}),
+        hit AS (
+          SELECT attrs, ingested_at FROM newest
+          WHERE attrs ->> 'source_event_id' IN (SELECT jsonb_array_elements_text(${sql.json(messages)})))
+        SELECT attrs, ingested_at AS at, (SELECT count(*)::int FROM newest) AS scanned,
+               (SELECT min(ingested_at) FROM newest) AS floor FROM hit
+        UNION ALL
+        SELECT NULL, NULL, (SELECT count(*)::int FROM newest), (SELECT min(ingested_at) FROM newest)
+        WHERE NOT EXISTS (SELECT 1 FROM hit)`;
+      if ((byMessage[0]?.scanned ?? 0) >= window && !factCut.has(source))
+        factCut.set(source, byMessage[0]?.floor ?? null);
+      found.push(...byMessage);
+    }
     // A source read twice is cut by the same window, so the first floor stands.
-    if ((found[0]?.scanned ?? 0) >= window && !factCut.has(source)) factCut.set(source, found[0]?.floor ?? null);
     const held = factsBySource.get(source) ?? [];
     const seen = new Set(held.map((item) => `${item.at.getTime()}\u0000${JSON.stringify(item.attrs)}`));
     for (const item of found) {
@@ -487,7 +497,7 @@ async function readInTransaction(sql: Sql, userId: string, options: EvalReportOp
           for (const [id, entry] of factRows) if (entry.row.messageId === key) factRows.delete(id);
         }
         problems.push(
-          `Only the newest ${window} rows of ${group.source} were looked at for facts, so labels about older facts may show no prediction. This holds until the 2b-2 migration adds indexes on the fact id; then the window can go.`
+          `Only the newest ${window} fact rows of ${group.source} were looked at to find the facts of labelled messages, so a label about an older message may show no prediction. Pass a larger window to widen it.`
         );
       }
     }

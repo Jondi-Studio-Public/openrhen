@@ -65,8 +65,11 @@ export const settingsSections: readonly SettingsSection[] = [
   {
     id: "ai",
     title: "AI and add-ons",
-    meta: "Models, map add-ons, agent tokens",
-    pages: [{ href: "/settings/ai", label: "AI and add-ons" }]
+    meta: "Models, mail understanding, map add-ons, agent tokens",
+    pages: [
+      { href: "/settings/ai", label: "AI and add-ons" },
+      { href: "/settings/mail-understanding", label: "Mail understanding" }
+    ]
   },
   {
     id: "passwords",

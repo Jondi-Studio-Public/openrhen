@@ -7,7 +7,7 @@ import { z } from "zod";
  */
 
 /** Every secret the app can hold. A new one is added here and nowhere else decides what may be stored. */
-export const SECRET_NAMES = ["youtube_data_api_key"] as const;
+export const SECRET_NAMES = ["youtube_data_api_key", "hosted_model_api_key"] as const;
 export type SecretName = (typeof SECRET_NAMES)[number];
 
 export const secretNameSchema = z.enum(SECRET_NAMES);
@@ -17,6 +17,10 @@ export const SECRET_LABELS: Record<SecretName, { label: string; help: string }> 
   youtube_data_api_key: {
     label: "YouTube Data API key",
     help: "Lets Review look up how long your watched videos are. Create a key for the YouTube Data API v3 in the Google Cloud console."
+  },
+  hosted_model_api_key: {
+    label: "Hosted model API key",
+    help: "Lets mail understanding send the few messages the local model cannot read to the hosted model provider chosen for it, within the daily caps set in Settings > Mail understanding. Mail understanding reads the key from here only and ignores any provider key set as an environment variable. A restore from a backup empties it, so enter it again afterwards."
   }
 };
 

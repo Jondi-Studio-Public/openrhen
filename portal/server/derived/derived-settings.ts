@@ -37,7 +37,15 @@ const MODEL_ID_MAX = 200;
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$/;
 const MODEL_ID_PATH_TRICK = /\.\.|\/\//;
 const FIELDS = ["ollamaUrl", "t2Model", "t3Model", "t3DailyMessageCap", "t3DailyTokenCap", "backfillDays"] as const;
-const KEY_NAMES = new Set(["apiKey", "api_key", "key", "deepinfraApiKey", "deepinfra_api_key", "t3ApiKey", "token"]);
+const KEY_NAMES = new Set([
+  "apiKey",
+  "api_key",
+  "key",
+  "hostedModelApiKey",
+  "hosted_model_api_key",
+  "t3ApiKey",
+  "token"
+]);
 
 export type ParsedDerivedSettings = { ok: true; patch: DerivedSettingsPatch } | { ok: false; problems: string[] };
 

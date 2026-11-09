@@ -1509,6 +1509,8 @@ export {
 export type { ConnectionId, SourceId } from "./connections/connection-id.js";
 export { CAPABILITY_OPS, capabilityIdSchema, capabilityPath, opIdSchema } from "./connections/capabilities.js";
 export type { CapabilityId, OpId } from "./connections/capabilities.js";
+export { HOSTED_MODEL_PROVIDER, LOCAL_MODEL_PROVIDER, MODEL_PROVIDERS } from "./connections/model-providers.js";
+export type { ModelProviderDescriptor, ModelTier } from "./connections/model-providers.js";
 export { CONNECTION_MANIFEST_VERSION, calendarSourceSchema, connectionManifestSchema } from "./connections/manifest.js";
 export type { ConnectionManifest } from "./connections/manifest.js";
 export {

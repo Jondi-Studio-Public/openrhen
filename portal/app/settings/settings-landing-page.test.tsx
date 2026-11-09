@@ -54,6 +54,7 @@ describe("Settings landing page", () => {
       "/settings/pulse",
       "/settings/notifications",
       "/settings/ai",
+      "/settings/mail-understanding",
       "/settings/passwords-and-keys",
       "/settings/advanced"
     ])
