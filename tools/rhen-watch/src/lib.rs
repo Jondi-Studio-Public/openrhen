@@ -7,6 +7,7 @@ pub mod cli;
 pub mod config;
 pub mod derive;
 pub mod engine;
+pub mod handover;
 pub mod ids;
 pub mod log;
 pub mod model;
@@ -20,6 +21,8 @@ pub mod store;
 mod tests;
 #[cfg(test)]
 mod tests_derive;
+#[cfg(test)]
+mod tests_kit;
 #[cfg(test)]
 mod tests_meter;
 #[cfg(test)]

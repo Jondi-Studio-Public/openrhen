@@ -15,16 +15,18 @@ const HELP: &str = "rhen-watch: local desktop activity recorder (observation onl
 USAGE
   rhen-watch run [--for SECONDS]     record until Ctrl+C, `rhen-watch stop`, or SECONDS have passed
   rhen-watch stop                    ask a running agent to stop and flush
-  rhen-watch report [--day YYYY-MM-DD] [--utc-offset-minutes N]
+  rhen-watch report [--day YYYY-MM-DD | --from YYYY-MM-DD --to YYYY-MM-DD] [--utc-offset-minutes N]
   rhen-watch status                  paths, size, last heartbeat, row counts
+  rhen-watch export PATH             copy the database to a new file (safe while the agent runs; never overwrites)
   rhen-watch config init|path|show   write the default config / print its path / list every setting
   rhen-watch config set KEY VALUE    change one setting, keeping the file's comments (e.g. derive.session_gap_minutes 8)
   rhen-watch categories init [--from-config]|path|list [--uncategorised]|set EXE CATEGORY
                                      the per-exe category map (categories.toml); --from-config prints the
                                      [exe] text for an old config.toml [categories] table
   rhen-watch install                 copy to %LOCALAPPDATA%\\Programs\\rhen-watch, start at logon, start now
-  rhen-watch uninstall [--purge]     stop, remove start at logon and the program (--purge also deletes your data)
-  rhen-watch wipe --yes              delete the database, its sidecar files and the config
+  rhen-watch uninstall [--purge]     stop, remove start at logon and the program (--purge also deletes your data: the
+                                     database, config, logs and the data folder)
+  rhen-watch wipe --yes              delete the database, its sidecar files, the config and the log files
 ";
 
 pub fn main() {
@@ -47,6 +49,7 @@ pub fn real_main(args: &[String]) -> Result<(), String> {
         Some("stop") => cmd_stop(),
         Some("report") => cmd_report(&args[1..]),
         Some("status") => cmd_status(),
+        Some("export") => cmd_export(&args[1..]),
         Some("config") => cmd_config(&args[1..]),
         Some("categories") => cmd_categories(&args[1..]),
         Some("wipe") => cmd_wipe(&args[1..]),
@@ -204,29 +207,30 @@ fn cmd_categories(args: &[String]) -> Result<(), String> {
 
 fn cmd_wipe(args: &[String]) -> Result<(), String> {
     if !args.iter().any(|a| a == "--yes") {
-        return Err("this deletes everything rhen-watch recorded on this machine; run again with --yes".into());
+        return Err(format!(
+            "this deletes the database, config and log files rhen-watch keeps in {}; run again with --yes",
+            paths::data_dir()?.display()
+        ));
     }
-    let d = paths::data_dir()?;
-    for name in [
-        "activity.db",
-        "activity.db-wal",
-        "activity.db-shm",
-        "config.toml",
-        "categories.toml",
-        "run.lock",
-    ] {
-        let p = d.join(name);
-        match std::fs::remove_file(&p) {
-            Ok(()) => println!("deleted {}", p.display()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => {
-                return Err(format!(
-                    "could not delete {}: {e} (is the agent running? use `rhen-watch stop` first)",
-                    p.display()
-                ));
-            }
-        }
+    wipe(false)
+}
+
+/// Delete what rhen-watch keeps; `remove_dir` (purge) also removes the data folder when nothing else is in it.
+/// Console output only: the log file is among the things deleted.
+fn wipe(remove_dir: bool) -> Result<(), String> {
+    for p in crate::handover::wipe_files(&paths::data_dir()?, remove_dir)? {
+        println!("deleted {}", p.display());
     }
+    Ok(())
+}
+
+fn cmd_export(args: &[String]) -> Result<(), String> {
+    let [dest] = args else {
+        return Err("usage: rhen-watch export PATH (a new file; an existing one is never overwritten)".into());
+    };
+    let size = crate::handover::export_db(&dir()?.join("activity.db"), std::path::Path::new(dest))?;
+    let path = std::fs::canonicalize(dest).unwrap_or_else(|_| PathBuf::from(dest));
+    println!("{} ({:.2} MB)", path.display(), size as f64 / 1_048_576.0);
     Ok(())
 }
 
@@ -269,7 +273,7 @@ pub fn now_ms() -> Ms {
 }
 
 /// The user's time zone: per-instant offsets on Windows, UTC elsewhere.
-fn local_tz() -> TzOffset {
+pub(crate) fn local_tz() -> TzOffset {
     #[cfg(windows)]
     {
         platform::windows::local_tz()
@@ -303,6 +307,69 @@ pub fn civil_from_days(z: i64) -> (i64, i64, i64) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
+/// `2026-11-06` as a local day number.
+pub fn parse_day(v: &str) -> Result<i64, String> {
+    let parts: Vec<i64> = v.split('-').filter_map(|p| p.parse().ok()).collect();
+    if parts.len() != 3 || !(1..=12).contains(&parts[1]) || !(1..=31).contains(&parts[2]) {
+        return Err("--day must look like 2026-11-06".into());
+    }
+    Ok(days_from_civil(parts[0], parts[1], parts[2]))
+}
+
+/// The days from `from` to `to`, both included.
+pub fn day_range(from: &str, to: &str) -> Result<Vec<i64>, String> {
+    let (a, b) = (
+        parse_day(from).map_err(|_| "--from must look like 2026-11-06")?,
+        parse_day(to).map_err(|_| "--to must look like 2026-11-09")?,
+    );
+    if b < a {
+        return Err("--from must not be later than --to".into());
+    }
+    if b - a >= 366 {
+        return Err("--from and --to can span at most 366 days".into());
+    }
+    Ok((a..=b).collect())
+}
+
+/// One report per local day. Several days each get a `==== YYYY-MM-DD ====` heading; a single day prints as before.
+pub fn report_days(
+    store: &store::Store,
+    cfg: &Config,
+    catalogue: &categories::Catalogue,
+    tz: &TzOffset,
+    now: Ms,
+    days: &[i64],
+) -> Result<String, String> {
+    let open_until = store.last_heartbeat().map_err(|e| e.to_string())?.unwrap_or(now).min(now);
+    let params = crate::derive::Params::from(&cfg.derive);
+    let mut out = String::new();
+    for &day in days {
+        let (from, to) = tz.day_window(day);
+        let (y, m, dd) = civil_from_days(day);
+        let label = format!("{y:04}-{m:02}-{dd:02}");
+        if days.len() > 1 {
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            out.push_str(&format!("==== {label} ====\n"));
+        }
+        out.push_str(&report::build(
+            store,
+            &report::ReportInput {
+                label: &label,
+                from,
+                to,
+                open_until,
+                tz: tz.clone(),
+                catalogue,
+                params: &params,
+                idle_collector: cfg.collectors.idle,
+            },
+        )?);
+    }
+    Ok(out)
+}
+
 fn cmd_report(args: &[String]) -> Result<(), String> {
     let d = dir()?;
     // Settings first: a leftover [categories] table or a bad categories.toml is the more useful thing to hear.
@@ -317,36 +384,15 @@ fn cmd_report(args: &[String]) -> Result<(), String> {
         None => local_tz(),
     };
     let now = now_ms();
-    let day = match flag_value(args, "--day")? {
-        Some(v) => {
-            let parts: Vec<i64> = v.split('-').filter_map(|p| p.parse().ok()).collect();
-            if parts.len() != 3 || !(1..=12).contains(&parts[1]) || !(1..=31).contains(&parts[2]) {
-                return Err("--day must look like 2026-11-06".into());
-            }
-            days_from_civil(parts[0], parts[1], parts[2])
-        }
-        None => tz.day_of(now),
+    let days = match (flag_value(args, "--day")?, flag_value(args, "--from")?, flag_value(args, "--to")?) {
+        (Some(_), Some(_), _) | (Some(_), _, Some(_)) => return Err("use --day, or --from with --to, not both".into()),
+        (Some(v), None, None) => vec![parse_day(v)?],
+        (None, Some(from), Some(to)) => day_range(from, to)?,
+        (None, Some(_), None) | (None, None, Some(_)) => return Err("--from and --to go together".into()),
+        (None, None, None) => vec![tz.day_of(now)],
     };
-    let (from, to) = tz.day_window(day);
-    let (y, m, dd) = civil_from_days(day);
-    let label = format!("{y:04}-{m:02}-{dd:02}");
     let store = store::Store::open_read_only(&db).map_err(|e| e.to_string())?;
-    let open_until = store.last_heartbeat().map_err(|e| e.to_string())?.unwrap_or(now).min(now);
-    let params = crate::derive::Params::from(&cfg.derive);
-    let text = report::build(
-        &store,
-        &report::ReportInput {
-            label: &label,
-            from,
-            to,
-            open_until,
-            tz,
-            catalogue: &catalogue,
-            params: &params,
-            idle_collector: cfg.collectors.idle,
-        },
-    )?;
-    print!("{text}");
+    print!("{}", report_days(&store, &cfg, &catalogue, &tz, now, &days)?);
     Ok(())
 }
 
@@ -658,7 +704,7 @@ fn cmd_uninstall(args: &[String]) -> Result<(), String> {
         );
     }
     if args.iter().any(|a| a == "--purge") {
-        cmd_wipe(&["--yes".to_string()])?;
+        wipe(true)?;
     } else {
         println!("Your data is kept in {}; add --purge to delete it.", paths::data_dir()?.display());
     }
