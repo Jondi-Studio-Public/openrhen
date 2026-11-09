@@ -161,11 +161,15 @@ pub fn check_settings_for_install(dir: &std::path::Path) -> Result<(), String> {
 /// The error `run` returns when another agent holds the lock. A duplicate start needs no message box.
 pub const ALREADY_RUNNING: &str = "another rhen-watch is already running (use `rhen-watch stop`)";
 
+/// Starts the error of a keep-alive start that failed for the same reason as the last one: logged, but no
+/// message box, because the first refusal already showed one.
+pub const REPEATED_REFUSAL: &str = "(repeated) ";
+
 /// The title of the message box the no-console build shows for a failed command, or `None` for no box.
 /// Only `run` gets one: "did not start" before recording began, "stopped" after (for example when writes
 /// kept failing). A duplicate start is not an error the user needs to see.
 pub fn error_box_title(args: &[String], recording: bool, error: &str) -> Option<&'static str> {
-    if args.first().map(String::as_str) != Some("run") || error == ALREADY_RUNNING {
+    if args.first().map(String::as_str) != Some("run") || error == ALREADY_RUNNING || error.starts_with(REPEATED_REFUSAL) {
         return None;
     }
     Some(if recording {
@@ -623,7 +627,7 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
         Ok(()) => {}
         // The every-minute keep-alive finding the agent already running is the normal case: say nothing.
         Err(std::fs::TryLockError::WouldBlock) if keepalive => return Ok(()),
-        Err(e) => return Err(lock_error(e)),
+        Err(e) => return Err(refused(&d, keepalive, lock_error(e))),
     }
     // The keep-alive checked the marker before it had the lock. A `stop` in between ends the agent and frees the
     // lock, so look again now that the lock is ours.
@@ -644,17 +648,17 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
         Err(e) => {
             // Say it once (the error box, the log) and leave the reason where `status` shows it; the keep-alive
             // then waits until the settings are edited.
-            return Err(refused(&d, e));
+            return Err(refused(&d, keepalive, e));
         }
     };
 
     // Past config and the lock: an earlier "stopped by you" marker is stale.
     let _ = std::fs::remove_file(d.join(STOPPED_FILE));
-    let stop_event = win::StopEvent::create().map_err(|e| refused(&d, e))?;
+    let stop_event = win::StopEvent::create().map_err(|e| refused(&d, keepalive, e))?;
     win::install_ctrl_handler();
     win::set_data_dir(&d);
 
-    let mut store = store::Store::open(&d.join("activity.db")).map_err(|e| refused(&d, e.to_string()))?;
+    let mut store = store::Store::open(&d.join("activity.db")).map_err(|e| refused(&d, keepalive, e.to_string()))?;
     store.set_tz(local_tz());
     let device = match store.meta("device").map_err(|e| e.to_string())? {
         Some(v) => v,
@@ -695,8 +699,8 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
     });
 
     let (tx, rx) = std::sync::mpsc::sync_channel::<runner::Raw>(1024);
-    let (mut hooks, missing) =
-        win::Hooks::start(tx, cfg.collectors.foreground, cfg.collectors.session, cfg.collectors.power).map_err(|e| refused(&d, e))?;
+    let (mut hooks, missing) = win::Hooks::start(tx, cfg.collectors.foreground, cfg.collectors.session, cfg.collectors.power)
+        .map_err(|e| refused(&d, keepalive, e))?;
     crate::log::info(&format!(
         "rhen-watch recording to {} (Ctrl+C or `rhen-watch stop` to end)",
         d.display()
@@ -750,10 +754,7 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
     // Leave a marker for a requested stop so the keep-alive does not bring the agent back; a failure or a panic
     // leaves none, and the keep-alive revives the agent within a minute.
     if matches!(&result, Ok(Ok(()))) {
-        let _ = std::fs::write(
-            d.join(STOPPED_FILE),
-            "stopped on request; the keep-alive leaves it alone until the next logon or install\n",
-        );
+        let _ = std::fs::write(d.join(STOPPED_FILE), STOPPED_TEXT);
     }
     crate::restart::end_of_run(result.ok())
 }
@@ -772,11 +773,14 @@ fn keepalive_wanted(d: &std::path::Path) -> bool {
 }
 
 /// A start that failed before recording: leave the reason where `status` shows it, so the keep-alive does not
-/// try (and show an error box) every minute. Returns the error unchanged.
+/// try (and show an error box) every minute. Returns the error; a keep-alive that fails for the same reason as
+/// the last refusal gets it with `REPEATED_REFUSAL` in front, so it is logged but shows no second box.
 #[cfg(windows)]
-fn refused(d: &std::path::Path, e: String) -> String {
-    let _ = std::fs::write(d.join(NOT_STARTING_FILE), &e);
-    e
+fn refused(d: &std::path::Path, keepalive: bool, e: String) -> String {
+    let path = d.join(NOT_STARTING_FILE);
+    let same = keepalive && std::fs::read_to_string(&path).is_ok_and(|old| old == e);
+    let _ = std::fs::write(&path, &e);
+    if same { format!("{REPEATED_REFUSAL}{e}") } else { e }
 }
 
 #[cfg(not(windows))]
