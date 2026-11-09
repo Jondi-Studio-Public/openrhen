@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { applyCoverageRule, validateActivityBatch } from "./activity-batch.js";
+import { applyCoverageRule, judgeActivityEvents, validateActivityBatch } from "./activity-batch.js";
 import {
+  ACTIVITY_MESSAGE_FAMILY,
   ACTIVITY_SOURCES,
   coverageKey,
   heartbeatKey,
@@ -30,7 +31,12 @@ const stream: ActivitySourceEntry = {
     recoveryHint: "Open the app."
   }
 };
-const registry = { ...ACTIVITY_SOURCES, ledger, stream };
+/** The one core source that declares availability with no feeds: the message collector that reports liveness and coverage. */
+const collector = Object.keys(ACTIVITY_SOURCES).find(
+  (name) => ACTIVITY_SOURCES[name]!.availability?.feeds.length === 0
+)!;
+const chat: ActivitySourceEntry = { schemaVersion: 1, kinds: ["message"], family: ACTIVITY_MESSAGE_FAMILY };
+const registry = { ...ACTIVITY_SOURCES, ledger, stream, chat };
 
 const cov = (extra: Record<string, unknown> = {}, attrs: Record<string, unknown> = {}) => {
   const start = (extra.start as string | undefined) ?? "2026-11-06T00:00:00Z";
@@ -100,7 +106,14 @@ describe("coverage rows", () => {
 
   it("is refused on a source with no complete feed or no availability", () => {
     expect(reasonOf(cov({ source: "stream" }))).toContain("complete (ledger) feed");
-    expect(reasonOf(cov({ source: "gmail" }))).toContain("complete (ledger) feed");
+    expect(reasonOf(cov({ source: "rhen-watch" }))).toContain("complete (ledger) feed");
+    expect(reasonOf(cov({ source: "rhen-watch" }))).toContain('Post an event of kind "foreground" instead');
+  });
+
+  it("is accepted on the collector source (availability, no feeds) and on a message-family source", () => {
+    expect(reasonOf(cov({ source: collector }, { scope: "inbox" }))).toBeNull();
+    expect(reasonOf(cov({ source: collector }))).toBeNull();
+    expect(reasonOf(cov({ source: "chat" }, { scope: "room-1" }))).toBeNull();
   });
 
   it("bounds the window: needs an end, order, 31 days, future end, 1990 floor, 400-day live limit", () => {
@@ -156,7 +169,19 @@ describe("heartbeats", () => {
     };
     const v = validateActivityEvent({ ...hb("ok"), source: "files" }, now, { registry: importOnly });
     expect(v).toMatchObject({ ok: false });
-    expect(reasonOf({ ...hb("ok"), source: "gmail" })).toContain("live or periodically");
+    const reason = reasonOf({ ...hb("ok"), source: "rhen-watch" });
+    expect(reason).toContain("live or periodically");
+    expect(reason).toContain('Post an event of kind "foreground" instead');
+  });
+
+  it("is accepted on the collector source and on a message-family source", () => {
+    expect(reasonOf({ ...hb("ok"), source: collector })).toBeNull();
+    expect(reasonOf({ ...hb("ok"), source: "chat" })).toBeNull();
+  });
+
+  it("names the batch device when the key is wrong", () => {
+    expect(reasonOf(hb("ok", "2026-11-07T11:30:00Z", "phone-1"))).toContain('none sent, so "_"');
+    expect(reasonOf(hb("ok", "2026-11-07T11:30:00Z", "phone-1"), "phone-2")).toContain('the batch device ("phone-2")');
   });
 });
 
@@ -241,6 +266,30 @@ describe("validateActivityBatch", () => {
       { registry, now }
     );
     expect(imported).toMatchObject({ ok: true, rejected: [] });
+  });
+
+  it("requires a scope on a message-family source's coverage row when asked to", () => {
+    const scopeRequired = (s: string) => s === "chat";
+    const row = (scope?: string) => cov({ source: "chat" }, scope ? { scope } : {});
+    expect(validateActivityBatch(body([row()]), { registry, now, scopeRequired })).toMatchObject({
+      rejected: [{ index: 0 }]
+    });
+    expect(validateActivityBatch(body([row("room-1")]), { registry, now, scopeRequired })).toMatchObject({
+      rejected: []
+    });
+  });
+
+  it("judges events the way the server does: the batch fields in, the post-pass left to the caller", () => {
+    const inputs = judgeActivityEvents([hb("ok", "2026-11-07T11:30:00Z", "box"), { source: "nowhere" }], {
+      registry,
+      now,
+      device: "box",
+      live: true
+    });
+    expect(inputs.map((input) => [input.verdict.ok, input.source])).toEqual([
+      [true, "stream"],
+      [false, null]
+    ]);
   });
 
   it("reports a bad envelope", () => {

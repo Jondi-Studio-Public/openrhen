@@ -8,12 +8,14 @@ import {
   ACTIVITY_SOURCE_NAMES,
   DERIVED_EXTRACTOR_KINDS,
   PHYSIOLOGY_SOURCE,
+  activityCoverageScopeRequired,
+  applyCoverageRule,
   activityHealthSources,
   describeWithheldClasses,
   groupWithheldByClass,
   isKnownActivitySource,
+  judgeActivityEvents,
   sanitiseQuoted,
-  validateActivityEvent,
   type ActivityEventRow,
   type ActivityEventsPage,
   type ActivityDeviceSummary,
@@ -125,11 +127,23 @@ export async function ingestActivityEventsTx(
   return ingestJudged(tx, userId, batch, via, judged, rejected);
 }
 
+/**
+ * Each event judged the way `validateActivityBatch` judges it for an adapter's tests: with the batch's `device` (a
+ * heartbeat key names it), whether the batch is live (an import may carry older coverage windows), and the scope rule
+ * for message sources, then the coverage post-pass, so a window is never declared complete over a row that was
+ * refused. A row `ingestJudged` refuses later for another source can only be of a different source than any coverage
+ * row it keeps, so the post-pass needs no second run there.
+ */
 function judgeBatch(batch: ActivityBatch, now: Date) {
+  const inputs = judgeActivityEvents(batch.events, {
+    now,
+    device: batch.device,
+    live: batch.import === undefined && batch.importId === undefined,
+    scopeRequired: activityCoverageScopeRequired
+  });
   const rejected: ActivityRejection[] = [];
   const judged: { index: number; event: ValidActivityEvent }[] = [];
-  batch.events.forEach((raw, index) => {
-    const verdict = validateActivityEvent(raw, now);
+  applyCoverageRule(inputs).forEach((verdict, index) => {
     if (verdict.ok) judged.push({ index, event: verdict.event });
     else rejected.push({ index, reason: verdict.reason });
   });
