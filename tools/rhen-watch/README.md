@@ -14,7 +14,7 @@ cargo build --release
 .\target\release\rhen-watch.exe install
 ```
 
-This copies `rhen-watch.exe` (the command line) and `rhen-watchw.exe` (the same program with no console window) to `%LOCALAPPDATA%\Programs\rhen-watch`, makes the second one start at logon (the Startup tab of Task Manager lists it) and starts it. A tray icon shows while it runs; its menu has Pause or Resume, Open data folder and Quit. Pause is recorded as paused time and survives a restart, so a reboot does not silently start recording again. Errors go to `rhen-watch.log` in the data folder.
+This copies `rhen-watch.exe` (the command line) and `rhen-watchw.exe` (the same program with no console window) to `%LOCALAPPDATA%\Programs\rhen-watch`, makes the second one start at logon (the Startup tab of Task Manager lists it) and starts it. A tray icon shows while it runs; its menu has Pause or Resume, Open settings (opens the data folder, where `config.toml` and `categories.toml` live), Open data folder and Quit. Pause is recorded as paused time and survives a restart, so a reboot does not silently start recording again. Errors go to `rhen-watch.log` in the data folder.
 
 `rhen-watch.exe uninstall` stops it, removes start-at-logon and the program, and keeps your data; `uninstall --purge` deletes the data too. The build is unsigned, so Windows SmartScreen may warn on first run of a downloaded copy.
 
@@ -30,18 +30,28 @@ cargo build --release
 .\target\release\rhen-watch.exe report --day 2026-11-06
 .\target\release\rhen-watch.exe status
 .\target\release\rhen-watch.exe config init      # writes config.toml with every default
+.\target\release\rhen-watch.exe config show      # every setting, its value, and whether it is the default
+.\target\release\rhen-watch.exe config set derive.session_gap_minutes 8   # keeps the file's comments
+.\target\release\rhen-watch.exe categories set foo.exe editor   # label an app (categories.toml)
+.\target\release\rhen-watch.exe categories list --uncategorised # apps with no category yet
 .\target\release\rhen-watch.exe wipe --yes
 ```
 
-Data lives in `%LOCALAPPDATA%\rhen-watch` (`activity.db`, `config.toml`). The folder is restricted to your user on first run.
+Data lives in `%LOCALAPPDATA%\rhen-watch` (`activity.db`, `config.toml`, and `categories.toml` once you label an app). The folder is restricted to your user on first run.
 
 ## What it records by default
 
-The executable name of the foreground app (for example `chrome.exe`) and its category, idle intervals (no input for 120 s), lock and unlock, logon and logoff, remote sessions, suspend and resume, display on and off, and AC or battery. It does not read window titles, URLs, screen text or images, and does not look at keyboard or mouse content: it asks Windows only how long ago the last input was. Titles and OCR are not built yet; turning them on in the config is an error.
+The executable name of the foreground app (for example `chrome.exe`) and its category, idle intervals (no input for 120 s), lock and unlock, logon and logoff, remote sessions, suspend and resume, display on and off, and AC or battery. It does not read window titles, URLs, screen text or images, and does not look at keyboard or mouse content: it asks Windows only how long ago the last input was, and from that keeps, per minute and per app, how long it watched and how much of that had input (in 5 s slots; never which keys, never what was typed). Titles and OCR are not built yet; turning them on in the config is an error.
 
 Executable names alone can say a lot (a game, a medical app, a dating app). Treat `activity.db` as private and do not share it or a report without reading it first.
 
-Retention is `permanent` by default; set `[retention] events = 90` (days) to delete older rows once a day.
+Retention is `permanent` by default; set `[retention] events = 90` (days) to delete older rows once a day (`rhen-watch config set retention.events 90`). `retention.input_buckets` does the same for the per-minute input tally.
+
+## Categories and "your day at the PC"
+
+`categories.toml` (beside `config.toml`) maps an exe to a category and a category to a group; the shipped defaults are built in and the file only holds overrides, so a missing file is fine. `rhen-watch categories init` writes every default into a commented file to edit; `categories set EXE CATEGORY` changes one entry and keeps your comments. A `[categories]` table in the old `config.toml` is no longer read: `run` and `report` stop with one line, and `categories init --from-config` prints the text to move. A mistake in `categories.toml` stops `report` with the file, line and reason, but the agent keeps recording with the built-in categories.
+
+`report` starts with a derived section (first and last input of the day, input against time in front, the longest unbroken stretch, input blocks in `work` and `browser`, switch rate, and apps not categorised yet). It is worked out from the rows each time, marked derived, and never stored. The numbers it uses are the `[derive]` settings; browser time is its own group and is not counted as work. Synthetic input (remote tools, jigglers, scheduled tasks) counts as input.
 
 ## Games
 
@@ -49,6 +59,14 @@ While an executable from the built-in anti-cheat game list (or `extra_games` in 
 
 ## Manual check on a real machine (observation only)
 
-CI proves the code builds and the rules work; only a real Windows session proves the hooks. Run `run --for 300`, then in that time: switch between a few apps, press Win+L and unlock, let the display sleep (or use the power button's sleep), and leave the keyboard alone for over two minutes. Then run `report` and check that: apps and categories look right, the lock and sleep show as their own lines and not as app time, idle is listed, there is a `Gaps` section only if you slept the machine, and `Agent cost` shows well under 1% CPU and under 50 MB. Do not do this with a game open. The tool never types, clicks, focuses or closes anything.
+CI proves the code builds and the rules work; only a real Windows session proves the hooks. Run `run --for 300`, then in that time: switch between a few apps, press Win+L and unlock, let the display sleep (or use the power button's sleep), and leave the keyboard alone for over two minutes. Then run `report` and check that: apps and categories look right, the lock and sleep show as their own lines and not as app time, idle is listed, there is a `Gaps` section only if you slept the machine, and `Agent cost` shows well under 1% CPU and under 50 MB. Also, once each (these are what Linux tests cannot prove):
+
+- Press Win+L once and unlock: the report shows a locked interval, no input tallied while locked, and input resumes after unlock.
+- Right-click the tray icon and choose Open settings: Explorer opens the data folder, with `config.toml` and `categories.toml` (if you created one) in it, and nothing else on the machine changes.
+- Type steadily for one minute, with a stopwatch, in one app: `report` shows about a minute of input in "Input" for that day (credit is in 5 s slots, so expect within a few seconds of the minute, not an exact figure).
+- Connect and disconnect a remote desktop session and let the machine sleep and wake: the report shows the remote and suspended time as their own lines, no input is tallied while suspended, and the first poll after resume only sets a baseline. Sleeping also settles whether Rust's `Instant` counts time asleep; note the answer here (the meter does not depend on it: its stall limit and its wall-versus-monotonic check discard such a slot either way).
+- Run `report --day` for a day on the other side of a daylight-saving change from today: the header offset and the clock times match that day's offset, not today's.
+
+Do not do this with a game open. The tool never types, clicks, focuses or closes anything.
 
 `rhen-watch stop` works within the same logon session only; from a remote desktop session use Ctrl+C in the console that is running it. `report` and `status` open the database read-only and are safe to run while the agent records. Closing the console window, logging off or shutting down all stop it cleanly.
