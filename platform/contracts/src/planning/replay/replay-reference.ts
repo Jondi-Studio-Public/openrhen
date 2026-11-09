@@ -1,6 +1,6 @@
 import { wallClockFormat } from "../../zoned-time.js";
 import { matchCommitment, type SourceCandidate, type SourceCommitment } from "../source-match.js";
-import { matchDeadline } from "../deadline-match.js";
+import { matchDeadline, RESCHEDULE_CUE } from "../deadline-match.js";
 import { normalizeTitle, titleSimilarity } from "../title-similarity.js";
 import {
   MAX_CANDIDATES,
@@ -169,7 +169,7 @@ function commitmentLane(input: ReplayInput, fact: ReplayFact): Scored[] {
 function deadlineLane(input: ReplayInput, fact: ReplayFact): Scored[] {
   const title = probeTitle(fact.quote);
   const dueOn = fact.when?.[0] ? localDateOf(fact.when[0], input.timezone) : null;
-  const probe = { kind: "deadline" as const, title, dueOn };
+  const probe = { kind: "deadline" as const, title, dueOn, rescheduled: RESCHEDULE_CUE.test(fact.quote) };
   const targets = [
     ...input.plan.actions.map((a) => ({ ...a, kind: "action" as const })),
     ...input.plan.projects.map((p) => ({ ...p, kind: "project" as const }))

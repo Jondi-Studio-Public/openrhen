@@ -275,6 +275,7 @@ export { commitmentFreedAt } from "./planning/commitment-freed.js";
 export {
   matchDeadline,
   MAX_DEADLINE_TIE_CANDIDATES,
+  RESCHEDULE_CUE,
   MOVED_WINDOW_DAYS,
   SAME_DATE_SIMILARITY
 } from "./planning/deadline-match.js";
