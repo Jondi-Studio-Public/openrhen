@@ -272,6 +272,8 @@ export {
 } from "./planning/occurrence-in-progress.js";
 export type { OccurrenceInProgressInput } from "./planning/occurrence-in-progress.js";
 export { commitmentFreedAt } from "./planning/commitment-freed.js";
+export { breakTieByContact, contactForSender, normalizeAddress } from "./planning/contact-map.js";
+export type { ContactRef, SenderContact } from "./planning/contact-map.js";
 export {
   matchDeadline,
   MAX_DEADLINE_TIE_CANDIDATES,

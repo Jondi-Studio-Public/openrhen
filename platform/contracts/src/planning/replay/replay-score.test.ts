@@ -137,6 +137,11 @@ describe("replay scoring", () => {
         { endState: "duplicate", target: t("x") },
         { endState: "duplicate", target: t("x"), tie: true, usedChooser: true }
       ),
+      result(
+        "tie-broken",
+        { endState: "duplicate", target: t("x") },
+        { endState: "duplicate", target: t("x"), tie: true, tieBrokenBy: "contact" }
+      ),
       result("tie-asked", { endState: "asked" }, { endState: "asked", tie: true }),
       result(
         "no-apply",

@@ -43,6 +43,22 @@ describe("reference reconciler", () => {
     }
   });
 
+  it("settles a strong tie by the sender's contact only when exactly one tied record is theirs", () => {
+    expect(run("sender-picks-between-twins")).toMatchObject({
+      endState: "duplicate",
+      target: { id: "c2" },
+      tie: true,
+      tieBrokenBy: "contact",
+      usedChooser: false
+    });
+    expect(run("sender-picks-first-twin")).toMatchObject({ endState: "duplicate", target: { id: "c1" } });
+    for (const id of ["sender-unknown-between-twins", "sender-matches-neither-twin", "event-twin-records"]) {
+      const outcome = run(id);
+      expect(outcome, id).toMatchObject({ endState: "asked", tie: true });
+      expect(outcome.tieBrokenBy).toBeUndefined();
+    }
+  });
+
   it("keeps numbered siblings apart, so a prefix title names one action", () => {
     expect(run("deadline-numbered-prefix")).toMatchObject({ endState: "duplicate", target: { id: "a2" }, tie: false });
   });

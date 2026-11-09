@@ -159,6 +159,8 @@ export interface ReplayOutcome {
   tie: boolean;
   usedChooser: boolean;
   chooserPick?: string;
+  /** A tie settled by a rule, not a guess: the sender is the one known contact who owns exactly one tied record. */
+  tieBrokenBy?: "contact";
 }
 
 /** The unit under test: step D swaps in the real implementation without touching cases or scoring. */
