@@ -149,7 +149,7 @@ jobs:
   smoke:
     name: Production smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:17
@@ -192,6 +192,10 @@ jobs:
           "$exe" --version
           echo "SMOKE_BROWSER_PATH=$exe" >> "$GITHUB_ENV"
       - run: pnpm smoke:production
+      # The archive-removals flows, each against its own scratch database on the same built portal.
+      - run: pnpm smoke:closed
+      - run: pnpm smoke:source-cancel
+      - run: pnpm smoke:recurrence-end
 
   # The quick start end to end (scripts/selfhost/smoke.mjs): builds every image from source (nothing
   # is published yet), starts the `app,bundled-db` stack, drives it with the CLI, restarts it, backs it

@@ -12,8 +12,7 @@
 //   2b. Restore on one closed date brings just that date back
 //   3. Edit > Status Active > Save changes: the dates and the step come back, and nothing is left closed
 //
-// Not part of CI (`pnpm gate` runs the production click smoke); run it by hand before a change to these screens and
-// record the result in the PR. Screenshots go to var/recurrence-end-flow/ (untracked).
+// Runs in the CI `smoke` job after the click smoke (`pnpm smoke:recurrence-end`); run it by hand to debug a failure. Screenshots go to var/recurrence-end-flow/ (untracked).
 //
 //   corepack pnpm build:portal
 //   POSTGRES_ADMIN_URL=postgresql://... node scripts/smoke/recurrence-end-flow.mjs
