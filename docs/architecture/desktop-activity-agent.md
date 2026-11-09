@@ -61,6 +61,10 @@ The server side is built and documented in [Activity store](activity-store.md): 
 
 Pure logic is tested on Linux and Windows runners: interval building, de-duplication, the shell-class filter, game suppression, stall and clock-jump handling, crash recovery from the open-state record, retention purge, the report, config parsing, and a simulated day through the runner with a fake OS. The Windows API layer is behind a trait and is compiled and linted on `windows-latest`; its behaviour is confirmed by the manual checklist in the tool's README, which is observation-only. Still to add: a kill-and-restart test of the real binary on `windows-latest`.
 
+## Releasing
+
+Bump `version` in `tools/rhen-watch/Cargo.toml`, merge, then push the tag `rhen-watch-v<version>` (it must match exactly; `scripts/ci/rhen-watch-version.mjs` refuses otherwise). `.github/workflows/rhen-watch-release.yml` builds the Windows zip on a hosted runner, writes one `SHA256SUMS` over every archive, stamps `scripts/install/rhen-watch.ps1` as `install.ps1`, and creates the GitHub Release; only its last job has write access. Running the workflow by hand with a tag input is a dry run that uploads the assets as a workflow artifact and releases nothing. Releases are unsigned.
+
 ## Known limits (phase 1)
 
 - If the agent starts while the session is already locked, the first lock interval is not recorded as such; the initial lock state is not read yet.

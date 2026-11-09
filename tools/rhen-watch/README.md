@@ -6,7 +6,15 @@ It is visible and stoppable: it runs in a console window you started, `rhen-watc
 
 ## Install
 
-Build, then install for your user (no admin rights, no service):
+From a release (no build, no admin rights). In PowerShell, replace `<version>` with the number on the [Releases page](https://github.com/Jondi-Studio-Public/openrhen/releases) (tags are `rhen-watch-v<version>`):
+
+```powershell
+irm https://github.com/Jondi-Studio-Public/openrhen/releases/download/rhen-watch-v<version>/install.ps1 | iex
+```
+
+It downloads `rhen-watch-<version>-windows-x86_64.zip` and `SHA256SUMS` from that release over https, stops if the hash does not match, unpacks to a temporary folder, runs `rhen-watch.exe install` and deletes the folder. To do it by hand, download the zip and `SHA256SUMS` from the release, check `(Get-FileHash .\the.zip).Hash` against its line, unzip and run `.\rhen-watch.exe install`. The releases are unsigned, so SmartScreen may warn about a zip downloaded in a browser. Running the one-liner again upgrades.
+
+Or build, then install for your user (no admin rights, no service):
 
 ```powershell
 cd tools\rhen-watch
