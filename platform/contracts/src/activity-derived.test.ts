@@ -71,6 +71,43 @@ describe("describeDerivedProblem", () => {
     expect(describeDerivedProblem("label", { fact_id: FACT_ID, field: "fact_type", answer: "ask" }, null)).toBeNull();
   });
 
+  it("accepts an expires_at on a status (it holds an ask open) and rejects one that is not a real RFC 3339 time", () => {
+    const base = { fact_id: FACT_ID, status: "confirmed", valid_from: "2026-11-08T01:00:00Z" };
+    expect(describeDerivedProblem("fact_status", { ...base, expires_at: "2026-12-08T01:00:00Z" }, null)).toBeNull();
+    for (const bad of ["soon", "2026-12-08", "2026-13-40T00:00:00Z", 5]) {
+      const problem = describeDerivedProblem("fact_status", { ...base, expires_at: bad }, null);
+      expect(problem, String(bad)).toContain("attrs.expires_at");
+      expect(problem).toContain("RFC 3339");
+    }
+  });
+
+  it("refuses an expires_at outside 0 to 90 days after valid_from, or on a status that cannot hold, saying the limit and the fix", () => {
+    const base = { fact_id: FACT_ID, status: "confirmed", valid_from: "2026-11-08T01:00:00Z" };
+    for (const far of ["2199-01-01T00:00:00Z", "3000-01-01T00:00:00Z", "2027-03-01T00:00:00Z"]) {
+      const problem = describeDerivedProblem("fact_status", { ...base, expires_at: far }, null);
+      expect(problem, far).toContain("90 days");
+      expect(problem).toContain("2027-02-06T01:00:00.000Z");
+    }
+    const past = describeDerivedProblem("fact_status", { ...base, expires_at: "2020-01-01T00:00:00Z" }, null);
+    expect(past).toContain("before valid_from");
+    expect(describeDerivedProblem("fact_status", { ...base, expires_at: "2027-02-06T01:00:00Z" }, null)).toBeNull();
+    expect(
+      describeDerivedProblem(
+        "fact_status",
+        { ...base, status: "rescheduled", expires_at: "2026-12-01T00:00:00Z" },
+        null
+      )
+    ).toBeNull();
+    for (const status of ["done", "proposed", "cancelled"]) {
+      const problem = describeDerivedProblem(
+        "fact_status",
+        { ...base, status, expires_at: "2026-12-01T00:00:00Z" },
+        null
+      );
+      expect(problem, status).toContain("only on a confirmed or rescheduled status");
+    }
+  });
+
   it("rejects an unknown fact_status and names the allowed values and the fix", () => {
     const problem = describeDerivedProblem(
       "fact_status",

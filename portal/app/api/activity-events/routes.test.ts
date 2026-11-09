@@ -188,6 +188,19 @@ describe("GET /api/activity-events", () => {
     expect(store.readActivityEvents.mock.calls[1]![1].asOf).toBeUndefined();
   });
 
+  it("passes include=evidence to the store, and refuses any other include value before reading", async () => {
+    store.readActivityEvents.mockResolvedValue({ events: [], next: null });
+    await get("?source=derived&kind=fact&include=evidence");
+    expect(store.readActivityEvents.mock.calls[0]![1].includeEvidence).toBe(true);
+    await get("?source=derived");
+    expect(store.readActivityEvents.mock.calls[1]![1].includeEvidence).toBe(false);
+    store.readActivityEvents.mockClear();
+    const response = await get("?include=everything");
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toMatch(/include must be "evidence"/);
+    expect(store.readActivityEvents).not.toHaveBeenCalled();
+  });
+
   it("refuses an as_of that is not an RFC 3339 time with an offset, before reading", async () => {
     for (const bad of ["2026-11-08", "yesterday", "2026-11-08T00:00:00", "2026-13-40T00:00:00Z", ""]) {
       const response = await get(`?as_of=${encodeURIComponent(bad)}`);

@@ -75,6 +75,8 @@ export const DERIVED_STORED_REVIEW_REASONS = ["ambiguous_date", "unmatched_updat
 export const DERIVED_COMPUTED_REVIEW_REASONS = ["expired", "update_seen", "t3_deferred"] as const;
 /** `who` is the authenticated sender for `in` (one) and the recipients as typed for `out` (at most three). */
 export const DERIVED_MAX_WHO = 3;
+/** A status's `expires_at` reaches at most this many days past its `valid_from` (`STATUS_HOLD_MAX_DAYS` of communication-readers). */
+export const DERIVED_STATUS_HOLD_MAX_DAYS = 90;
 export const DERIVED_MAX_WHEN_CANDIDATES = 3;
 export const DERIVED_MAX_LINKS = 3;
 /** A grounded quote is at most this many code points; `communication-readers` keeps a copy (MAX_QUOTE_CODE_POINTS). */
@@ -446,6 +448,19 @@ function checkFactStatus(attrs: Record<string, unknown>): string | null {
     return `attrs.status ${shown(status)} is not a fact status. Use one of: ${list(DERIVED_FACT_STATUSES)}. Send {"fact_id": "...", "status": "confirmed", "valid_from": "2026-11-08T01:00:00Z"}.`;
   if (typeof attrs.valid_from !== "string" || !RFC3339.test(attrs.valid_from) || !isRealTime(attrs.valid_from))
     return 'attrs.valid_from is missing or not an RFC 3339 time. Send when the status took effect, such as "2026-11-08T01:00:00Z".';
+  if (attrs.expires_at !== undefined) {
+    if (typeof attrs.expires_at !== "string" || !RFC3339.test(attrs.expires_at) || !isRealTime(attrs.expires_at))
+      return 'attrs.expires_at is not an RFC 3339 time. Send when the fact should stop being listed, such as "2026-12-08T01:00:00Z", or leave it out.';
+    if (attrs.status !== "confirmed" && attrs.status !== "rescheduled")
+      return `attrs.expires_at is read only on a confirmed or rescheduled status (this one is "${attrs.status}"). Remove expires_at, or send status "confirmed".`;
+    const from = Date.parse(attrs.valid_from);
+    const end = Date.parse(attrs.expires_at);
+    const latest = new Date(from + DERIVED_STATUS_HOLD_MAX_DAYS * 86_400_000).toISOString();
+    if (end < from)
+      return `attrs.expires_at is before valid_from, so it would hide the fact at once. Send a time between valid_from and ${latest}, or leave it out.`;
+    if (end > from + DERIVED_STATUS_HOLD_MAX_DAYS * 86_400_000)
+      return `attrs.expires_at is more than ${DERIVED_STATUS_HOLD_MAX_DAYS} days after valid_from. A hold lasts at most ${DERIVED_STATUS_HOLD_MAX_DAYS} days: send ${latest} or earlier, and record a new status when it runs out.`;
+  }
   return null;
 }
 

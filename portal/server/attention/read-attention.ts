@@ -16,9 +16,11 @@ import {
 import { redact } from "@/server/logging";
 import type { PoolSql } from "@/server/persistence/postgres/sql-pool";
 import {
+  canReadPlan,
   canReadProposals,
   defaultAttentionReaders,
   logSourceFailure,
+  withFactsTimeout,
   type AttentionPulse,
   type AttentionReaders
 } from "./readers";
@@ -62,6 +64,8 @@ export async function readAttention(
   const generatedAt = now.toISOString();
   const { agent, scopes: held } = request;
   const proposalsReadable = agent !== null && canReadProposals(held);
+  // The owner view lists no mail facts (no page shows them); an agent needs `read:plan`, the scope the feed itself needs.
+  const factsReadable = agent !== null && canReadPlan(held);
   const userId = await readers.userId();
   const clamped = clampAttentionSince(request.since, now);
 
@@ -70,12 +74,14 @@ export async function readAttention(
   const dueP = entriesP.then((entries) => readers.due(userId, now, entries));
   const pulseP = agent !== null ? readers.pulse(now) : undefined;
   const proposalsP = proposalsReadable ? readers.proposals(userId, agent, request.since) : undefined;
-  const [doctor, entries, due, pulse, proposals] = await Promise.all([
+  const factsP = factsReadable ? withFactsTimeout(readers.facts(now, held, { quotes: true })) : undefined;
+  const [doctor, entries, due, pulse, proposals, facts] = await Promise.all([
     settle(doctorP),
     settle(entriesP),
     settle(dueP),
     settle(pulseP),
-    settle(proposalsP)
+    settle(proposalsP),
+    settle(factsP)
   ]);
 
   // A lapse between the gate and here: the gate's own view (`lapsed` includes `everConfirmed`) answers its own 428.
@@ -100,6 +106,8 @@ export async function readAttention(
   read("pulse", pulse);
   const report = read("doctor", doctor);
   const proposalsRead = read("proposals", proposals);
+  const factItems = read("facts", facts);
+  if (factItems) items.push(...factItems);
 
   const checkIn = ledgerEntries?.find((entry) => entry.kind === "check_in");
   if (checkIn)
@@ -179,6 +187,7 @@ export async function readAttention(
     agent !== null && !proposalsReadable
       ? [{ kinds: ["proposal_decided", "proposals_waiting"], scope: "read:proposals" }]
       : [];
+  if (agent !== null && !factsReadable) notIncluded.push({ kinds: ["fact_open"], scope: "read:plan" });
   const answer = buildAttentionAnswer({
     generatedAt,
     items,
@@ -192,6 +201,7 @@ export async function readAttention(
       catchUp: sources.some((s) => s.source === "catch-up" && s.ok),
       checkIn: sources.some((s) => s.source === "check-in" && s.ok),
       doctor: sources.some((s) => s.source === "doctor" && s.ok),
+      facts: sources.some((s) => s.source === "facts" && s.ok),
       proposalsSince: proposalsRead?.outcomes.since
     }
   });

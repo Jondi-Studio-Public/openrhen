@@ -55,7 +55,7 @@ import { MODEL_EXTRACTORS } from "./model-extractor-registry";
  * `runModelTick` is one run of every registered model extractor, in three phases:
  *
  * (a) Under the per-person activity lock, in one short transaction: take a LEASE (a random token written into the
- *     extractor's cursor, valid 10 minutes), and read a batch of at most 20 messages with their text and up to 3 earlier
+ *     extractor's cursor, valid 15 minutes), and read a batch of at most 20 messages with their text and up to 3 earlier
  *     messages of the thread as context. The lock is released at commit.
  * (b) With no transaction and no lock, call the model through the one call policy (`call-policy.ts`), one message at a
  *     time, under a 5 minute wall-clock budget (half the lease). Nothing is written here.

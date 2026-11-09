@@ -695,3 +695,51 @@ describe("hardening", () => {
     expect(r.expiresAt).toBe(new Date(Date.parse(ago(1)) + 14 * DAY).toISOString());
   });
 });
+
+describe("a status's own end (expiresAt) holds an ask open, bounded", () => {
+  const FACT_ID = "a";
+  const hold = (s: FoldStatus["status"], expiresAt: string | null, over: Partial<FoldStatus> = {}): FoldStatus => ({
+    ...status(FACT_ID, s, ago(1), "mark"),
+    ingestedAt: ago(1),
+    expiresAt,
+    ...over
+  });
+  const stale = () => fact(FACT_ID, { tsStart: ago(20) });
+  const cap = new Date(Date.parse(ago(1)) + 90 * DAY).toISOString();
+
+  it("keeps an old ask open until a confirmed status's expiresAt", () => {
+    const r = one({ facts: [stale()], statuses: [hold("confirmed", ahead(30))] });
+    expect(r).toMatchObject({ open: true, expiresAt: ahead(30) });
+  });
+
+  it("clamps a far-future expiresAt (2199, year 3000) to 90 days after the status was recorded", () => {
+    for (const far of ["2199-01-01T00:00:00Z", "2999-12-31T00:00:00Z", ahead(500)]) {
+      const r = one({ facts: [stale()], statuses: [hold("confirmed", far)] });
+      expect(r.expiresAt, far).toBe(cap);
+    }
+    const past = one({ facts: [stale()], statuses: [hold("confirmed", "2199-01-01T00:00:00Z")] }, "a");
+    expect(past.open).toBe(true);
+  });
+
+  it("ignores an expiresAt before the status was recorded, so a past value never hides a fresh ask", () => {
+    const fresh = fact(FACT_ID, { tsStart: ago(1) });
+    for (const early of [ago(400), "2020-01-01T00:00:00Z", ago(2)]) {
+      const r = one({ facts: [fresh], statuses: [hold("confirmed", early)] });
+      expect(r.open, early).toBe(true);
+      expect(r.expiresAt, early).toBe(new Date(Date.parse(ago(1)) + 14 * DAY).toISOString());
+    }
+  });
+
+  it("applies only to a confirmed or rescheduled winner: a proposed or done status's expiresAt does nothing", () => {
+    expect(one({ facts: [stale()], statuses: [hold("proposed", ahead(30))] }).state).toBe("expired");
+    expect(one({ facts: [stale()], statuses: [hold("done", ahead(30))] }).state).toBe("closed");
+    expect(one({ facts: [stale()], statuses: [hold("rescheduled", ahead(30))] })).toMatchObject({
+      open: true,
+      expiresAt: ahead(30)
+    });
+  });
+
+  it("ignores an expiresAt that is not a real time", () => {
+    expect(one({ facts: [stale()], statuses: [hold("confirmed", "soon")] }).state).toBe("expired");
+  });
+});

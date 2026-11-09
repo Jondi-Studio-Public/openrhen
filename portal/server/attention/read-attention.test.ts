@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AGENT_SCOPE_PRESETS,
   attentionCallProblem,
+  factOpenItem,
   FEED_OWNS_DOCTOR_CHECKS,
   mcpManifestTool,
   scopeCovers,
@@ -136,6 +137,7 @@ function makeReaders(over: Partial<AttentionReaders> = {}) {
     refusal: vi.fn(async () => Response.json({ code: "reentryRequired" }, { status: 428 })),
     proposals: vi.fn(async () => proposalsRead({ outcomes: [outcome(1), outcome(2, "stale")] })),
     decided: vi.fn(async () => 0),
+    facts: vi.fn(async (): Promise<AttentionItem[]> => []),
     ...over
   } satisfies AttentionReaders;
   return readers;
@@ -225,7 +227,7 @@ describe("readAttention: what it builds", () => {
     );
     expect(answer.items).toEqual([]);
     expect(answer.empty).toMatch(
-      /^Nothing needs attention as of 12:00\. Checked: catch-up, check-in, doctor \(\d+ checks\), your proposals since 2026-10-28T12:00Z\./
+      /^Nothing needs attention as of 12:00\. Checked: catch-up, check-in, doctor \(\d+ checks\), your proposals since 2026-10-28T12:00Z, open mail items\./
     );
     expect(answer.counts).toEqual({ now: 0, soon: 0, fyi: 0 });
   });
@@ -542,5 +544,84 @@ describe("readAttention: since", () => {
 describe("readAttention: sanity of the fixtures", () => {
   it("the owned-check list still contains the fixture's dropped check", () => {
     expect(FEED_OWNS_DOCTOR_CHECKS).toContain("stale_location");
+  });
+});
+
+describe("readAttention: open mail facts", () => {
+  const factItems = (count: number, quoteSentinel = SENTINEL): AttentionItem[] =>
+    Array.from({ length: count }, (_, n) =>
+      factOpenItem({
+        factId: String(n).padStart(40, "d"),
+        factType: "ask",
+        direction: "in",
+        at: "2026-11-04T10:00:00.000Z",
+        quote: `${quoteSentinel} ${n}`,
+        held: undefined,
+        generatedAt: NOW.toISOString()
+      })!
+    );
+
+  it("lists them, counts them soon or fyi (never now), and names the source as read", async () => {
+    const readers = makeReaders({ facts: vi.fn(async () => factItems(2)) });
+    const answer = await run({ scopes: READ_PLAN_ONLY }, readers);
+    expect(readers.facts).toHaveBeenCalledWith(NOW, READ_PLAN_ONLY, { quotes: true });
+    expect(answer.items.filter((i) => i.kind === "fact_open")).toHaveLength(2);
+    const base = await run({ scopes: READ_PLAN_ONLY }, makeReaders());
+    expect(answer.counts.now).toBe(base.counts.now);
+    expect(answer.counts.soon).toBe(base.counts.soon + 2);
+    expect(answer.sources).toContainEqual({ source: "facts", ok: true });
+  });
+
+  it("quoted mail text stays in quoted and out of every server string", async () => {
+    const readers = makeReaders({ facts: vi.fn(async () => factItems(1)) });
+    const answer = await run({}, readers);
+    const fact = answer.items.find((i) => i.kind === "fact_open")!;
+    expect(fact.quoted?.summary).toContain(SENTINEL);
+    expect(JSON.stringify({ ...fact, quoted: undefined })).not.toContain(SENTINEL);
+  });
+
+  it("a token without read:plan reads no facts and the answer says which kind and scope it left out", async () => {
+    const readers = makeReaders();
+    const answer = await run({ scopes: ["read:proposals"] }, readers);
+    expect(readers.facts).not.toHaveBeenCalled();
+    expect(answer.notIncluded).toContainEqual({ kinds: ["fact_open"], scope: "read:plan" });
+    expect(answer.sources.map((s) => s.source)).not.toContain("facts");
+  });
+
+  it("the owner view reads no mail facts and does not claim to have", async () => {
+    const readers = makeReaders();
+    const answer = await run({ agent: null }, readers);
+    expect(readers.facts).not.toHaveBeenCalled();
+    expect(answer.notIncluded).toEqual([]);
+  });
+
+  it("a facts read that fails is one unavailable item and an incomplete answer, with nothing from the error", async () => {
+    const readers = makeReaders({ facts: vi.fn(() => Promise.reject(new Error("FACTSENT boom"))) as never });
+    const answer = await run({}, readers);
+    expect(answer.complete).toBe(false);
+    expect(answer.sources).toContainEqual({ source: "facts", ok: false });
+    const lost = answer.items.find((i) => i.id === "source_unavailable:facts")!;
+    // An optional source: its failure is shown, but it adds nothing to counts.now.
+    expect(lost.urgency).toBe("soon");
+    const base = await run({}, makeReaders());
+    expect(answer.counts.now).toBe(base.counts.now);
+    expect(JSON.stringify(answer)).not.toContain("FACTSENT");
+  });
+
+  it("the empty text names the mail only when it was read, and never claims nothing without it", async () => {
+    const quietReaders = (over: Partial<AttentionReaders>) =>
+      makeReaders({
+        doctor: vi.fn(async () => report([])),
+        entries: vi.fn(async () => []),
+        due: vi.fn(async () => quiet),
+        proposals: vi.fn(async () => proposalsRead()),
+        ...over
+      });
+    const read = await run({}, quietReaders({}));
+    expect(read.empty).toContain("open mail items");
+    const failed = await run({}, quietReaders({ facts: vi.fn(() => Promise.reject(new Error("x"))) as never }));
+    expect(failed.empty).toBeUndefined();
+    const left = await run({ scopes: ["read:proposals"] }, quietReaders({}));
+    expect(left.empty).not.toContain("mail");
   });
 });

@@ -7,7 +7,7 @@ import { databaseUrl } from "@/server/runtime-env";
  * Runs the model-backed extractors once (communication understanding, slice 2b-4): the worker's model loop posts here
  * with `{trigger:"scheduled"}` and only posts. It is separate from `/api/integrations/derived/tick` because a model call
  * takes seconds to minutes and that tick is one transaction the worker aborts at 120 s; this one is not a transaction
- * and the worker waits up to 10 minutes for it. A run takes a lease on the extractor's batch, calls the model with no
+ * and the worker waits up to 20 minutes for it. A run takes a lease on the extractor's batch, calls the model with no
  * lock held, then writes only if it still holds the lease and the source messages are still there
  * (`portal/server/derived/model-runner.ts` has the three phases and what a failure costs).
  *

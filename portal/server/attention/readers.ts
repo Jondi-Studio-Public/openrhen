@@ -1,4 +1,4 @@
-import { scopeCovers, type CatchUpEntry, type DoctorReport } from "@openrhen/contracts";
+import { scopeCovers, type AttentionItem, type CatchUpEntry, type DoctorReport } from "@openrhen/contracts";
 import { readDecidedCount, readDecidedWindowStart, readProposalOutcomes } from "@/server/agent-proposals/outcomes";
 import type { ProposalOutcomeResult } from "@/server/agent-proposals/outcomes";
 import { readProposalsWaiting, type ProposalsWaiting } from "@/server/agent-proposals/waiting";
@@ -9,6 +9,8 @@ import { ensureUser } from "@/server/persistence/postgres/ensure-user";
 import { readPulseReentryView } from "@/server/persistence/postgres/reenter";
 import type { PoolSql } from "@/server/persistence/postgres/sql-pool";
 import { reentryRefusal } from "@/server/pulse/reentry-gate";
+import { readFactItems } from "./fact-items";
+import { FACTS_READ_TIMEOUT_MS, guardedFactsRead, withFactsTimeout } from "./facts-guard";
 
 /** The pulse as the gate reads it: `lapsed` already includes the gate's `everConfirmed` test. */
 export type AttentionPulse = NonNullable<Awaited<ReturnType<typeof readPulseReentryView>>>;
@@ -34,7 +36,14 @@ export interface AttentionReaders {
   refusal(pulse: AttentionPulse): Promise<Response>;
   proposals(userId: string, agent: string, since: string | undefined): Promise<ProposalsRead>;
   decided(userId: string, agent: string): Promise<number>;
+  /**
+   * The open mail facts as items (`fact_open`), for a token that holds `read:plan`. `quotes: false` (the counts) skips
+   * reading the mail text; the items are otherwise the same, so the counts and the feed agree.
+   */
+  facts(now: Date, held: readonly string[] | undefined, options: { quotes: boolean }): Promise<AttentionItem[]>;
 }
+
+export { FACTS_READ_TIMEOUT_MS, withFactsTimeout };
 
 export function defaultAttentionReaders(sql: PoolSql): AttentionReaders {
   return {
@@ -51,13 +60,22 @@ export function defaultAttentionReaders(sql: PoolSql): AttentionReaders {
       const outcomes = (await readProposalOutcomes(sql, userId, agent, { since }))!;
       return { outcomes, windowStart: start, waiting: await readProposalsWaiting(sql, userId, agent) };
     },
-    decided: async (userId, agent) => (await readDecidedCount(sql, userId, agent)).count
+    decided: async (userId, agent) => (await readDecidedCount(sql, userId, agent)).count,
+    facts: async (now, held, options) =>
+      guardedFactsRead(await ensureUser(sql), now, options.quotes, () =>
+        readFactItems(sql, { now, held, quotes: options.quotes })
+      )
   };
 }
 
 /** Whether the token may read proposals. `undefined` scopes (environment token, header-only name, owner) is unscoped. */
 export function canReadProposals(scopes: readonly string[] | undefined): boolean {
   return scopes === undefined || scopes.some((held) => scopeCovers(held, "read:proposals"));
+}
+
+/** Whether the token may read the open mail facts (`read:plan`, which the feed itself needs). `undefined` is unscoped. */
+export function canReadPlan(scopes: readonly string[] | undefined): boolean {
+  return scopes === undefined || scopes.some((held) => scopeCovers(held, "read:plan"));
 }
 
 /** Logs a failed source: its name and the error's class name, never its message (it can hold imported text). */
