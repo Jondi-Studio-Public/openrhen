@@ -1,11 +1,17 @@
 /**
- * Agent scopes: one vocabulary `<verb>:<resource>[:<qualifier>]`
- * for MCP `--allow-writes`, token scopes and OAuth scope strings, and the one table that maps each CLI write
- * tool to the scopes it needs. This module is plumbing: nothing in PR 2 enforces it. PR 3 (agent tokens) makes the
- * portal wrapper, the CLI and the MCP tool filter read `requiredScopes`, `OWNER_ONLY_SETTINGS_FIELDS` and
- * `hardFloorReason`; until then a headerless caller counts as the owner. Confirming (`inbox-act ... confirm`,
- * `email-act confirm`, which write the plan and never send mail) takes the scope of its tool and is undoable;
- * `agent-routes.ts` refuses only a plain capture saved as confirmed and a contract review, not here.
+ * Agent scopes: one vocabulary `<verb>:<resource>[:<qualifier>]` for token scopes and OAuth scope strings (and the
+ * remote tool list), and the one table that maps each CLI write tool to the scopes it needs. This module is the
+ * contract; the enforcement lives elsewhere and reads it:
+ * - `portal/server/agent-enforcement.ts` runs from `withRoute` for a database-token agent. It resolves a route's
+ *   scopes (`agent-routes.ts`, via `requiredScopes`; a settings payload naming an owner-only field is found with
+ *   `ownerOnlySettingsFieldsIn` here), checks them against the token, applies the hard floor
+ *   (`hardFloorReason`), and refuses a route the contracts map does not place.
+ * - `tools/cli/src/remote-manifest.ts` lists each remote tool's scopes so `tools/list` hides what a token could
+ *   never call; the stdio server's `--allow-writes` / `--deny-writes` filter by command name, not by scope.
+ * A header-only agent name and an anonymous caller are not scope-checked (a headerless caller counts as the
+ * owner), and an environment token keeps its route list. Confirming (`inbox-act ... confirm`, `email-act confirm`,
+ * which write the plan and never send mail) takes the scope of its tool and is undoable; `agent-routes.ts` refuses
+ * only a plain capture saved as confirmed and a contract review, not here.
  */
 import { contractsExtensions, mergedList, mergedRecord } from "./extensions.js";
 import { HIDING_STATUS } from "./closed-status.js";
