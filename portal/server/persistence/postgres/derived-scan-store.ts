@@ -119,3 +119,44 @@ export async function countRowsBefore(sql: Sql, userId: string, input: ScanInput
       AND ingested_at <= ${before.at}::timestamptz AND (ingested_at, id) < (${before.at}::timestamptz, ${before.id}::uuid)`;
   return row?.n ?? 0;
 }
+
+/** The most stored rows of one fact id an extractor's lookup returns. */
+export const FACT_ROWS_LOOKUP_LIMIT = 50;
+
+/**
+ * The attrs of the `derived` `fact` rows with this fact id, newest source message first, for an extractor that must see
+ * what is already stored (an update against its invite). Uses the partial index on `(user_id, attrs->>'fact_id')`.
+ */
+export async function readDerivedFactRows(
+  sql: Sql,
+  userId: string,
+  factId: string
+): Promise<{ attrs: Record<string, unknown>; start: string }[]> {
+  const rows = await sql<{ attrs: Record<string, unknown>; ts_start: Date }[]>`
+    SELECT attrs, ts_start FROM activity_events
+    WHERE user_id = ${userId} AND source = 'derived' AND kind = 'fact' AND attrs->>'fact_id' = ${factId}
+    ORDER BY ts_start DESC, id DESC
+    LIMIT ${FACT_ROWS_LOOKUP_LIMIT}`;
+  return rows.map((row) => ({ attrs: row.attrs, start: row.ts_start.toISOString() }));
+}
+
+/** The ids of the source rows with these event keys that are still held (a deleted one is simply absent). */
+export async function readSourceIdsByKeys(
+  sql: Sql,
+  userId: string,
+  input: ScanInput,
+  keys: readonly string[]
+): Promise<Map<string, string>> {
+  if (keys.length === 0) return new Map();
+  const rows = await sql<{ id: string; event_key: string }[]>`
+    SELECT id, event_key FROM activity_events
+    WHERE user_id = ${userId} AND source = ${input.source} AND kind = ${input.kind}
+      AND event_key IN (SELECT value FROM jsonb_array_elements_text(${sql.json(keys as string[])}))`;
+  return new Map(rows.map((row) => [row.event_key, row.id]));
+}
+
+/** The owner's IANA zone, the one an all-day date is read in. UTC if the row somehow holds none. */
+export async function readUserTimeZone(sql: Sql, userId: string): Promise<string> {
+  const [row] = await sql<{ timezone: string | null }[]>`SELECT timezone FROM users WHERE id = ${userId}`;
+  return row?.timezone && row.timezone !== "" ? row.timezone : "UTC";
+}

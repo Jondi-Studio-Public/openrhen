@@ -356,4 +356,26 @@ describe("readOpenFacts", () => {
     });
     expect(await ids()).toEqual([fid("m")]);
   });
+  it("fact-ics rows: a held unmatched_update and an orphan cancel link are not listed; a cancel of a held event closes it", async () => {
+    await sql.begin((tx) => ensureExtractorStateTx(tx, userId, "fact-ics", "1", NOW));
+    const ics = { extractor: "fact-ics", fact_type: "event", ics_uid: "u1" };
+    const when = {
+      ref_time: ago(9).toISOString(),
+      tz: "UTC",
+      candidates: [{ start: ahead(4).toISOString() }],
+      ambiguous: false
+    };
+    // A real event, a held (unmatched) update of the same uid under its own id, and a cancel naming an event that is gone.
+    await fact("e", ago(5), { ...ics, ics_sequence: 0, when });
+    await fact("held", ago(1), { ...ics, ics_sequence: 3, review_reason: "unmatched_update" });
+    await fact("orphan", ago(1), {
+      ...ics,
+      ics_sequence: 2,
+      links: [{ relation: "cancel", target_fact_id: fid("gone") }]
+    });
+    expect(await ids()).toEqual([fid("e")]);
+    // The same event with a cancel that names it: closed, and the cancel row is a link, not a listing.
+    await fact("c", ago(1), { ...ics, ics_sequence: 1, links: [{ relation: "cancel", target_fact_id: fid("e") }] });
+    expect(await ids()).toEqual([]);
+  });
 });

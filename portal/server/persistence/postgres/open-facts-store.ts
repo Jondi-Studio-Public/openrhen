@@ -147,6 +147,8 @@ function factRowOf(row: { event_key: string; ts_start: Date; ingested_at: Date; 
     ingestedAt: Number.isNaN(row.ingested_at.getTime()) ? null : row.ingested_at.toISOString(),
     tier: string(attrs.tier),
     extractorVersion: string(attrs.extractor_version),
+    // The ICS SEQUENCE breaks a tie between rows of one message time; an unmatched calendar update is a review item.
+    sequence: Number.isSafeInteger(attrs.ics_sequence) ? (attrs.ics_sequence as number) : null,
     reviewReason: string(attrs.review_reason),
     sourceEventId: string(attrs.source_event_id),
     conversationKey: string(attrs.conversation_key),

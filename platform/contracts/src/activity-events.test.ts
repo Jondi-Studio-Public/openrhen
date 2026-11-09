@@ -418,3 +418,89 @@ describe("validateActivityEvent: impossible times, text Postgres refuses, and pl
     expect(validateActivityEvent(event({ attrs: null }), now)).toMatchObject({ ok: true, event: { attrs: {} } });
   });
 });
+
+describe("mail calendar attrs (ics event time, JSON-LD dates and the DMARC domain)", () => {
+  /** The attrs a mail message is stored with, or null when it was rejected. */
+  const stored = (attrs: Record<string, unknown>) => {
+    const verdict = validateActivityEvent(
+      { id: "g1", source: "gmail", kind: "message", start: "2026-11-07T11:00:00Z", attrs },
+      now
+    );
+    return verdict.ok ? verdict.event.attrs : null;
+  };
+  const dropped = (attrs: Record<string, unknown>) => (stored(attrs)?.calendar_dropped ?? []) as string[];
+  const ics = (extra: Record<string, unknown>) => ({ message_id: "<m@x>", ics: { uid: "u1", ...extra } });
+
+  it("keeps the event time the source writes: DATE, UTC and zone-less ISO, a tzid, a status and a summary", () => {
+    for (const attrs of [
+      ics({ dtstart: "2026-11-13", dtend: "2026-11-14" }),
+      ics({ dtstart: "2026-11-13T02:00:00Z", dtend: "2026-11-13T03:00:00Z", status: "CONFIRMED" }),
+      ics({ dtstart: "2026-11-13T09:00:00", tzid: "Australia/Sydney", status: "TENTATIVE", summary: "Plan" }),
+      ics({ status: "CANCELLED", sequence: 3, method: "CANCEL", organizer: "boss@org.example" }),
+      { message_id: "<m@x>" }
+    ])
+      expect(stored(attrs)).toEqual(attrs);
+  });
+
+  it("never rejects the message: a bad start or end is dropped and named, and the rest is stored", () => {
+    for (const bad of ["tomorrow", "2026-11-13T09:00", "20261113T090000Z", "2026-11-13T09:00:00+11:00", 5]) {
+      const start = stored(ics({ dtstart: bad, dtend: "2026-11-13T10:00:00Z", tzid: "UTC" }));
+      expect(start).toMatchObject({
+        message_id: "<m@x>",
+        ics: { uid: "u1", tzid: "UTC" },
+        calendar_dropped: ["ics.dtstart", "ics.dtend"]
+      });
+      expect((start!.ics as Record<string, unknown>).dtstart).toBeUndefined();
+      expect(dropped(ics({ dtstart: "2026-11-13T09:00:00Z", dtend: bad }))).toEqual(["ics.dtend"]);
+    }
+  });
+
+  it("drops an unknown status, a long tzid and a summary over 200 code points, one key each", () => {
+    expect(dropped(ics({ status: "DONE" }))).toEqual(["ics.status"]);
+    expect(dropped(ics({ tzid: "x".repeat(65) }))).toEqual(["ics.tzid"]);
+    expect(dropped(ics({ summary: "x".repeat(201) }))).toEqual(["ics.summary"]);
+    expect(dropped(ics({ summary: "😀".repeat(200) }))).toEqual([]);
+    expect(stored(ics({ summary: "x".repeat(201), tzid: "UTC" }))).toMatchObject({ ics: { uid: "u1", tzid: "UTC" } });
+  });
+
+  it("checks JSON-LD start and end dates when they are present, dropping only the bad field", () => {
+    const good = [{ "@type": "Event", startDate: "2026-11-20T19:30:00+11:00", endDate: "2026-11-20" }];
+    expect(dropped({ jsonld: good })).toEqual([]);
+    const bad = stored({ jsonld: [{ "@type": "Event", startDate: "2026-11-20", endDate: 4 }] });
+    expect(bad).toMatchObject({
+      jsonld: [{ "@type": "Event", startDate: "2026-11-20" }],
+      calendar_dropped: ["jsonld[0].endDate"]
+    });
+    expect(dropped({ jsonld: [{ "@type": "Event", startDate: "soon" }] })).toEqual(["jsonld[0].startDate"]);
+    expect(stored({ jsonld: "x" })).toEqual({ calendar_dropped: ["jsonld"] });
+  });
+
+  it("checks auth.dmarc_domain as a lower-case domain; a bad one is dropped, which leaves the sender untrusted", () => {
+    const auth = (extra: Record<string, unknown>) => ({ message_id: "<m@x>", auth: { dmarc: "pass", ...extra } });
+    for (const good of ["example.com", "mail.example.co.uk"]) expect(dropped(auth({ dmarc_domain: good }))).toEqual([]);
+    expect(dropped(auth({}))).toEqual([]);
+    for (const bad of [
+      "Example.com",
+      "example",
+      "a@example.com",
+      "",
+      "-a.example.com",
+      `${"a".repeat(64)}.com`,
+      5,
+      null
+    ]) {
+      const kept = stored(auth({ dmarc_domain: bad }));
+      expect(kept, String(bad)).toMatchObject({ auth: { dmarc: "pass" }, calendar_dropped: ["auth.dmarc_domain"] });
+      expect((kept!.auth as Record<string, unknown>).dmarc_domain).toBeUndefined();
+    }
+  });
+
+  it("does not look at other sources", () => {
+    const attrs = { ics: { dtstart: "x" } };
+    const verdict = validateActivityEvent(
+      { id: "d1", source: "discord-package", kind: "message", start: "2026-11-07T11:00:00Z", attrs },
+      now
+    );
+    expect(verdict).toMatchObject({ ok: true, event: { attrs } });
+  });
+});
