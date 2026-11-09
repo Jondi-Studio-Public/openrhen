@@ -30,13 +30,31 @@ describe("reference reconciler", () => {
   });
 
   it("asks on equal deadline fits instead of taking the first", () => {
-    expect(run("deadline-numbered-prefix")).toMatchObject({ endState: "asked", tie: true });
+    expect(run("deadline-twin-actions")).toMatchObject({ endState: "asked", tie: true });
   });
 
-  it("reads a moved deadline and a rescheduled event as new", () => {
-    expect(run("deadline-moved")).toMatchObject({ endState: "applied", op: "create" });
+  it("asks, even to an adversarial chooser, when the date moved further than the window", () => {
+    const input = structuredClone(byId("deadline-moved").input);
+    input.message.facts[0]!.when = ["2026-12-20"];
+    for (const chooser of [never, adversarial]) {
+      const outcome = referenceReconciler(structuredClone(input), { chooser });
+      expect(outcome).toMatchObject({ endState: "asked", usedChooser: false, tie: false });
+      expect(outcome.candidates.map((c) => c.id)).toContain("a1");
+    }
+  });
+
+  it("keeps numbered siblings apart, so a prefix title names one action", () => {
+    expect(run("deadline-numbered-prefix")).toMatchObject({ endState: "duplicate", target: { id: "a2" }, tie: false });
+  });
+
+  it("reads a moved deadline as an update of that deadline, and a rescheduled event still as new", () => {
+    expect(run("deadline-moved")).toMatchObject({ endState: "applied", op: "update", target: { id: "a1" } });
+    expect(run("deadline-moved-project-fortnight")).toMatchObject({
+      endState: "applied",
+      op: "update",
+      target: { kind: "project", id: "p1" }
+    });
     expect(run("event-reschedule")).toMatchObject({ endState: "applied", op: "create" });
-    expect(run("deadline-moved").candidates.map((c) => c.id)).toContain("a1");
   });
 
   it("holds a possible match as a question without a chooser", () => {

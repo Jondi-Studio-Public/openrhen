@@ -273,6 +273,13 @@ export {
 export type { OccurrenceInProgressInput } from "./planning/occurrence-in-progress.js";
 export { commitmentFreedAt } from "./planning/commitment-freed.js";
 export {
+  matchDeadline,
+  MAX_DEADLINE_TIE_CANDIDATES,
+  MOVED_WINDOW_DAYS,
+  SAME_DATE_SIMILARITY
+} from "./planning/deadline-match.js";
+export type { DeadlineMatch, DeadlineMatchKind, DeadlineProbe, DeadlineTarget } from "./planning/deadline-match.js";
+export {
   aliasTitleNorm,
   carriesPublishMarker,
   MAX_TIE_CANDIDATES,

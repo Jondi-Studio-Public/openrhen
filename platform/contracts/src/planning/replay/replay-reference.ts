@@ -1,6 +1,7 @@
 import { wallClockFormat } from "../../zoned-time.js";
 import { matchCommitment, type SourceCandidate, type SourceCommitment } from "../source-match.js";
-import { findTitleDuplicate, normalizeTitle, titleSimilarity, titlesMatch } from "../title-similarity.js";
+import { matchDeadline } from "../deadline-match.js";
+import { normalizeTitle, titleSimilarity } from "../title-similarity.js";
 import {
   MAX_CANDIDATES,
   type Candidate,
@@ -14,17 +15,17 @@ import {
 
 /**
  * The resolver under test today: the matchers as they behave now, assembled behind the `Reconciler`
- * interface. It deliberately keeps today's quirks so the baseline records them: a moved deadline is a
- * new one. Equal fits are a tie, asked and never picked. It is not a model of what should happen; the gold is.
+ * interface. Equal fits are a tie, asked and never picked; a deadline the same title names within two
+ * weeks of another date is that deadline moved (an update). It is not a model of what should happen; the gold is.
  *
- * Lanes are the per-fact-type pieces, kept in `LANES` so the matcher changes that follow (a tie
- * result, a deadline matcher, a sender-to-contact map) each replace one entry without touching the
+ * Lanes are the per-fact-type pieces, kept in `LANES` so the matcher changes that follow (a sender-to-contact map) each replace one entry without touching the
  * others or the cases.
  */
 
 const RANK_EXACT = 3;
 const RANK_STRONG = 2;
 const RANK_POSSIBLE = 1;
+const RANK_OF = { exact: RANK_EXACT, strong: RANK_STRONG, possible: RANK_POSSIBLE, none: 0 } as const;
 /** Below a match but worth showing: the card list is built from similar titles, not only matches. */
 const NEAR_SIMILARITY = 0.3;
 
@@ -108,6 +109,8 @@ interface Scored {
   title: string;
   rank: number;
   score: number;
+  /** The title matches but the dates differ: with strong or exact, the same deadline moved. */
+  moved?: { from: string; to: string };
 }
 
 /** A lane's verdict: every target it looked at, scored. Rank 0 means near but not a match. */
@@ -165,19 +168,28 @@ function commitmentLane(input: ReplayInput, fact: ReplayFact): Scored[] {
 
 function deadlineLane(input: ReplayInput, fact: ReplayFact): Scored[] {
   const title = probeTitle(fact.quote);
-  const date = fact.when?.[0] ? localDateOf(fact.when[0], input.timezone) : null;
-  const probe = { title, date, kind: "deadline" };
+  const dueOn = fact.when?.[0] ? localDateOf(fact.when[0], input.timezone) : null;
+  const probe = { kind: "deadline" as const, title, dueOn };
   const targets = [
     ...input.plan.actions.map((a) => ({ ...a, kind: "action" as const })),
     ...input.plan.projects.map((p) => ({ ...p, kind: "project" as const }))
   ].filter((t) => t.status === "open" && t.deadlineAt !== null);
   const scored: Scored[] = [];
   for (const t of targets) {
-    const item = { title: t.title, date: localDateOf(t.deadlineAt!, input.timezone), kind: "deadline" };
-    const hit = findTitleDuplicate(probe, [item]) !== null;
+    const match = matchDeadline(probe, [
+      { id: t.id, title: t.title, dueOn: localDateOf(t.deadlineAt!, input.timezone) }
+    ]);
+    const rank = RANK_OF[match.kind];
     const score = titleSimilarity(title, t.title);
-    if (!hit && score < NEAR_SIMILARITY) continue;
-    scored.push({ id: t.id, target: { kind: t.kind, id: t.id }, title: t.title, rank: hit ? RANK_STRONG : 0, score });
+    if (rank === 0 && score < NEAR_SIMILARITY) continue;
+    scored.push({
+      id: t.id,
+      target: { kind: t.kind, id: t.id },
+      title: t.title,
+      rank,
+      score,
+      ...(match.moved ? { moved: match.moved } : {})
+    });
   }
   return scored;
 }
@@ -187,10 +199,15 @@ function askLane(input: ReplayInput, fact: ReplayFact): Scored[] {
   const scored: Scored[] = [];
   for (const open of input.plan.openFacts) {
     const score = titleSimilarity(title, open.title);
+    const sameThread = open.conversationKey === fact.conversationKey;
+    const titleMatch = matchDeadline({ kind: "ask", title, dueOn: null }, [
+      { id: open.id, title: open.title, dueOn: null }
+    ]);
     let rank = 0;
     if (fact.icsUid !== undefined && open.icsUid === fact.icsUid) rank = RANK_EXACT;
-    else if (titlesMatch(title, open.title)) rank = RANK_STRONG;
-    else if (open.conversationKey === fact.conversationKey) rank = RANK_POSSIBLE;
+    // An undated ask reaches only "possible" on its words; the same thread corroborates it.
+    else if (titleMatch.kind !== "none") rank = sameThread ? RANK_STRONG : RANK_POSSIBLE;
+    else if (sameThread) rank = RANK_POSSIBLE;
     if (rank === 0 && score < NEAR_SIMILARITY) continue;
     scored.push({ id: open.id, target: { kind: "fact", id: open.id }, title: open.title, rank, score });
   }
@@ -255,14 +272,21 @@ export const referenceReconciler: Reconciler = (input, { chooser }) => {
   }
 
   if (top >= RANK_STRONG) {
-    const target = scored.find((s) => s.rank === top)!.target;
+    const winner = scored.find((s) => s.rank === top)!;
+    const target = winner.target;
+    // The same deadline on another date is an update, not a restatement.
+    if (winner.moved && !fact.cancelled) {
+      return { endState: "applied", op: "update", target, candidates, tie, usedChooser: false };
+    }
     if (fact.cancelled) return { endState: "applied", op: "cancel", target, candidates, tie, usedChooser: false };
     return { endState: "duplicate", target, candidates, tie, usedChooser: false };
   }
 
   if (top === RANK_POSSIBLE) {
     // A held "same event / keep both" question. Only a judge can answer it.
-    if (chooser.unavailable) return { endState: "asked", candidates, tie, usedChooser: false };
+    // A date that differs is not a restatement a card pick could confirm ("duplicate"); only the owner can say moved or new.
+    const dateDiffers = scored.some((s) => s.rank === RANK_POSSIBLE && s.moved);
+    if (chooser.unavailable || dateDiffers) return { endState: "asked", candidates, tie, usedChooser: false };
     const cards = candidates
       .filter((c) => c.rank >= RANK_POSSIBLE)
       .map((c, i) => ({ label: `c${i + 1}`, id: c.id, title: byId.get(c.id)!.title }));
