@@ -119,6 +119,7 @@ const OWNER_RUNS_ITSELF = new Set([
   "POST /api/integrations/derived/tick",
   "POST /api/integrations/derived/model-tick",
   "POST /api/integrations/work-label/tick",
+  "POST /api/integrations/reason-tag/tick",
   "POST /api/location/observe",
   "POST /api/offer-log/shown",
   "POST /api/location/ping",
@@ -751,11 +752,13 @@ const OWNER_ROUTES: Record<string, string> = {
   "POST /api/integrations/derived/tick": "The derived-rows job",
   "POST /api/integrations/derived/model-tick": "The model-backed derived-rows job",
   "POST /api/integrations/work-label/tick": "The work-label inference job",
+  "POST /api/integrations/reason-tag/tick": "The reason-tagging job",
   // Whether an area counts as work is the owner's own answer; the chip on the area page writes it. Nothing here is an agent's to set.
   "PUT /api/work-labels/[areaId]": "Saying whether an area counts as work",
   // The owner's own words about why they left the plan. Private text: no agent writes it, reads it, or deletes it.
   "POST /api/drift-reasons": "Saving why you were pulled off the plan",
   "DELETE /api/drift-reasons/[checkInId]": "Deleting a saved reason and its tags",
+  "PUT /api/drift-reasons/[checkInId]/tags": "Correcting or resetting the tags on a saved reason",
   "POST /api/location/observe": "A location report",
   "POST /api/offer-log/shown": "What the open Now page showed",
   "POST /api/location/ping": "A location ping",
@@ -876,6 +879,7 @@ const OWNER_READS = new Set([
   "/api/settings/secrets",
   "/api/derived-settings",
   "/api/work-labels",
+  "/api/drift-reasons",
   "/api/closed",
   "/api/closed/summary",
   "/api/owner/credentials",
@@ -1029,6 +1033,7 @@ for (const route of [
   "/api/integrations/derived/tick",
   "/api/integrations/derived/model-tick",
   "/api/integrations/work-label/tick",
+  "/api/integrations/reason-tag/tick",
   "/api/integrations/pulse/tick",
   "/api/integrations/push/drain",
   "/api/plan-map/sweep"

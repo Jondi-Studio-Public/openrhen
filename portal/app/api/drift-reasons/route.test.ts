@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const env = vi.hoisted(() => ({ url: "postgres://example" as string | undefined }));
 const reasons = vi.hoisted(() => ({ saveReason: vi.fn() }));
+const tags = vi.hoisted(() => ({ readReasonTags: vi.fn() }));
 vi.mock("@/server/runtime-env", () => ({ databaseUrl: () => env.url }));
 vi.mock("@/server/persistence/postgres/sql-pool", () => ({ sqlPool: () => ({}) }));
 vi.mock("@/server/drift/drift-reasons", () => reasons);
+vi.mock("@/server/drift/reason-tags", () => tags);
 
 const route = await import("./route");
 const post = (body: unknown) =>
@@ -23,6 +25,7 @@ beforeEach(() => {
   vi.spyOn(console, "log").mockImplementation(() => {});
   env.url = "postgres://example";
   reasons.saveReason.mockReset();
+  tags.readReasonTags.mockReset();
 });
 
 describe("POST /api/drift-reasons", () => {
@@ -63,5 +66,52 @@ describe("POST /api/drift-reasons", () => {
     expect(response.status).toBe(503);
     expect(((await response.json()) as { error: string }).error).toContain("DATABASE_URL");
     expect(reasons.saveReason).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /api/drift-reasons", () => {
+  const get = () => route.GET(new Request("http://localhost/api/drift-reasons"), undefined);
+
+  it("answers the owner's reasons with their tags, and is never cached", async () => {
+    const answer = {
+      modelConfigured: true,
+      reasons: [
+        {
+          checkInId,
+          text: "a loud neighbour",
+          savedAt: "2026-11-09T10:00:00.000Z",
+          tags: ["noise"],
+          origin: "inferred",
+          stale: false
+        }
+      ]
+    };
+    tags.readReasonTags.mockResolvedValue(answer);
+    const response = await get();
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual(answer);
+  });
+
+  it("says to set DATABASE_URL when there is no database, reading nothing", async () => {
+    env.url = undefined;
+    const response = await get();
+    expect(response.status).toBe(503);
+    expect(((await response.json()) as { error: string }).error).toContain("DATABASE_URL");
+    expect(tags.readReasonTags).not.toHaveBeenCalled();
+  });
+});
+
+describe("errors from the stores", () => {
+  it("rethrow only the error's kind, so a message quoting a row never reaches the log", async () => {
+    const quoting = new Error("duplicate key (zebra kettle words)");
+    reasons.saveReason.mockRejectedValue(quoting);
+    tags.readReasonTags.mockRejectedValue(quoting);
+    const logged: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((...args) => void logged.push(args.join(" ")));
+    vi.spyOn(console, "error").mockImplementation((...args) => void logged.push(args.join(" ")));
+    await post({ checkInId, text: "x", requestId: "req-12345678" }).catch(() => undefined);
+    await route.GET(new Request("http://localhost/api/drift-reasons"), undefined).catch(() => undefined);
+    expect(logged.join("\n")).not.toContain("zebra");
   });
 });

@@ -39,7 +39,7 @@ describe("drift rule features", () => {
       expect(modules.filter((m) => /reason/i.test(m))).toEqual([]);
       for (const module of modules) {
         expect(
-          readFileSync(module, "utf8").match(/drift-reason|reason_tag|reasonKey|resolveReasons/)?.[0],
+          readFileSync(module, "utf8").match(/drift-reason|reason_tag|reasonKey|resolveReasons|resolveReasonTags/)?.[0],
           module
         ).toBeUndefined();
       }
@@ -47,15 +47,24 @@ describe("drift rule features", () => {
   }
 
   it("the reason modules reach no rule, evaluation, episode or planning module, and import nothing from outside the folder", () => {
-    const modules = [...closure(join(driftDir, "drift-reasons.ts"))];
-    expect(modules.filter((m) => m.startsWith("external:"))).toEqual([]);
-    expect(modules.filter((m) => /drift-(rules|eval|episodes)|planning/.test(m))).toEqual([]);
+    for (const file of ["drift-reasons.ts", "drift-reason-tags.ts"]) {
+      const modules = [...closure(join(driftDir, file))];
+      expect(
+        modules.filter((m) => m.startsWith("external:")),
+        file
+      ).toEqual([]);
+      expect(
+        modules.filter((m) => /drift-(rules|eval|episodes|labels)|planning/.test(m)),
+        file
+      ).toEqual([]);
+    }
   });
 
   it("no module outside the reason store and service, and the activity store's own reads, deletes and retention exemption, names the reason source", () => {
     const portalRoot = join(resolve(here, "..", ".."), "");
     const allowed = new Set([
       "server/drift/drift-reasons.ts",
+      "server/drift/reason-tag-runner.ts",
       "server/persistence/postgres/drift-reason-store.ts",
       "server/persistence/postgres/activity-store.ts",
       "server/persistence/postgres/activity-retention-store.ts"

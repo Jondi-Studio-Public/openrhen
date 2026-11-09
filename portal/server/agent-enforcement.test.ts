@@ -1023,6 +1023,31 @@ describe("activity store", () => {
     expect(save?.status).toBe(403);
     const remove = await call("DELETE", `/api/drift-reasons/${checkIn}`, everything);
     expect(remove?.status).toBe(403);
+    // Nor can it read the words with their tags, correct the tags, or run the job that makes them.
+    const list = await call("GET", "/api/drift-reasons", everything);
+    expect(list?.status).toBe(403);
+    const retag = await call("PUT", `/api/drift-reasons/${checkIn}/tags`, everything, {
+      tags: ["a phrase"],
+      requestId: "req-12345678"
+    });
+    expect(retag?.status).toBe(403);
+    const reset = await call("PUT", `/api/drift-reasons/${checkIn}/tags`, everything, {
+      reset: true,
+      requestId: "req-12345678"
+    });
+    expect(reset?.status).toBe(403);
+    const tick = await call("POST", "/api/integrations/reason-tag/tick", everything, { trigger: "manual" });
+    expect(tick?.status).toBe(403);
+    // A reason tag row is refused like a reason row, in a batch or alone.
+    const tagRow = {
+      id: "k",
+      source: "drift-reason",
+      kind: "reason_tag",
+      start: "2026-11-08T01:00:00Z",
+      attrs: { origin: "corrected", tags: ["a"] }
+    };
+    const refusedTag = await call("POST", "/api/activity-events", everything, { schema: 1, events: [tagRow] });
+    expect(refusedTag?.status).toBe(403);
   });
 
   it("answers an oversize activity body with the handler's 413, valid JSON or not, and does not parse it", async () => {

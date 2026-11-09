@@ -4,8 +4,10 @@ import {
   DERIVED_TICK_FAILED_MS,
   DERIVED_TICK_IDLE_MS,
   DERIVED_TICK_MORE_MS,
+  REASON_TAG_TICK_IDLE_MS,
   WORK_LABEL_TICK_IDLE_MS,
   derivedTickDelayMs,
+  reasonTagTickDelayMs,
   workLabelTickDelayMs
 } from "./derived-tick-schedule.js";
 
@@ -67,5 +69,29 @@ describe("workLabelTickDelayMs", () => {
     ])
       expect(workLabelTickDelayMs({ ok: true, body }), JSON.stringify(body)).toBe(WORK_LABEL_TICK_IDLE_MS);
     expect(workLabelTickDelayMs({ ok: false, body: { status: "ok", more: true } })).toBe(WORK_LABEL_TICK_IDLE_MS);
+  });
+});
+
+describe("reasonTagTickDelayMs", () => {
+  it("comes back soon when more reasons wait, or the store was busy", () => {
+    expect(reasonTagTickDelayMs({ ok: true, body: { status: "ok", more: true } })).toBe(DERIVED_TICK_MORE_MS * 5);
+    expect(reasonTagTickDelayMs({ ok: true, body: { status: "discarded", more: true } })).toBe(
+      DERIVED_TICK_MORE_MS * 5
+    );
+    expect(reasonTagTickDelayMs({ ok: true, body: { status: "busy" } })).toBe(DERIVED_TICK_BUSY_MS);
+  });
+
+  it("takes the slow pace when idle, unconfigured or failed, so a failing reason is not hammered", () => {
+    for (const body of [
+      null,
+      { status: "idle", more: false },
+      { status: "not_configured" },
+      { status: "failed", more: true }
+    ])
+      expect(reasonTagTickDelayMs({ ok: true, body }), JSON.stringify(body)).toBe(REASON_TAG_TICK_IDLE_MS);
+    expect(reasonTagTickDelayMs({ ok: false, body: { status: "ok", more: true } })).toBe(REASON_TAG_TICK_IDLE_MS);
+    expect(reasonTagTickDelayMs({ ok: true, body: { status: "failed", more: true, tagged: 0 } })).toBe(
+      REASON_TAG_TICK_IDLE_MS
+    );
   });
 });

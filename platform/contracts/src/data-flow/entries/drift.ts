@@ -75,5 +75,52 @@ export const DRIFT_ENTRIES: readonly FlowEntry[] = [
     to: ["pg:activity_events[source=drift-reason,kind=reason]"],
     value: { note: "private words: owner-only, never logged, kept in database backups" },
     health: { kind: "none", reason: "written on a tap; nothing to be late" }
+  }),
+  flow({
+    id: "reason-tag-inference",
+    name: "Reason tag inference",
+    role: "reader",
+    category: "derived",
+    method: "derived",
+    trigger: { kind: "loop", loop: "reason-tag-tick" },
+    activitySource: "drift-reason",
+    code: {
+      paths: [
+        "portal/server/drift/reason-tag-runner.ts",
+        "portal/server/drift/reason-tag-prompt.ts",
+        "portal/server/derived/call-policy.ts",
+        "portal/server/persistence/postgres/drift-reason-store.ts"
+      ],
+      routes: ["POST /api/integrations/reason-tag/tick"],
+      loops: ["reason-tag-tick"]
+    },
+    gives: "short phrases naming what pulled you off, from your words",
+    from: ["pg:activity_events[source=drift-reason,kind=reason]"],
+    via: ["activity-ingest"],
+    to: ["pg:activity_events[source=drift-reason,kind=reason_tag]"],
+    value: { note: "shown on Review for correction; nothing plans, scores or predicts from tags" },
+    health: { kind: "none", reason: "runs only when a reason has no tags yet" }
+  }),
+  flow({
+    id: "reason-tag-correction",
+    name: "Reason tag correction",
+    role: "source",
+    category: "manual",
+    method: "manual",
+    trigger: { kind: "on-request", by: "owner" },
+    activitySource: "drift-reason",
+    code: {
+      paths: [
+        "portal/server/drift/reason-tags.ts",
+        "portal/server/persistence/postgres/drift-reason-store.ts",
+        "portal/features/check-in/components/reason-tags-card.tsx"
+      ],
+      routes: ["GET /api/drift-reasons", "PUT /api/drift-reasons/[checkInId]/tags"]
+    },
+    from: ["pg:activity_events[source=drift-reason,kind=reason]"],
+    via: ["activity-ingest"],
+    to: ["pg:activity_events[source=drift-reason,kind=reason_tag]"],
+    value: { note: "the owner's tags win over the model's; free text, no preset list" },
+    health: { kind: "none", reason: "written on a tap; nothing to be late" }
   })
 ];

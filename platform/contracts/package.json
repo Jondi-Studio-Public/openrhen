@@ -15,6 +15,7 @@
     "./drift/eval": "./src/drift/drift-eval.ts",
     "./drift/labels": "./src/drift/drift-labels.ts",
     "./drift/reasons": "./src/drift/drift-reasons.ts",
+    "./drift/reason-tags": "./src/drift/drift-reason-tags.ts",
     "./activity-drift": "./src/activity-drift.ts",
     "./activity-drift-reason": "./src/activity-drift-reason.ts",
     "./zoned-time": "./src/zoned-time.ts",
