@@ -1,5 +1,12 @@
 import { z } from "zod";
 import { describeDerivedProblem } from "./activity-derived.js";
+import {
+  PHYSIOLOGY_KINDS,
+  PHYSIOLOGY_SCHEMA_VERSION,
+  PHYSIOLOGY_SOURCE,
+  describePhysiologyProblem
+} from "./activity-physiology.js";
+import { scopeCovers } from "./agent-scopes.js";
 import { withoutDatePatterns } from "./agent-sessions.js";
 
 /**
@@ -27,10 +34,17 @@ export const ACTIVITY_READ_DEFAULT_LIMIT = 200;
 /** A kind any source may use: a new row that corrects an earlier one; `attrs.corrects` names the event_key. Raw rows are never rewritten. */
 export const ACTIVITY_CORRECTION_KIND = "correction";
 
+/** The class of a source whose rows describe the body. Reading them over a token needs `ACTIVITY_HEALTH_SCOPE`. */
+export const ACTIVITY_HEALTH_CLASS = "health";
+/** The scope that lets a token read health-class sources. Deliberately not offered to OAuth clients (`SCOPES_SUPPORTED`). */
+export const ACTIVITY_HEALTH_SCOPE = "read:activity-health";
+
 export interface ActivitySourceEntry {
   /** Bumped when the meaning of a source's kinds or attrs changes, so the predictor can tell old rows from new. */
   schemaVersion: number;
   kinds: readonly string[];
+  /** Optional. `health`: a token reads this source only with `read:activity-health` (and `read:activity-event`). */
+  class?: typeof ACTIVITY_HEALTH_CLASS;
 }
 
 /** Every source the store accepts, with its kinds. `correction` is also accepted for every source. */
@@ -78,7 +92,7 @@ export const ACTIVITY_SOURCES: Readonly<Record<string, ActivitySourceEntry>> = {
   "google-photos": { schemaVersion: 1, kinds: ["photo", "video"] },
   spotify: { schemaVersion: 1, kinds: ["play"] },
   "discord-package": { schemaVersion: 1, kinds: ["message"] },
-  "apple-health": { schemaVersion: 1, kinds: ["sleep", "workout", "steps"] },
+  "apple-health": { schemaVersion: 1, kinds: ["sleep", "workout", "steps"], class: ACTIVITY_HEALTH_CLASS },
   steam: { schemaVersion: 1, kinds: ["session"] },
   weather: { schemaVersion: 1, kinds: ["observation"] },
   // attrs: thread_id, gmail_id, from, to[], from_self, direction (in|out), labels[], subject; content is the stripped body (gated).
@@ -111,11 +125,36 @@ export const ACTIVITY_SOURCES: Readonly<Record<string, ActivitySourceEntry>> = {
   },
   "iphone-health": {
     schemaVersion: 1,
-    kinds: ["steps_day", "sleep", "workout", "heart_rate_day", "energy_day"]
+    kinds: ["steps_day", "sleep", "workout", "heart_rate_day", "energy_day"],
+    class: ACTIVITY_HEALTH_CLASS
+  },
+  // Generic physiology from any wearable, phone or health app, posted by the user's own collector as period rows under
+  // one canonical key (activity-physiology.ts; docs/operations/posting-physiology-data.md). Context only.
+  [PHYSIOLOGY_SOURCE]: {
+    schemaVersion: PHYSIOLOGY_SCHEMA_VERSION,
+    kinds: PHYSIOLOGY_KINDS,
+    class: ACTIVITY_HEALTH_CLASS
   }
 };
 
 export const ACTIVITY_SOURCE_NAMES: readonly string[] = Object.keys(ACTIVITY_SOURCES);
+
+/** The sources of class `health`, sorted. */
+export function activityHealthSources(): string[] {
+  return Object.entries(ACTIVITY_SOURCES)
+    .filter(([, entry]) => entry.class === ACTIVITY_HEALTH_CLASS)
+    .map(([name]) => name)
+    .sort();
+}
+
+/**
+ * The health-class sources a read must leave out for these token scopes. `undefined` scopes (the owner, an environment
+ * token, a background writer) withhold nothing; a token without `read:activity-health` withholds every health source.
+ */
+export function withheldActivitySources(scopes: readonly string[] | undefined): string[] {
+  if (scopes === undefined || scopes.some((held) => scopeCovers(held, ACTIVITY_HEALTH_SCOPE))) return [];
+  return activityHealthSources();
+}
 
 export function isKnownActivitySource(source: string): boolean {
   return Object.hasOwn(ACTIVITY_SOURCES, source);
@@ -226,12 +265,26 @@ export interface ActivityRejection {
   reason: string;
 }
 
+/** What the store already holds for a physiology event that was answered `alreadyHeld`, so a collector can compare and re-post as the next `v`. */
+export interface ActivityHeldEntry {
+  /** The event's position in the batch. */
+  index: number;
+  key: string;
+  /** The held row's `attrs.v`. */
+  v: number | null;
+  /** The held row's `attrs.coverage_s` and `attrs.n`; null for a kind that has none. */
+  coverage_s: number | null;
+  n: number | null;
+}
+
 export interface ActivityIngestResult {
   schema: typeof ACTIVITY_SCHEMA_VERSION;
   added: number;
   alreadyHeld: number;
   contentDropped: number;
   rejected: ActivityRejection[];
+  /** For each physiology event answered `alreadyHeld`: what is already stored under its key. Empty for every other source. */
+  held: ActivityHeldEntry[];
   /** The import record this batch belongs to, when it named one. */
   importId: string | null;
   /** The agent that posted the batch (the row's `ingested_via`); null for the owner. */
@@ -413,6 +466,18 @@ export function validateActivityEvent(raw: unknown, now: Date): ActivityEventVer
     const derivedProblem = describeDerivedProblem(kind, attrs, content);
     if (derivedProblem) return reject(derivedProblem);
   }
+  if (source === PHYSIOLOGY_SOURCE) {
+    const physiologyProblem = describePhysiologyProblem({
+      id,
+      kind,
+      tsStart,
+      tsEnd,
+      approximate: record.approximate === true,
+      content,
+      attrs
+    });
+    if (physiologyProblem) return reject(physiologyProblem);
+  }
   if (content !== null) {
     const contentProblem = describeUnstorableText("content", content);
     if (contentProblem) return reject(contentProblem);
@@ -507,27 +572,39 @@ export interface ActivityEventsPage {
   events: ActivityEventRow[];
   /** Pass as `after` for the next page; null on the last. */
   next: string | null;
+  /** Present when sources were left out of this read because the token lacks `read:activity-health`: their names. */
+  withheld?: string[];
+  /** Present with `withheld`: the scope that is missing and how to get it. */
+  withheldNote?: string;
 }
 
 /** The text shown when a source's content gate is off, so a missing `content` is never a mystery. */
 export const ACTIVITY_CONTENT_GATE_NOTE =
   'Content is stored only for a source whose content gate is on (PUT /api/activity-sources/<source> with {"contentEnabled": true}).';
 
-/** The JSON Schema published for client authors (`platform/contracts/activity-events-schema.v1.json`). */
+/**
+ * The JSON Schema published for client authors (`platform/contracts/activity-events-schema.v1.json`). Regenerate the file
+ * after a change: `../../engine/service/node_modules/.bin/tsx -e "import {activityEventsJsonSchema as f} from './src/activity-events.ts'; process.stdout.write(JSON.stringify(f(), null, 2) + '\n')" > activity-events-schema.v1.json`
+ * (run from `platform/contracts`; `tsx` is a dependency of `engine/service`, not of contracts; `portal/server/activity-events-schema.test.ts` fails when the file is stale).
+ */
 export function activityEventsJsonSchema(): Record<string, unknown> {
   return {
     $schema: "https://json-schema.org/draft/2020-12/schema",
     $id: "https://openrhen.example/schemas/activity-events.v1.json",
     title: "OpenRhen activity events, version 1",
     description:
-      "The batch body of POST /api/activity-events. It does not describe the single-event shorthand body ({source, kind, start, id?, device?, end?, attrs?, content?}) or the rules that compare fields (end not before start, start not more than 24 hours ahead, attrs under 8 KB, content under 64 KB, offsets within -14:00 to +14:00, no NUL or lone surrogate in text, one source per import); the server states each of those in the rejection text. A time with an offset sets tz_offset_min to that offset (so +00:00 gives 0; Z leaves it unknown).",
+      "The batch body of POST /api/activity-events. It does not describe the single-event shorthand body ({source, kind, start, id?, device?, end?, attrs?, content?}) or the rules that compare fields (end not before start, start not more than 24 hours ahead, attrs under 8 KB, content under 64 KB, offsets within -14:00 to +14:00, no NUL or lone surrogate in text, one source per import); the server states each of those in the rejection text. A time with an offset sets tz_offset_min to that offset (so +00:00 gives 0; Z leaves it unknown). Events of source physiology are also held to physiology-schema.v1.json and its canonical key rule.",
     ...(withoutDatePatterns(
       z.toJSONSchema(ingestActivityEventsSchema, { io: "input", unrepresentable: "any" })
     ) as Record<string, unknown>),
     "x-sources": Object.fromEntries(
       Object.entries(ACTIVITY_SOURCES).map(([name, entry]) => [
         name,
-        { schemaVersion: entry.schemaVersion, kinds: [...activityKindsOf(name)] }
+        {
+          schemaVersion: entry.schemaVersion,
+          kinds: [...activityKindsOf(name)],
+          ...(entry.class === undefined ? {} : { class: entry.class })
+        }
       ])
     )
   };

@@ -19,4 +19,15 @@ describe("the published activity-events JSON Schema", () => {
     expect(schema.required).toEqual(["schema", "events"]);
     expect(Object.keys(schema["x-sources"])).toContain("iphone-health");
   });
+
+  it("pins the physiology source and the health class in x-sources", () => {
+    const schema = JSON.parse(readFileSync(file, "utf8")) as Record<string, any>;
+    expect(schema["x-sources"].physiology.schemaVersion).toBe(1);
+    expect(schema["x-sources"].physiology.kinds).toContain("heart_rate_dense");
+    expect(schema["x-sources"].physiology.class).toBe("health");
+    expect(schema["x-sources"]["apple-health"].class).toBe("health");
+    expect(schema["x-sources"]["iphone-health"].class).toBe("health");
+    const classed = Object.entries(schema["x-sources"]).filter(([, entry]) => (entry as any).class !== undefined);
+    expect(classed.map(([name]) => name).sort()).toEqual(["apple-health", "iphone-health", "physiology"]);
+  });
 });

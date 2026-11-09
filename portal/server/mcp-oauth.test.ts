@@ -40,6 +40,11 @@ describe("SCOPES_SUPPORTED", () => {
       expect(SCOPES_SUPPORTED, scope).toContain(scope);
   });
 
+  it("never offers read:activity-health, so a default grant cannot include it and a client that asks is refused", () => {
+    expect(SCOPES_SUPPORTED).not.toContain("read:activity-health");
+    expect(SCOPES_SUPPORTED).toContain("read:activity-event");
+  });
+
   it("offers every scope an Inbox action asks for at call time, outward replies aside", () => {
     expect(MCP_TOOL_MANIFEST.some((tool) => tool.command === "inbox-act")).toBe(true);
     const rooms = ["captured", "kept", "people", "map"];

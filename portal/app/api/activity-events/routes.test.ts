@@ -17,6 +17,13 @@ const store = vi.hoisted(() => {
 vi.mock("@/server/persistence/postgres/activity-store", () => store);
 vi.mock("@/server/agent-activity", () => ({ noteAgentCall: () => {} }));
 
+// `withRoute` sets the token scopes itself from the request's credentials; a test steers what the handler sees.
+const scopes = vi.hoisted(() => ({ held: undefined as readonly string[] | undefined }));
+vi.mock("@/server/agent-actor", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/server/agent-actor")>()),
+  requestScopes: () => scopes.held
+}));
+
 const route = await import("./route");
 
 const result = (extra: Record<string, unknown> = {}) => ({
@@ -25,6 +32,7 @@ const result = (extra: Record<string, unknown> = {}) => ({
   alreadyHeld: 0,
   contentDropped: 0,
   rejected: [],
+  held: [],
   importId: null,
   ingestedVia: "phone",
   ...extra
@@ -40,6 +48,7 @@ const post = (body: unknown, agent = "phone") =>
   );
 
 beforeEach(() => {
+  scopes.held = undefined;
   store.ingestActivityEvents.mockReset();
   store.readActivityEvents.mockReset();
   vi.spyOn(console, "log").mockImplementation(() => {});
@@ -137,6 +146,37 @@ describe("GET /api/activity-events", () => {
       kind: "play",
       from: new Date("2026-11-01T00:00:00Z"),
       limit: 50
+    });
+  });
+
+  it("leaves health sources out for a token without read:activity-health, and for nobody else", async () => {
+    store.readActivityEvents.mockResolvedValue({ events: [], next: null });
+    const health = ["apple-health", "iphone-health", "physiology"];
+    const asToken = (held: string[]) => {
+      scopes.held = held;
+      return get("?source=physiology");
+    };
+    await asToken(["read:activity-event"]);
+    expect(store.readActivityEvents.mock.calls[0]![1].excludeSources).toEqual(health);
+    await asToken(["read:activity-event", "read:activity-health"]);
+    expect(store.readActivityEvents.mock.calls[1]![1].excludeSources).toEqual([]);
+    // The owner session, an environment token and a background writer hold no token scopes.
+    scopes.held = undefined;
+    await get("?source=physiology");
+    expect(store.readActivityEvents.mock.calls[2]![1].excludeSources).toEqual([]);
+  });
+
+  it("passes the store's withheld answer through to the caller", async () => {
+    store.readActivityEvents.mockResolvedValue({
+      events: [],
+      next: null,
+      withheld: ["physiology"],
+      withheldNote: "needs read:activity-health"
+    });
+    const response = await get("?source=physiology");
+    expect(await response.json()).toMatchObject({
+      withheld: ["physiology"],
+      withheldNote: "needs read:activity-health"
     });
   });
 
