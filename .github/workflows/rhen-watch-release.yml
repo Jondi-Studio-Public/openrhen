@@ -91,61 +91,17 @@ jobs:
           path: ${{ runner.temp }}/windows/rhen-watch-*-windows-x86_64.zip
           if-no-files-found: error
 
-  # macOS leg, from /plans/rhen-watch-mac-release-leg.md. Disabled until the macOS agent (the macOS platform
-  # layer and scripts/install.sh) is on main: remove `if: false` (and add the job to `assemble.needs`'s
-  # expectations, which already tolerate it) when that merges. Its zip-less asset is the tar.gz below.
-  macos:
-    name: rhen-watch (macOS universal)
-    if: false
-    runs-on: macos-latest
-    timeout-minutes: 30
-    needs: [version]
-    defaults:
-      run:
-        working-directory: tools/rhen-watch
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Toolchain targets
-        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
-      - name: Build both architectures
-        env:
-          MACOSX_DEPLOYMENT_TARGET: "13.0"
-        run: |
-          cargo build --locked --release --target aarch64-apple-darwin
-          cargo build --locked --release --target x86_64-apple-darwin
-      - name: Join, check and pack
-        env:
-          VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          set -euo pipefail
-          out="$RUNNER_TEMP/mac"
-          mkdir -p "$out"
-          lipo -create -output "$out/rhen-watch" \
-            target/aarch64-apple-darwin/release/rhen-watch \
-            target/x86_64-apple-darwin/release/rhen-watch
-          lipo -info "$out/rhen-watch" | grep -q 'x86_64 arm64'
-          "$out/rhen-watch" help > /dev/null
-          tar -C "$out" -czf "$RUNNER_TEMP/rhen-watch-$VERSION-macos-universal.tar.gz" rhen-watch
-          sed "s/@VERSION@/$VERSION/g" scripts/install.sh > "$RUNNER_TEMP/install.sh"
-          sh -n "$RUNNER_TEMP/install.sh"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: release-macos
-          path: |
-            ${{ runner.temp }}/rhen-watch-*-macos-universal.tar.gz
-            ${{ runner.temp }}/install.sh
-          if-no-files-found: error
+  # The macOS leg (universal binary and install.sh) is kept in the project plan
+  # rhen-watch-mac-release-leg.md until the macOS agent is on main. Add it back as a job named `macos`, add it to
+  # `assemble.needs`, and it ships next to the Windows zip. `assemble` copies legs/install.sh when present.
 
   # Gathers every leg that ran, writes ONE SHA256SUMS across them and stamps install.ps1. No write access.
   assemble:
     name: Assemble the assets
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # A skipped leg (macOS, for now) is fine; a failed or cancelled one is not.
-    if: ${{ !cancelled() && needs.version.result == 'success' && needs.windows.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.macos.result) }}
-    needs: [version, windows, macos]
+    if: ${{ !cancelled() && needs.version.result == 'success' && needs.windows.result == 'success' }}
+    needs: [version, windows]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
