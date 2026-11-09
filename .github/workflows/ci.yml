@@ -22,6 +22,44 @@ env:
   TZ: UTC
 
 jobs:
+  # Decides what the test jobs below run, and splits the slow ones across runners. On a pull request
+  # scripts/ci/affected.mjs narrows the suites to the packages a change can reach through the
+  # workspace dependency graph (anything it cannot place runs everything); a push to main, or any
+  # other event, always runs the whole gate. scripts/ci/test-matrix.mjs turns that into matrix legs.
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      unit: ${{ steps.affected.outputs.unit }}
+      unit-filter: ${{ steps.affected.outputs.unit-filter }}
+      integration: ${{ steps.affected.outputs.integration }}
+      smoke: ${{ steps.affected.outputs.smoke }}
+      benchmark: ${{ steps.affected.outputs.benchmark }}
+      unit-matrix: ${{ steps.matrix.outputs.unit-matrix }}
+      unit-sharded: ${{ steps.matrix.outputs.unit-sharded }}
+      integration-matrix: ${{ steps.matrix.outputs.integration-matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # HEAD^1 (main, in the PR's merge commit) is what the affected-package diff compares with.
+          fetch-depth: 2
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - id: affected
+        env:
+          EVENT: ${{ github.event_name }}
+        run: node scripts/ci/affected.mjs
+      - id: matrix
+        env:
+          UNIT: ${{ steps.affected.outputs.unit }}
+          UNIT_FILTER: ${{ steps.affected.outputs.unit-filter }}
+          INTEGRATION: ${{ steps.affected.outputs.integration }}
+          INTEGRATION_FILTER: ${{ steps.affected.outputs.integration-filter }}
+        run: node scripts/ci/test-matrix.mjs
+
   check:
     name: Check
     runs-on: ubuntu-latest
@@ -58,9 +96,14 @@ jobs:
       - run: pnpm typecheck
 
   unit:
-    name: Unit tests
+    name: Unit tests (${{ matrix.name }})
+    needs: plan
+    if: needs.plan.outputs.unit == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.unit-matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -72,11 +115,25 @@ jobs:
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       # What `pnpm test` runs, minus the engine benchmark: it times the engine against wall-clock
-      # ceilings and gets its own job so it never shares a two-core runner with other work.
-      - run: pnpm -r --if-present test
+      # ceilings and gets its own job so it never shares a two-core runner with other work. The slow
+      # package runs as vitest shards (one leg each); the "other packages" leg runs the rest.
+      - name: Run the shard
+        if: matrix.dir != ''
+        env:
+          DIR: ${{ matrix.dir }}
+          SHARD: ${{ matrix.shard }}
+        run: pnpm --filter="./$DIR" test --shard="$SHARD"
+      - name: Run the other packages
+        if: matrix.dir == ''
+        env:
+          UNIT_FILTER: ${{ needs.plan.outputs.unit-filter }}
+          UNIT_SHARDED: ${{ needs.plan.outputs.unit-sharded }}
+        run: pnpm -r --if-present $UNIT_FILTER $UNIT_SHARDED test
 
   benchmark:
     name: Engine benchmark
+    needs: plan
+    if: needs.plan.outputs.benchmark == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -92,7 +149,12 @@ jobs:
       - run: pnpm test:performance
 
   integration:
-    name: Integration tests
+    name: Integration tests (${{ matrix.name }})
+    needs: plan
+    if: needs.plan.outputs.integration == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.integration-matrix) }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -121,10 +183,14 @@ jobs:
       # pnpm comes from the packageManager field via corepack: the org only allows GitHub-owned actions.
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
-      # A hosted runner has two CPUs shared with Postgres; one package at a time on two workers keeps
-      # per-test latency under the suites' timeouts. The service's default max_connections (100)
-      # covers that.
-      - run: pnpm -r --workspace-concurrency=1 --if-present test:integration --maxWorkers=2
+      # A hosted runner has two CPUs shared with Postgres; two workers keeps per-test latency under
+      # the suites' timeouts, and the service's default max_connections (100) covers that. Each leg is
+      # one shard of one package on its own runner and its own Postgres (scripts/ci/test-matrix.mjs).
+      - name: Run the shard
+        env:
+          DIR: ${{ matrix.dir }}
+          SHARD: ${{ matrix.shard }}
+        run: pnpm --filter="./$DIR" test:integration --maxWorkers=2 --shard="$SHARD"
 
   build:
     name: Build
@@ -148,6 +214,8 @@ jobs:
   # no Linux Arm64 build, so this stays on x86-64; the self-host smoke covers Arm64.
   smoke:
     name: Production smoke
+    needs: plan
+    if: needs.plan.outputs.smoke == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -360,7 +428,7 @@ jobs:
 
   ci-ok:
     name: ci-ok
-    needs: [rhen-watch, check, typecheck, unit, benchmark, integration, build, smoke, selfhost-smoke, hygiene, reuse, addon-conformance]
+    needs: [plan, rhen-watch, check, typecheck, unit, benchmark, integration, build, smoke, selfhost-smoke, hygiene, reuse, addon-conformance]
     # Runs even when a job above failed or was cancelled, so the required check is red, never missing.
     if: always()
     runs-on: ubuntu-latest
@@ -373,7 +441,22 @@ jobs:
           python3 - <<'PY'
           import json, os, sys
           needs = json.loads(os.environ["NEEDS"])
-          bad = {job: info.get("result") for job, info in needs.items() if info.get("result") != "success"}
+          plan = needs.get("plan", {})
+          # A job the plan chose to leave out (nothing it covers was reachable from a pull request's
+          # change) shows as skipped. That is a pass only when the plan itself succeeded and said so;
+          # a job skipped for any other reason, or any failed or cancelled leg, is red.
+          planned = {"unit", "integration", "smoke", "benchmark"}
+          def ok(job, info):
+              result = info.get("result")
+              if result == "success":
+                  return True
+              return (
+                  result == "skipped"
+                  and job in planned
+                  and plan.get("result") == "success"
+                  and plan.get("outputs", {}).get(job) == "false"
+              )
+          bad = {job: info.get("result") for job, info in needs.items() if not ok(job, info)}
           for job, info in sorted(needs.items()):
               print(f"{job}: {info.get('result')}")
           if not needs or bad:
