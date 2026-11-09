@@ -875,3 +875,58 @@ fn agent_running_follows_the_run_lock() {
     assert!(!crate::cli::agent_running(&dir));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_failed_metrics_write_is_retried_next_tick_and_never_ends_the_agent() {
+    let now = Rc::new(Cell::new(1_000_000_000_000i64));
+    let store = Store::in_memory().unwrap();
+    store.fail_metric_next.set(2);
+    let mut r = fake(&now, Config::default(), store);
+    r.start().unwrap();
+    now.set(now.get() + 60_000);
+    r.tick().unwrap(); // minute boundary: first failure is not an error
+    assert_eq!(r.state(), "degraded");
+    assert!(r.store().metrics_between(0, i64::MAX).unwrap().is_empty());
+    now.set(now.get() + 1000);
+    r.tick().unwrap(); // second failure, same spell
+    now.set(now.get() + 1000);
+    r.tick().unwrap(); // third try succeeds
+    let rows = r.store().metrics_between(0, i64::MAX).unwrap();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert!(rows[0].events > 0, "the counters were kept: {rows:?}");
+    assert_eq!(r.state(), "recording");
+    assert_eq!(r.warnings(), 1, "one warning for the whole spell");
+}
+
+#[test]
+fn a_failed_daily_purge_is_retried_next_tick_and_never_ends_the_agent() {
+    let day = 86_400_000i64;
+    let now = Rc::new(Cell::new(200 * day + 1000));
+    let mut store = Store::in_memory().unwrap();
+    store
+        .apply(
+            "d",
+            &[
+                open_iv("old", 0),
+                Op::Close {
+                    id: "old".into(),
+                    ts: 1000,
+                },
+            ],
+            0,
+        )
+        .unwrap();
+    store.fail_purge_next.set(2);
+    let cfg = Config::parse("[retention]\nevents = 30\n").unwrap();
+    let mut r = fake(&now, cfg, store);
+    r.tick().unwrap();
+    now.set(now.get() + 1000);
+    r.tick().unwrap();
+    assert_eq!(r.store().events_between(0, 100).unwrap().len(), 1, "still failing, row kept");
+    assert_eq!(r.state(), "degraded");
+    now.set(now.get() + 1000);
+    r.tick().unwrap();
+    assert_eq!(r.store().events_between(0, 100).unwrap().len(), 0, "purged on the retry");
+    assert_eq!(r.state(), "recording");
+    assert_eq!(r.warnings(), 1);
+}

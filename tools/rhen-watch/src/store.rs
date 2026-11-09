@@ -47,6 +47,21 @@ pub struct Store {
     seq: u64,
     #[cfg(test)]
     pub fail_next: u32,
+    /// Test hooks: fail the next N metric writes / purge calls, as a busy or full database would.
+    #[cfg(test)]
+    pub fail_metric_next: std::cell::Cell<u32>,
+    #[cfg(test)]
+    pub fail_purge_next: std::cell::Cell<u32>,
+}
+
+/// Consume one failure from a test hook.
+#[cfg(test)]
+fn trip(counter: &std::cell::Cell<u32>) -> rusqlite::Result<()> {
+    if counter.get() > 0 {
+        counter.set(counter.get() - 1);
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -112,6 +127,10 @@ impl Store {
             seq: 0,
             #[cfg(test)]
             fail_next: 0,
+            #[cfg(test)]
+            fail_metric_next: Default::default(),
+            #[cfg(test)]
+            fail_purge_next: Default::default(),
         }
     }
 
@@ -351,6 +370,8 @@ impl Store {
     }
 
     pub fn put_metric(&self, m: &MetricRow) -> rusqlite::Result<()> {
+        #[cfg(test)]
+        trip(&self.fail_metric_next)?;
         self.conn.execute(
             "INSERT INTO metrics (minute_ts, cpu_ms, rss_bytes, db_bytes, events, dropped) VALUES (?1,?2,?3,?4,?5,?6)
              ON CONFLICT(minute_ts) DO UPDATE SET cpu_ms=excluded.cpu_ms, rss_bytes=MAX(rss_bytes, excluded.rss_bytes),
@@ -490,6 +511,8 @@ impl Store {
 
     /// Delete events that ended before `cutoff`. Open intervals are not in the table, so are never purged.
     pub fn purge_events_before(&self, cutoff: Ms) -> rusqlite::Result<usize> {
+        #[cfg(test)]
+        trip(&self.fail_purge_next)?;
         self.conn.execute("DELETE FROM events WHERE ts_end < ?1", params![cutoff])
     }
 
