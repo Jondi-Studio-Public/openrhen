@@ -543,7 +543,29 @@ export interface ActivityExtractorSummary {
   lastError: string | null;
 }
 
+/** The window the per-device view looks back over. */
+export const ACTIVITY_DEVICES_WINDOW_DAYS = 30;
+
+/**
+ * One device, kind and collector of a health-class source over the last 30 days, computed from the stored rows. The
+ * device is `attrs.device` (physiology), else `attrs.source_name`, else the batch's `device` column (the legacy sources);
+ * the collector is the token name that posted (`ingested_via`, null for the owner). "No data newer than X" is all this
+ * can say: it cannot tell a device that is not worn from one that has not synced.
+ */
+export interface ActivityDeviceSummary {
+  source: string;
+  device: string | null;
+  kind: string;
+  ingestedVia: string | null;
+  /** The latest end (start for an instant) of the rows in the window. */
+  lastEventAt: string;
+  lastIngestedAt: string;
+  rows30d: number;
+}
+
 export interface ActivitySummary {
+  /** Health-class sources by device, kind and collector, from one bounded scan of the last 30 days. */
+  devices: ActivityDeviceSummary[];
   /** The sum of `behind` over the active extractors (all not-yet-run ones included): how far the derived layer lags the mail. */
   derivedBehind: number;
   extractors: ActivityExtractorSummary[];

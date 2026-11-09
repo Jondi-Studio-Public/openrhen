@@ -48,6 +48,13 @@ describe("the published physiology JSON Schema", () => {
     expect(attrs.score.required).toEqual(["device", "route", "v", "score_name", "scale", "value"]);
     expect(attrs.stress.required).toContain("scale");
     expect(attrs.score_series.required).toEqual(expect.arrayContaining(["score_name", "scale"]));
+    // Heart-rate fields agree with the validator's plausible range.
+    for (const field of [
+      attrs.daily.properties.resting_hr,
+      attrs.workout.properties.avg_hr,
+      attrs.workout.properties.max_hr
+    ])
+      expect(field).toMatchObject({ minimum: 20, maximum: 260 });
     expect(attrs.heart_rate.properties.device).toMatchObject({ minLength: 1, maxLength: 64 });
     expect(attrs.heart_rate.properties.route).toMatchObject({ minLength: 1, maxLength: 32 });
     expect(attrs.heart_rate.properties.v).toMatchObject({ minimum: 0, maximum: 999 });

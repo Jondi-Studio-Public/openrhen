@@ -1742,8 +1742,8 @@
           },
           "resting_hr": {
             "type": "integer",
-            "minimum": 0,
-            "maximum": 300
+            "minimum": 20,
+            "maximum": 260
           },
           "stress_avg": {
             "type": "number",
@@ -1952,13 +1952,13 @@
           },
           "avg_hr": {
             "type": "integer",
-            "minimum": 0,
-            "maximum": 300
+            "minimum": 20,
+            "maximum": 260
           },
           "max_hr": {
             "type": "integer",
-            "minimum": 0,
-            "maximum": 300
+            "minimum": 20,
+            "maximum": 260
           }
         }
       },
