@@ -6,9 +6,10 @@
 //! AppKit needs the main thread, so the main thread runs the app (menu bar item, observers) and the agent
 //! loop runs on its own thread, fed through the same channel the Windows layer uses.
 
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::ptr::NonNull;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI8, AtomicI32, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::SyncSender;
 use std::sync::{Mutex, OnceLock};
 
@@ -42,6 +43,11 @@ pub static SUSPEND_ACK: AtomicU64 = AtomicU64::new(0);
 /// loses the latest value.
 static FRONT_PID: AtomicI32 = AtomicI32::new(0);
 static SENDER: OnceLock<SyncSender<Raw>> = OnceLock::new();
+/// pid -> identity, filled on the main thread when an app comes to the front, so an app that quits a moment
+/// later is still named rather than recorded as a refused lookup. Bounded.
+static IDENTITIES: Mutex<Option<HashMap<i32, Option<String>>>> = Mutex::new(None);
+/// The lock state last sent to the engine: -1 not yet known, 0 unlocked, 1 locked.
+static LAST_LOCKED: AtomicI8 = AtomicI8::new(-1);
 /// 0 recording, 1 paused, 2 degraded, 3 not recording (an error); shown in the menu bar.
 static UI_STATE: AtomicU32 = AtomicU32::new(0);
 static UI_ERROR: Mutex<Option<String>> = Mutex::new(None);
@@ -151,9 +157,25 @@ extern "C" fn system_power(_refcon: *mut c_void, _service: IoObject, message: u3
                 IOAllowPowerChange(port, argument as isize);
             }
         }
-        K_IO_MESSAGE_SYSTEM_HAS_POWERED_ON => send(Raw::Power(PowerEvt::Resume)),
+        K_IO_MESSAGE_SYSTEM_HAS_POWERED_ON => {
+            send(Raw::Power(PowerEvt::Resume));
+            // A change of power source or lock while asleep may not have been announced.
+            power_source_changed(std::ptr::null_mut());
+            resync_session();
+        }
         _ => {}
     }
+}
+
+/// Main thread: an app came to the front. The agent's own process never counts (it never activates itself,
+/// but a click on its menu must not end the real app's interval either).
+fn front_changed(pid: i32) {
+    if pid <= 0 || pid == std::process::id() as i32 {
+        return;
+    }
+    remember(pid);
+    FRONT_PID.store(pid, Ordering::SeqCst);
+    send(Raw::Foreground(pid as usize));
 }
 
 // ---- The OS seam the runner uses.
@@ -161,6 +183,27 @@ extern "C" fn system_power(_refcon: *mut c_void, _service: IoObject, message: u3
 pub struct MacSys;
 
 fn resolve_pid(pid: i32) -> Fg {
+    if let Some(Some(exe)) = IDENTITIES.lock().ok().and_then(|m| m.as_ref().and_then(|m| m.get(&pid).cloned())) {
+        return Fg {
+            class: String::new(),
+            exe: Some(exe),
+        };
+    }
+    lookup_pid(pid)
+}
+
+fn remember(pid: i32) {
+    let fg = lookup_pid(pid);
+    if let Ok(mut m) = IDENTITIES.lock() {
+        let m = m.get_or_insert_with(HashMap::new);
+        if m.len() > 512 {
+            m.clear();
+        }
+        m.insert(pid, fg.exe);
+    }
+}
+
+fn lookup_pid(pid: i32) -> Fg {
     autoreleasepool(|_| {
         let app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid);
         let bundle = app.as_ref().and_then(|a| a.bundleIdentifier()).map(|s| s.to_string());
@@ -229,9 +272,30 @@ impl Sys for MacSys {
     }
 }
 
-/// (locked, remote) now, from the window server's session dictionary; `None` if it would not say. A session
-/// that is not on the console (another user switched in) counts as locked: this user's screen is gone.
-pub fn session_state() -> Option<(bool, bool)> {
+/// Tell the engine the screen is locked or not, only when that changes.
+fn set_locked(locked: bool) {
+    let v = i8::from(locked);
+    if LAST_LOCKED.swap(v, Ordering::SeqCst) != v {
+        send(Raw::Session(if locked { SessionEvt::Lock } else { SessionEvt::Unlock }));
+    }
+}
+
+/// After an unlock or a user switching back, unlock only if the session dictionary agrees that this user is
+/// on the screen and it is not locked; a lock notification is believed as it is.
+fn resync_session() {
+    if let Some(locked) = locked_now() {
+        set_locked(locked);
+    }
+}
+
+/// (locked, remote) now, from the window server's session dictionary; locked is `None` if it would not say.
+/// A session that is not on the console (another user switched in) counts as locked: this user's screen is
+/// gone. There is no remote session on macOS in the Windows sense, so remote is always false.
+pub fn session_state() -> (Option<bool>, bool) {
+    (locked_now(), false)
+}
+
+fn locked_now() -> Option<bool> {
     autoreleasepool(|_| unsafe {
         let dict = CGSessionCopyCurrentDictionary();
         if dict.is_null() {
@@ -246,7 +310,7 @@ pub fn session_state() -> Option<(bool, bool)> {
         let locked = flag(ns_string!("CGSSessionScreenIsLocked")).unwrap_or(false);
         let on_console = flag(ns_string!("kCGSSessionOnConsoleKey")).unwrap_or(true);
         CFRelease(dict);
-        Some((locked || !on_console, false))
+        Some(locked || !on_console)
     })
 }
 
@@ -254,6 +318,11 @@ pub fn session_state() -> Option<(bool, bool)> {
 fn offset_at(utc: Ms) -> i32 {
     let t: libc::time_t = utc.div_euclid(1000) as libc::time_t;
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    // `localtime_r` does not re-read the zone; without this a change of time zone mid-run (travel) is missed.
+    unsafe extern "C" {
+        fn tzset();
+    }
+    unsafe { tzset() };
     if unsafe { libc::localtime_r(&t, &mut tm) }.is_null() {
         return 0;
     }
@@ -521,7 +590,9 @@ pub fn run_app(
     let center = workspace.notificationCenter();
     if wanted.foreground {
         if let Some(front) = workspace.frontmostApplication() {
-            FRONT_PID.store(front.processIdentifier(), Ordering::SeqCst);
+            let pid = front.processIdentifier();
+            remember(pid);
+            FRONT_PID.store(pid, Ordering::SeqCst);
         }
         observers.push(observe(&center, unsafe { NSWorkspaceDidActivateApplicationNotification }, |n| {
             let app = n
@@ -529,9 +600,7 @@ pub fn run_app(
                 .and_then(|info| info.objectForKey(unsafe { NSWorkspaceApplicationKey }))
                 .and_then(|a| a.downcast::<NSRunningApplication>().ok());
             if let Some(app) = app {
-                let pid = app.processIdentifier();
-                FRONT_PID.store(pid, Ordering::SeqCst);
-                send(Raw::Foreground(pid as usize));
+                front_changed(app.processIdentifier());
             }
         }));
     }
@@ -540,18 +609,23 @@ pub fn run_app(
     }));
     if wanted.session {
         let distributed = NSDistributedNotificationCenter::defaultCenter();
-        observers.push(observe(&distributed, ns_string!("com.apple.screenIsLocked"), |_| {
-            send(Raw::Session(SessionEvt::Lock))
-        }));
+        // Lock and fast user switching share one state: this user's screen is gone. The notifications are
+        // undocumented but long-standing; the session dictionary is re-read every 5 s as well, so a missed one
+        // heals within seconds.
+        if locked_now() == Some(true) {
+            set_locked(true);
+        } else if locked_now() == Some(false) {
+            LAST_LOCKED.store(0, Ordering::SeqCst);
+        }
+        observers.push(observe(&distributed, ns_string!("com.apple.screenIsLocked"), |_| set_locked(true)));
         observers.push(observe(&distributed, ns_string!("com.apple.screenIsUnlocked"), |_| {
-            send(Raw::Session(SessionEvt::Unlock))
+            resync_session()
         }));
-        // Fast user switching: this user's session leaves the screen and comes back.
         observers.push(observe(&center, unsafe { NSWorkspaceSessionDidResignActiveNotification }, |_| {
-            send(Raw::Session(SessionEvt::Lock))
+            set_locked(true)
         }));
         observers.push(observe(&center, unsafe { NSWorkspaceSessionDidBecomeActiveNotification }, |_| {
-            send(Raw::Session(SessionEvt::Unlock))
+            resync_session()
         }));
     }
     if wanted.power {
@@ -593,9 +667,31 @@ pub fn run_app(
     let worker = std::cell::RefCell::new(Some(worker));
 
     // Twice a second on the main thread: show the state, and end the app once the agent has finished.
+    let ticks = std::cell::Cell::new(0u32);
+    let last_read = std::cell::Cell::new(None::<bool>);
+    let session = wanted.session;
+    let foreground = wanted.foreground;
     let timer_block = RcBlock::new(move |_t: NonNull<NSTimer>| {
         let mtm = MainThreadMarker::new().expect("timers run on the main thread");
         refresh_ui(mtm, &mut ui.borrow_mut());
+        ticks.set(ticks.get().wrapping_add(1));
+        if ticks.get().is_multiple_of(10) {
+            // Every 5 s: heal a missed notification. The lock state must read the same twice in a row before it
+            // overrides what the notifications said, so a dictionary that lags a notification cannot flap it.
+            if session {
+                let now = locked_now();
+                if now.is_some() && now == last_read.get() {
+                    set_locked(now == Some(true));
+                }
+                last_read.set(now);
+            }
+            if foreground && let Some(front) = NSWorkspace::sharedWorkspace().frontmostApplication() {
+                let pid = front.processIdentifier();
+                if pid != FRONT_PID.load(Ordering::SeqCst) {
+                    front_changed(pid);
+                }
+            }
+        }
         let done = AGENT_DONE.lock().ok().and_then(|d| d.clone());
         match done {
             Some(Ok(())) => {
@@ -604,7 +700,9 @@ pub fn run_app(
                 }
                 std::process::exit(0);
             }
-            Some(Err(e)) if !stay_on_error || STOP.load(Ordering::SeqCst) => {
+            // Asked to stop while showing an error: that is a clean exit, so launchd does not restart it.
+            Some(Err(_)) if STOP.load(Ordering::SeqCst) => std::process::exit(0),
+            Some(Err(e)) if !stay_on_error => {
                 if let Some(w) = worker.borrow_mut().take() {
                     let _ = w.join();
                 }

@@ -368,9 +368,17 @@ fn cmd_run(_args: &[String]) -> Result<(), String> {
 
 #[cfg(target_os = "macos")]
 fn cmd_stop() -> Result<(), String> {
-    let pid = platform::macos::signal_stop(&dir()?)?;
-    println!("stop requested (process {pid}); the agent flushes and exits within a few seconds");
-    Ok(())
+    let d = dir()?;
+    let pid = platform::macos::signal_stop(&d)?;
+    // Wait for the clean stop to finish (the lock is released at exit), so a script can rely on it.
+    for _ in 0..100 {
+        if !agent_running(&d) {
+            println!("stopped (process {pid})");
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    Err(format!("asked process {pid} to stop, but it is still running after 10 s"))
 }
 
 #[cfg(target_os = "macos")]

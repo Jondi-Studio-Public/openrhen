@@ -31,6 +31,26 @@ pub fn cmd_run(args: &[String]) -> Result<(), String> {
     let interactive = unsafe { libc::isatty(2) } == 1;
     let stay_on_error = !interactive && limit.is_none();
     mac::install_signal_handlers();
+    // One agent per data directory, taken first so that `stop` finds this process in every state, including
+    // the visible-error one. The OS drops the lock if the process dies; the pid in it is how `stop` finds it.
+    let mut lock = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(d.join("run.lock"))
+        .map_err(|e| e.to_string())?;
+    if lock.try_lock().is_err() {
+        // Not an error at login: an agent is already recording, which is what was wanted.
+        crate::log::info("another rhen-watch is already running (use `rhen-watch stop`)");
+        return if stay_on_error {
+            Ok(())
+        } else {
+            Err("another rhen-watch is already running (use `rhen-watch stop`)".into())
+        };
+    }
+    mac::write_pid(&mut lock)?;
+    // Held for the life of the process, in every state; the OS releases it at exit.
+    std::mem::forget(lock);
     let (cfg, catalogue, category_error) = match load_run_settings(&d) {
         Ok(v) => v,
         Err(e) if stay_on_error => return show_error(&d, e),
@@ -73,18 +93,6 @@ fn record(
     rx: std::sync::mpsc::Receiver<Raw>,
     limit: Option<Duration>,
 ) -> Result<(), String> {
-    // One agent per data directory. The OS drops the lock if the process dies; the pid in it is how `stop`
-    // finds this process.
-    let mut lock = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(false)
-        .open(d.join("run.lock"))
-        .map_err(|e| e.to_string())?;
-    lock.try_lock()
-        .map_err(|_| "another rhen-watch is already running (use `rhen-watch stop`)".to_string())?;
-    mac::write_pid(&mut lock)?;
-
     let mut store = store::Store::open(&d.join("activity.db")).map_err(|e| e.to_string())?;
     let device = match store.meta("device").map_err(|e| e.to_string())? {
         Some(v) => v,
@@ -124,6 +132,11 @@ fn record(
     let started = Instant::now();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(), String> {
         run.start()?;
+        // Started while locked (or another user is on the screen): say so before any app time is recorded.
+        // Interim: the shared `Sys::session_state` seam from the Windows fix series replaces this.
+        if mac::session_state().0 == Some(true) {
+            run.handle(Raw::Session(crate::engine::SessionEvt::Lock))?;
+        }
         if let Some(e) = &category_error {
             crate::log::warn(&format!("{e}; recording with the built-in categories"));
             run.degraded(&["categories.toml".to_string()])?;
