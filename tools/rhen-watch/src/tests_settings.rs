@@ -536,10 +536,12 @@ fn category_names_are_not_case_sensitive() {
 
 #[test]
 fn retention_errors_say_what_is_allowed() {
-    for bad in ["events = -3", "events = true", "events = 1.5"] {
+    for bad in ["events = -3", "events = true", "events = 1.5", "events = { days = 3 }", "events = [3]", "events = \"forever\""] {
         let e = Config::parse(&format!("[retention]\n{bad}\n")).unwrap_err();
         assert!(e.contains("\"permanent\" or a number of days"), "{bad}: {e}");
     }
+    let zero = Config::parse("[retention]\nevents = 0\n").unwrap_err();
+    assert!(zero.contains("would delete everything"), "{zero}");
     assert!(Config::parse("[retention]\nevents = 30\nmetrics = \"permanent\"\n").is_ok());
 }
 
