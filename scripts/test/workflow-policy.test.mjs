@@ -40,11 +40,13 @@ test("the fixture baseline is clean", () => {
 test("a self-hosted label fails, in a list or a matrix", () => {
   failsWith(ok.replace("ubuntu-latest", "[self-hosted, linux, linux-ci]"), /self-hosted/);
   failsWith(ok.replace("ubuntu-latest", "mac-ci"), /self-hosted/);
-  failsWith(ok.replace("ubuntu-latest", "macos-latest"), /runs-on macos-latest/);
+  // A larger macOS runner is billed even for a public repository, so only the standard hosted label is allowed.
+  failsWith(ok.replace("ubuntu-latest", "macos-latest-xlarge"), /runs-on macos-latest-xlarge/);
   failsWith(
-    wrap("    runs-on: ${{ matrix.runner }}\n    strategy:\n      matrix:\n        runner: macos-latest\n"),
+    wrap("    runs-on: ${{ matrix.runner }}\n    strategy:\n      matrix:\n        runner: macos-latest-xlarge\n"),
     /matrix runner/
   );
+  assert.deepEqual(policyViolations(ok.replace("ubuntu-latest", "macos-latest")), []);
 });
 
 test("a multi-line runs-on with group: or labels: fails", () => {
