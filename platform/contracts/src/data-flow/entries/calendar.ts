@@ -101,7 +101,24 @@ export const CALENDAR_ENTRIES: readonly FlowEntry[] = [
     code: {
       paths: [
         "integrations/outbound-proxy/src/connections/deepinfra/connection.ts",
+        "integrations/outbound-proxy/src/connections/deepinfra/complete.ts",
         "integrations/outbound-proxy/src/connections/deepinfra/embeddings-client.ts"
+      ]
+    },
+    health: { kind: "none", reason: "no portal data is written; a call fails visibly" }
+  }),
+  flow({
+    id: "model-provider-local",
+    name: "Local model provider",
+    role: "pipe",
+    category: "operations",
+    method: "api-pull",
+    trigger: { kind: "on-request", by: "service" },
+    connection: "ollama",
+    code: {
+      paths: [
+        "integrations/outbound-proxy/src/connections/ollama/connection.ts",
+        "integrations/outbound-proxy/src/connections/ollama/client.ts"
       ]
     },
     health: { kind: "none", reason: "no portal data is written; a call fails visibly" }

@@ -136,5 +136,22 @@ export const MANUAL_ENTRIES: readonly FlowEntry[] = [
     from: ["ext:browser"],
     to: pg(["push_subscriptions", "push_outbox"]),
     health: { kind: "none", reason: "a subscription is set or not; the push drain has the health" }
+  }),
+  flow({
+    id: "derived-settings",
+    name: "Mail understanding settings",
+    role: "pipe",
+    category: "manual",
+    method: "manual",
+    trigger: { kind: "on-request", by: "owner" },
+    code: {
+      paths: [
+        "portal/server/persistence/postgres/derived-settings-store.ts",
+        "portal/server/derived/derived-settings.ts"
+      ],
+      routes: ["PUT /api/derived-settings"]
+    },
+    to: ["pg:derived_settings"],
+    health: { kind: "none", reason: "the owner's settings; nothing arrives on a schedule" }
   })
 ];

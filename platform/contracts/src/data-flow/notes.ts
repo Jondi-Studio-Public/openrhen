@@ -17,6 +17,11 @@ export const CORE_DATASET_NOTES: readonly DatasetNote[] = [
   infrastructure("provider_call_telemetry", "outbound call counts"),
   infrastructure("integration_sync_runs", "sync run history"),
   infrastructure("agent_wakes", "queue of wakes to send"),
+  infrastructure("derived_settings", "the owner's mail-understanding settings, read by the model tier when it lands"),
+  infrastructure(
+    "derived_model_calls",
+    "audit of mail-understanding model calls; its writer lands with the model tier"
+  ),
   infrastructure("activity_source_state", "per-source content gate and retention settings"),
   infrastructure("consequence_comparisons", "learning data for the consequence model refits"),
   infrastructure("consequence_groups_issued", "learning data for the consequence model refits"),
