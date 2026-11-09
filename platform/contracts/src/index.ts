@@ -1238,6 +1238,17 @@ export {
   ACTIVITY_CONTENT_GATE_NOTE,
   ACTIVITY_CONTENT_MAX_BYTES,
   ACTIVITY_DEVICES_WINDOW_DAYS,
+  ACTIVITY_CLOCK_SKEW_MINUTES,
+  ACTIVITY_COVERAGE_FLOOR,
+  ACTIVITY_COVERAGE_KIND,
+  ACTIVITY_COVERAGE_LIVE_DAYS,
+  ACTIVITY_COVERAGE_MAX_DAYS,
+  ACTIVITY_COVERAGE_SCOPE_MAX_CHARS,
+  ACTIVITY_CROSS_FAMILY_KINDS,
+  ACTIVITY_HEARTBEAT_ERROR_MAX_CHARS,
+  ACTIVITY_HEARTBEAT_KIND,
+  coverageKey,
+  heartbeatKey,
   ACTIVITY_CORRECTION_KIND,
   ACTIVITY_DEVICE_MAX_CHARS,
   ACTIVITY_FILENAME_MAX_CHARS,
@@ -1312,9 +1323,12 @@ export {
   physiologyJsonSchema
 } from "./activity-physiology.js";
 export type { PhysiologyEventInput } from "./activity-physiology.js";
+export { applyCoverageRule, validateActivityBatch } from "./activity-batch.js";
+export type { ActivityBatchOptions, ActivityBatchResult, CoverageRuleInput } from "./activity-batch.js";
 export type {
   ActivityDeviceSummary,
   ActivityEventInput,
+  ActivityEventOptions,
   ActivityHeldEntry,
   ActivityEventRow,
   ActivityEventsPage,

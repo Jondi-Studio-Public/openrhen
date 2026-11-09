@@ -41,6 +41,23 @@ export const ACTIVITY_HEALTH_CLASS = "health";
 /** The scope that lets a token read health-class sources. Deliberately not offered to OAuth clients (`SCOPES_SUPPORTED`). */
 export const ACTIVITY_HEALTH_SCOPE = "read:activity-health";
 
+/** A cross-family kind: a collector's liveness report (`attrs {status, error?}`), allowed on a source whose delivery is `live` or `periodic`. */
+export const ACTIVITY_HEARTBEAT_KIND = "heartbeat";
+/** A cross-family kind: a claim that a window of a ledger source is complete (`attrs {complete, scope?, rev?}`), allowed on a source with a `complete` feed. */
+export const ACTIVITY_COVERAGE_KIND = "coverage";
+/** Kinds that belong to no family and are never listed in a source's `kinds`; each is allowed by the source's availability. */
+export const ACTIVITY_CROSS_FAMILY_KINDS: readonly string[] = [ACTIVITY_HEARTBEAT_KIND, ACTIVITY_COVERAGE_KIND];
+
+/** A heartbeat or coverage start/end may be this far ahead of `now` (device clock skew). */
+export const ACTIVITY_CLOCK_SKEW_MINUTES = 5;
+export const ACTIVITY_HEARTBEAT_ERROR_MAX_CHARS = 200;
+export const ACTIVITY_COVERAGE_MAX_DAYS = 31;
+export const ACTIVITY_COVERAGE_SCOPE_MAX_CHARS = 128;
+/** A coverage window must start after this instant. */
+export const ACTIVITY_COVERAGE_FLOOR = new Date("1990-01-01T00:00:00.000Z");
+/** In a live (non-import) batch a coverage window must start within this many days of `now`. */
+export const ACTIVITY_COVERAGE_LIVE_DAYS = 400;
+
 export interface ActivitySourceEntry {
   /** Bumped when the meaning of a source's kinds or attrs changes, so the predictor can tell old rows from new. */
   schemaVersion: number;
@@ -450,20 +467,41 @@ const reject = (reason: string): ActivityEventVerdict => ({ ok: false, reason })
  * Judges one event on its own. The reasons say what is wrong and the exact fix, in plain words, because the poster is
  * often an automation (a phone shortcut shows the response body as is) and must not have to guess. Never throws.
  */
-export function validateActivityEvent(raw: unknown, now: Date): ActivityEventVerdict {
+export function validateActivityEvent(
+  raw: unknown,
+  now: Date,
+  options: ActivityEventOptions = {}
+): ActivityEventVerdict {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw))
     return reject(
       'Each event must be an object like {"id": "...", "source": "...", "kind": "...", "start": "2026-11-07T14:02:11Z"}.'
     );
   const record = raw as Record<string, unknown>;
   const source = record.source;
-  if (typeof source !== "string" || !isKnownActivitySource(source))
+  const registry = options.registry;
+  const entry =
+    typeof source !== "string"
+      ? undefined
+      : registry
+        ? Object.hasOwn(registry, source)
+          ? registry[source]
+          : undefined
+        : activitySourceEntry(source);
+  if (typeof source !== "string" || !entry)
     return reject(
-      `source ${typeof source === "string" ? `"${source.slice(0, 60)}" is not known` : "is missing"}. Use one of: ${ACTIVITY_SOURCE_NAMES.join(", ")}.`
+      `source ${typeof source === "string" ? `"${source.slice(0, 60)}" is not known` : "is missing"}. Use one of: ${(registry ? Object.keys(registry) : ACTIVITY_SOURCE_NAMES).join(", ")}.`
     );
-  const kinds = activityKindsOf(source);
+  const kinds = registry
+    ? NO_CORRECTIONS.includes(source)
+      ? [...entry.kinds]
+      : [...entry.kinds, ACTIVITY_CORRECTION_KIND]
+    : activityKindsOf(source);
   const kind = record.kind;
-  if (typeof kind !== "string" || !kinds.includes(kind))
+  const crossFamily = typeof kind === "string" && ACTIVITY_CROSS_FAMILY_KINDS.includes(kind);
+  if (crossFamily) {
+    const allowed = describeCrossFamilyKindProblem(source, kind, entry);
+    if (allowed) return reject(allowed);
+  } else if (typeof kind !== "string" || !kinds.includes(kind))
     return reject(
       `kind ${typeof kind === "string" ? `"${kind.slice(0, 60)}" is not known` : "is missing"} for source "${source}". Use one of: ${kinds.join(", ")}.`
     );
@@ -513,6 +551,22 @@ export function validateActivityEvent(raw: unknown, now: Date): ActivityEventVer
   const attrs = rawAttrs as Record<string, unknown>;
   const attrsProblem = describeUnstorableAttrs(attrs);
   if (attrsProblem) return reject(attrsProblem);
+  if (crossFamily) {
+    const problem =
+      kind === ACTIVITY_HEARTBEAT_KIND
+        ? describeHeartbeatProblem(id, tsStart, attrs, now, options.device)
+        : describeCoverageProblem(
+            id,
+            tsStart,
+            tsEnd,
+            attrs,
+            now,
+            options.live !== false,
+            options.scopeRequired?.(source) === true
+          );
+    if (problem) return reject(problem);
+    if (rawContent !== null) return reject(`${kind} takes no content. Leave content out.`);
+  }
   const attrsBytes = byteLength(JSON.stringify(attrs));
   if (attrsBytes > ACTIVITY_ATTRS_MAX_BYTES)
     return reject(
@@ -557,6 +611,103 @@ export function validateActivityEvent(raw: unknown, now: Date): ActivityEventVer
       content
     }
   };
+}
+
+/** What `validateActivityEvent` needs beyond the event: where the source is looked up, and the batch it came in. */
+export interface ActivityEventOptions {
+  /** The sources to judge against; default the merged core and extension registry. */
+  registry?: Readonly<Record<string, ActivitySourceEntry>>;
+  /** The batch's `device`, which a heartbeat key names; absent gives `_`. */
+  device?: string | null | undefined;
+  /** False for an import (a file), true (default) for a live batch; only coverage time bounds differ. */
+  live?: boolean | undefined;
+  /** True when the source's family scopes coverage (`scopeAttr`), so a coverage row must carry `attrs.scope`. */
+  scopeRequired?: ((source: string) => boolean) | undefined;
+}
+
+function describeCrossFamilyKindProblem(source: string, kind: string, entry: ActivitySourceEntry): string | undefined {
+  const availability = entry.availability;
+  if (kind === ACTIVITY_HEARTBEAT_KIND) {
+    if (availability?.delivery === "live" || availability?.delivery === "periodic") return undefined;
+    return `heartbeat is not accepted for source "${source}": only a source that delivers live or periodically takes one.`;
+  }
+  if (availability?.feeds.some((feed) => feed.complete === true)) return undefined;
+  return `coverage is not accepted for source "${source}": only a source with a complete (ledger) feed takes one.`;
+}
+
+const unknownAttrs = (attrs: Record<string, unknown>, allowed: readonly string[]) => {
+  const extra = Object.keys(attrs).find((key) => !allowed.includes(key));
+  return extra === undefined
+    ? undefined
+    : `attrs "${extra.slice(0, 60)}" is not allowed here. Allowed: ${allowed.join(", ")}.`;
+};
+
+/** The heartbeat key a batch from `device` must use for a heartbeat at `start` with `status`. */
+export function heartbeatKey(device: string | null | undefined, start: Date, status: string): string {
+  return `hb:${device ?? "_"}:${start.toISOString().slice(0, 13)}:${status}`;
+}
+
+/** The coverage key for a window; times are canonical (milliseconds, `Z`), so `Z` and `+00:00` agree. */
+export function coverageKey(scope: string | undefined, start: Date, end: Date, rev?: number): string {
+  return `cov:${scope ?? "_"}:${start.toISOString()}:${end.toISOString()}${rev === undefined ? "" : `:r${rev}`}`;
+}
+
+function describeHeartbeatProblem(
+  id: string,
+  start: Date,
+  attrs: Record<string, unknown>,
+  now: Date,
+  device: string | null | undefined
+): string | undefined {
+  const extra = unknownAttrs(attrs, ["status", "error"]);
+  if (extra) return extra;
+  const status = attrs.status;
+  if (status !== "ok" && status !== "error") return 'attrs.status must be "ok" or "error".';
+  const error = attrs.error;
+  if (error !== undefined && (typeof error !== "string" || error.length > ACTIVITY_HEARTBEAT_ERROR_MAX_CHARS))
+    return `attrs.error must be text of at most ${ACTIVITY_HEARTBEAT_ERROR_MAX_CHARS} characters, or left out.`;
+  if (start.getTime() > now.getTime() + ACTIVITY_CLOCK_SKEW_MINUTES * 60_000)
+    return `heartbeat start (${start.toISOString()}) is more than ${ACTIVITY_CLOCK_SKEW_MINUTES} minutes in the future. Check the device clock.`;
+  const expected = heartbeatKey(device, start, status);
+  if (id !== expected) return `heartbeat id "${id.slice(0, 80)}" must be "${expected}".`;
+  return undefined;
+}
+
+function describeCoverageProblem(
+  id: string,
+  start: Date,
+  end: Date | null,
+  attrs: Record<string, unknown>,
+  now: Date,
+  live: boolean,
+  scopeRequired: boolean
+): string | undefined {
+  if (end === null)
+    return "coverage needs an end: send the window as start and end, such as the statement period or the span just checked.";
+  if (end.getTime() <= start.getTime())
+    return `coverage end (${end.toISOString()}) must be after start (${start.toISOString()}).`;
+  if (end.getTime() - start.getTime() > ACTIVITY_COVERAGE_MAX_DAYS * 86_400_000)
+    return `coverage window is longer than ${ACTIVITY_COVERAGE_MAX_DAYS} days. Send several windows.`;
+  if (end.getTime() > now.getTime() + ACTIVITY_CLOCK_SKEW_MINUTES * 60_000)
+    return `coverage end (${end.toISOString()}) is more than ${ACTIVITY_CLOCK_SKEW_MINUTES} minutes in the future. Cover only what has been checked.`;
+  if (start.getTime() <= ACTIVITY_COVERAGE_FLOOR.getTime())
+    return `coverage start (${start.toISOString()}) must be after ${ACTIVITY_COVERAGE_FLOOR.toISOString().slice(0, 10)}.`;
+  if (live && start.getTime() < now.getTime() - ACTIVITY_COVERAGE_LIVE_DAYS * 86_400_000)
+    return `coverage start (${start.toISOString()}) is more than ${ACTIVITY_COVERAGE_LIVE_DAYS} days ago; send older windows inside an import.`;
+  const extra = unknownAttrs(attrs, ["complete", "scope", "rev"]);
+  if (extra) return extra;
+  if (attrs.complete !== true) return "attrs.complete must be true: a coverage row only declares a complete window.";
+  const scope = attrs.scope;
+  if (scope === undefined) {
+    if (scopeRequired) return "attrs.scope is required for this source (for example the account or profile reference).";
+  } else if (typeof scope !== "string" || scope.length === 0 || scope.length > ACTIVITY_COVERAGE_SCOPE_MAX_CHARS)
+    return `attrs.scope must be text of 1 to ${ACTIVITY_COVERAGE_SCOPE_MAX_CHARS} characters, or left out.`;
+  const rev = attrs.rev;
+  if (rev !== undefined && (typeof rev !== "number" || !Number.isInteger(rev) || rev < 1))
+    return "attrs.rev must be a whole number of 1 or more, or left out.";
+  const expected = coverageKey(scope as string | undefined, start, end, rev as number | undefined);
+  if (id !== expected) return `coverage id "${id.slice(0, 120)}" must be "${expected}".`;
+  return undefined;
 }
 
 /** Owner-side settings for one source (`PUT /api/activity-sources/:source`). Absent fields keep their value. */
