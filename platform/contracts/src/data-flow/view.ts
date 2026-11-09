@@ -1,4 +1,5 @@
 import { buildFlowGraph, type FlowRegistry, type UnusedEntry } from "./graph.js";
+import type { DeviceHealth, HealthIssue, NodeHealth } from "./health.js";
 import type { DatasetNote, DatasetRef, FlowEntry } from "./types.js";
 import { parseDatasetRef } from "./types.js";
 
@@ -28,6 +29,25 @@ export interface DataFlowView {
     datasets: DatasetRef[];
     dead: DatasetRef[];
   };
+}
+
+/** What the health reader found: one signal per entry, the registry problems, and each device's last-seen. */
+export interface DataFlowHealthRead {
+  nodes: Record<string, NodeHealth>;
+  issues: HealthIssue[];
+  devices: DeviceHealth[];
+}
+
+/** The `health` part of `GET /api/data-flow`: the read, with counts by state, or `unavailable` when the probes failed. */
+export type DataFlowHealth =
+  | (DataFlowHealthRead & { unavailable?: undefined; counts: Record<string, number> })
+  | { unavailable: true; reason: string; next: string };
+
+/** The body of `GET /api/data-flow`: the static graph plus what each node is doing now. */
+export interface DataFlowResponse extends Omit<DataFlowView, "devices"> {
+  generatedAt: string;
+  devices: (DataFlowView["devices"][number] & { lastSeenAt?: string | null; lastSeenFrom?: string | null })[];
+  health: DataFlowHealth;
 }
 
 /** The tables the registry names, for a build that has no schema to hand (`rhen sources --offline`). */

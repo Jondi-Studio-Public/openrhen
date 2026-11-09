@@ -3,6 +3,7 @@ import {
   classifyFreshness,
   learnThreshold,
   thresholdFor,
+  type DataFlowHealthRead,
   type DeviceHealth,
   type FlowEntry,
   type FreshnessState,
@@ -63,11 +64,7 @@ const clip = (text: string) => (text.length > ERROR_MAX ? text.slice(0, ERROR_MA
 const when = (value: Date | string | null | undefined) => (value ? new Date(value) : null);
 const iso = (date: Date | null) => (date ? date.toISOString() : null);
 
-export interface HealthResult {
-  nodes: Record<string, NodeHealth>;
-  issues: HealthIssue[];
-  devices: DeviceHealth[];
-}
+export type HealthResult = DataFlowHealthRead;
 
 export interface HealthOptions {
   now?: Date;
