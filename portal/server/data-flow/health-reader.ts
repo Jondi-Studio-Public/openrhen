@@ -38,6 +38,14 @@ const KIND_RETIRED_MIN_HOURS = 7 * 24;
 const HOUR = 3_600_000;
 const ERROR_MAX = 200;
 const IDENTIFIER = /^[a-z_][a-z0-9_]*$/;
+
+/** `table` or `schema.table`, each part a plain identifier; anything else is refused before it reaches a query. */
+function tableParts(table: string): [string] | [string, string] | null {
+  const parts = table.split(".");
+  return (parts.length === 1 || parts.length === 2) && parts.every((part) => IDENTIFIER.test(part))
+    ? (parts as [string] | [string, string])
+    : null;
+}
 const SUCCESS = ["synced", "needs_review"];
 
 /** What a probe saw, before thresholds are applied. */
@@ -152,11 +160,19 @@ async function userId(sql: Sql): Promise<string | null> {
 function columnsOf(context: Context, table: string): Promise<Set<string>> {
   let known = context.columns.get(table);
   if (!known) {
-    known = context.sql<{ column_name: string }[]>`
-      SELECT column_name FROM information_schema.columns
-      WHERE table_schema = current_schema() AND table_name = ${table}`.then(
-      (rows) => new Set(rows.map((row) => row.column_name))
-    );
+    // Only a validated name is looked up. The name is on the validated list when the catalogue has it; `sql(name)`
+    // later quotes each dotted part separately, and a name the catalogue does not have never reaches a query.
+    const parts = tableParts(table);
+    known = !parts
+      ? Promise.resolve(new Set<string>())
+      : (parts.length === 2
+          ? context.sql<{ column_name: string }[]>`
+              SELECT column_name FROM information_schema.columns
+              WHERE table_schema = ${parts[0]} AND table_name = ${parts[1]}`
+          : context.sql<{ column_name: string }[]>`
+              SELECT column_name FROM information_schema.columns
+              WHERE table_schema = current_schema() AND table_name = ${parts[0]}`
+        ).then((rows) => new Set(rows.map((row) => row.column_name)));
     context.columns.set(table, known);
   }
   return known;
@@ -334,8 +350,8 @@ type Resolve = (probe: HealthProbe, entry: FlowEntry) => Promise<Outcome>;
 
 async function readMax(context: Context, probe: Extract<HealthProbe, { kind: "max" }>): Promise<Outcome> {
   const where = Object.entries(probe.where ?? {});
-  const names = [probe.table, probe.column, ...where.map(([key]) => key)];
-  if (!names.every((name) => IDENTIFIER.test(name)))
+  const names = [probe.column, ...where.map(([key]) => key)];
+  if (tableParts(probe.table) === null || !names.every((name) => IDENTIFIER.test(name)))
     return { unresolved: `an identifier in ${probe.table}.${probe.column} is not valid` };
   if (!(await tableHasColumns(context, probe.table, [probe.column, ...where.map(([key]) => key)])))
     return { unresolved: `${probe.table}.${probe.column} (or a filter column) does not exist` };

@@ -69,6 +69,24 @@ describe("tablesWrittenIn", () => {
     `;
     expect([...tablesWrittenIn(text, known, drizzle)].sort()).toEqual(["actions", "notes", "offer_log"]);
   });
+
+  it("reads schema-qualified writes, quoted or not, against the qualified name", () => {
+    const qualified = new Set(["myschema.items", "myschema.log", "notes"]);
+    const text = `
+      sql\`insert into myschema.items (a) values (1)\`;
+      sql\`UPDATE "myschema"."log" SET x = 1\`;
+      sql\`DELETE FROM  myschema . items WHERE a = 1\`;
+      sql\`INSERT INTO public.notes (a) VALUES (1)\`;
+      sql\`INSERT INTO otherschema.items (a) VALUES (1)\`;
+      sql\`UPDATE myschema.unknown SET x = 1\`;
+    `;
+    expect([...tablesWrittenIn(text, qualified, new Map())].sort()).toEqual([
+      "myschema.items",
+      "myschema.log",
+      "notes"
+    ]);
+    expect([...tablesWrittenIn("UPDATE myschema.items SET a = 1", new Set(["items"]), new Map())]).toEqual([]);
+  });
 });
 
 describe("exportedMethods", () => {

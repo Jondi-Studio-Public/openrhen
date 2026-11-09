@@ -272,6 +272,55 @@ describe("max", () => {
   });
 });
 
+describe("max on a schema-qualified table", () => {
+  beforeEach(async () => {
+    await sql.unsafe("DROP SCHEMA IF EXISTS ext_probe CASCADE");
+    await sql.unsafe("CREATE SCHEMA ext_probe");
+    await sql.unsafe("CREATE TABLE ext_probe.items (user_id uuid, stamped_at timestamptz, kind text)");
+    await sql.unsafe("CREATE TABLE ext_probe.shared (stamped_at timestamptz)");
+  });
+  afterAll(async () => {
+    await sql?.unsafe("DROP SCHEMA IF EXISTS ext_probe CASCADE");
+  });
+
+  it("reads schema.table, scoped to the owner when the table has a user_id, with a filter", async () => {
+    await sql`INSERT INTO ext_probe.items (user_id, stamped_at, kind) VALUES
+      (${userId}, ${ago(5)}, 'a'), (${userId}, ${ago(2)}, 'b'), (gen_random_uuid(), ${ago(1)}, 'a')`;
+    const read = async (extra: object = {}) =>
+      one(entry("q", { kind: "max", table: "ext_probe.items", column: "stamped_at", ...extra }, { freshness: fresh }));
+    expect((await read()).lastSuccessAt).toBe(ago(2).toISOString());
+    expect((await read({ where: { kind: "a" } })).lastSuccessAt).toBe(ago(5).toISOString());
+    await sql`INSERT INTO ext_probe.shared (stamped_at) VALUES (${ago(3)})`;
+    const shared = await one(
+      entry("s", { kind: "max", table: "ext_probe.shared", column: "stamped_at" }, { freshness: fresh })
+    );
+    expect(shared.lastSuccessAt).toBe(ago(3).toISOString());
+  });
+
+  it("does not mix up a table of the same name in another schema", async () => {
+    const node = await one(entry("q", { kind: "max", table: "items", column: "stamped_at" }));
+    expect(node.freshness).toBe("probe_unresolved");
+  });
+
+  it("refuses a name that is not a plain identifier or two, and one that names no table", async () => {
+    for (const table of [
+      "ext_probe.items.extra",
+      "ext_probe.items; DROP TABLE users",
+      'ext_probe."items"',
+      "Ext_Probe.items",
+      "ext_probe.",
+      ".items",
+      "ext_probe.missing",
+      "missing_schema.items"
+    ]) {
+      const node = await one(entry("q", { kind: "max", table, column: "stamped_at" }));
+      expect(node.freshness, table).toBe("probe_unresolved");
+    }
+    const [row] = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM users`;
+    expect(row!.n).toBeGreaterThan(0);
+  });
+});
+
 describe("last-used", () => {
   const token = async (name: string, hoursAgo: number | null, revoked = false) =>
     sql`INSERT INTO agent_tokens (user_id, name, token_hash, expires_at, last_used_at, revoked_at)

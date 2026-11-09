@@ -101,7 +101,7 @@ function importedBindings(source: string): Map<string, { specifier: string; impo
   return bindings;
 }
 
-/** The tables a source text writes: SQL `INSERT INTO`, `UPDATE`, `DELETE FROM` and drizzle `.insert(table)` calls. */
+/** The tables a source text writes: SQL `INSERT INTO`, `UPDATE`, `DELETE FROM` (plain or `schema.table`) and drizzle `.insert(table)` calls. */
 export function tablesWrittenIn(
   source: string,
   known: ReadonlySet<string>,
@@ -109,8 +109,16 @@ export function tablesWrittenIn(
 ): Set<string> {
   const text = stripComments(source);
   const found = new Set<string>();
-  for (const match of text.matchAll(/\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"?([a-z_][a-z0-9_]*)"?/g))
-    if (known.has(match[1]!)) found.add(match[1]!);
+  // `schema.table` counts as written when `known` names it that way; `public.table` is the plain `table`.
+  for (const match of text.matchAll(
+    /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"?([a-z_][a-z0-9_]*)"?(?:\s*\.\s*"?([a-z_][a-z0-9_]*)"?)?/g
+  )) {
+    const [, first, second] = match;
+    if (second === undefined) {
+      if (known.has(first!)) found.add(first!);
+    } else if (known.has(`${first}.${second}`)) found.add(`${first}.${second}`);
+    else if (first === "public" && known.has(second)) found.add(second);
+  }
   for (const match of text.matchAll(/\.(?:insert|update|delete)\(\s*(?:[A-Za-z_$][\w$]*\.)?([A-Za-z_$][\w$]*)\s*\)/g)) {
     const table = drizzleNames.get(match[1]!);
     if (table !== undefined) found.add(table);
