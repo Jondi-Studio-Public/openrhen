@@ -134,6 +134,11 @@ fn a_failed_run_gets_a_message_box_but_a_duplicate_start_does_not() {
         Some("rhen-watch stopped")
     );
     assert_eq!(cli::error_box_title(&run, false, cli::ALREADY_RUNNING), None);
+    assert_eq!(
+        cli::error_box_title(&run, false, &format!("{}boom", cli::REPEATED_REFUSAL)),
+        None,
+        "a repeated refusal is logged, not shown again"
+    );
     assert_eq!(cli::error_box_title(&run, true, cli::ALREADY_RUNNING), None);
     assert_eq!(cli::error_box_title(&["status".to_string()], false, "boom"), None);
     assert_eq!(cli::error_box_title(&[], false, "boom"), None);
