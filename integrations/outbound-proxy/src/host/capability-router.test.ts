@@ -103,6 +103,50 @@ describe("capability router", () => {
     expect(await limited.json()).toEqual({ error: "Too many embedding requests; try again shortly." });
   });
 
+  it("gives the local and hosted classes their own slots, apart from ai", async () => {
+    vi.stubEnv("OUTBOUND_LOCAL_RATE_LIMIT_PER_MINUTE", "1");
+    vi.stubEnv("OUTBOUND_HOSTED_RATE_LIMIT_PER_MINUTE", "1");
+    const ok = async () => ({ status: 200, body: {} });
+    const { url } = await start({
+      model_provider: {
+        complete: { kind: "json", rate: "local", run: ok },
+        extract: { kind: "json", rate: "hosted", run: ok },
+        probe: { kind: "json", rate: "ai", run: ok }
+      }
+    });
+    const at = (op: string) => `${url}/capabilities/model_provider/fake_conn/${op}`;
+    expect((await post(at("complete"), {})).status).toBe(200);
+    expect(await (await post(at("complete"), {})).json()).toEqual({
+      error: "Too many local-model requests; try again shortly."
+    });
+    expect((await post(at("extract"), {})).status).toBe(200);
+    expect(await (await post(at("extract"), {})).json()).toEqual({
+      error: "Too many hosted-model requests; try again shortly."
+    });
+    expect((await post(at("probe"), {})).status).toBe(200);
+  });
+
+  it("lets an op set its own wall-clock ceiling, past the default", async () => {
+    vi.stubEnv("OUTBOUND_UPSTREAM_TIMEOUT_MS", "20");
+    const slow = ({ signal }: { signal: AbortSignal }) =>
+      new Promise<{ status: number; body: unknown }>((resolve, reject) => {
+        const timer = setTimeout(() => resolve({ status: 200, body: { done: true } }), 80);
+        signal.addEventListener("abort", () => {
+          clearTimeout(timer);
+          reject(new Error("aborted"));
+        });
+      });
+    const { url } = await start({
+      model_provider: {
+        complete: { kind: "json", timeoutMs: 2_000, run: slow },
+        embed: { kind: "json", run: slow }
+      }
+    });
+    expect((await post(`${url}/capabilities/model_provider/fake_conn/embed`, {})).status).toBe(504);
+    const long = await post(`${url}/capabilities/model_provider/fake_conn/complete`, {});
+    expect(long.status).toBe(200);
+  });
+
   it("keeps the upstream message for a non-ok stream response and cancels its body", async () => {
     let cancelled = false;
     const { url } = await start({

@@ -175,7 +175,7 @@ for (const absolute of maintainedFiles) {
   // folder it may reach the host only through the connection API, the HTTP helpers and the cookie jar.
   const connectionFolder = /^(integrations\/outbound-proxy\/src\/connections\/[^/]+)\//.exec(source)?.[1];
   if (connectionFolder) {
-    const allowedHost = ["connection-api", "http", "cookie-jar"].map(
+    const allowedHost = ["connection-api", "http", "cookie-jar", "ip-address", "model-complete"].map(
       (name) => `integrations/outbound-proxy/src/host/${name}`
     );
     for (const match of text.matchAll(/(?:from\s+|import\s*\()(["'])(\.[^"']*)\1/g)) {

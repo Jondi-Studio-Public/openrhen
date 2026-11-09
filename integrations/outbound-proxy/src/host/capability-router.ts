@@ -13,7 +13,7 @@ import {
   tooLarge,
   upstreamTimeoutMs
 } from "./http.js";
-import { takeAiRateSlot, takeEmbeddingRateSlot } from "./rate.js";
+import { takeAiRateSlot, takeEmbeddingRateSlot, takeHostedRateSlot, takeLocalRateSlot } from "./rate.js";
 
 type Prepared = { ok: true; op: ConnectionOp } | { ok: false; status: number; body: CapabilityFailure };
 
@@ -41,6 +41,10 @@ function prepare(capability: string, id: string, opId: string): Prepared {
   if (op.rate === "ai" && !takeAiRateSlot()) return failure(429, "Too many AI requests; try again shortly.");
   if (op.rate === "embedding" && !takeEmbeddingRateSlot())
     return failure(429, "Too many embedding requests; try again shortly.");
+  if (op.rate === "local" && !takeLocalRateSlot())
+    return failure(429, "Too many local-model requests; try again shortly.");
+  if (op.rate === "hosted" && !takeHostedRateSlot())
+    return failure(429, "Too many hosted-model requests; try again shortly.");
   return { ok: true, op };
 }
 
@@ -63,7 +67,7 @@ async function execute(
     return json(response, 500, { error: "The connection op has an unknown kind." });
 
   if (op.kind === "json") {
-    const outcome = await runUpstream(response, controller, upstreamTimeoutMs(), () => op.run(call));
+    const outcome = await runUpstream(response, controller, op.timeoutMs ?? upstreamTimeoutMs(), () => op.run(call));
     if (!outcome.ok) return;
     return json(response, outcome.value.status, outcome.value.body);
   }

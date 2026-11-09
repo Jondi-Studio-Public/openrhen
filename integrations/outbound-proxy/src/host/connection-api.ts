@@ -20,7 +20,10 @@ export interface OpResult {
 
 export interface JsonOp {
   kind: "json";
-  rate?: "ai" | "embedding";
+  /** `local` is a model on the person's own machine; `hosted` is a paid provider whose key arrives in the body. */
+  rate?: "ai" | "embedding" | "local" | "hosted";
+  /** Wall-clock ceiling for this op; absent: `upstreamTimeoutMs()` (60 s). */
+  timeoutMs?: number;
   run(call: OpCall): Promise<OpResult>;
 }
 
