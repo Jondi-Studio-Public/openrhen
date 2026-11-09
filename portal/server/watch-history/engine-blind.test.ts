@@ -76,6 +76,8 @@ const MAY_NAME_BLIND_TABLES = new Set([
   "portal/server/persistence/postgres/open-facts-store.ts",
   // The drift detector's work labels (source `drift`): owner answers and the local model's, read by no plan input.
   "portal/server/persistence/postgres/work-label-store.ts",
+  // The owner's reasons (source `drift-reason`): private words, read by no plan input.
+  "portal/server/persistence/postgres/drift-reason-store.ts",
   // A mark on a mail fact (2b-9) writes derived rows and snapshots them for undo; the change detail shows them.
   "portal/server/persistence/postgres/fact-act-store.ts",
   "portal/server/persistence/postgres/write-snapshot.ts",
@@ -227,6 +229,8 @@ describe("watch history is blind to the engine", () => {
       "portal/server/persistence/postgres/fact-act-store.ts",
       // The drift detector's work labels call the store's in-process insert (`insertServerEventTx`).
       "portal/server/persistence/postgres/work-label-store.ts",
+      // The owner's reasons call the store's in-process insert and delete (`insertServerEventTx`, `deleteReasonRowsTx`).
+      "portal/server/persistence/postgres/drift-reason-store.ts",
       "portal/server/activity-ingest.ts",
       "portal/app/api/activity-events/route.ts",
       "portal/app/api/activity-events/summary/route.ts",

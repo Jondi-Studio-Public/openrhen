@@ -897,6 +897,19 @@ describe("scopesForRoute: the activity store", () => {
       }
     });
 
+    it("keeps every drift-reason row with the owner session, whatever its kind or company in the batch", () => {
+      for (const kind of ["reason", "reason_tag", "correction"]) {
+        const decision = post({ source: "drift-reason", kind });
+        expect(decision).toMatchObject({ kind: "refused", reason: "owner-only" });
+        const message = (decision as { message: string }).message;
+        expect(message).toMatch(/owner session/);
+        expect(message).toMatch(/Source "drift-reason"/);
+      }
+      expect(needs(post({ source: "rhen-watch", kind: "window" }, { source: "drift-reason", kind: "reason" }))).toBe(
+        "owner-only"
+      );
+    });
+
     it("keeps every drift row with the owner session, whatever its kind, shape or company in the batch", () => {
       for (const kind of ["flag", "work_label", "correction", "reason", "prompt"]) {
         const decision = post({ source: "drift", kind });

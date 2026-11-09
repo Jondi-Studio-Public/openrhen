@@ -552,6 +552,15 @@ const DRIFT_OWNER_ONLY = (what: string): RouteDecision => ({
     `Do not retry this call. The person sets an area's label on its page in the portal; tell the owner: "I cannot do this myself; please do it in the owner session."`
 });
 
+const DRIFT_REASON_OWNER_ONLY = (what: string): RouteDecision => ({
+  kind: "refused",
+  reason: "owner-only",
+  message:
+    `${what} is for the owner session; an agent token cannot write it, so nothing was changed. ` +
+    `Source "drift-reason" holds the person's own words about a deviated check-in, and no token scope can read or write it. ` +
+    `Do not retry this call. The person records a reason in the portal when they answer a check-in; tell the owner: "I cannot do this myself; please do it in the owner session."`
+});
+
 /**
  * The scope one activity row needs, or null when only the owner session may write it. A row that is not an object, or
  * has no text `source`, can never be stored (the handler rejects that row alone), so it asks only for the event scope.
@@ -561,7 +570,7 @@ function activityEventScope(event: unknown): string | null {
   const source = str(row?.source);
   if (row === undefined || source === undefined) return "write:activity-event";
   if (source === "derived-shadow") return "write:activity-derived";
-  if (source === "drift") return null;
+  if (source === "drift" || source === "drift-reason") return null;
   if (source !== "derived") return "write:activity-event";
   const kind = str(row.kind);
   if (kind === "fact" || kind === "msg_class") return "write:activity-derived";
@@ -584,10 +593,14 @@ function activityEventsWrite(body: Body): RouteDecision {
   const scopes = new Set<string>();
   for (const event of events) {
     const scope = activityEventScope(event);
-    if (scope === null)
-      return record(event)?.source === "drift"
-        ? DRIFT_OWNER_ONLY("Writing this activity row")
-        : DERIVED_OWNER_ONLY("Writing this activity row");
+    if (scope === null) {
+      const source = record(event)?.source;
+      return source === "drift-reason"
+        ? DRIFT_REASON_OWNER_ONLY("Writing this activity row")
+        : source === "drift"
+          ? DRIFT_OWNER_ONLY("Writing this activity row")
+          : DERIVED_OWNER_ONLY("Writing this activity row");
+    }
     scopes.add(scope);
   }
   return { kind: "scopes", scopes: scopes.size === 0 ? ["write:activity-event"] : [...scopes] };
@@ -740,6 +753,9 @@ const OWNER_ROUTES: Record<string, string> = {
   "POST /api/integrations/work-label/tick": "The work-label inference job",
   // Whether an area counts as work is the owner's own answer; the chip on the area page writes it. Nothing here is an agent's to set.
   "PUT /api/work-labels/[areaId]": "Saying whether an area counts as work",
+  // The owner's own words about why they left the plan. Private text: no agent writes it, reads it, or deletes it.
+  "POST /api/drift-reasons": "Saving why you were pulled off the plan",
+  "DELETE /api/drift-reasons/[checkInId]": "Deleting a saved reason and its tags",
   "POST /api/location/observe": "A location report",
   "POST /api/offer-log/shown": "What the open Now page showed",
   "POST /api/location/ping": "A location ping",

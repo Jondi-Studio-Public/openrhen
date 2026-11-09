@@ -266,6 +266,19 @@ describe("settings and bad values", () => {
     });
   });
 
+  it("refuses a retention on drift-reason, which holds the owner's own words, and never purges its rows by age", async () => {
+    await expect(setActivitySourceSettings(sql, "drift-reason", { retentionDays: 30 })).rejects.toThrow(
+      /not applied to the drift-reason source/
+    );
+    await source(userId, "drift-reason", "old-reason");
+    await sql`INSERT INTO activity_source_state (user_id, source, retention_days) VALUES (${userId}, 'drift-reason', 1)`;
+    await tick();
+    expect(await keys("drift-reason")).toEqual(["old-reason"]);
+    await expect(setActivitySourceSettings(sql, "drift-reason", { retentionDays: null })).resolves.toMatchObject({
+      retentionDays: null
+    });
+  });
+
   it("refuses a retention on drift, whose labels are the owner's answers, and never purges its rows by age", async () => {
     await expect(setActivitySourceSettings(sql, "drift", { retentionDays: 30 })).rejects.toThrow(
       /not applied to the drift source/

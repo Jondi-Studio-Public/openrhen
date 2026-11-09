@@ -91,6 +91,7 @@ describe("GET /api/data-flow body", () => {
         "chrome-takeout",
         "discord-package",
         "drift",
+        "drift-reason",
         "fit",
         "google-access-log",
         "google-activity",

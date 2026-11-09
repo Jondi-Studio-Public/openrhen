@@ -52,5 +52,28 @@ export const DRIFT_ENTRIES: readonly FlowEntry[] = [
     to: ["pg:activity_events[source=drift,kind=work_label]"],
     value: { note: "the owner's answer wins over the model's label" },
     health: { kind: "none", reason: "written on a tap; nothing to be late" }
+  }),
+  flow({
+    id: "drift-reason-capture",
+    name: "What pulled you off",
+    role: "source",
+    category: "manual",
+    method: "manual",
+    trigger: { kind: "on-request", by: "owner" },
+    activitySource: "drift-reason",
+    code: {
+      paths: [
+        "portal/server/drift/drift-reasons.ts",
+        "portal/server/persistence/postgres/drift-reason-store.ts",
+        "portal/features/check-in/components/check-in-banner.tsx"
+      ],
+      routes: ["POST /api/drift-reasons", "DELETE /api/drift-reasons/[checkInId]"]
+    },
+    gives: "the owner's own words about why they left the plan, kept until they delete them",
+    from: ["pg:check_in"],
+    via: ["activity-ingest"],
+    to: ["pg:activity_events[source=drift-reason,kind=reason]"],
+    value: { note: "private words: owner-only, never logged, kept in database backups" },
+    health: { kind: "none", reason: "written on a tap; nothing to be late" }
   })
 ];

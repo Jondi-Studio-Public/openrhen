@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { isKnownScope, renderCommandsForMcp, withheldActivitySources, type AgentBasis } from "@openrhen/contracts";
+import {
+  ACTIVITY_OWNER_ONLY_SOURCES,
+  isKnownScope,
+  renderCommandsForMcp,
+  withheldActivitySources,
+  type AgentBasis
+} from "@openrhen/contracts";
 import {
   decideWrite,
   enforceAgentRequest,
@@ -975,6 +981,48 @@ describe("activity store", () => {
     expect(put?.status).toBe(403);
     const read = await call("GET", "/api/work-labels", everything);
     expect(read?.status).toBe(403);
+  });
+
+  it("lets no token scope read or write the drift-reason source, and no owner route for the words, whatever it holds", async () => {
+    // There is no scope for the words: nothing to grant, so nothing a token can hold.
+    expect(isKnownScope("read:activity-drift-reason")).toBe(false);
+    expect(isKnownScope("write:activity-drift-reason")).toBe(false);
+    expect(isKnownScope("read:drift-reason")).toBe(false);
+    // Holding every read scope that does exist still leaves the source out of every read.
+    expect(ACTIVITY_OWNER_ONLY_SOURCES).toContain("drift-reason");
+    const everything = principal([
+      "write:activity-event",
+      "write:activity-derived",
+      "read:activity-event",
+      "read:activity-health",
+      "read:activity-whereabouts",
+      "read:activity-drift",
+      "write:place-model"
+    ]);
+    const row = (kind: string) => ({ id: "k", source: "drift-reason", kind, start: "2026-11-08T01:00:00Z" });
+    for (const body of [
+      { schema: 1, events: [row("reason")] },
+      { schema: 1, events: [row("reason_tag")] },
+      { schema: 1, events: [row("correction")] },
+      { source: "drift-reason", kind: "reason", start: "2026-11-08T01:00:00Z" },
+      {
+        schema: 1,
+        events: [{ id: "a", source: "rhen-watch", kind: "idle", start: "2026-11-08T01:00:00Z" }, row("reason")]
+      }
+    ]) {
+      const refused = await call("POST", "/api/activity-events", everything, body);
+      expect(refused?.status, JSON.stringify(body)).toBe(403);
+      expect(await refused?.json()).toMatchObject({ error: expect.stringContaining('Source "drift-reason"') });
+    }
+    const checkIn = "11111111-1111-4111-8111-111111111111";
+    const save = await call("POST", "/api/drift-reasons", everything, {
+      checkInId: checkIn,
+      text: "a loud neighbour",
+      requestId: "req-12345678"
+    });
+    expect(save?.status).toBe(403);
+    const remove = await call("DELETE", `/api/drift-reasons/${checkIn}`, everything);
+    expect(remove?.status).toBe(403);
   });
 
   it("answers an oversize activity body with the handler's 413, valid JSON or not, and does not parse it", async () => {

@@ -545,10 +545,11 @@ describe("coverage of every entry point (PR A2, PR C)", () => {
         .map((item) => graph.entries.find((entry) => entry.id === item.id)?.activitySource ?? item.id)
         .sort();
     // The drift labels are collected and read by no surface yet: rule A's predicate is wired by the flag writer's change.
-    it("lists the eleven archive sources, and the drift labels, as collected and unused", () =>
+    it("lists the eleven archive sources, and the drift labels and reasons, as collected and unused", () =>
       expect(bucket("unused")).toEqual(
         [
           "drift",
+          "drift-reason",
           "chrome-takeout",
           "google-activity",
           "maps-places",
