@@ -149,9 +149,10 @@ export const MANUAL_ENTRIES: readonly FlowEntry[] = [
         "portal/server/persistence/postgres/derived-settings-store.ts",
         "portal/server/derived/derived-settings.ts"
       ],
-      routes: ["PUT /api/derived-settings"]
+      routes: ["PUT /api/derived-settings", "POST /api/derived-settings/test"]
     },
     to: ["pg:derived_settings"],
+    incidentalWrites: [{ table: "derived_model_calls", reason: "the Test button records its one model call" }],
     health: { kind: "none", reason: "the owner's settings; nothing arrives on a schedule" }
   })
 ];
