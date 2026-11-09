@@ -1,3 +1,4 @@
+import { validateActivityEvent } from "@openrhen/contracts";
 import { describe, expect, it } from "vitest";
 import { parseActivityBody, shorthandKey, stableJson } from "./activity-ingest";
 
@@ -149,5 +150,37 @@ describe("parseActivityBody: bad input that must never throw or reach Postgres",
         expect(parsed.error).not.toMatch(/Invalid|expected|received|Too small|Too big/);
       }
     }
+  });
+});
+
+describe("parseActivityBody: physiology shorthand", () => {
+  const physiology = (extra: Record<string, unknown> = {}) => ({
+    source: "physiology",
+    kind: "steps",
+    start: "2026-11-08T10:00:00Z",
+    attrs: { device: "band-1", route: "app", v: 0, steps: 420 },
+    ...extra
+  });
+  const judge = (body: Record<string, unknown>) => {
+    const parsed = parseActivityBody(body);
+    if (!parsed.ok) throw new Error(parsed.error);
+    return validateActivityEvent(parsed.batch.events[0], new Date("2026-11-09T12:00:00Z"));
+  };
+
+  it("rejects the server-made h: id for physiology and says which id to send", () => {
+    const verdict = judge(physiology());
+    expect(verdict.ok).toBe(false);
+    if (verdict.ok) return;
+    expect(verdict.reason).toMatch(
+      /^the server-made id h:[0-9a-f]+ is not the canonical key; send id "steps\|band-1\|2026-11-08T10:00:00.000Z\|v0"/
+    );
+  });
+
+  it("accepts a shorthand post that carries the canonical id", () => {
+    expect(judge(physiology({ id: "steps|band-1|2026-11-08T10:00:00.000Z|v0" })).ok).toBe(true);
+  });
+
+  it("leaves other sources' h: keys alone", () => {
+    expect(judge({ source: "iphone-shortcuts", kind: "app_open", start: "2026-11-07T14:58:48+00:00" }).ok).toBe(true);
   });
 });

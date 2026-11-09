@@ -136,6 +136,42 @@ describe("watch history is blind to the engine", () => {
     expect(naming).toEqual([...MAY_NAME_BLIND_TABLES].sort());
   });
 
+  it("keeps the physiology module and every symbol it exports out of the engine", () => {
+    // `@openrhen/contracts` is a barrel, so naming a symbol is the same as importing the module. The symbols are listed
+    // here on purpose: a new export of activity-physiology.ts has to be added to this list in the same change.
+    const SYMBOLS = [
+      "activity-physiology",
+      "PHYSIOLOGY_",
+      "canonicalPhysiologyKey",
+      "describePhysiologyProblem",
+      "physiologyJsonSchema",
+      "physiologyKeyProblem",
+      "PhysiologyEventInput",
+      "withheldActivitySources",
+      "activityHealthSources",
+      "ACTIVITY_HEALTH_"
+    ];
+    const exported = [
+      ...readFileSync(join(repo, "platform", "contracts", "src", "activity-physiology.ts"), "utf8").matchAll(
+        /^export (?:const|function|interface|type) (\w+)/gm
+      )
+    ].map((match) => match[1]!);
+    expect(exported.length).toBeGreaterThan(10);
+    // Every export is covered by a listed symbol (a prefix or the whole name).
+    for (const name of exported)
+      expect(
+        SYMBOLS.some((symbol) => name.startsWith(symbol) || name === symbol),
+        name
+      ).toBe(true);
+    const engine = sources(join(repo, "engine"));
+    expect(engine.length).toBeGreaterThan(20);
+    for (const file of engine)
+      for (const symbol of SYMBOLS) expect(file.text, `${file.path} names ${symbol}`).not.toContain(symbol);
+    // The module itself names none of the blind tables, so the table test above lets it stand.
+    const module = readFileSync(join(repo, "platform", "contracts", "src", "activity-physiology.ts"), "utf8");
+    for (const table of BLIND_TABLES) expect(module).not.toContain(table);
+  });
+
   it("keeps the activity store's code and drizzle names out of every file but its own routes and store", () => {
     // snake_case names are covered above; this catches the module and the drizzle table objects, which a file could
     // import without ever writing a table name.

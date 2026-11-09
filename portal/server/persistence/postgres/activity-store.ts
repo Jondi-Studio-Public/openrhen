@@ -1,4 +1,5 @@
 import {
+  ACTIVITY_HEALTH_SCOPE,
   ACTIVITY_PURGE_BATCH,
   ACTIVITY_READ_DEFAULT_LIMIT,
   ACTIVITY_READ_MAX_LIMIT,
@@ -6,11 +7,13 @@ import {
   ACTIVITY_SOURCES,
   ACTIVITY_SOURCE_NAMES,
   DERIVED_EXTRACTOR_KINDS,
+  PHYSIOLOGY_SOURCE,
   isKnownActivitySource,
   validateActivityEvent,
   type ActivityEventRow,
   type ActivityEventsPage,
   type ActivityExtractorSummary,
+  type ActivityHeldEntry,
   type ActivityIngestResult,
   type ActivityRejection,
   type ActivitySourceSettings,
@@ -148,6 +151,7 @@ export async function ingestActivityEvents(
 
       // An import is one source: undoing it or purging that source must never reach another source's events.
       const valid: ValidActivityEvent[] = [];
+      const indexOfKey = new Map<string, number>();
       const seen = new Set<string>();
       let duplicatesInBatch = 0;
       for (const { index, event } of judged) {
@@ -164,6 +168,7 @@ export async function ingestActivityEvents(
           continue;
         }
         seen.add(id);
+        indexOfKey.set(id, index);
         valid.push(event);
       }
       rejected.sort((x, y) => x.index - y.index);
@@ -208,13 +213,21 @@ export async function ingestActivityEvents(
       });
 
       let added = 0;
+      const stored = new Set<string>();
       for (let at = 0; at < rows.length; at += INSERT_CHUNK) {
-        const inserted = await tx<{ id: string }[]>`
+        const inserted = await tx<{ source: string; event_key: string }[]>`
         INSERT INTO activity_events ${tx(rows.slice(at, at + INSERT_CHUNK))}
         ON CONFLICT (user_id, source, event_key) DO NOTHING
-        RETURNING id`;
+        RETURNING source, event_key`;
         added += inserted.length;
+        for (const row of inserted) stored.add(`${row.source}\u0000${row.event_key}`);
       }
+      const held = await heldPhysiology(
+        tx,
+        userId,
+        valid.filter((event) => event.source === PHYSIOLOGY_SOURCE && !stored.has(`${event.source}\u0000${event.key}`)),
+        indexOfKey
+      );
       if (importId !== null && added > 0)
         await tx`UPDATE activity_imports SET event_count = event_count + ${added} WHERE id = ${importId}`;
       return {
@@ -223,6 +236,7 @@ export async function ingestActivityEvents(
         alreadyHeld: valid.length - added + duplicatesInBatch,
         contentDropped,
         rejected,
+        held,
         importId,
         ingestedVia: via
       };
@@ -259,6 +273,34 @@ async function noteIngestRejections(
       },
       { sql, now }
     );
+}
+
+/**
+ * What the store already holds under the key of each physiology event the insert skipped, so a collector that lost its
+ * state can compare and re-post fuller data as the next `v`. One lookup per held key on the unique key index; only
+ * physiology is looked up. Nothing is swallowed silently: the answer carries the held version, coverage and count.
+ */
+async function heldPhysiology(
+  tx: TxSql,
+  userId: string,
+  skipped: ValidActivityEvent[],
+  indexOfKey: ReadonlyMap<string, number>
+): Promise<ActivityHeldEntry[]> {
+  if (skipped.length === 0) return [];
+  const keys = skipped.map((event) => event.key);
+  const rows = await tx<{ event_key: string; attrs: Record<string, unknown> }[]>`
+    SELECT event_key, attrs FROM activity_events
+    WHERE user_id = ${userId} AND source = ${PHYSIOLOGY_SOURCE} AND event_key IN ${tx(keys)}`;
+  const whole = (value: unknown) => (typeof value === "number" && Number.isInteger(value) ? value : null);
+  return rows
+    .map((row) => ({
+      index: indexOfKey.get(`${PHYSIOLOGY_SOURCE}\u0000${row.event_key}`) ?? -1,
+      key: row.event_key,
+      v: whole(row.attrs.v),
+      coverage_s: whole(row.attrs.coverage_s),
+      n: whole(row.attrs.n)
+    }))
+    .sort((a, b) => a.index - b.index);
 }
 
 /** Whether a file with this sha256 is already held, and the import that holds it. */
@@ -460,6 +502,8 @@ export interface ActivityReadQuery {
    * version that was active then. An old `asOf` therefore returns the same rows however many runs or promotions follow.
    */
   asOf?: Date | undefined;
+  /** Sources to leave out of the read (the health class, for a token without `read:activity-health`); reported as `withheld`. */
+  excludeSources?: readonly string[] | undefined;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -508,6 +552,7 @@ function liveExtractorVersions(sql: Sql, userId: string, asOf: Date | undefined)
  * eval comparison) are never shown as output: they come back only when `source` asks for `derived-shadow` by name.
  */
 export async function readActivityEvents(sql: Sql, query: ActivityReadQuery): Promise<ActivityEventsPage> {
+  const excluded = query.excludeSources ?? [];
   const userId = await ensureUser(sql);
   const limit = Math.min(Math.max(query.limit ?? ACTIVITY_READ_DEFAULT_LIMIT, 1), ACTIVITY_READ_MAX_LIMIT);
   const cursor = query.after === undefined ? null : decodeCursor(query.after);
@@ -521,6 +566,7 @@ export async function readActivityEvents(sql: Sql, query: ActivityReadQuery): Pr
       ${query.from === undefined ? sql`` : sql`AND ts_start >= ${query.from}`}
       ${query.to === undefined ? sql`` : sql`AND ts_start < ${query.to}`}
       ${query.asOf === undefined ? sql`` : sql`AND ingested_at <= ${query.asOf}`}
+      ${excluded.length === 0 ? sql`` : sql`AND source NOT IN ${sql(excluded as string[])}`}
       ${query.source === "derived-shadow" ? sql`` : sql`AND source <> 'derived-shadow'`}
       AND (
         source <> 'derived' OR kind NOT IN ${sql(DERIVED_EXTRACTOR_KINDS as unknown as string[])} OR EXISTS (
@@ -549,7 +595,17 @@ export async function readActivityEvents(sql: Sql, query: ActivityReadQuery): Pr
     ingestedAt: row.ingested_at.toISOString()
   }));
   const last = page.at(-1);
-  return { events, next: rows.length > limit && last ? encodeCursor(last) : null };
+  return {
+    events,
+    next: rows.length > limit && last ? encodeCursor(last) : null,
+    // The notice appears only when it explains something: no source was asked for, or the one asked for is withheld.
+    ...(excluded.length === 0 || (query.source !== undefined && !excluded.includes(query.source))
+      ? {}
+      : {
+          withheld: [...excluded],
+          withheldNote: `These sources hold health data and are left out: this token lacks the ${ACTIVITY_HEALTH_SCOPE} scope. Create a token with --scopes read:activity-event,${ACTIVITY_HEALTH_SCOPE} to read them.`
+        })
+  };
 }
 
 /** Deletes in batches so no single statement holds millions of rows. Returns how many went. */

@@ -1210,6 +1210,8 @@ export type {
 } from "./watch-history.js";
 export {
   ACTIVITY_ATTRS_MAX_BYTES,
+  ACTIVITY_HEALTH_CLASS,
+  ACTIVITY_HEALTH_SCOPE,
   ACTIVITY_CONTENT_GATE_NOTE,
   ACTIVITY_CONTENT_MAX_BYTES,
   ACTIVITY_CORRECTION_KIND,
@@ -1229,8 +1231,10 @@ export {
   activityEventSchema,
   activityEventsJsonSchema,
   activityImportRefSchema,
+  activityHealthSources,
   activityKindsOf,
   activityShorthandSchema,
+  withheldActivitySources,
   describeTimeProblem,
   describeUnstorableText,
   activitySourceNameSchema,
@@ -1264,8 +1268,25 @@ export {
   DERIVED_TIERS,
   describeDerivedProblem
 } from "./activity-derived.js";
+export {
+  PHYSIOLOGY_COMMON_ATTRS,
+  PHYSIOLOGY_DAILY_FIELDS,
+  PHYSIOLOGY_HRV_METHODS,
+  PHYSIOLOGY_KINDS,
+  PHYSIOLOGY_MOVEMENT_BASES,
+  PHYSIOLOGY_MOVEMENT_STATES,
+  PHYSIOLOGY_SAMPLED_KINDS,
+  PHYSIOLOGY_SCHEMA_VERSION,
+  PHYSIOLOGY_SLEEP_STAGES,
+  PHYSIOLOGY_SOURCE,
+  canonicalPhysiologyKey,
+  describePhysiologyProblem,
+  physiologyJsonSchema
+} from "./activity-physiology.js";
+export type { PhysiologyEventInput } from "./activity-physiology.js";
 export type {
   ActivityEventInput,
+  ActivityHeldEntry,
   ActivityEventRow,
   ActivityEventsPage,
   ActivityExtractorSummary,

@@ -351,6 +351,9 @@ export function isKnownScope(scope: string): boolean {
     // The activity store: capture posts events; reading them back (content included) is its own scope.
     knownScopes.add("write:activity-event");
     knownScopes.add("read:activity-event");
+    // Health-class sources (physiology, apple-health, iphone-health) are withheld from a read unless the token also holds this
+    // scope. Deliberately not in SCOPES_SUPPORTED (portal/server/mcp-oauth.ts): a default OAuth grant never includes it.
+    knownScopes.add("read:activity-health");
     // Writing derived rows an extractor produces (fact, msg_class). Never override or fact_status: those need write:activity-event.
     knownScopes.add("write:activity-derived");
     knownScopes.add("write:plan-map");

@@ -5,6 +5,7 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { resolve } from "node:path";
 import { integrationDatabaseName } from "@openrhen/database";
+import { withheldActivitySources } from "@openrhen/contracts";
 import {
   ActivityInputError,
   deleteActivityImport,
@@ -17,6 +18,10 @@ import {
   setActivitySourceSettings
 } from "./activity-store";
 import { ensureUser } from "./ensure-user";
+import { requestScopes, runWithActor } from "@/server/agent-actor";
+import { createFailureThrottle } from "@/server/agent-token-throttle";
+import { createAgentToken, findAgentTokenByHash } from "@/server/agent-token-store";
+import { AGENT_TOKEN_HEADER, identifyRequest } from "@/server/agent-tokens";
 import { resetRunThrottle } from "./run-log";
 
 config({ path: resolve(process.cwd(), "../.env"), quiet: true });
@@ -630,5 +635,210 @@ describe("ingest run rows", () => {
     ).rejects.toBeInstanceOf(ActivityInputError);
     expect(await count()).toBe(0);
     expect((await ingestRuns()).map((row) => row.provider)).toEqual(["ingest:rhen-watch"]);
+  });
+});
+
+describe("physiology rows", () => {
+  const HOUR = Date.parse("2026-10-10T00:00:00.000Z");
+  const hourStart = (n: number) => new Date(HOUR + n * 3_600_000).toISOString();
+  /** A heart_rate period row on a 15 s grid with `count` readings and the given version. */
+  const heart = (n: number, extra: { v?: number; count?: number; device?: string } = {}) => {
+    const v = extra.v ?? 0;
+    const count = extra.count ?? 240;
+    const device = extra.device ?? "band-1";
+    const values: (number | null)[] = Array.from({ length: 240 }, (_, i) => (i < count ? 60 + (i % 20) : null));
+    const read = values.filter((value): value is number => value !== null);
+    const start = hourStart(n);
+    return {
+      id: `heart_rate|${device}|${start}|v${v}`,
+      source: "physiology",
+      kind: "heart_rate",
+      start,
+      attrs: {
+        device,
+        route: "app",
+        v,
+        unit: "bpm",
+        step_s: 15,
+        values,
+        n: count,
+        min: Math.min(...read),
+        max: Math.max(...read),
+        avg: Math.round((read.reduce((a, b) => a + b, 0) / read.length) * 100) / 100,
+        coverage_s: count * 15
+      }
+    };
+  };
+  const keysOf = async () =>
+    (
+      await sql<
+        { event_key: string }[]
+      >`SELECT event_key FROM activity_events WHERE source = 'physiology' ORDER BY event_key`
+    ).map((row) => row.event_key);
+
+  it("stores v0 and then v1 of one period as two rows", async () => {
+    expect(await ingest([heart(0, { count: 100 })])).toMatchObject({ added: 1, held: [] });
+    expect(await ingest([heart(0, { v: 1, count: 240 })])).toMatchObject({ added: 1, alreadyHeld: 0, held: [] });
+    expect(await keysOf()).toEqual([`heart_rate|band-1|${hourStart(0)}|v0`, `heart_rate|band-1|${hourStart(0)}|v1`]);
+  });
+
+  it("answers a re-post of a held key with what is held: index, key, v, coverage_s and n", async () => {
+    await ingest([heart(0, { count: 100 }), heart(1, { count: 240 })]);
+    const result = await ingest([heart(2), heart(1, { count: 50 }), heart(0, { count: 240 })]);
+    expect(result).toMatchObject({ added: 1, alreadyHeld: 2 });
+    expect(result.held).toEqual([
+      { index: 1, key: `heart_rate|band-1|${hourStart(1)}|v0`, v: 0, coverage_s: 3600, n: 240 },
+      { index: 2, key: `heart_rate|band-1|${hourStart(0)}|v0`, v: 0, coverage_s: 1500, n: 100 }
+    ]);
+    // First write wins: the re-post under the same key stored nothing.
+    const [first] = await sql<{ attrs: { n: number } }[]>`
+      SELECT attrs FROM activity_events WHERE event_key = ${`heart_rate|band-1|${hourStart(0)}|v0`}`;
+    expect(first!.attrs.n).toBe(100);
+  });
+
+  it("reports held only for physiology, not for another source's repeat", async () => {
+    await ingest([event("a")]);
+    expect(await ingest([event("a")])).toMatchObject({ alreadyHeld: 1, held: [] });
+  });
+
+  it("does not report a repeat inside one batch as held", async () => {
+    expect(await ingest([heart(0), heart(0)])).toMatchObject({ added: 1, alreadyHeld: 1, held: [] });
+  });
+
+  it("rejects a wrong key with the expected one, and stores nothing", async () => {
+    const result = await ingest([{ ...heart(0), id: "wrong" }]);
+    expect(result.added).toBe(0);
+    expect(result.rejected[0]!.reason).toContain(`send id "heart_rate|band-1|${hourStart(0)}|v0"`);
+    expect(await count()).toBe(0);
+  });
+
+  it("accepts a batch of about 1.5 MB of worst-case rows inside the request cap", async () => {
+    const rows = Array.from({ length: 400 }, (_, n) => {
+      const start = hourStart(n);
+      return {
+        id: `hrv|band-1|${start}|v0`,
+        source: "physiology",
+        kind: "hrv",
+        start,
+        attrs: {
+          device: "band-1",
+          route: "app",
+          v: 0,
+          collector_version: "1.2.3",
+          unit: "ms",
+          method: "rmssd",
+          step_s: 15,
+          values: Array.from({ length: 240 }, (_, i) => 40.5 + (i % 20) / 10),
+          flags: Array.from({ length: 240 }, () => null),
+          n: 240,
+          min: 40.5,
+          max: 42.4,
+          avg: 41.45,
+          coverage_s: 3600,
+          src_step_s: 15
+        }
+      };
+    });
+    const bytes = new TextEncoder().encode(JSON.stringify({ schema: 1, events: rows })).length;
+    expect(bytes).toBeGreaterThan(1_000_000);
+    expect(bytes).toBeLessThanOrEqual(1.5 * 1024 * 1024);
+    expect(await ingest(rows)).toMatchObject({ added: 400, rejected: [], held: [] });
+  });
+});
+
+describe("health-class sources withheld from a read", () => {
+  const steps = {
+    id: "steps|band-1|2026-11-01T00:00:00.000Z|v0",
+    source: "physiology",
+    kind: "steps",
+    start: "2026-11-01T00:00:00.000Z",
+    attrs: { device: "band-1", route: "app", v: 0, steps: 12 }
+  };
+  const health = ["apple-health", "iphone-health", "physiology"];
+
+  it("returns every source to a read that excludes nothing, with no withheld field", async () => {
+    await ingest([steps, event("a")]);
+    const page = await readActivityEvents(sql, {});
+    expect(page.events.map((row) => row.source).sort()).toEqual(["physiology", "rhen-watch"]);
+    expect(page).not.toHaveProperty("withheld");
+  });
+
+  it("leaves health sources out, names them and the missing scope, and still returns the rest", async () => {
+    await ingest([
+      steps,
+      event("a"),
+      { id: "ah", source: "apple-health", kind: "steps", start: "2026-11-01T01:00:00Z" },
+      { id: "ih", source: "iphone-health", kind: "steps_day", start: "2026-11-01T02:00:00Z" }
+    ]);
+    const page = await readActivityEvents(sql, { excludeSources: health });
+    expect(page.events.map((row) => row.source)).toEqual(["rhen-watch"]);
+    expect(page.withheld).toEqual(health);
+    expect(page.withheldNote).toContain("read:activity-health");
+  });
+
+  it("attaches the notice only when no source was named or the named one is withheld", async () => {
+    await ingest([steps, event("a")]);
+    const named = await readActivityEvents(sql, { source: "rhen-watch", excludeSources: health });
+    expect(named.events).toHaveLength(1);
+    expect(named).not.toHaveProperty("withheld");
+    expect(named).not.toHaveProperty("withheldNote");
+    expect(await readActivityEvents(sql, { excludeSources: health })).toHaveProperty("withheld");
+    expect(await readActivityEvents(sql, { source: "iphone-health", excludeSources: health })).toHaveProperty(
+      "withheld"
+    );
+  });
+
+  it("answers a read that names a withheld source with an empty page and the notice", async () => {
+    await ingest([steps]);
+    const page = await readActivityEvents(sql, { source: "physiology", kind: "steps", excludeSources: health });
+    expect(page.events).toEqual([]);
+    expect(page.withheld).toContain("physiology");
+    expect((await readActivityEvents(sql, { source: "physiology", kind: "steps" })).events).toHaveLength(1);
+  });
+});
+
+describe("a real database token reads health rows only with read:activity-health", () => {
+  const health = ["apple-health", "iphone-health", "physiology"];
+
+  /** Issues a token in the table, identifies a request with it the way the route wrapper does, and reads as that token. */
+  const readAs = async (scopes: string[], name: string) => {
+    const { token } = await createAgentToken(sql, { name, scopes, directWrites: {}, expiresInDays: 30 });
+    const identity = await identifyRequest(
+      new Request("http://portal.test/api/activity-events", { headers: { [AGENT_TOKEN_HEADER]: token } }),
+      "/api/activity-events",
+      undefined,
+      { ok: true, entries: [] },
+      "off",
+      { lookup: (hash) => findAgentTokenByHash(sql, hash), touch: () => {}, throttle: createFailureThrottle() }
+    );
+    expect(identity.principal?.source).toBe("db");
+    const held = identity.principal?.scopes;
+    return runWithActor(
+      identity.actor ?? null,
+      () => readActivityEvents(sql, { excludeSources: withheldActivitySources(requestScopes()) }),
+      undefined,
+      undefined,
+      held ?? []
+    );
+  };
+
+  it("withholds them from a read-only event token and returns them to one that also holds the health scope", async () => {
+    await ingest([
+      event("a"),
+      {
+        id: "steps|band-1|2026-11-01T00:00:00.000Z|v0",
+        source: "physiology",
+        kind: "steps",
+        start: "2026-11-01T00:00:00.000Z",
+        attrs: { device: "band-1", route: "app", v: 0, steps: 12 }
+      },
+      { id: "ah", source: "apple-health", kind: "steps", start: "2026-11-01T01:00:00Z" }
+    ]);
+    const plain = await readAs(["read:activity-event"], "plain");
+    expect(plain).toMatchObject({ withheld: health });
+    expect((await readAs(["read:activity-event"], "plain2")).events.map((row) => row.source)).toEqual(["rhen-watch"]);
+    const full = await readAs(["read:activity-event", "read:activity-health"], "full");
+    expect(full.events.map((row) => row.source).sort()).toEqual(["apple-health", "physiology", "rhen-watch"]);
+    expect(full).not.toHaveProperty("withheld");
   });
 });
