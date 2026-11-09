@@ -139,3 +139,14 @@ fn a_crash_or_panic_exits_non_zero() {
     assert_eq!(exit_code(&end_of_run(Some(Err("the hook thread ended".into())))), 1);
     assert_eq!(exit_code(&end_of_run(None)), 1);
 }
+
+#[test]
+fn not_starting_line_shows_only_for_a_stopped_agent_with_a_reason() {
+    assert_eq!(
+        not_starting_line(false, Some("bad config\n")).as_deref(),
+        Some("not starting: bad config")
+    );
+    assert_eq!(not_starting_line(true, Some("stale")), None);
+    assert_eq!(not_starting_line(false, None), None);
+    assert_eq!(not_starting_line(false, Some("  ")), None);
+}

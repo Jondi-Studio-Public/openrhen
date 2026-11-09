@@ -167,6 +167,12 @@ pub fn status_line(task_present: bool, reason: Option<&str>) -> String {
     }
 }
 
+/// The `not starting:` line of `status`: shown only while no agent is running and the last `run` left a reason.
+pub fn not_starting_line(agent_running: bool, reason: Option<&str>) -> Option<String> {
+    let reason = reason.map(str::trim).filter(|r| !r.is_empty())?;
+    (!agent_running).then(|| format!("not starting: {reason}"))
+}
+
 /// How a run ended. `loop_end` is the recording loop: `Some(Ok)` a requested stop (CLI `stop`, tray Quit,
 /// Ctrl+C or close, logoff, shutdown, `--for`), `Some(Err)` a failure, `None` a panic. The final
 /// close-and-write is not an input: a requested stop is honoured even if only that flush failed (the caller

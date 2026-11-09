@@ -32,7 +32,7 @@ pub fn export_db(db: &Path, dest: &Path) -> Result<u64, String> {
 }
 
 /// Everything rhen-watch keeps in its data folder, sidecar files before the database they belong to.
-const OWNED: [&str; 10] = [
+const OWNED: [&str; 11] = [
     "activity.db-wal",
     "activity.db-shm",
     "activity.db",
@@ -43,6 +43,7 @@ const OWNED: [&str; 10] = [
     "rhen-watch.log",
     "rhen-watch.log.1",
     "restart-reason.txt",
+    "not-starting.txt",
 ];
 
 /// Delete those files (stopping at the first one that cannot go, which is what a running agent causes) and, with

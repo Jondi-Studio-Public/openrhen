@@ -107,7 +107,7 @@ fn fill(dir: &std::path::Path, names: &[&str]) {
     }
 }
 
-const ALL: [&str; 11] = [
+const ALL: [&str; 12] = [
     "activity.db",
     "activity.db-wal",
     "activity.db-shm",
@@ -118,6 +118,7 @@ const ALL: [&str; 11] = [
     "rhen-watch.log",
     "rhen-watch.log.1",
     "restart-reason.txt",
+    "not-starting.txt",
     "unrelated.txt",
 ];
 

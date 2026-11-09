@@ -245,6 +245,10 @@ fn cmd_status() -> Result<(), String> {
     println!("data directory: {}", d.display());
     println!("agent: {}", if agent_running(&d) { "running" } else { "not running" });
     println!("{}", restart_status(&d));
+    let reason = std::fs::read_to_string(d.join(NOT_STARTING_FILE)).ok();
+    if let Some(line) = crate::restart::not_starting_line(agent_running(&d), reason.as_deref()) {
+        println!("{line}");
+    }
     let db = d.join("activity.db");
     if !db.exists() {
         println!("no database yet; run `rhen-watch run`");
@@ -276,6 +280,9 @@ fn restart_status(dir: &std::path::Path) -> String {
     let reason = reason.or(Some("Windows only"));
     crate::restart::status_line(present, reason)
 }
+
+/// Why the last `run` refused to start (a bad config). Cleared by the next successful start. Listed in `handover::OWNED`.
+const NOT_STARTING_FILE: &str = "not-starting.txt";
 
 /// Why `install` could not register the restart task (absent when it did). Listed in `handover::OWNED`.
 const REASON_FILE: &str = "restart-reason.txt";
@@ -464,6 +471,8 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
         Err(e) => {
             crate::log::warn(&format!("not starting: {e}"));
             eprintln!("rhen-watch: not starting: {e}");
+            // The tray build has no console, so leave the reason where `status` will show it.
+            let _ = std::fs::write(d.join(NOT_STARTING_FILE), &e);
             return Ok(());
         }
     };
@@ -486,6 +495,8 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
         Err(std::fs::TryLockError::Error(e)) => return Err(format!("cannot take the run lock: {e}")),
     }
 
+    // Past config and the lock: this start is real, so any earlier "not starting" reason is stale.
+    let _ = std::fs::remove_file(d.join(NOT_STARTING_FILE));
     let stop_event = win::StopEvent::create()?;
     win::install_ctrl_handler();
     win::set_data_dir(&d);
