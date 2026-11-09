@@ -20,6 +20,7 @@ import {
 import { EXTRACTORS } from "@/server/derived/extractor-registry";
 import { runtimeEnv } from "@/server/runtime-env";
 import { lockActivityUser } from "./activity-lock";
+import { recordRunThrottled } from "./run-log";
 import { purgeExpiredForUserTx } from "./activity-retention-store";
 import { deleteDerivedForSources } from "./derived-lineage-store";
 import { countRowsAfter, countRowsBefore, type Mark } from "./derived-scan-store";
@@ -94,127 +95,170 @@ export async function ingestActivityEvents(
   });
 
   const userId = await ensureUser(sql);
-  return sql.begin(async (tx) => {
-    let importId: string | null = null;
-    let importSource: string | null = null;
-    if (batch.importId !== undefined) {
-      const [owned] = await tx<{ id: string; source: string }[]>`
+  try {
+    const result = await ingestTransaction();
+    await noteIngestRejections(sql, batch, result.rejected, now);
+    return result;
+  } catch (error) {
+    // A refused batch (an import it does not own, say) rolled back, but the events judged bad before it were real.
+    await noteIngestRejections(sql, batch, rejected, now);
+    throw error;
+  }
+
+  function ingestTransaction(): Promise<ActivityIngestResult> {
+    return sql.begin(async (tx) => {
+      let importId: string | null = null;
+      let importSource: string | null = null;
+      if (batch.importId !== undefined) {
+        const [owned] = await tx<{ id: string; source: string }[]>`
         SELECT id, source FROM activity_imports WHERE id = ${batch.importId} AND user_id = ${userId}`;
-      if (!owned)
-        throw new ActivityInputError(
-          `importId ${batch.importId} is not an import you hold. Send the first batch of the file with "import": {"sha256", "filename"} and use the importId it returns.`,
-          404
-        );
-      importId = owned.id;
-      importSource = owned.source;
-    } else if (batch.import) {
-      const source = batch.import.source ?? judged[0]?.event.source;
-      if (source === undefined)
-        throw new ActivityInputError(
-          'import.source is needed because every event in this batch was rejected, so there is no event to take it from. Send "import": {"sha256", "filename", "source": "<source>"} and fix the events listed in `rejected`.'
-        );
-      if (!isKnownActivitySource(source))
-        throw new ActivityInputError(
-          `import.source "${source}" is not known. Use one of: ${ACTIVITY_SOURCE_NAMES.join(", ")}.`
-        );
-      const [created] = await tx<{ id: string }[]>`
+        if (!owned)
+          throw new ActivityInputError(
+            `importId ${batch.importId} is not an import you hold. Send the first batch of the file with "import": {"sha256", "filename"} and use the importId it returns.`,
+            404
+          );
+        importId = owned.id;
+        importSource = owned.source;
+      } else if (batch.import) {
+        const source = batch.import.source ?? judged[0]?.event.source;
+        if (source === undefined)
+          throw new ActivityInputError(
+            'import.source is needed because every event in this batch was rejected, so there is no event to take it from. Send "import": {"sha256", "filename", "source": "<source>"} and fix the events listed in `rejected`.'
+          );
+        if (!isKnownActivitySource(source))
+          throw new ActivityInputError(
+            `import.source "${source}" is not known. Use one of: ${ACTIVITY_SOURCE_NAMES.join(", ")}.`
+          );
+        const [created] = await tx<{ id: string }[]>`
         INSERT INTO activity_imports (user_id, source, filename, sha256)
         VALUES (${userId}, ${source}, ${batch.import.filename}, ${batch.import.sha256})
         ON CONFLICT (user_id, sha256) DO NOTHING
         RETURNING id`;
-      if (created) {
-        importId = created.id;
-        importSource = source;
-      } else {
-        // A concurrent or earlier first batch of the same file: join it, under the source it was started with.
-        const [existing] = await tx<{ id: string; source: string }[]>`
+        if (created) {
+          importId = created.id;
+          importSource = source;
+        } else {
+          // A concurrent or earlier first batch of the same file: join it, under the source it was started with.
+          const [existing] = await tx<{ id: string; source: string }[]>`
           SELECT id, source FROM activity_imports WHERE user_id = ${userId} AND sha256 = ${batch.import.sha256}`;
-        importId = existing!.id;
-        importSource = existing!.source;
+          importId = existing!.id;
+          importSource = existing!.source;
+        }
       }
-    }
 
-    // An import is one source: undoing it or purging that source must never reach another source's events.
-    const valid: ValidActivityEvent[] = [];
-    const seen = new Set<string>();
-    let duplicatesInBatch = 0;
-    for (const { index, event } of judged) {
-      if (importSource !== null && event.source !== importSource) {
-        rejected.push({
-          index,
-          reason: `source "${event.source}" does not match this import's source "${importSource}". Send one import per source.`
-        });
-        continue;
+      // An import is one source: undoing it or purging that source must never reach another source's events.
+      const valid: ValidActivityEvent[] = [];
+      const seen = new Set<string>();
+      let duplicatesInBatch = 0;
+      for (const { index, event } of judged) {
+        if (importSource !== null && event.source !== importSource) {
+          rejected.push({
+            index,
+            reason: `source "${event.source}" does not match this import's source "${importSource}". Send one import per source.`
+          });
+          continue;
+        }
+        const id = `${event.source}\u0000${event.key}`;
+        if (seen.has(id)) {
+          duplicatesInBatch += 1;
+          continue;
+        }
+        seen.add(id);
+        valid.push(event);
       }
-      const id = `${event.source}\u0000${event.key}`;
-      if (seen.has(id)) {
-        duplicatesInBatch += 1;
-        continue;
-      }
-      seen.add(id);
-      valid.push(event);
-    }
-    rejected.sort((x, y) => x.index - y.index);
+      rejected.sort((x, y) => x.index - y.index);
 
-    const sources = [...new Set(valid.map((event) => event.source))];
-    const states =
-      sources.length === 0
-        ? []
-        : await tx<SourceStateRow[]>`
+      const sources = [...new Set(valid.map((event) => event.source))];
+      const states =
+        sources.length === 0
+          ? []
+          : await tx<SourceStateRow[]>`
             SELECT source, content_enabled, retention_days FROM activity_source_state
             WHERE user_id = ${userId} AND source IN ${tx(sources)}`;
-    const gate = new Map(states.map((row) => [row.source, row.content_enabled]));
-    const defaultOn = activityContentDefault();
+      const gate = new Map(states.map((row) => [row.source, row.content_enabled]));
+      const defaultOn = activityContentDefault();
 
-    // An explicit file import (a batch that names an import) is the owner deliberately loading their own file, so
-    // its text is kept whatever the gate says. The gate governs continuous collectors. A source with no state row
-    // takes the server default; a saved row wins in both directions.
-    const fromImport = importId !== null;
-    let contentDropped = 0;
-    const rows = valid.map((event) => {
-      let content = event.content;
-      const open = fromImport || (gate.get(event.source) ?? defaultOn);
-      if (content !== null && !open) {
-        content = null;
-        contentDropped += 1;
-      }
-      return {
-        user_id: userId,
-        source: event.source,
-        kind: event.kind,
-        event_key: event.key,
-        device: batch.device ?? null,
-        ts_start: event.tsStart,
-        ts_end: event.tsEnd,
-        tz_offset_min: event.tzOffsetMin,
-        approximate: event.approximate,
-        attrs: tx.json(event.attrs as never),
-        content,
-        import_id: importId,
-        ingested_via: via
-      };
-    });
+      // An explicit file import (a batch that names an import) is the owner deliberately loading their own file, so
+      // its text is kept whatever the gate says. The gate governs continuous collectors. A source with no state row
+      // takes the server default; a saved row wins in both directions.
+      const fromImport = importId !== null;
+      let contentDropped = 0;
+      const rows = valid.map((event) => {
+        let content = event.content;
+        const open = fromImport || (gate.get(event.source) ?? defaultOn);
+        if (content !== null && !open) {
+          content = null;
+          contentDropped += 1;
+        }
+        return {
+          user_id: userId,
+          source: event.source,
+          kind: event.kind,
+          event_key: event.key,
+          device: batch.device ?? null,
+          ts_start: event.tsStart,
+          ts_end: event.tsEnd,
+          tz_offset_min: event.tzOffsetMin,
+          approximate: event.approximate,
+          attrs: tx.json(event.attrs as never),
+          content,
+          import_id: importId,
+          ingested_via: via
+        };
+      });
 
-    let added = 0;
-    for (let at = 0; at < rows.length; at += INSERT_CHUNK) {
-      const inserted = await tx<{ id: string }[]>`
+      let added = 0;
+      for (let at = 0; at < rows.length; at += INSERT_CHUNK) {
+        const inserted = await tx<{ id: string }[]>`
         INSERT INTO activity_events ${tx(rows.slice(at, at + INSERT_CHUNK))}
         ON CONFLICT (user_id, source, event_key) DO NOTHING
         RETURNING id`;
-      added += inserted.length;
-    }
-    if (importId !== null && added > 0)
-      await tx`UPDATE activity_imports SET event_count = event_count + ${added} WHERE id = ${importId}`;
-    return {
-      schema: ACTIVITY_SCHEMA_VERSION,
-      added,
-      alreadyHeld: valid.length - added + duplicatesInBatch,
-      contentDropped,
-      rejected,
-      importId,
-      ingestedVia: via
-    };
-  });
+        added += inserted.length;
+      }
+      if (importId !== null && added > 0)
+        await tx`UPDATE activity_imports SET event_count = event_count + ${added} WHERE id = ${importId}`;
+      return {
+        schema: ACTIVITY_SCHEMA_VERSION,
+        added,
+        alreadyHeld: valid.length - added + duplicatesInBatch,
+        contentDropped,
+        rejected,
+        importId,
+        ingestedVia: via
+      };
+    });
+  }
+}
+
+/**
+ * Leaves a `needs_review` run row (`ingest:<source>`, or `ingest:unknown`) when a batch had events rejected, so a
+ * collector that is posting only bad events shows up as a run and not as silence. At most one row per source per hour.
+ */
+async function noteIngestRejections(
+  sql: PoolSql,
+  batch: ActivityBatch,
+  rejected: readonly ActivityRejection[],
+  now: Date
+): Promise<void> {
+  if (rejected.length === 0) return;
+  const bySource = new Map<string, ActivityRejection[]>();
+  for (const rejection of rejected) {
+    const raw = (batch.events[rejection.index] as { source?: unknown } | null | undefined)?.source;
+    const source = typeof raw === "string" && isKnownActivitySource(raw) ? raw : "unknown";
+    bySource.set(source, [...(bySource.get(source) ?? []), rejection]);
+  }
+  for (const [source, items] of bySource)
+    await recordRunThrottled(
+      {
+        provider: `ingest:${source}`,
+        trigger: "scheduled",
+        status: "needs_review",
+        startedAt: now,
+        finishedAt: now,
+        summary: { rejected: items.length, firstReason: items[0]!.reason.slice(0, 300) }
+      },
+      { sql, now }
+    );
 }
 
 /** Whether a file with this sha256 is already held, and the import that holds it. */

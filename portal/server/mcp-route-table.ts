@@ -13,6 +13,7 @@ export const CORE_MCP_ROUTE_TABLE: Record<string, () => Promise<RouteModule>> = 
   "/api/activity-events/summary": () => import("@/app/api/activity-events/summary/route"),
   "/api/activity-imports": () => import("@/app/api/activity-imports/route"),
   "/api/activity-imports/[id]": () => import("@/app/api/activity-imports/[id]/route"),
+  "/api/activity-imports/runs": () => import("@/app/api/activity-imports/runs/route"),
   "/api/activity-sources/[source]": () => import("@/app/api/activity-sources/[source]/route"),
   "/api/activity-sources/[source]/events": () => import("@/app/api/activity-sources/[source]/events/route"),
   "/api/agent-changes": () => import("@/app/api/agent-changes/route"),

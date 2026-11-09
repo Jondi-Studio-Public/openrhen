@@ -80,6 +80,13 @@ export interface OwnerDeps {
   touch?: (id: string, kind: StoredOwnerCredential["kind"]) => Promise<boolean>;
   throttle?: FailureThrottle;
   now?: () => Date;
+  /**
+   * Told when a device route turned a caller away for want of a device token (`device-invalid`: a token that is not
+   * recognised; `device-anonymous`: none at all), so a handheld that keeps being refused is seen and not just quiet.
+   * Not told for a throttled address or under `shadow`. Its failure never changes the refusal. The default writes a
+   * `device:handheld` run row.
+   */
+  onDeviceRefused?: (reason: "device-invalid" | "device-anonymous") => void;
 }
 
 async function databaseLookup(hash: string): Promise<StoredOwnerCredential | null> {
@@ -217,6 +224,8 @@ export function vouchOwnerRequest(request: Request): void {
 
 export interface OwnerOutcome {
   refusal?: Response;
+  /** Set when the device token let this request in (a device route, no owner credential). */
+  device?: true;
   /** Set when a valid owner credential made this request: the person, whatever name it also declared. */
   owner?: { id: string; credential: StoredOwnerCredential["kind"]; via: "cookie" | "header" };
   /** The request carried a cookie that is no longer valid: clear it. */
@@ -229,6 +238,41 @@ export interface OwnerOutcome {
 
 const refuse = (status: number, error: string, headers?: Record<string, string>) =>
   Response.json({ error }, { status, ...(headers ? { headers } : {}) });
+
+const DEVICE_REFUSALS = new Set(["device-invalid", "device-anonymous"]);
+
+/** Reports a refused device route to the hook, or to the run log when none is given. Fire and forget: it cannot change the answer. */
+function tellDeviceRefused(refusal: Response, hook: OwnerDeps["onDeviceRefused"]): void {
+  const reason = refusal.headers.get("x-owner-reason");
+  if (reason === null || !DEVICE_REFUSALS.has(reason)) return;
+  const typed = reason as "device-invalid" | "device-anonymous";
+  try {
+    if (hook) hook(typed);
+    else
+      void import("./device/device-poll-log").then(
+        ({ recordDevicePoll }) => recordDevicePoll({ status: "failed", reason: typed }),
+        () => undefined
+      );
+  } catch {
+    // A hook that fails must not turn a refusal into an error.
+  }
+}
+
+/**
+ * The outcome `ownerGate` reached for a request, kept for the handler that serves it. Keyed by the `Request`, so
+ * only this process can set it: a handler asks `ownerOutcomeOf(request)`, which is empty for a request nobody gated.
+ */
+const outcomes = new WeakMap<Request, OwnerOutcome>();
+
+/** Remembers the outcome for this request (`withRoute` calls it once the gate has let the request through). */
+export function noteOwnerOutcome(request: Request, outcome: OwnerOutcome): void {
+  outcomes.set(request, outcome);
+}
+
+/** What `ownerGate` decided for this request, for a handler that needs to know how the caller got in. */
+export function ownerOutcomeOf(request: Request): OwnerOutcome | undefined {
+  return outcomes.get(request);
+}
 
 /**
  * The owner-auth decision for one request, after agent tokens were resolved. `agent` is the principal a valid
@@ -249,6 +293,7 @@ export async function ownerGate(input: {
   const method = request.method.toUpperCase();
   const write = !READ.has(method);
   const outcome = await decide();
+  if (mode === "require" && outcome.refusal) tellDeviceRefused(outcome.refusal, input.deps?.onDeviceRefused);
   if (mode === "shadow") {
     // Behave as off: only report what would have been refused.
     return outcome.refusal
@@ -283,7 +328,8 @@ export async function ownerGate(input: {
             "x-owner-reason": `${kind}-throttled`
           })
         };
-      if (kind === "worker" ? matchesWorker(presented) : matchesDevice(presented)) return {};
+      if (kind === "worker" ? matchesWorker(presented) : matchesDevice(presented))
+        return kind === "device" ? { device: true } : {};
       throttle.fail(address);
       return { refusal: refuse(401, `The ${kind} token is not recognised.`, { "x-owner-reason": `${kind}-invalid` }) };
     }

@@ -7,7 +7,10 @@ import {
   deviceETagMatches,
   readDeviceCheckIn
 } from "@/server/device/device-now";
+import { recordDevicePoll } from "@/server/device/device-poll-log";
 import { logDeviceShown } from "@/server/device/device-shown";
+import { DEVICE_HEADER } from "@openrhen/contracts";
+import { matchesDevice, ownerOutcomeOf } from "@/server/owner-auth";
 import { getCachedDeviceState, setCachedDeviceState } from "@/server/device/device-state-cache";
 import type { PortalState } from "@/state/portal-state";
 
@@ -28,6 +31,11 @@ import type { PortalState } from "@/state/portal-state";
 const HEADERS = { "Cache-Control": "no-store" } as const;
 
 export const GET = withRoute("/api/device/now", async (request) => {
+  // Every poll that got in is the handheld being seen, a 304 included. Off the response path, and never able to fail it.
+  // Owner auth `off` never reaches the device branch of the gate, so a correct token is checked here as well.
+  const presented = request.headers.get(DEVICE_HEADER)?.trim();
+  const viaToken = ownerOutcomeOf(request)?.device === true || (!!presented && matchesDevice(presented));
+  void recordDevicePoll({ status: "synced", auth: viaToken ? "device" : "anonymous" }).catch(() => undefined);
   let state = getCachedDeviceState();
   if (!state) {
     state = (await getStateStore().get()) as PortalState | null;

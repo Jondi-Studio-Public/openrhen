@@ -5,7 +5,7 @@ import { noteAgentCall } from "@/server/agent-activity";
 import { enforceAgentRequest } from "@/server/agent-enforcement";
 import { reentryGate } from "@/server/pulse/reentry-gate";
 import { identifyRequest } from "@/server/agent-tokens";
-import { cookieValue, ownerCookie, ownerGate } from "@/server/owner-auth";
+import { cookieValue, noteOwnerOutcome, ownerCookie, ownerGate } from "@/server/owner-auth";
 import { OWNER_COOKIE, type AgentCall } from "@openrhen/contracts";
 import { withServerCommit } from "@/server/build-commit";
 import {
@@ -415,6 +415,7 @@ export function withRoute<Context = unknown>(
       return identity.refusal;
     }
     const owner = await ownerGate({ request, route, agent: identity.principal });
+    noteOwnerOutcome(request, owner);
     if (owner.refusal) {
       log("info", "Portal request refused", line(owner.refusal.status, undefined, false));
       return owner.clearCookie ? withCookie(owner.refusal, ownerCookie(request, null)) : owner.refusal;
