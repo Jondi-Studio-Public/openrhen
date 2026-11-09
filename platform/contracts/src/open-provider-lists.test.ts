@@ -3,12 +3,28 @@ import { calendarSyncProviderSchema } from "./integrations/google-calendar.js";
 import { importBatchSchema, previewImportSchema } from "./imports.js";
 import { commitmentSourceSchema } from "./portal/state-schema.js";
 import { EXAMPLE_DAILY_SOURCE, EXAMPLE_INTERVAL_SOURCE } from "./connections/example-sources.js";
-import { intervalCalendarSourceIds } from "./connections/registry.js";
+import {
+  calendarSourceConnections,
+  defaultCalendarSyncProviderIds,
+  intervalCalendarSourceIds
+} from "./connections/registry.js";
 
 describe("open provider lists", () => {
-  it("keeps the interval-scheduled calendar sources, Google first", () => {
+  it("keeps the interval-scheduled calendar sources, in registry order, with the syncByDefault ones as the default list", () => {
     const ids = intervalCalendarSourceIds();
-    expect(ids[0]).toBe("google_calendar");
+    expect(ids).toEqual(
+      calendarSourceConnections()
+        .filter((m) => m.calendarSource?.schedule.kind === "interval")
+        .map((m) => m.id)
+    );
+    const defaults = defaultCalendarSyncProviderIds();
+    for (const id of defaults) expect(ids).toContain(id);
+    expect(defaults).toEqual(
+      calendarSourceConnections()
+        .filter((m) => m.calendarSource?.syncByDefault === true)
+        .map((m) => m.id)
+    );
+    expect(defaults).not.toContain(EXAMPLE_INTERVAL_SOURCE);
     expect(ids).toContain(EXAMPLE_INTERVAL_SOURCE);
     expect(ids).not.toContain(EXAMPLE_DAILY_SOURCE);
   });

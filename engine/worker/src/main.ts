@@ -128,8 +128,8 @@ const PLAN_MAP_SWEEP_RETRY_DELAY_MS = 30 * 60_000;
 
 /**
  * The calendar sync trigger: every `CALENDAR_SYNC_INTERVAL_MINUTES`
- * (default 60) the portal syncs each provider in `CALENDAR_SYNC_PROVIDERS` (default Google only; a provider
- * is added once its login is known to work). A provider that
+ * (default 60) the portal syncs each provider in `CALENDAR_SYNC_PROVIDERS` (default: the sources whose manifest sets
+ * `syncByDefault`; any other provider is added once its login is known to work). A provider that
  * failed to sign in is skipped until the next local day instead (or until a manual Sync now succeeds),
  * because hammering a bad login can lock the account. Reuses the `portalInternalUrl` binding above.
  */

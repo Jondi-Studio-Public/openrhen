@@ -16,7 +16,7 @@ import { PostgresImportStore } from "../import-store";
 import { NormalizedPostgresStateStore } from "../state-store";
 import { closeCommitmentAsSystem } from "../system-close";
 import { closingPlans, closingRecords } from "./agent-import-floor";
-import { toCalendarEvent } from "./calendar-profiles/google-event-fixtures";
+import { toCalendarEvent } from "./calendar-profiles/calendar-event-fixtures";
 
 /**
  * A calendar cancellation cancels the commitment instead of deleting it (archive-removals design section 7, PR 7a):

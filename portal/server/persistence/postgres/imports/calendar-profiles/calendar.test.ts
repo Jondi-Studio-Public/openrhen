@@ -9,7 +9,7 @@ import {
   googleSeriesDismissalId,
   type GoogleCalendarSource
 } from "./calendar";
-import { toCalendarEvent } from "./google-event-fixtures";
+import { toCalendarEvent } from "./calendar-event-fixtures";
 
 const CAL = "jon@example.com";
 

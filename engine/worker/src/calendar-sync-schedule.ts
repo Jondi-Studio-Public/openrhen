@@ -1,5 +1,6 @@
 import {
   calendarSourceConnections,
+  defaultCalendarSyncProviderIds,
   intervalCalendarSourceIds,
   type CalendarSyncProvider,
   type CalendarSyncResult
@@ -15,7 +16,6 @@ import { isSyncAttemptResult, zonedDateAndTime } from "./local-time.js";
  */
 
 export const CALENDAR_SYNC_PROVIDERS: readonly CalendarSyncProvider[] = intervalCalendarSourceIds();
-const DEFAULT_PROVIDERS: readonly CalendarSyncProvider[] = ["google_calendar"];
 /** The interval schedule the manifests declare (`minutesEnv`, `defaultMinutes`); every interval source shares one today. */
 const INTERVAL_SCHEDULE = (() => {
   for (const manifest of calendarSourceConnections()) {
@@ -30,11 +30,12 @@ export const CALENDAR_SYNC_NETWORK_RETRY_MS = 5 * 60_000;
 
 /**
  * The providers the worker syncs, from `CALENDAR_SYNC_PROVIDERS` (comma-separated). Unset or empty means
- * Google only: another source joins the list only once its login is known to work. Unknown names are ignored
+ * the sources whose manifest sets `syncByDefault` (none when no manifest does): any other source joins the list
+ * only once the setting names it. Unknown names are ignored
  * so a typo cannot start syncing something unintended.
  */
 export function parseCalendarSyncProviders(value: string | undefined): CalendarSyncProvider[] {
-  if (value === undefined || !value.trim()) return [...DEFAULT_PROVIDERS];
+  if (value === undefined || !value.trim()) return defaultCalendarSyncProviderIds();
   const requested = value
     .split(",")
     .map((name) => name.trim())
@@ -85,8 +86,8 @@ export const initialCalendarSyncState: CalendarSyncState = {
 };
 
 /**
- * Whether a run's outcome is a sign-in problem that hammering would only make worse. Google: a revoked or
- * expired grant, or no credential at all. A source whose manifest sets `anyFailure` can lock the account out when retried, so any
+ * Whether a run's outcome is a sign-in problem that hammering would only make worse: one of the reasons the
+ * source's manifest lists (say a revoked or expired grant), or no credential at all. A source whose manifest sets `anyFailure` can lock the account out when retried, so any
  * failed run of it counts.
  */
 export function isAuthFailure(provider: CalendarSyncProvider, result: CalendarSyncResult | null): boolean {

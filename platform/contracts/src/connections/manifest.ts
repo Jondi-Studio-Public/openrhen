@@ -18,6 +18,11 @@ export const calendarSourceSchema = z.object({
   relationshipPrefix: z.string().min(1).optional(),
   /** The operation name telemetry records for this source's event read; absent: `events`. Stored, so it never follows a rename. */
   readOperation: z.string().min(1).optional(),
+  /**
+   * The sync runs for this source when `CALENDAR_SYNC_PROVIDERS` is unset or blank. Absent or false: it runs only once
+   * the setting names it, which is right for any source whose login is not yet known to work or that needs a URL first.
+   */
+  syncByDefault: z.boolean().optional(),
   authFailure: z.object({ anyFailure: z.boolean(), reasons: z.array(connectionFailureReasonSchema) }),
   schedule: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("interval"), minutesEnv: envNameSchema, defaultMinutes: z.number().int().positive() }),

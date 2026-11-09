@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { GoogleCalendarEvent } from "@openrhen/contracts";
 import { calendarDiffRecords, profileFor, type CalendarDiffInput, type CalendarLinkRow } from "./calendar-diff";
-import { toCalendarEvent } from "./calendar-profiles/google-event-fixtures";
+import { toCalendarEvent } from "./calendar-profiles/calendar-event-fixtures";
 
 /**
  * What the diff does with a linked commitment the source's removal closed (archive-removals design section 7, PR 7a): an
