@@ -1,0 +1,27 @@
+{
+  "lane": "S",
+  "terms": {
+    "total": 67,
+    "files": {
+      "scripts/ops/takeout-download.ps1": 23,
+      "scripts/smoke/boot.mjs": 1,
+      "scripts/smoke/closed-flow.mjs": 9,
+      "scripts/smoke/recurrence-end-flow.mjs": 9,
+      "scripts/smoke/source-cancel-flow.mjs": 25
+    }
+  },
+  "agents": {
+    "total": 8,
+    "files": {
+      "scripts/ci/affected.mjs": 4,
+      "scripts/smoke/closed-flow.mjs": 3,
+      "scripts/smoke/seed-phase.test.mjs": 1
+    }
+  },
+  "paths": {
+    "total": 1,
+    "files": {
+      "scripts/ops/takeout-download.ps1": 1
+    }
+  }
+}

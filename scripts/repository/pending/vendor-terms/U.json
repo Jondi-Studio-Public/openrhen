@@ -1,0 +1,71 @@
+{
+  "lane": "U",
+  "terms": {
+    "total": 352,
+    "files": {
+      "portal/features/calendar-sync/calendar-review-count.test.tsx": 7,
+      "portal/features/calendar-sync/calendars-waiting.test.ts": 6,
+      "portal/features/calendar-sync/components/calendar-sync-row.test.tsx": 6,
+      "portal/features/calendar-sync/components/google-calendar-card.test.tsx": 21,
+      "portal/features/calendar-sync/components/google-calendar-card.tsx": 16,
+      "portal/features/calendar-sync/use-calendar-sync.ts": 1,
+      "portal/features/commitments/components/commitment-sources.test.tsx": 2,
+      "portal/features/commitments/contact-message.test.ts": 1,
+      "portal/features/commitments/contact-message.ts": 1,
+      "portal/features/connections/connection-extensions.ts": 1,
+      "portal/features/connections/connection-lapses.test.ts": 2,
+      "portal/features/connections/connection-replace.test.ts": 3,
+      "portal/features/connections/connection-summaries.test.ts": 50,
+      "portal/features/connections/connection-summaries.ts": 21,
+      "portal/features/connections/recorded-summaries.test.tsx": 4,
+      "portal/features/connections/use-connection-data.ts": 33,
+      "portal/features/imports/components/import-record-card.test.tsx": 2,
+      "portal/features/imports/import-batch-edits.test.ts": 10,
+      "portal/features/imports/import-batch-edits.ts": 3,
+      "portal/features/imports/import-queue.test.ts": 2,
+      "portal/features/imports/import-queue.ts": 2,
+      "portal/features/imports/import-validation.test.ts": 4,
+      "portal/features/imports/import-validation.ts": 1,
+      "portal/features/inbox/components/inbox-queue.test.tsx": 3,
+      "portal/features/inbox/components/queue-detail.test.tsx": 2,
+      "portal/features/inbox/plan-effect.test.ts": 1,
+      "portal/features/inbox/queue.test.ts": 16,
+      "portal/features/owner-auth/components/sign-in-required.test.tsx": 12,
+      "portal/features/review/components/watch-history-panel.test.tsx": 20,
+      "portal/features/review/components/watch-history-panel.tsx": 16,
+      "portal/features/review/watch-history-view.test.ts": 1,
+      "portal/features/review/watch-history-view.ts": 5,
+      "portal/features/settings/components/ai-model-section.test.tsx": 7,
+      "portal/features/settings/components/ai-model-section.tsx": 4,
+      "portal/features/settings/components/mail-understanding-section.test.tsx": 25,
+      "portal/features/settings/components/mail-understanding-section.tsx": 10,
+      "portal/features/settings/components/notifications-section.test.tsx": 2,
+      "portal/features/settings/components/secrets-section.test.tsx": 28,
+      "portal/state/portal-provider.tsx": 1
+    }
+  },
+  "agents": {
+    "total": 30,
+    "files": {
+      "portal/features/commitments/components/commitment-provenance-footer.test.tsx": 3,
+      "portal/features/commitments/use-record-writers.test.ts": 4,
+      "portal/features/deliverables/components/chat-panel.test.tsx": 5,
+      "portal/features/deliverables/components/handed-off-overview.test.tsx": 10,
+      "portal/features/review/components/agent-changes-panel.test.tsx": 5,
+      "portal/features/review/components/agent-time-line.test.tsx": 3
+    }
+  },
+  "paths": {
+    "total": 2,
+    "files": {
+      "portal/features/calendar-sync/components/google-calendar-card.test.tsx": 1,
+      "portal/features/calendar-sync/components/google-calendar-card.tsx": 1
+    }
+  },
+  "defaults": {
+    "total": 1,
+    "files": {
+      "portal/features/settings/components/mail-understanding-section.tsx": 1
+    }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "lane": "other",
+  "terms": {
+    "total": 1,
+    "files": {
+      "portal/shared/sse.ts": 1
+    }
+  },
+  "agents": {
+    "total": 83,
+    "files": {
+      "integrations/openclaw-plugin/README.md": 31,
+      "integrations/openclaw-plugin/agent-time.js": 1,
+      "integrations/openclaw-plugin/agent-time.test.js": 3,
+      "integrations/openclaw-plugin/index.js": 6,
+      "integrations/openclaw-plugin/openclaw.plugin.json": 2,
+      "integrations/openclaw-plugin/pack.mjs": 7,
+      "integrations/openclaw-plugin/pack.test.js": 12,
+      "integrations/openclaw-plugin/package.json": 4,
+      "integrations/openclaw-plugin/skills/openrhen-catch-up/SKILL.md": 1,
+      "integrations/openclaw-plugin/skills/openrhen-concepts/SKILL.md": 1,
+      "integrations/openclaw-plugin/skills/openrhen-deliverables/SKILL.md": 1,
+      "integrations/openclaw-plugin/skills/openrhen-inbox/SKILL.md": 1,
+      "integrations/openclaw-plugin/skills/openrhen-sessions/SKILL.md": 1,
+      "integrations/openclaw-plugin/skills/openrhen-sleep/SKILL.md": 1,
+      "integrations/openclaw-plugin/skills/openrhen-writing/SKILL.md": 1,
+      "integrations/openclaw-plugin/skills/openrhen/SKILL.md": 3,
+      "integrations/openclaw-plugin/stamp-url.mjs": 2,
+      "integrations/openclaw-plugin/stamp-url.test.js": 1,
+      "platform/database/src/offer-log/offer-log.integration.test.ts": 2,
+      "scripts/docs/check.mjs": 2
+    }
+  }
+}
