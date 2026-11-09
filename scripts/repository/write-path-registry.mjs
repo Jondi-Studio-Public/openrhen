@@ -326,6 +326,11 @@ const CORE_WRITERS = {
     class: "write-back",
     reason: "Write-back callee of persistDerivedState; never logs or enqueues (invariant 3)."
   },
+  "platform/database/src/consequence/refit.ts": {
+    class: "write-back",
+    reason:
+      "refitConsequence writes the comparison-derived consequence_refined* columns back into projects and actions (a cache of the comparison log); it builds the table name at runtime, so the text guard cannot see it. It never logs or enqueues itself: the comparison write, the replace and import commits and the plan run that call it carry their own recalculation (invariant 3)."
+  },
   "platform/database/src/planning/completion-ratios.ts": {
     class: "write-back",
     reason: "deriveProjectPace writes engine output back into projects; never logs or enqueues (invariant 3)."
