@@ -1,5 +1,3 @@
-import { Table, getTableName, is } from "drizzle-orm";
-import * as schema from "@openrhen/database/schema";
 import {
   buildDataFlowView,
   dataFlowRegistry,
@@ -9,19 +7,18 @@ import {
 import { log } from "@/server/logging";
 import type { Sql } from "@/server/persistence/postgres/sql-pool";
 import { readHealth } from "./health-reader";
+import { SCHEMA_TABLES } from "./schema-tables";
 
 export type { DataFlowHealth, DataFlowResponse };
 
 /** The body of `GET /api/data-flow`: the static graph plus what each node is doing now. Read-only. */
-
-const TABLES = Object.values(schema).flatMap((value) => (is(value, Table) ? [getTableName(value)] : []));
 
 /** `never` is the count of sources not set up yet (no row, run or token), not a fault. */
 const COUNTED = ["late", "stale", "failing", "never", "probe_unresolved"] as const;
 
 export async function readDataFlow(sql: Sql, now: Date = new Date()): Promise<DataFlowResponse> {
   const registry = dataFlowRegistry();
-  const view = buildDataFlowView(TABLES, registry);
+  const view = buildDataFlowView(SCHEMA_TABLES, registry);
   let health: DataFlowHealth;
   const startedAt = Date.now();
   try {
