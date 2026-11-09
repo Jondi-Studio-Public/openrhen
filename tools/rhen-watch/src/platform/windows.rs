@@ -436,7 +436,12 @@ unsafe fn show_menu(hwnd: HWND) {
                 if let Some(dir) = DATA_DIR.get() {
                     let path = String::from_utf16_lossy(&dir[..dir.len().saturating_sub(1)]);
                     if let Ok(explorer) = system_path("explorer.exe", true) {
-                        let _ = std::process::Command::new(explorer).arg(path).spawn();
+                        let _ = std::process::Command::new(explorer)
+                            .arg(path)
+                            .stdin(std::process::Stdio::null())
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
+                            .spawn();
                     }
                 }
             }
@@ -880,6 +885,81 @@ pub fn restrict_dir(dir: &std::path::Path) -> Result<(), String> {
     } else {
         Err(format!("icacls failed: {}", String::from_utf8_lossy(&out.stdout)))
     }
+}
+
+// ---- restart on crash: the per-user Scheduled Task ----
+
+/// Run `schtasks.exe` with no window. Returns its exit code and its combined output.
+fn schtasks(args: &[String]) -> Result<(i32, String), String> {
+    use std::os::windows::process::CommandExt;
+    let out = std::process::Command::new(system_path("schtasks.exe", false)?)
+        .creation_flags(CREATE_NO_WINDOW)
+        .args(args)
+        .output()
+        .map_err(|e| format!("schtasks: {e}"))?;
+    let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
+    text.push_str(&String::from_utf8_lossy(&out.stderr));
+    Ok((out.status.code().unwrap_or(-1), text))
+}
+
+/// Register (or replace) one task for the current user. Needs no admin rights.
+fn register_one(name: &str, kind: crate::restart::TaskKind, command: &std::path::Path) -> Result<(), String> {
+    let sid = current_sid()?;
+    let xml = crate::restart::task_xml(&sid, &command.to_string_lossy(), kind);
+    let file = std::env::temp_dir().join(format!("rhen-watch-task-{}-{name}.xml", std::process::id()));
+    std::fs::write(&file, crate::restart::task_file_bytes(&xml)).map_err(|e| format!("cannot write the task file: {e}"))?;
+    let result = schtasks(&crate::restart::create_args(name, &file.to_string_lossy()));
+    let _ = std::fs::remove_file(&file);
+    match result? {
+        (0, _) => Ok(()),
+        (code, text) => Err(crate::restart::create_failure(code, &text)),
+    }
+}
+
+/// Register (or replace) both tasks: the logon start and the keep-alive. If the second fails the first is removed,
+/// so there is never half of the pair.
+pub fn register_task(command: &std::path::Path) -> Result<(), String> {
+    use crate::restart::{KEEPALIVE_TASK_NAME, TASK_NAME, TaskKind};
+    register_one(TASK_NAME, TaskKind::Logon, command)?;
+    if let Err(e) = register_one(KEEPALIVE_TASK_NAME, TaskKind::Keepalive, command) {
+        let _ = delete_task();
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// Start the registered task now (the agent it launches is the one the task will restart).
+pub fn run_task() -> Result<(), String> {
+    match schtasks(&crate::restart::run_args())? {
+        (0, _) => Ok(()),
+        (code, text) => Err(format!("schtasks /Run failed (exit {code}): {}", text.trim())),
+    }
+}
+
+/// True when both tasks are registered.
+pub fn task_present() -> bool {
+    use crate::restart::{KEEPALIVE_TASK_NAME, TASK_NAME};
+    [TASK_NAME, KEEPALIVE_TASK_NAME]
+        .iter()
+        .all(|n| matches!(schtasks(&crate::restart::query_args(n)), Ok((0, _))))
+}
+
+/// Remove both tasks. Neither being registered is not an error.
+pub fn delete_task() -> Result<(), String> {
+    use crate::restart::{KEEPALIVE_TASK_NAME, TASK_NAME};
+    let mut first_error = None;
+    for name in [TASK_NAME, KEEPALIVE_TASK_NAME] {
+        let (code, _) = schtasks(&crate::restart::delete_args(name))?;
+        let after = if code == 0 {
+            None
+        } else {
+            schtasks(&crate::restart::query_args(name)).ok().map(|(c, _)| c)
+        };
+        if let Err(e) = crate::restart::classify_delete(code, after) {
+            first_error.get_or_insert(e);
+        }
+    }
+    first_error.map_or(Ok(()), Err)
 }
 
 // ---- start at logon ----

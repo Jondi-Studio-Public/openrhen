@@ -134,6 +134,11 @@ fn a_failed_run_gets_a_message_box_but_a_duplicate_start_does_not() {
         Some("rhen-watch stopped")
     );
     assert_eq!(cli::error_box_title(&run, false, cli::ALREADY_RUNNING), None);
+    assert_eq!(
+        cli::error_box_title(&run, false, &format!("{}boom", cli::REPEATED_REFUSAL)),
+        None,
+        "a repeated refusal is logged, not shown again"
+    );
     assert_eq!(cli::error_box_title(&run, true, cli::ALREADY_RUNNING), None);
     assert_eq!(cli::error_box_title(&["status".to_string()], false, "boom"), None);
     assert_eq!(cli::error_box_title(&[], false, "boom"), None);
@@ -164,6 +169,17 @@ fn only_a_held_lock_reads_as_a_duplicate_start() {
     assert!(msg.contains("access is denied") && msg.contains("run.lock"), "{msg}");
     let run = vec!["run".to_string()];
     assert!(cli::error_box_title(&run, false, &msg).is_some(), "a real lock error shows the box");
+}
+
+#[test]
+fn a_duplicate_start_is_not_a_refusal() {
+    assert_eq!(cli::duplicate_start(true, cli::ALREADY_RUNNING), Some(Ok(())));
+    assert_eq!(
+        cli::duplicate_start(false, cli::ALREADY_RUNNING),
+        Some(Err(cli::ALREADY_RUNNING.to_string()))
+    );
+    assert_eq!(cli::duplicate_start(false, "run.lock: access is denied"), None);
+    assert_eq!(cli::duplicate_start(true, "run.lock: access is denied"), None);
 }
 
 #[test]
