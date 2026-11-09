@@ -1,0 +1,18 @@
+{
+  "lane": "H",
+  "sites": {
+    "total": 18,
+    "files": {
+      "portal/app/api/connections/status/route.ts": 2,
+      "portal/app/connections/page.tsx": 1,
+      "portal/server/connections/route-handlers.ts": 1,
+      "portal/server/persistence/postgres/calendar-source-selections.ts": 1,
+      "portal/server/persistence/postgres/commitment-source-commands.ts": 1,
+      "portal/server/persistence/postgres/import-store.ts": 2,
+      "portal/server/persistence/postgres/imports/calendar-profiles/calendar.ts": 4,
+      "portal/server/persistence/postgres/imports/commit-records.ts": 4,
+      "portal/server/persistence/postgres/open-facts-store.ts": 1,
+      "portal/server/telemetry/google-travel-probe.ts": 1
+    }
+  }
+}

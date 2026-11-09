@@ -58,6 +58,8 @@ function build() {
         this.#frozen = true;
       };
       this.entries = () => Object.freeze([...records.values()].map((record) => ({ ...record })));
+      // The instance is fixed once built, so a caller cannot swap register or freeze for its own.
+      Object.freeze(this);
     }
   }
 
