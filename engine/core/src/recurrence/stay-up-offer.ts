@@ -57,12 +57,9 @@ export function computeStayUpOffer(args: {
   );
   if (!behindForecasts.length) return undefined;
 
+  // An allow-list, as the scorer uses: a deny-list let "cancelled" through.
   const isReady = (action: Action) =>
-    action.status !== "blocked" &&
-    action.status !== "waiting" &&
-    action.status !== "done" &&
-    action.status !== "archived" &&
-    action.status !== "inbox" &&
+    (action.status === "planned" || action.status === "active" || action.status === "doing") &&
     action.dependenciesComplete;
 
   // Condition 4: that project's top work (earliest latest-safe-start, an unplaced unit counting as
