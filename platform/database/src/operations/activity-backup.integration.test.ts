@@ -88,11 +88,11 @@ const seedRows = async (rows: number, importId: string | null = null) =>
       FROM generate_series(1, ${rows}::int) g`;
 
 describe("the activity store in the backup", () => {
-  it("is covered by the backup lists, with imports before events and lineage after them, and at format 24", async () => {
+  it("is covered by the backup lists, with imports before events and lineage after them, and at format 25", async () => {
     for (const table of TABLES) expect(BACKUP_TABLES).toContain(table);
     expect(BACKUP_TABLES.indexOf("activity_imports")).toBeLessThan(BACKUP_TABLES.indexOf("activity_events"));
     expect(BACKUP_TABLES.indexOf("activity_events")).toBeLessThan(BACKUP_TABLES.indexOf("derived_lineage"));
-    expect(CURRENT_BACKUP_FORMAT_VERSION).toBe(24);
+    expect(CURRENT_BACKUP_FORMAT_VERSION).toBe(25);
     await expect(assertBackupCoverage(sql)).resolves.toBeUndefined();
   });
 
@@ -121,7 +121,7 @@ describe("the activity store in the backup", () => {
     expect(written.sections[0]).toMatchObject({ table: "activity_events", rows: 2 });
     expect((await readdir(dir)).sort()).toEqual([written.path.split("/").at(-1), written.sections[0]!.file].sort());
     const backup = validateBackup(JSON.parse(await readFile(written.path, "utf8")));
-    expect(backup.formatVersion).toBe(24);
+    expect(backup.formatVersion).toBe(25);
     expect(backup.tables.activity_events).toEqual([]);
     expect(backup.tables.activity_imports).toHaveLength(1);
     expect(backup.streamed!.activity_events).toMatchObject({ rows: 2, sha256: written.sections[0]!.sha256 });

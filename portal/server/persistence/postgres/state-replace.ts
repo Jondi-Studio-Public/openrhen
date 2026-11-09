@@ -1,6 +1,7 @@
 import { normalizePortalState, type PortalState, type StoredArea, type StoredOutcome } from "@/state/portal-state";
 import { historyWindowStart } from "@/shared/history-window";
 import { requiredLocale, requiredTimeZone, stableUuid } from "./command-values";
+import { refitConsequenceNow } from "@openrhen/database";
 import { pgNameArray } from "./assumed-fields";
 import { writeDeliverableAggregate } from "./deliverable-write";
 import { deletePrerequisitesUnderProjects, replacePrerequisites } from "./prerequisites";
@@ -28,6 +29,9 @@ import type { Sql } from "./sql-pool";
  * its live `action_id`/`occurrence_id` link — those columns are severed just after the delete, before
  * the unconditional action rewrite below can cascade through them — but keeps its own title, dates and
  * outcome, which is everything `/history` renders.
+ *
+ * Comparison-derived consequence (`consequence_refined*`) is not carried either, in or out: it is recomputed from the
+ * comparison log in the same transaction (`consequence/refit.ts`), and the log tables are not touched by a replace.
  *
  * What it silently does not carry, so a document put through it comes back missing them:
  * `action_preferences`, `action_recurrence_rules` and their windows, `action_occurrences`,
@@ -416,6 +420,11 @@ export async function replaceState(sql: Sql, userId: string, input: PortalState)
     }
   }
   await restoreClosedStamps(sql, closedStamps);
+  // The rows above were deleted and written again with no comparison-derived consequence (the document does not carry
+  // it, and a carried value is not trusted), but the comparison log lives apart from them with no foreign key to them
+  // and so survived. Refit from it in this same transaction, so the replace never leaves a gap in which ranking falls
+  // back to stars. A failed refit leaves the new rows on stars and cannot fail the replace.
+  await refitConsequenceNow(sql, userId);
 }
 
 const STAMPED_TABLES = {
