@@ -137,6 +137,8 @@ export function suspendContractsExtensions(): () => void {
   const held = [...extensions];
   extensions.clear();
   return () => {
+    // Whatever was registered meanwhile (a test's fixture) goes too, so the registry is exactly as it was.
+    extensions.clear();
     for (const [id, extension] of held) extensions.set(id, extension);
   };
 }
