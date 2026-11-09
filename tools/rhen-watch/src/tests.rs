@@ -899,7 +899,7 @@ fn a_failed_metrics_write_is_retried_next_tick_and_never_ends_the_agent() {
 }
 
 #[test]
-fn a_failed_daily_purge_is_retried_next_tick_and_never_ends_the_agent() {
+fn a_failed_daily_purge_is_retried_after_a_minute_and_never_ends_the_agent() {
     let day = 86_400_000i64;
     let now = Rc::new(Cell::new(200 * day + 1000));
     let mut store = Store::in_memory().unwrap();
@@ -920,13 +920,82 @@ fn a_failed_daily_purge_is_retried_next_tick_and_never_ends_the_agent() {
     let cfg = Config::parse("[retention]\nevents = 30\n").unwrap();
     let mut r = fake(&now, cfg, store);
     r.tick().unwrap();
-    now.set(now.get() + 1000);
+    now.set(now.get() + 60_000);
     r.tick().unwrap();
     assert_eq!(r.store().events_between(0, 100).unwrap().len(), 1, "still failing, row kept");
     assert_eq!(r.state(), "degraded");
-    now.set(now.get() + 1000);
+    now.set(now.get() + 60_000);
     r.tick().unwrap();
     assert_eq!(r.store().events_between(0, 100).unwrap().len(), 0, "purged on the retry");
     assert_eq!(r.state(), "recording");
     assert_eq!(r.warnings(), 1);
+}
+
+/// A real file with another connection holding the write lock, as a backup tool or a second reader would.
+fn locked_db(name: &str) -> (std::path::PathBuf, rusqlite::Connection, Store) {
+    let dir = std::env::temp_dir().join(format!("rhen-watch-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("busy.db");
+    let store = Store::open(&path).unwrap();
+    let other = rusqlite::Connection::open(&path).unwrap();
+    other.execute_batch("BEGIN IMMEDIATE").unwrap();
+    (dir, other, store)
+}
+
+#[test]
+fn a_busy_database_does_not_stall_best_effort_work_for_the_full_timeout() {
+    use std::time::{Duration, Instant};
+    let (dir, other, store) = locked_db("busy-best-effort");
+    let row = crate::store::MetricRow::default();
+    let t = Instant::now();
+    assert!(store.best_effort(|s| s.put_metric(&row)).is_err());
+    assert!(store.best_effort(|s| s.purge_events_before(1)).is_err());
+    assert!(t.elapsed() < Duration::from_secs(2), "took {:?}", t.elapsed());
+    // Outside best-effort work the long wait is back: the lock below is released after 1 s, so it succeeds.
+    let release = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(1));
+        drop(other);
+    });
+    assert!(store.put_metric(&row).is_ok(), "event writes still wait out a short lock");
+    release.join().unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_failing_purge_is_not_retried_every_tick() {
+    let day = 86_400_000i64;
+    let now = Rc::new(Cell::new(200 * day + 1000));
+    let store = Store::in_memory().unwrap();
+    store.fail_purge_next.set(10_000);
+    let cfg = Config::parse("[retention]\nevents = 30\n").unwrap();
+    let mut r = fake(&now, cfg, store);
+    for _ in 0..30 {
+        r.tick().unwrap();
+        now.set(now.get() + 1000);
+    }
+    assert_eq!(10_000 - r.store().fail_purge_next.get(), 1, "one attempt in the first 30 s");
+    for _ in 0..60 {
+        r.tick().unwrap();
+        now.set(now.get() + 1000);
+    }
+    assert_eq!(10_000 - r.store().fail_purge_next.get(), 2, "the next attempt waits a minute");
+}
+
+#[test]
+fn metrics_and_purge_failures_never_reach_the_give_up_limit() {
+    let day = 86_400_000i64;
+    let now = Rc::new(Cell::new(200 * day + 1000));
+    let store = Store::in_memory().unwrap();
+    store.fail_metric_next.set(100_000);
+    store.fail_purge_next.set(100_000);
+    let cfg = Config::parse("[retention]\nevents = 30\n").unwrap();
+    let mut r = fake(&now, cfg, store);
+    r.start().unwrap();
+    for _ in 0..300 {
+        now.set(now.get() + 1000);
+        r.tick().expect("a metrics or purge failure must never end the agent");
+    }
+    assert_eq!(r.state(), "degraded");
+    assert!(r.store().fail_metric_next.get() < 100_000 - 60, "metrics were retried");
 }

@@ -60,12 +60,16 @@ pub struct Runner<S: Sys> {
     idle_unavailable: bool,
     metric_failing: bool,
     purge_failing: bool,
+    /// When the last purge attempt failed; the next one waits `PURGE_RETRY_MS`.
+    purge_failed_at: Option<Ms>,
     /// Warnings logged for a metrics or purge failure spell (one per spell).
     warnings: u32,
 }
 
 /// Consecutive failed writes (about one per second) before the agent gives up.
 const MAX_FAILURES: u32 = 60;
+/// A failed daily purge (a full disk, say) is not re-run every tick: a DELETE that fails is not free.
+const PURGE_RETRY_MS: Ms = 60_000;
 const MAX_PENDING: usize = 20_000;
 
 impl<S: Sys> Runner<S> {
@@ -92,6 +96,7 @@ impl<S: Sys> Runner<S> {
             idle_unavailable: false,
             metric_failing: false,
             purge_failing: false,
+            purge_failed_at: None,
             warnings: 0,
         }
     }
@@ -311,20 +316,27 @@ impl<S: Sys> Runner<S> {
         if day == self.last_purge_day {
             return Ok(());
         }
-        // A failed purge leaves `last_purge_day` alone, so the next tick tries again.
-        match crate::retention::purge(&self.store, &self.cfg, now) {
+        // A failed purge leaves `last_purge_day` alone, so it is tried again after `PURGE_RETRY_MS`. A clock
+        // stepped back counts as due.
+        if self.purge_failed_at.is_some_and(|t| (0..PURGE_RETRY_MS).contains(&(now - t))) {
+            return Ok(());
+        }
+        let cfg = &self.cfg;
+        match self.store.best_effort(|s| crate::retention::purge(s, cfg, now)) {
             Ok((events, metrics, buckets)) => {
                 self.last_purge_day = day;
                 self.purge_failing = false;
+                self.purge_failed_at = None;
                 if events + metrics + buckets > 0 {
                     let _ = self.store.checkpoint();
                 }
             }
             Err(e) => {
+                self.purge_failed_at = Some(now);
                 if !self.purge_failing {
                     self.purge_failing = true;
                     self.warnings += 1;
-                    crate::log::warn(&format!("the daily purge failed ({e}); it will be retried every second"));
+                    crate::log::warn(&format!("the daily purge failed ({e}); it will be retried every minute"));
                 }
             }
         }
@@ -347,7 +359,7 @@ impl<S: Sys> Runner<S> {
         };
         // Best effort: a busy or full database must not end the agent. The counters stay, so the row is
         // written on a later tick; `metric_minute` only moves once it is stored.
-        if let Err(e) = self.store.put_metric(&row) {
+        if let Err(e) = self.store.best_effort(|s| s.put_metric(&row)) {
             if !self.metric_failing {
                 self.metric_failing = true;
                 self.warnings += 1;

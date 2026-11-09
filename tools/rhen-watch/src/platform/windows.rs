@@ -737,18 +737,18 @@ pub fn is_elevated() -> bool {
     }
 }
 
-/// Show an error in a plain message box that does not take focus (`MB_NOFOCUS`, and no foreground or topmost
-/// flag), so it does not interrupt what the user is typing. It may open behind other windows; the taskbar
-/// button flashes.
+/// How long the no-console build leaves an error box up before it gives up and exits.
+const MESSAGE_BOX_SECS: u64 = 60;
+
+/// Show an error in a plain message box (documented flags only; no foreground or topmost flag, so it should
+/// not grab the keyboard, but whether it interrupts typing has not been checked on a real PC). By the time
+/// this runs the run lock is free, so a new agent can start; the box closes itself after `MESSAGE_BOX_SECS`
+/// so an unattended one cannot keep the program file locked for an install, and the error stays in the log.
 pub fn message_box(title: &str, text: &str) {
-    unsafe {
-        MessageBoxW(
-            null_mut(),
-            wide(text).as_ptr(),
-            wide(title).as_ptr(),
-            MB_OK | MB_ICONERROR | MB_NOFOCUS,
-        )
-    };
+    let (title, text) = (wide(title), wide(text));
+    crate::cli::wait_at_most(std::time::Duration::from_secs(MESSAGE_BOX_SECS), move || unsafe {
+        MessageBoxW(null_mut(), text.as_ptr(), title.as_ptr(), MB_OK | MB_ICONERROR);
+    });
 }
 
 /// Minutes east of UTC right now.

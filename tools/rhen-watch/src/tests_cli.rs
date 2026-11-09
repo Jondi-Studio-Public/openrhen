@@ -60,18 +60,39 @@ fn config_show_prints_the_settings_error_instead_of_failing() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A file written the way a schema-1 build wrote it: no offset columns, version 1, no WAL.
+fn write_schema_1_db(path: &std::path::Path) {
+    let conn = rusqlite::Connection::open(path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+         CREATE TABLE events (id TEXT PRIMARY KEY, device TEXT NOT NULL, ts_start INTEGER NOT NULL,
+           ts_end INTEGER NOT NULL, source TEXT NOT NULL, kind TEXT NOT NULL, attrs TEXT NOT NULL DEFAULT '{}');
+         CREATE TABLE metrics (minute_ts INTEGER PRIMARY KEY, cpu_ms INTEGER NOT NULL, rss_bytes INTEGER NOT NULL,
+           db_bytes INTEGER NOT NULL, events INTEGER NOT NULL, dropped INTEGER NOT NULL);
+         CREATE TABLE input_buckets (minute_ts INTEGER NOT NULL, exe TEXT NOT NULL, run INTEGER NOT NULL,
+           observed_ms INTEGER NOT NULL, input_ms INTEGER NOT NULL, PRIMARY KEY (minute_ts, exe, run)) WITHOUT ROWID;
+         INSERT INTO meta VALUES ('schema_version', '1');
+         INSERT INTO events (id, device, ts_start, ts_end, source, kind) VALUES ('e1', 'd', 1000, 2000, 'agent', 'start');",
+    )
+    .unwrap();
+}
+
 #[test]
-fn status_leaves_a_schema_1_database_alone_and_shows_its_version() {
+fn status_leaves_a_real_schema_1_database_alone_and_shows_its_version() {
     let dir = temp("status-v1");
     let db = dir.join("activity.db");
-    {
-        let s = Store::open(&db).unwrap();
-        s.set_meta("schema_version", "1").unwrap();
-    }
+    write_schema_1_db(&db);
+    let before = std::fs::read(&db).unwrap();
     let text = cli::status_text(&dir).unwrap();
     assert!(text.contains("schema version: 1"), "{text}");
+    assert!(text.contains("1 events"), "{text}");
+    assert_eq!(std::fs::read(&db).unwrap(), before, "status must not touch the file");
     let s = Store::open_read_only(&db).unwrap();
     assert_eq!(s.schema_version().unwrap(), Some(1), "status must not migrate");
+    drop(s);
+    // The agent's own open does migrate it.
+    let s = Store::open(&db).unwrap();
+    assert_eq!(s.schema_version().unwrap(), Some(2));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -131,4 +152,34 @@ fn status_prints_the_settings_lines_before_a_database_error() {
     assert!(result.is_err());
     assert!(out.contains("settings: ok") && out.contains("agent:"), "{out}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn only_a_held_lock_reads_as_a_duplicate_start() {
+    let held = std::fs::TryLockError::WouldBlock;
+    assert_eq!(cli::lock_error(held), cli::ALREADY_RUNNING);
+    let io = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "access is denied");
+    let msg = cli::lock_error(std::fs::TryLockError::Error(io));
+    assert_ne!(msg, cli::ALREADY_RUNNING);
+    assert!(msg.contains("access is denied") && msg.contains("run.lock"), "{msg}");
+    let run = vec!["run".to_string()];
+    assert!(cli::error_box_title(&run, false, &msg).is_some(), "a real lock error shows the box");
+}
+
+#[test]
+fn a_panic_outside_the_recording_loop_becomes_an_error() {
+    let r = cli::guarded(|| -> Result<(), String> { panic!("store open blew up") });
+    let e = r.unwrap_err();
+    assert!(e.contains("internal error") && e.contains("rhen-watch.log"), "{e}");
+    assert_eq!(cli::guarded(|| Ok(())), Ok(()));
+    assert_eq!(cli::guarded(|| Err("plain".to_string())), Err("plain".to_string()));
+}
+
+#[test]
+fn a_message_box_never_outlives_its_time_limit() {
+    use std::time::{Duration, Instant};
+    let t = Instant::now();
+    let finished = cli::wait_at_most(Duration::from_millis(200), || std::thread::sleep(Duration::from_secs(30)));
+    assert!(!finished && t.elapsed() < Duration::from_secs(5));
+    assert!(cli::wait_at_most(Duration::from_secs(5), || {}));
 }

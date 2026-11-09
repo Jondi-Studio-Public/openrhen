@@ -41,11 +41,39 @@ pub fn main_windowless() {
     run_main(true);
 }
 
+/// The shown error for a panic outside the recording loop (opening the store, starting the hooks, ...).
+const PANIC_OUTSIDE_LOOP: &str = "internal error (panic); see rhen-watch.log in the data folder";
+
+/// Run `f`, turning a panic into an error so the no-console build can still say why it ended.
+pub fn guarded(f: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_else(|_| Err(PANIC_OUTSIDE_LOOP.to_string()))
+}
+
+/// Run `f` on its own thread and wait at most `limit` for it. Returns false if it was still running; the
+/// caller then exits the process, which ends the thread. Used so a message box that nobody dismisses cannot
+/// keep the process (and its program file) alive for ever.
+pub fn wait_at_most(limit: std::time::Duration, f: impl FnOnce() + Send + 'static) -> bool {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        f();
+        let _ = tx.send(());
+    });
+    rx.recv_timeout(limit).is_ok()
+}
+
+/// The error for a lock that could not be taken: only a lock another process holds is a duplicate start.
+pub fn lock_error(e: std::fs::TryLockError) -> String {
+    match e {
+        std::fs::TryLockError::WouldBlock => ALREADY_RUNNING.to_string(),
+        std::fs::TryLockError::Error(e) => format!("cannot lock run.lock in the data folder: {e}"),
+    }
+}
+
 fn run_main(windowless: bool) {
     // The no-console build has nowhere to show a panic, so put it in the log.
     std::panic::set_hook(Box::new(|info| crate::log::error(&format!("internal error: {info}"))));
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let code = match real_main(&args) {
+    let code = match guarded(|| real_main(&args)) {
         Ok(()) => 0,
         Err(e) => {
             crate::log::error(&e);
@@ -514,7 +542,7 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
         .truncate(false)
         .open(d.join("run.lock"))
         .map_err(|e| e.to_string())?;
-    lock.try_lock().map_err(|_| ALREADY_RUNNING.to_string())?;
+    lock.try_lock().map_err(lock_error)?;
 
     let stop_event = win::StopEvent::create()?;
     win::install_ctrl_handler();
