@@ -30,6 +30,15 @@ describe("derivedTickDelayMs", () => {
       expect(derivedTickDelayMs({ ok: true, body }), JSON.stringify(body)).toBe(DERIVED_TICK_IDLE_MS);
   });
 
+  it("paces the model tick the same way: at once while it fills batches, idle for no_extractors and for a paused circuit", () => {
+    expect(derivedTickDelayMs({ ok: true, body: { status: "ok", more: true, extractors: [{ status: "ok" }] } })).toBe(
+      DERIVED_TICK_MORE_MS
+    );
+    for (const status of ["no_extractors", "ok"])
+      expect(derivedTickDelayMs({ ok: true, body: { status, more: false } }), status).toBe(DERIVED_TICK_IDLE_MS);
+    expect(derivedTickDelayMs({ ok: true, body: { status: "busy" } })).toBe(DERIVED_TICK_BUSY_MS);
+  });
+
   it("never asks for a pause of more than a minute or less than a second", () => {
     for (const ms of [DERIVED_TICK_IDLE_MS, DERIVED_TICK_MORE_MS, DERIVED_TICK_BUSY_MS, DERIVED_TICK_FAILED_MS]) {
       expect(ms).toBeGreaterThanOrEqual(1_000);

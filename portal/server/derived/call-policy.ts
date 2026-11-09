@@ -22,7 +22,15 @@ export type Tier = "t2" | "t3";
 
 /** What the outbound proxy's `model_provider.complete` answers, as the portal sees it. */
 export type ModelOutcome =
-  | { outcome: "ok"; text: string; model: string; tokensIn: number | null; tokensOut: number | null }
+  | {
+      outcome: "ok";
+      text: string;
+      model: string;
+      tokensIn: number | null;
+      tokensOut: number | null;
+      /** The digest of the local model, only when the request asked for it (`withDigest`). */
+      digest?: string | null;
+    }
   | {
       outcome: "unreachable" | "timeout" | "bad_output" | "rate_limited" | "bad_key";
       message: string;
@@ -34,6 +42,8 @@ export interface ModelRequest {
   maxTokens: number;
   temperature: number;
   format?: "json" | Record<string, unknown>;
+  /** Local tier only: ask the proxy to read the model digest and return it with the reply. */
+  withDigest?: boolean;
 }
 
 export interface ModelTransport {
@@ -49,6 +59,8 @@ export interface PolicyRequest {
   maxTokens?: number;
   temperature?: number;
   format?: "json" | Record<string, unknown>;
+  /** Local tier only: also read the model digest (used by the model tick's pin check). */
+  withDigest?: boolean;
   /** Returns a sentence naming what is wrong with the reply, or null when it is acceptable. */
   validate?: (text: string) => string | null;
 }
@@ -102,6 +114,8 @@ export type PolicyResult =
       tier: Tier;
       tokensIn: number | null;
       tokensOut: number | null;
+      /** The model digest when the request asked for it and the host reported one. */
+      digest?: string | null;
       attempts: number;
     }
   | {
@@ -159,7 +173,8 @@ export async function callModel(deps: PolicyDeps, request: PolicyRequest): Promi
     messages: request.messages,
     maxTokens: request.maxTokens ?? DEFAULT_MAX_TOKENS,
     temperature: request.temperature ?? DEFAULT_TEMPERATURE,
-    ...(request.format === undefined ? {} : { format: request.format })
+    ...(request.format === undefined ? {} : { format: request.format }),
+    ...(request.withDigest ? { withDigest: true } : {})
   };
   if (request.tier === "t2") return inLine(deps.state, () => runLocal(deps, request, base));
   return runHosted(deps, request, base);
@@ -199,6 +214,7 @@ async function attempts(
         tier: request.tier,
         tokensIn: outcome.tokensIn,
         tokensOut: outcome.tokensOut,
+        ...(outcome.digest === undefined ? {} : { digest: outcome.digest }),
         attempts: sent
       };
     if (outcome.outcome === "timeout" && timeouts < TIMEOUT_BACKOFF_MS.length) {

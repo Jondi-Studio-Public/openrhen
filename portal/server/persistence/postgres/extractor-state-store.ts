@@ -139,3 +139,50 @@ export async function readExtractorStates(sql: Sql, userId: string): Promise<Ext
     WHERE user_id = ${userId} ORDER BY extractor, version`;
   return rows.map(toState);
 }
+
+/** The cursor of one extractor version, or null when it has no state row. Run it under the activity lock to see what a run just wrote. */
+export async function readExtractorCursorTx(
+  tx: TxSql,
+  userId: string,
+  extractor: string,
+  version: string
+): Promise<Record<string, unknown> | null> {
+  const [row] = await tx<{ cursor: Record<string, unknown> | null }[]>`
+    SELECT cursor FROM extractor_state
+    WHERE user_id = ${userId} AND extractor = ${extractor} AND version = ${version}`;
+  return row ? (row.cursor ?? {}) : null;
+}
+
+/** As `readExtractorCursorTx`, with whether the version is the active one right now. */
+export async function readExtractorStateTx(
+  tx: TxSql,
+  userId: string,
+  extractor: string,
+  version: string
+): Promise<{ cursor: Record<string, unknown>; active: boolean } | null> {
+  const [row] = await tx<{ cursor: Record<string, unknown> | null; active: boolean }[]>`
+    SELECT cursor, active FROM extractor_state
+    WHERE user_id = ${userId} AND extractor = ${extractor} AND version = ${version}`;
+  return row ? { cursor: row.cursor ?? {}, active: row.active } : null;
+}
+
+/**
+ * Pushes the lease expiry of a run that still holds it. A single statement, no lock: only the holder of the token
+ * matches, so a run whose lease was taken over (or released) renews nothing and gets false.
+ */
+export async function renewExtractorLease(
+  sql: Sql,
+  userId: string,
+  extractor: string,
+  version: string,
+  token: string,
+  expiresAt: Date
+): Promise<boolean> {
+  const rows = await sql`
+    UPDATE extractor_state
+    SET cursor = jsonb_set(cursor, '{lease,expiresAt}', to_jsonb(${expiresAt.toISOString()}::text))
+    WHERE user_id = ${userId} AND extractor = ${extractor} AND version = ${version}
+      AND cursor -> 'lease' ->> 'token' = ${token}
+    RETURNING 1`;
+  return rows.length > 0;
+}

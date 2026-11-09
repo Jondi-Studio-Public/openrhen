@@ -44,5 +44,34 @@ export const DERIVED_ENTRIES: readonly FlowEntry[] = [
     to: ["pg:activity_events[source=derived-shadow]"],
     value: { note: "classifies the text of every source" },
     health: { kind: "none", reason: "runs inside the derived tick; its runner has the probe" }
+  }),
+  flow({
+    id: "derived-model-tick",
+    name: "Model extractor tick",
+    role: "reader",
+    category: "derived",
+    method: "derived",
+    trigger: { kind: "loop", loop: "derived-model-tick" },
+    activitySource: "derived",
+    code: {
+      paths: [
+        "portal/server/derived/model-runner.ts",
+        "portal/server/derived/model-extractor.ts",
+        "portal/server/derived/model-extractor-registry.ts",
+        "portal/server/persistence/postgres/derived-model-scan-store.ts"
+      ],
+      routes: ["POST /api/integrations/derived/model-tick"],
+      loops: ["derived-model-tick"]
+    },
+    gives: "facts read from message text by the configured model",
+    from: ["pg:activity_events[source=*]"],
+    to: [
+      "pg:activity_events[source=derived]",
+      "pg:activity_events[source=derived-shadow]",
+      "pg:derived_lineage",
+      "pg:extractor_state"
+    ],
+    value: { note: "reads the text of every source with the configured model" },
+    health: { kind: "none", reason: "no extractor is registered yet; the extractor that lands brings its own probe" }
   })
 ];
