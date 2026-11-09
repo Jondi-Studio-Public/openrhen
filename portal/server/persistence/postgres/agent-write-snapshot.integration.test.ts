@@ -194,11 +194,16 @@ describe("an update puts the whole before-row back", () => {
     const id = await createAction(projectId);
     const command = actionCommand(id, projectId, 1, { notes: "Agent note" });
     await asAgent(() => saveAction(sql, command));
-    // A refit is the system's, like the planner's replan: it moves the three refined columns on both tables.
+    // A refit is the system's, like the planner's replan: it moves the three refined columns on both tables. It is
+    // dated the user's local today: an earlier day is stale, and the undo's recalculation would refit it away.
+    const today = (
+      await sql<{ today: string }[]>`
+      SELECT to_char((now() AT TIME ZONE timezone)::date, 'YYYY-MM-DD') AS today FROM users WHERE id = ${userId}`
+    )[0]!.today;
     for (const table of ["actions", "projects"])
       await sql.unsafe(
-        `UPDATE ${table} SET consequence_refined = 4.5, consequence_refined_for_stars = 3, consequence_refined_as_of = '2026-11-09' WHERE id = $1`,
-        [table === "actions" ? id : projectId]
+        `UPDATE ${table} SET consequence_refined = 4.5, consequence_refined_for_stars = 3, consequence_refined_as_of = $2::date WHERE id = $1`,
+        [table === "actions" ? id : projectId, today]
       );
     await asAgent(() => runRevertCommand(sql, revert(command.commandId!, "undo")));
     const row = (await image("actions", "id = $1", id))!;
@@ -206,7 +211,7 @@ describe("an update puts the whole before-row back", () => {
     expect(row).toMatchObject({
       consequence_refined: 4.5,
       consequence_refined_for_stars: 3,
-      consequence_refined_as_of: "2026-11-09"
+      consequence_refined_as_of: today
     });
   });
 
