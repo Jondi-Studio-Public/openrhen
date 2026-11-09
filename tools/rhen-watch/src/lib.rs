@@ -21,6 +21,8 @@ mod tests;
 #[cfg(test)]
 mod tests_derive;
 #[cfg(test)]
+mod tests_macos;
+#[cfg(test)]
 mod tests_meter;
 #[cfg(test)]
 mod tests_report;

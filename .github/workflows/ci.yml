@@ -303,8 +303,8 @@ jobs:
           node-version: 24
       - run: node scripts/addon/conformance.mjs
 
-  # The device agent in tools/rhen-watch (Rust). Its rules are pure and tested on any OS; the Windows layer is
-  # compiled and linted on windows-latest, which is the only place that proves it builds. No Rust toolchain
+  # The device agent in tools/rhen-watch (Rust). Its rules are pure and tested on any OS; the Windows and macOS
+  # layers are compiled and linted on windows-latest and macos-latest, the only places that prove they build. No Rust toolchain
   # action: the hosted images carry stable Rust, and the org only allows GitHub-owned actions.
   rhen-watch:
     name: rhen-watch (${{ matrix.runner }})
@@ -316,6 +316,7 @@ jobs:
         include:
           - runner: ubuntu-latest
           - runner: windows-latest
+          - runner: macos-latest
     defaults:
       run:
         working-directory: tools/rhen-watch
@@ -349,6 +350,44 @@ jobs:
           & "$dest\rhen-watch.exe" uninstall --purge
           if (Test-Path "$dest\rhen-watchw.exe") { throw 'program still installed' }
           if (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'rhen-watch' -ErrorAction SilentlyContinue) { throw 'start-at-logon entry still set' }
+      # The real macOS binary on a hosted runner (a throwaway VM with a logged-in session): record, stop, and check
+      # what was written, not just exit codes. Observation only: it never types, clicks or focuses anything.
+      - name: Record and stop smoke
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export RHEN_WATCH_DIR="$RUNNER_TEMP/rw-data"
+          bin=./target/release/rhen-watch
+          "$bin" run --for 60 > "$RUNNER_TEMP/run.out" 2>&1 &
+          agent=$!
+          for _ in $(seq 1 30); do "$bin" status | grep -q 'agent: running' && break; sleep 1; done
+          "$bin" status | tee "$RUNNER_TEMP/status.txt"
+          grep -q 'agent: running' "$RUNNER_TEMP/status.txt"
+          [ "$(stat -f '%Lp' "$RHEN_WATCH_DIR")" = 700 ] || { echo "::error::data folder is not private"; exit 1; }
+          if "$bin" run --for 5 > "$RUNNER_TEMP/second.out" 2>&1; then echo "::error::a second agent started"; exit 1; fi
+          grep -q 'already running' "$RUNNER_TEMP/second.out"
+          sleep 8
+          "$bin" stop
+          for _ in $(seq 1 10); do kill -0 "$agent" 2>/dev/null || break; sleep 1; done
+          if kill -0 "$agent" 2>/dev/null; then echo "::error::the agent did not stop"; exit 1; fi
+          wait "$agent"
+          cat "$RUNNER_TEMP/run.out"
+          "$bin" report | tee "$RUNNER_TEMP/report.txt"
+          sqlite3 "$RHEN_WATCH_DIR/activity.db" "select source, kind, count(*) from events group by 1, 2" | tee "$RUNNER_TEMP/rows.txt"
+          grep -q '^agent|start|' "$RUNNER_TEMP/rows.txt"
+          grep -q '^agent|stop|' "$RUNNER_TEMP/rows.txt"
+          grep -q '^power|' "$RUNNER_TEMP/rows.txt" || echo "::warning::no power row (no power source on this runner)"
+          grep -q '^foreground|' "$RUNNER_TEMP/rows.txt" || { echo "::error::no foreground row"; exit 1; }
+          # A kill without a clean stop is recorded as an unknown gap at the next start.
+          "$bin" run --for 30 > /dev/null 2>&1 &
+          agent=$!
+          for _ in $(seq 1 30); do "$bin" status | grep -q 'agent: running' && break; sleep 1; done
+          kill -9 "$agent"; wait "$agent" || true
+          "$bin" run --for 5 > "$RUNNER_TEMP/after-kill.out" 2>&1
+          cat "$RUNNER_TEMP/after-kill.out"
+          grep -q 'without a clean stop' "$RHEN_WATCH_DIR/rhen-watch.log"
+          "$bin" wipe --yes
       # The agent records locally and must stay that way: no network crate in its dependency tree.
       - name: No network code
         shell: bash

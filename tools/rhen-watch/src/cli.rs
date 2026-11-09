@@ -5,9 +5,11 @@ use std::path::PathBuf;
 use crate::categories::{self, CategoryFile};
 use crate::config::{self, Config};
 use crate::model::Ms;
+#[cfg(any(windows, target_os = "macos"))]
+use crate::platform;
 use crate::tz::TzOffset;
 #[cfg(windows)]
-use crate::{engine, ids, platform, runner};
+use crate::{engine, ids, runner};
 use crate::{paths, report, store};
 
 const HELP: &str = "rhen-watch: local desktop activity recorder (observation only, nothing is sent anywhere)
@@ -60,7 +62,7 @@ pub fn real_main(args: &[String]) -> Result<(), String> {
     }
 }
 
-fn flag_value<'a>(args: &'a [String], name: &str) -> Result<Option<&'a str>, String> {
+pub(crate) fn flag_value<'a>(args: &'a [String], name: &str) -> Result<Option<&'a str>, String> {
     match args.iter().position(|a| a == name) {
         None => Ok(None),
         Some(i) => args
@@ -70,7 +72,7 @@ fn flag_value<'a>(args: &'a [String], name: &str) -> Result<Option<&'a str>, Str
     }
 }
 
-fn dir() -> Result<PathBuf, String> {
+pub(crate) fn dir() -> Result<PathBuf, String> {
     let d = paths::data_dir()?;
     std::fs::create_dir_all(&d).map_err(|e| format!("cannot create {}: {e}", d.display()))?;
     Ok(d)
@@ -268,13 +270,17 @@ pub fn now_ms() -> Ms {
         .unwrap_or(0)
 }
 
-/// The user's time zone: per-instant offsets on Windows, UTC elsewhere.
+/// The user's time zone: per-instant offsets on Windows and macOS, UTC elsewhere.
 fn local_tz() -> TzOffset {
     #[cfg(windows)]
     {
         platform::windows::local_tz()
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        platform::macos::local_tz()
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         TzOffset::fixed(0)
     }
@@ -350,14 +356,26 @@ fn cmd_report(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn cmd_stop() -> Result<(), String> {
-    Err("rhen-watch records on Windows only in this version".into())
+    Err("rhen-watch records on Windows and macOS only in this version".into())
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn cmd_run(_args: &[String]) -> Result<(), String> {
-    Err("rhen-watch records on Windows only in this version (report, status and config work anywhere)".into())
+    Err("rhen-watch records on Windows and macOS only in this version (report, status and config work anywhere)".into())
+}
+
+#[cfg(target_os = "macos")]
+fn cmd_stop() -> Result<(), String> {
+    let pid = platform::macos::signal_stop(&dir()?)?;
+    println!("stop requested (process {pid}); the agent flushes and exits within a few seconds");
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn cmd_run(args: &[String]) -> Result<(), String> {
+    platform::macos_run::cmd_run(args)
 }
 
 #[cfg(windows)]

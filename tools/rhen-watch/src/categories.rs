@@ -111,6 +111,62 @@ pub const DEFAULT_CATEGORIES: &[(&str, &str)] = &[
     ("epicgameslauncher.exe", "games"),
     ("t3 code.exe", "editor"),
     ("t3code.exe", "editor"),
+    // macOS: bundle identifiers, which is what the macOS agent records.
+    ("com.google.chrome", "browser"),
+    ("com.apple.safari", "browser"),
+    ("org.mozilla.firefox", "browser"),
+    ("com.brave.browser", "browser"),
+    ("com.microsoft.edgemac", "browser"),
+    ("company.thebrowser.browser", "browser"),
+    ("com.operasoftware.opera", "browser"),
+    ("com.vivaldi.vivaldi", "browser"),
+    ("com.microsoft.vscode", "editor"),
+    ("com.exafunction.windsurf", "editor"),
+    ("com.apple.dt.xcode", "editor"),
+    ("com.jetbrains.intellij", "editor"),
+    ("com.jetbrains.pycharm", "editor"),
+    ("com.jetbrains.webstorm", "editor"),
+    ("com.jetbrains.rustrover", "editor"),
+    ("com.sublimetext.4", "editor"),
+    ("com.apple.textedit", "editor"),
+    ("md.obsidian", "notes"),
+    ("notion.id", "notes"),
+    ("com.apple.notes", "notes"),
+    ("com.microsoft.onenote.mac", "notes"),
+    ("com.anthropic.claudefordesktop", "assistant"),
+    ("com.openai.chat", "assistant"),
+    ("com.hnc.discord", "chat"),
+    ("com.tinyspeck.slackmacgap", "chat"),
+    ("com.microsoft.teams2", "chat"),
+    ("com.microsoft.teams", "chat"),
+    ("net.whatsapp.whatsapp", "chat"),
+    ("ru.keepcoder.telegram", "chat"),
+    ("org.telegram.desktop", "chat"),
+    ("org.whispersystems.signal-desktop", "chat"),
+    ("com.apple.mobilesms", "chat"),
+    ("us.zoom.xos", "meeting"),
+    ("com.apple.facetime", "meeting"),
+    ("com.microsoft.outlook", "mail"),
+    ("com.apple.mail", "mail"),
+    ("org.mozilla.thunderbird", "mail"),
+    ("com.spotify.client", "media"),
+    ("org.videolan.vlc", "media"),
+    ("com.apple.music", "media"),
+    ("com.apple.tv", "media"),
+    ("com.apple.quicktimeplayerx", "media"),
+    ("com.apple.terminal", "terminal"),
+    ("com.googlecode.iterm2", "terminal"),
+    ("com.mitchellh.ghostty", "terminal"),
+    ("dev.warp.warp-stable", "terminal"),
+    ("com.apple.finder", "files"),
+    ("com.microsoft.word", "office"),
+    ("com.microsoft.excel", "office"),
+    ("com.microsoft.powerpoint", "office"),
+    ("com.apple.iwork.pages", "office"),
+    ("com.apple.iwork.numbers", "office"),
+    ("com.apple.iwork.keynote", "office"),
+    ("com.valvesoftware.steam", "games"),
+    ("com.epicgames.epicgameslauncher", "games"),
 ];
 
 /// The coarser groups, used only to derive input stretches. A browser is its own group: what it is used for
@@ -154,14 +210,27 @@ fn valid_word(w: &str) -> bool {
     !w.is_empty() && w.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
-/// An exe name as stored: lower case, and it must end in `.exe`.
+/// An app identity as stored, lower case: a Windows executable file name ending in `.exe`, or a macOS bundle
+/// identifier in reverse-DNS form (`com.example.app`), which is what the macOS agent records.
 pub fn normalise_exe(exe: &str) -> Result<String, String> {
     let e = exe.trim().to_ascii_lowercase();
-    let stem = e.strip_suffix(".exe").unwrap_or("");
-    if stem.is_empty() || e.chars().any(|c| c.is_control() || matches!(c, '"' | '\\' | '/')) {
-        return Err(format!("\"{exe}\": an executable name must be a file name ending in .exe"));
+    let bad_chars = e.chars().any(|c| c.is_control() || matches!(c, '"' | '\\' | '/'));
+    let windows = e.strip_suffix(".exe").is_some_and(|stem| !stem.is_empty());
+    if !bad_chars && (windows || is_bundle_id(&e)) {
+        return Ok(e);
     }
-    Ok(e)
+    Err(format!(
+        "\"{exe}\": an app must be an executable file name ending in .exe, or a macOS bundle id such as com.example.app"
+    ))
+}
+
+/// Reverse-DNS: at least two dot-separated labels of letters, digits, `-` and `_`.
+fn is_bundle_id(id: &str) -> bool {
+    let labels: Vec<&str> = id.split('.').collect();
+    labels.len() >= 2
+        && labels
+            .iter()
+            .all(|l| !l.is_empty() && l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'))
 }
 
 pub fn validate_category(category: &str) -> Result<(), String> {
@@ -402,5 +471,6 @@ pub const SHELL_PAIRS: &[(&str, &str)] = &[
 
 pub fn is_shell_window(class: &str, exe: Option<&str>) -> bool {
     let class = class.to_ascii_lowercase();
-    SHELL_CLASSES.contains(&class.as_str()) || exe.is_some_and(|e| SHELL_PAIRS.iter().any(|(c, x)| *c == class && *x == e))
+    SHELL_CLASSES.contains(&class.as_str())
+        || exe.is_some_and(|e| SHELL_PAIRS.iter().any(|(c, x)| *c == class && *x == e) || crate::platform::macos_rules::is_shell_bundle(e))
 }
