@@ -417,6 +417,9 @@ impl Sys for Fake {
     fn proc_stats(&self) -> (i64, i64) {
         (self.now.get() / 1000, 30_000_000)
     }
+    fn session_state(&self) -> (Option<bool>, bool) {
+        (None, false)
+    }
 }
 
 #[test]
@@ -745,6 +748,9 @@ impl Sys for NoIdle {
     }
     fn proc_stats(&self) -> (i64, i64) {
         self.0.proc_stats()
+    }
+    fn session_state(&self) -> (Option<bool>, bool) {
+        (None, false)
     }
 }
 
