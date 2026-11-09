@@ -52,6 +52,14 @@ export const ACTIVITY_SOURCES: Readonly<Record<string, ActivitySourceEntry>> = {
       "unknown",
       "clock_jump",
       "dropped",
+      "paused",
+      "degraded",
+      "start",
+      "stop",
+      // A browser visit: the URL and page title are sent in `content` ("url\ntitle"), so the content gate governs them; attrs never hold either.
+      "visit",
+      // One minute of keyboard and mouse activity per app run: attrs {exe, run, observed_ms, input_ms}.
+      "input_minute",
       "title",
       "ocr"
     ]

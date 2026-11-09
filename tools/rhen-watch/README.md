@@ -4,6 +4,20 @@ A small Windows program that records which app was in front, when you were idle,
 
 It is visible and stoppable: it runs in a console window you started, `rhen-watch stop` ends it, and `rhen-watch wipe --yes` deletes everything it recorded. It does not hide, autostart, or install a service.
 
+## Install
+
+Build, then install for your user (no admin rights, no service):
+
+```powershell
+cd tools\rhen-watch
+cargo build --release
+.\target\release\rhen-watch.exe install
+```
+
+This copies `rhen-watch.exe` (the command line) and `rhen-watchw.exe` (the same program with no console window) to `%LOCALAPPDATA%\Programs\rhen-watch`, makes the second one start at logon (the Startup tab of Task Manager lists it) and starts it. A tray icon shows while it runs; its menu has Pause or Resume, Open data folder and Quit. Pause is recorded as paused time and survives a restart, so a reboot does not silently start recording again. Errors go to `rhen-watch.log` in the data folder.
+
+`rhen-watch.exe uninstall` stops it, removes start-at-logon and the program, and keeps your data; `uninstall --purge` deletes the data too. The build is unsigned, so Windows SmartScreen may warn on first run of a downloaded copy.
+
 ## Build and run
 
 ```powershell
