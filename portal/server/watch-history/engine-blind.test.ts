@@ -61,6 +61,7 @@ function sources(dir: string): { path: string; text: string }[] {
  * purpose, which is the moment to ask whether it should be a plan input.
  */
 const MAY_NAME_BLIND_TABLES = new Set([
+  "scripts/repository/write-path-registry.mjs",
   "portal/server/data-flow/health-reader.ts",
   "portal/server/persistence/postgres/watch-history-store.ts",
   "portal/server/persistence/postgres/video-lengths-store.ts",
@@ -218,6 +219,7 @@ describe("watch history is blind to the engine", () => {
       /\bderivedModelCalls\b/
     ];
     const MAY_USE_ACTIVITY_CODE = new Set([
+      "scripts/repository/write-path-registry.mjs",
       "portal/server/persistence/postgres/activity-store.ts",
       "portal/server/persistence/postgres/derived-model-scan-store.ts",
       "portal/server/persistence/postgres/fact-act-store.ts",

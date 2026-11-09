@@ -1,0 +1,15 @@
+{
+  "lane": "N",
+  "rows": {
+    "total": 1,
+    "files": {
+      "platform/database/src/push/leave-by-scheduler.ts": ["push_outbox"]
+    }
+  },
+  "dynamic": {
+    "total": 2,
+    "files": {
+      "platform/database/src/consequence/refit.ts": 2
+    }
+  }
+}
