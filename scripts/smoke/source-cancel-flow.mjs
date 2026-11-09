@@ -11,8 +11,7 @@
 //   2. a commitment the import cancelled is listed in Review > Closed with the "Removed at source" reason, and Restore
 //      brings it (and its step) back
 //
-// Not part of CI (`pnpm gate` runs the production click smoke); run it by hand before a change to these screens and
-// record the result in the PR. Screenshots go to var/source-cancel-flow/ (untracked).
+// Runs in the CI `smoke` job after the click smoke (`pnpm smoke:source-cancel`); run it by hand to debug a failure. Screenshots go to var/source-cancel-flow/ (untracked).
 //
 //   corepack pnpm build:portal
 //   POSTGRES_ADMIN_URL=postgresql://... node scripts/smoke/source-cancel-flow.mjs
