@@ -62,7 +62,7 @@ export const DERIVED_TIERS = ["t0", "t1", "t2", "t3"] as const;
 /** Attrs of a derived row are small facts and spans, never text, so the cap is half the general 8 KB. */
 export const ACTIVITY_DERIVED_ATTRS_MAX_BYTES = 4096;
 export const DERIVED_MAX_REASONS = 8;
-/** Which way a message went, from the bridge's `from_self` and never from a model. */
+/** Which way a message went, from the collector's `from_self` and never from a model. */
 export const DERIVED_DIRECTIONS = ["in", "out"] as const;
 /** A fact row that cancels, moves or repeats another fact. Links are resolved at read; extractors never write a status. */
 export const DERIVED_LINK_RELATIONS = ["cancel", "reschedule", "repeat"] as const;
@@ -311,7 +311,7 @@ function checkWhen(value: unknown): string | null {
 
 function checkDirection(value: unknown): string | null {
   if (typeof value !== "string" || !(DERIVED_DIRECTIONS as readonly string[]).includes(value))
-    return `attrs.direction ${shown(value)} is not a direction. Use one of: ${list(DERIVED_DIRECTIONS)}. It comes from the bridge's from_self (true is out), never from a model.`;
+    return `attrs.direction ${shown(value)} is not a direction. Use one of: ${list(DERIVED_DIRECTIONS)}. It comes from the collector's from_self (true is out), never from a model.`;
   return null;
 }
 
@@ -365,7 +365,7 @@ function checkIcsSequence(value: unknown, attrs: Record<string, unknown>): strin
 
 const ORGANIZER_ADDRESS = /^[^\s@<>]+@[^\s@<>]+$/;
 
-/** The ORGANIZER address of the ICS part, as the bridge reports it: one lower-case address, never a name or text. */
+/** The ORGANIZER address of the ICS part, as the collector reports it: one lower-case address, never a name or text. */
 function checkIcsOrganizer(value: unknown, attrs: Record<string, unknown>): string | null {
   if (
     typeof value !== "string" ||

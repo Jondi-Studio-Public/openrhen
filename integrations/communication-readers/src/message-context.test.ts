@@ -3,7 +3,7 @@ import { MAX_WHO, messageFactContext } from "./message-context.js";
 
 const IN = { thread_id: "18c0ffee", from: "Alex <alex@example.test>", from_self: false, to: ["me@example.test"] };
 
-describe("messageFactContext: direction, who and the conversation key come from the bridge, not a model", () => {
+describe("messageFactContext: direction, who and the conversation key come from the collector, not a model", () => {
   it("reads an inbound message: direction in, who the sender as written, key gmail:<thread id>", () => {
     expect(messageFactContext("gmail", IN)).toEqual({
       ok: true,

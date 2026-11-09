@@ -359,9 +359,9 @@ export interface IcsOutcome {
 }
 
 export interface IcsDraftInput {
-  /** The message's attrs (gmail shape). */
+  /** The message's attrs (the mail message shape). */
   attrs: unknown;
-  /** `gmail:<thread id>`, the identity scope of a JSON-LD event. */
+  /** `<source>:<thread id>`, the identity scope of a JSON-LD event. */
   conversationKey: string;
   /** The owner's IANA zone, for an all-day date. */
   ownerTz: string;
