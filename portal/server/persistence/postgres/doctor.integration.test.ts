@@ -234,8 +234,8 @@ describe("readDoctorReport", () => {
     const batch = await sql<{ id: string }[]>`
       INSERT INTO import_batches (user_id,source_type,input_kind,timezone,status,created_at)
       VALUES (${userId},'google_calendar','calendar','UTC','ready',${daysAgo(5)}) RETURNING id`;
-    await sql`INSERT INTO import_records (batch_id,import_key,entity_type,operation)
-      VALUES (${batch[0]!.id},'k1','fixed_commitment','create')`;
+    await sql`INSERT INTO import_records (batch_id,import_key,entity_type,operation,created_at)
+      VALUES (${batch[0]!.id},'k1','fixed_commitment','create',${daysAgo(5)})`;
     const ids = (await readDoctorReport(sql as never, { now: NOW })).items.map((entry) => entry.id).sort();
     expect(ids).toEqual(["pulse_off", `event_held:${batch[0]!.id}`].sort());
   });
