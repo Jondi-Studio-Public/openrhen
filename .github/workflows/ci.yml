@@ -413,8 +413,13 @@ jobs:
           function Get-Agent { Get-Process rhen-watchw -ErrorAction SilentlyContinue | Where-Object { $_.Path -and ([IO.Path]::GetFileName($_.Path) -eq 'rhen-watchw.exe') } }
           $victim = (Get-Agent | Select-Object -First 1).Id
           if (-not $victim) { throw 'could not find our agent process' }
+          # Pause the keep-alive for 15 s so the kill leaves a gap long enough to be recorded (a gap under 10 s is
+          # not), then turn it back on: it must revive the agent by itself.
+          schtasks /Change /TN rhen-watch-keepalive /DISABLE | Out-Null
           Stop-Process -Id $victim -Force
           Wait-Agent $false 15
+          Start-Sleep -Seconds 15
+          schtasks /Change /TN rhen-watch-keepalive /ENABLE | Out-Null
           $until = (Get-Date).AddSeconds(150)
           $back = $null
           while ((Get-Date) -lt $until -and -not $back) {
