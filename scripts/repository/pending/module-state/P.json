@@ -1,0 +1,17 @@
+{
+  "lane": "P",
+  "state": {
+    "total": 3,
+    "files": {
+      "integrations/outbound-proxy/src/connections/calendar-feed/run-worker.ts": 1,
+      "integrations/outbound-proxy/src/connections/google-calendar/google-calendar-client.ts": 1,
+      "integrations/outbound-proxy/src/host/connection-host.ts": 1
+    }
+  },
+  "snapshots": {
+    "total": 1,
+    "files": {
+      "integrations/outbound-proxy/clear-provider-env.ts": 1
+    }
+  }
+}

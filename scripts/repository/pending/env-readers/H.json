@@ -1,0 +1,24 @@
+{
+  "lane": "H",
+  "reads": {
+    "total": 30,
+    "files": {
+      "portal/integrations/connection-host-client.ts": 3,
+      "portal/integrations/google-calendar/google-calendar-proxy-client.ts": 3,
+      "portal/integrations/travel/travel-proxy-client.ts": 2,
+      "portal/server/agent-enforcement.ts": 2,
+      "portal/server/agent-tokens.ts": 2,
+      "portal/server/build-commit.ts": 1,
+      "portal/server/cli-bundle.ts": 1,
+      "portal/server/mcp-endpoint.ts": 1,
+      "portal/server/owner-auth.ts": 4,
+      "portal/server/pulse/pulse-publish-client.ts": 2,
+      "portal/server/push/push-proxy-client.ts": 3,
+      "portal/server/runtime-env.ts": 1,
+      "portal/server/secrets/read-secret.ts": 1,
+      "portal/server/secrets/secrets-crypto.ts": 1,
+      "portal/server/secrets/secrets-policy.ts": 1,
+      "portal/server/security/allowed-hosts.ts": 2
+    }
+  }
+}

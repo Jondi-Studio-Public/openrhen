@@ -1,0 +1,10 @@
+{
+  "lane": "U",
+  "snapshots": {
+    "total": 3,
+    "files": {
+      "portal/components/app-nav-tabs.ts": 2,
+      "portal/features/agent-proposals/proposal-changes.ts": 1
+    }
+  }
+}

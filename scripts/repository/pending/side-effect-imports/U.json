@@ -1,0 +1,14 @@
+{
+  "lane": "U",
+  "effects": {
+    "total": 7,
+    "files": {
+      "portal/components/addon-nav.ts": 1,
+      "portal/components/app-nav-tabs.ts": 2,
+      "portal/features/imports/components/import-record-card.tsx": 1,
+      "portal/features/imports/import-batch-edits.ts": 1,
+      "portal/features/imports/import-validation.ts": 1,
+      "portal/state/extensions.ts": 1
+    }
+  }
+}

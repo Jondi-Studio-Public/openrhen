@@ -1,0 +1,18 @@
+{
+  "lane": "K",
+  "effects": {
+    "total": 11,
+    "files": {
+      "platform/contracts/src/agent-contract-committed.ts": 1,
+      "platform/contracts/src/agent-policy-text.ts": 1,
+      "platform/contracts/src/agent-routes.ts": 1,
+      "platform/contracts/src/agent-scopes.ts": 1,
+      "platform/contracts/src/connections/connection-id.ts": 2,
+      "platform/contracts/src/data-flow/data-flow.ts": 1,
+      "platform/contracts/src/mcp-manifest.ts": 1,
+      "platform/contracts/src/planning/doctor-cadence.ts": 1,
+      "platform/contracts/src/removed-field-names.ts": 1,
+      "platform/contracts/src/untrusted-fence.ts": 1
+    }
+  }
+}

@@ -27,7 +27,7 @@ const METRICS = ["terms", "agents", "owner", "paths", "schema", "defaults"];
 const FIX = "run `pnpm structure:check --fix-pending`";
 const ADDON_DOC = "docs/architecture/writing-an-addon.md";
 
-const git = (root, args, options = {}) =>
+export const git = (root, args, options = {}) =>
   execFileSync("git", args, {
     cwd: root,
     encoding: "utf8",
@@ -35,14 +35,14 @@ const git = (root, args, options = {}) =>
     stdio: ["ignore", "pipe", "ignore"],
     ...options
   });
-const gitOk = (root, args) => {
+export const gitOk = (root, args) => {
   try {
     return git(root, args);
   } catch {
     return null;
   }
 };
-const readJson = (root, file) => JSON.parse(readFileSync(resolve(root, file), "utf8"));
+export const readJson = (root, file) => JSON.parse(readFileSync(resolve(root, file), "utf8"));
 const sha256 = (text) => createHash("sha256").update(text.replace(/\r\n/g, "\n")).digest("hex");
 const isTest = (path) => /\.test\.|\/test\//.test(path);
 
@@ -97,7 +97,7 @@ const WALK_SKIPPED = new Set([".git", ".env", "node_modules", ".vinext", "dist",
 
 // The tracked files; in a scratch tree that is not a git repository (the add-on conformance copy, a source archive)
 // every file on disk outside the usual build and dependency folders.
-function trackedFiles(root) {
+export function trackedFiles(root) {
   try {
     return git(root, ["ls-files", "-z"]).split("\0").filter(Boolean);
   } catch {
@@ -115,7 +115,7 @@ function trackedFiles(root) {
   }
 }
 
-function hasHead(root) {
+export function hasHead(root) {
   return gitOk(root, ["rev-parse", "--verify", "-q", "HEAD"]) !== null;
 }
 
@@ -130,12 +130,12 @@ export function resolveBase(root, ctx = {}) {
   return gitOk(root, ["rev-parse", "--verify", "-q", "HEAD^1"])?.trim() || null;
 }
 
-function showAtBase(root, base, file) {
+export function showAtBase(root, base, file) {
   return gitOk(root, ["show", `${base}:${file}`]);
 }
 
-function readShards(root) {
-  const dir = resolve(root, PENDING);
+export function readShards(root, pending = PENDING) {
+  const dir = resolve(root, pending);
   const shards = new Map();
   if (!existsSync(dir)) return shards;
   for (const name of readdirSync(dir).sort()) {
@@ -144,8 +144,8 @@ function readShards(root) {
   return shards;
 }
 
-function baseShards(root, base) {
-  const listed = gitOk(root, ["ls-tree", "-r", "--name-only", base, "--", PENDING]);
+export function baseShards(root, base, pending = PENDING) {
+  const listed = gitOk(root, ["ls-tree", "-r", "--name-only", base, "--", pending]);
   if (listed === null || !listed.trim()) return null; // the rule did not exist at the base: bootstrap
   const shards = new Map();
   for (const file of listed.split("\n").filter((line) => line.endsWith(".json"))) {
@@ -154,9 +154,9 @@ function baseShards(root, base) {
   return shards;
 }
 
-const totalOf = (shards, lane, metric) => shards?.get(lane)?.[metric]?.total ?? 0;
+export const totalOf = (shards, lane, metric) => shards?.get(lane)?.[metric]?.total ?? 0;
 
-function composedSkips(root) {
+export function composedSkips(root) {
   const skip = new Set();
   if (hasHead(root) || !existsSync(resolve(root, ".sync-core.json"))) return skip;
   const sync = readJson(root, ".sync-core.json");

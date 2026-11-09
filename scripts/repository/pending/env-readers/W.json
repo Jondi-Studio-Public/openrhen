@@ -1,0 +1,12 @@
+{
+  "lane": "W",
+  "reads": {
+    "total": 14,
+    "files": {
+      "engine/worker/src/main.ts": 11,
+      "engine/worker/src/portal-auth.ts": 1,
+      "platform/database/src/planning/plan-forecast-runtime.ts": 1,
+      "platform/database/src/planning/plan-retention.ts": 1
+    }
+  }
+}

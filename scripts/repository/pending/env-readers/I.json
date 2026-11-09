@@ -1,0 +1,15 @@
+{
+  "lane": "I",
+  "reads": {
+    "total": 16,
+    "files": {
+      "tools/cli/scripts/build.mjs": 1,
+      "tools/cli/src/cli.ts": 6,
+      "tools/cli/src/commands/deliverable.ts": 1,
+      "tools/cli/src/commands/mcp-http.ts": 1,
+      "tools/cli/src/commands/mcp.ts": 4,
+      "tools/cli/src/commands/self-update.ts": 2,
+      "tools/cli/src/dev.ts": 1
+    }
+  }
+}
