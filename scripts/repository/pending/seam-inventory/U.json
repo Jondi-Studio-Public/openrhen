@@ -1,0 +1,29 @@
+{
+  "lane": "U",
+  "registries": {
+    "total": 7,
+    "files": {
+      "portal/components/nav-extensions.ts": [
+        "registerNavExtension"
+      ],
+      "portal/features/agent-proposals/agent-proposals-store.ts": [
+        "resolveAgentProposalRequest"
+      ],
+      "portal/features/connections/connection-extensions.ts": [
+        "registerConnectionExtension"
+      ],
+      "portal/features/imports/import-holds.ts": [
+        "registerImportHold"
+      ],
+      "portal/features/imports/import-panel-extensions.ts": [
+        "registerImportPanel"
+      ],
+      "portal/features/pulse/disruption-undo.ts": [
+        "useRecordedDisruption"
+      ],
+      "portal/state/portal-extensions.ts": [
+        "registerPortalExtension"
+      ]
+    }
+  }
+}

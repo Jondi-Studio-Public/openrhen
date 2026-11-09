@@ -1,0 +1,11 @@
+{
+  "lane": "W",
+  "registries": {
+    "total": 1,
+    "files": {
+      "engine/worker/src/extra-loops.ts": [
+        "registerExtraLoop"
+      ]
+    }
+  }
+}

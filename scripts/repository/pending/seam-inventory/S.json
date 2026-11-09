@@ -1,0 +1,24 @@
+{
+  "lane": "S",
+  "registries": {
+    "total": 10,
+    "files": {
+      "scripts/ci/edge-extensions.mjs": [
+        "registerEdge"
+      ],
+      "scripts/deploy/service-extensions.mjs": [
+        "onDeployServiceRegistered",
+        "registerDeployService"
+      ],
+      "scripts/smoke/boot.mjs": [
+        "createDatabase",
+        "migrateDatabase",
+        "registerCleanup",
+        "run",
+        "scratchDatabase",
+        "startDetached",
+        "startPortal"
+      ]
+    }
+  }
+}

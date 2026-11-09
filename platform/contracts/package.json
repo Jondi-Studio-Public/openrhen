@@ -6,6 +6,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./extension": "./src/extension/registry.ts",
+    "./testing": "./src/extension/testing.ts",
     "./integrations/*": "./src/integrations/*.ts",
     "./data-flow": "./src/data-flow/data-flow.ts",
     "./zoned-time": "./src/zoned-time.ts",

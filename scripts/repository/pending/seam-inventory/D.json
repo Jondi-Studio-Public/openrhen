@@ -1,0 +1,21 @@
+{
+  "lane": "D",
+  "registries": {
+    "total": 5,
+    "files": {
+      "platform/database/src/operations/demo-seed/demo-calendar-imports.ts": [
+        "registerDemoCalendarImport"
+      ],
+      "platform/database/src/operations/demo-seed/demo-capture-extensions.ts": [
+        "registerDemoCaptures"
+      ],
+      "platform/database/src/operations/integration-database.ts": [
+        "integrationDatabaseName",
+        "integrationRoleName"
+      ],
+      "platform/database/src/schema/table-groups.ts": [
+        "registerTableGroup"
+      ]
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "lane": "K",
+  "registries": {
+    "total": 20,
+    "files": {
+      "platform/contracts/src/activity-events.ts": [
+        "activityEventsJsonSchema",
+        "activityKindsOf",
+        "activitySourceEntry",
+        "activitySourceNames",
+        "groupWithheldByClass",
+        "isKnownActivitySource",
+        "validateActivityEvent"
+      ],
+      "platform/contracts/src/agent-routes.ts": [
+        "registerAgentRoutes"
+      ],
+      "platform/contracts/src/agent-scopes.ts": [
+        "isKnownScope",
+        "validateGrantableScopes"
+      ],
+      "platform/contracts/src/connections/manifest-store.ts": [
+        "registerConnectionManifest"
+      ],
+      "platform/contracts/src/extensions.ts": [
+        "registerContractsExtension",
+        "suspendContractsExtensions"
+      ],
+      "platform/contracts/src/planning/journey.ts": [
+        "journeyBand",
+        "resolveJourney"
+      ],
+      "platform/contracts/src/planning/plan-code-pattern.ts": [
+        "codesIn",
+        "compilePlanCodePattern"
+      ],
+      "platform/contracts/src/removed-field-store.ts": [
+        "registerRemovedFieldName"
+      ],
+      "platform/contracts/src/zoned-time.ts": [
+        "wallClockFormat",
+        "zonedDateTime"
+      ]
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "lane": "P",
+  "registries": {
+    "total": 17,
+    "files": {
+      "integrations/outbound-proxy/src/connections/calendar-feed/run-worker.ts": [
+        "parseFeedInWorker"
+      ],
+      "integrations/outbound-proxy/src/connections/calendar-feed/series.ts": [
+        "buildSeries"
+      ],
+      "integrations/outbound-proxy/src/connections/calendar-feed/zones.ts": [
+        "instantToLocal",
+        "isIanaZone",
+        "localToInstant",
+        "offsetAt",
+        "resolveZone"
+      ],
+      "integrations/outbound-proxy/src/connections/google-calendar/google-calendar-client.ts": [
+        "listGoogleCalendars",
+        "readGoogleCalendarEvents",
+        "runGoogleCalendarProof"
+      ],
+      "integrations/outbound-proxy/src/host/connection-registry.ts": [
+        "registerConnection"
+      ],
+      "integrations/outbound-proxy/src/host/rate.ts": [
+        "takeAiRateSlot",
+        "takeEmbeddingRateSlot",
+        "takeHostedRateSlot",
+        "takeLocalRateSlot"
+      ],
+      "integrations/outbound-proxy/src/host/route-registry.ts": [
+        "registerProxyRoute"
+      ],
+      "integrations/outbound-proxy/src/web-push.ts": [
+        "sendWebPush"
+      ]
+    }
+  }
+}

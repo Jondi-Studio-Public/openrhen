@@ -1,0 +1,15 @@
+{
+  "lane": "F",
+  "registries": {
+    "total": 3,
+    "files": {
+      "portal/server/data-flow/enumerate.ts": [
+        "loopStartFiles",
+        "resolveClosure"
+      ],
+      "portal/server/data-flow/health-reader.ts": [
+        "readHealth"
+      ]
+    }
+  }
+}
