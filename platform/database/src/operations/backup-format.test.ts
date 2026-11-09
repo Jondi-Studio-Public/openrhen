@@ -328,6 +328,13 @@ describe("older backup formats", () => {
     expect(() => validate(backupOf(26, tables))).not.toThrow();
   });
 
+  it("tells the owner how to carry an unreadable older backup forward", async () => {
+    const { validateBackup: validate, BACKUP_TABLES: tables } = await withSeam(() => undefined);
+    expect(() => validate(backupOf(19, tables))).toThrow(
+      /Restore this backup on the build that wrote it, then take a fresh backup there and restore that one here$/
+    );
+  });
+
   it("restores a format 22 backup through the shipped reader, with its rows in the JSON, with or without a skip marker", async () => {
     const { validateBackup: validate, BACKUP_TABLES: tables, tablesAbsentFrom } = await import("./backup-format.js");
     const { legacyRequiredTables } = await import("./private/legacy-backups.js");
