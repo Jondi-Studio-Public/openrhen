@@ -1,10 +1,9 @@
 {
   "lane": "K",
   "terms": {
-    "total": 340,
+    "total": 338,
     "files": {
       "platform/contracts/activity-events-schema.v1.json": 12,
-      "platform/contracts/src/activity-batch.test.ts": 2,
       "platform/contracts/src/activity-derived.test.ts": 10,
       "platform/contracts/src/activity-derived.ts": 7,
       "platform/contracts/src/activity-events.test.ts": 25,
