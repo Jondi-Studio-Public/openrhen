@@ -199,15 +199,6 @@ function vapidAuthorizationHeader(audience: string, config: VapidEnvConfig, now:
   return `vapid t=${jwt}, k=${config.publicKey}`;
 }
 
-export class WebPushError extends Error {
-  constructor(
-    message: string,
-    public readonly outcome: PushSendOutcome
-  ) {
-    super(message);
-  }
-}
-
 /**
  * `POST /push/send`'s implementation: encrypts, signs and sends one push. The endpoint host has
  * already been checked against the allowlist by the caller (the route), but this function checks it

@@ -66,29 +66,3 @@ export function compatibleCapacityMinutes(args: {
 
   return total;
 }
-
-export function nextAvailableWindowMinutes(args: {
-  now: Date;
-  requiredEnergy: EnergyType;
-  capacityWindows: CapacityWindow[];
-  commitments: FixedCommitment[];
-  horizonEnd: Date;
-  arrivalMarginMinutes?: number;
-}): number {
-  const arrivalMarginMinutes = args.arrivalMarginMinutes ?? ARRIVAL_MARGIN_MINUTES;
-  const containing = args.capacityWindows
-    .filter(
-      (window) =>
-        energyCompatible(args.requiredEnergy, window.energy) && window.startsAt <= args.now && window.endsAt > args.now
-    )
-    .sort((a, b) => a.endsAt.getTime() - b.endsAt.getTime())[0];
-
-  if (!containing) return 0;
-  let end = new Date(Math.min(containing.endsAt.getTime(), args.horizonEnd.getTime()));
-  for (const commitment of args.commitments) {
-    const blockedStart = commitmentProtection(commitment, arrivalMarginMinutes).startsAt;
-    if (blockedStart > args.now && blockedStart < end) end = blockedStart;
-    if (commitment.startsAt <= args.now && commitment.endsAt > args.now) return 0;
-  }
-  return Math.floor(minutesBetween(args.now, end) * containing.usableFraction);
-}

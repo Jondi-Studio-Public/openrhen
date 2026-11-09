@@ -94,6 +94,27 @@ Both are optional; leave them out and nothing changes.
 
   Later wakes show their status in the `agent_wakes` table.
 
+## Tuning settings
+
+These optional variables are read from the service's process environment and each has a working default, so most installs never set them. The shipped `compose.yaml` passes only the variables it lists under each service, so under Docker add the name to that service's `environment` first.
+
+| Variable | Service | Default | Controls |
+| --- | --- | --- | --- |
+| `TRAVEL_LOOKUP_INTERVAL_MS` | engine-worker | `300000` | Gap between travel lookup ticks. |
+| `CHAT_STREAM_IDLE_TIMEOUT_MS` | portal | `60000` | Idle time before a chat stream is ended. |
+| `OUTBOUND_REQUEST_TIMEOUT_MS` | portal | `30000` | Timeout for one call to the outbound proxy. |
+| `OUTBOUND_PROXY_REQUEST_TIMEOUT_MS` | outbound-proxy | `30000` | Request timeout of the proxy's own server. |
+| `OUTBOUND_UPSTREAM_TIMEOUT_MS` | outbound-proxy | `60000` | Wall-clock limit for a non-streaming upstream call. |
+| `OUTBOUND_STREAM_IDLE_TIMEOUT_MS` | outbound-proxy | `30000` | Idle limit for a streaming upstream call. |
+| `OUTBOUND_STREAM_MAX_MS` | outbound-proxy | `600000` | Absolute limit for a streaming upstream call. |
+| `OUTBOUND_MAX_BODY_BYTES` | outbound-proxy | `8388608` | Largest request body the proxy accepts. |
+| `PLANNING_RETENTION_PER_USER` | engine-worker | `50` | Superseded planning runs kept per person. |
+| `PLANNING_RETENTION_PROVIDER_TELEMETRY_DAYS` | engine-worker | `7` | Days of provider call telemetry kept. |
+| `PLANNING_RETENTION_INTERVAL_MINUTES` | engine-worker | `60` | Gap between prune runs. |
+| `PLANNING_RETENTION_ENABLED` | engine-worker | `true` | Set to `false` to stop pruning altogether. |
+
+`PLANNING_RETENTION_JOB_DAYS` and `PLANNING_RETENTION_RUN_DAYS` are described in [Database and backups](database-and-backups.md#retention-of-planning-evidence).
+
 ## Changing settings on a remote server
 
 If the stack runs on another machine, edit `.env` there, or keep the real file on your workstation and copy it over. Create the target as private first, because `scp` onto an existing file keeps that file's mode:

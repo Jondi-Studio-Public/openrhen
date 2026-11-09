@@ -9,7 +9,7 @@ import { resolvedLatestSafeStart } from "./score.js";
  * Declared low energy cuts an action the energy does not fit. When that cut is the ONLY thing
  * between the person and an action with a near external deadline, the engine can offer a bounded
  * "stretch": work on it anyway, by choice. Nothing here changes eligibility, tiers or weights;
- * the offer is derived afterwards, and accepting it (a later PR) waives the energy check for that
+ * the offer is derived afterwards, and accepting it waives the energy check for that
  * one action through `energyWaivedActionIds`.
  */
 
