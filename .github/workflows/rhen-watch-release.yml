@@ -1,0 +1,159 @@
+# Releases rhen-watch (tools/rhen-watch) from a tag `rhen-watch-v<version>`: a Windows zip, SHA256SUMS across
+# every asset, and install.ps1, attached to a GitHub Release. The tag must equal `rhen-watch-v` plus the
+# version in tools/rhen-watch/Cargo.toml (scripts/ci/rhen-watch-version.mjs). The release process is in
+# docs/architecture/desktop-activity-agent.md. Independent of the `rhen-watch` job in ci.yml.
+#
+# Run by hand (workflow_dispatch) with a tag to do a dry run: everything is built and checked and uploaded as
+# one workflow artifact, and no release is created. Only the `publish` job has write access, and only a tag
+# push reaches it.
+name: Release rhen-watch
+
+on:
+  push:
+    tags: ["rhen-watch-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to check the build against, for example rhen-watch-v0.1.0 (dry run; nothing is released)
+        required: true
+        type: string
+
+concurrency:
+  group: rhen-watch-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Check the tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      tag: ${{ steps.check.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Tag equals rhen-watch-v plus the Cargo.toml version
+        id: check
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="$(node scripts/ci/rhen-watch-version.mjs)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+  windows:
+    name: rhen-watch (Windows x86_64)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    needs: [version]
+    defaults:
+      run:
+        working-directory: tools/rhen-watch
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: cargo build --locked --release
+      - name: Pack
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = Join-Path $env:RUNNER_TEMP 'stage'
+          $out = Join-Path $env:RUNNER_TEMP 'windows'
+          New-Item -ItemType Directory -Force $stage, $out | Out-Null
+          Copy-Item target\release\rhen-watch.exe, target\release\rhen-watchw.exe, README.md $stage
+          if (Test-Path ..\..\LICENSE) { Copy-Item ..\..\LICENSE $stage }
+          $zip = Join-Path $out "rhen-watch-$env:VERSION-windows-x86_64.zip"
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip
+          # The packed program starts and the zip holds what install needs next to each other.
+          $check = Join-Path $env:RUNNER_TEMP 'check'
+          Expand-Archive -LiteralPath $zip -DestinationPath $check
+          foreach ($f in 'rhen-watch.exe', 'rhen-watchw.exe', 'README.md') {
+            if (-not (Test-Path (Join-Path $check $f))) { throw "$f missing from the zip" }
+          }
+          & (Join-Path $check 'rhen-watch.exe') help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'the packed rhen-watch.exe did not run' }
+          Get-ChildItem $out | Format-Table Name, Length
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-windows
+          path: ${{ runner.temp }}/windows/rhen-watch-*-windows-x86_64.zip
+          if-no-files-found: error
+
+  # The macOS leg (universal binary and install.sh) is kept in the project plan
+  # rhen-watch-mac-release-leg.md until the macOS agent is on main. Add it back as a job named `macos`, add it to
+  # `assemble.needs`, and it ships next to the Windows zip. `assemble` copies legs/install.sh when present.
+
+  # Gathers every leg that ran, writes ONE SHA256SUMS across them and stamps install.ps1. No write access.
+  assemble:
+    name: Assemble the assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: ${{ !cancelled() && needs.version.result == 'success' && needs.windows.result == 'success' }}
+    needs: [version, windows]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: release-*
+          path: legs
+          merge-multiple: true
+      - name: SHA256SUMS and install.ps1
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir release
+          cp legs/rhen-watch-"$VERSION"-* release/
+          # install.ps1 comes from the Windows source; install.sh (macOS leg) is copied as built.
+          sed "s/@VERSION@/$VERSION/g" scripts/install/rhen-watch.ps1 > release/install.ps1
+          if grep -q '@VERSION@' release/install.ps1; then echo "::error::install.ps1 still has a placeholder"; exit 1; fi
+          [ -f legs/install.sh ] && cp legs/install.sh release/install.sh
+          ls release/rhen-watch-"$VERSION"-windows-x86_64.zip
+          # One sha256sum-format line per archive; the installers match on the file name.
+          (cd release && sha256sum rhen-watch-"$VERSION"-* > SHA256SUMS && sha256sum -c SHA256SUMS)
+          cat release/SHA256SUMS
+          ls -l release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          # Dry runs are inspected from here; a tag push also publishes the same files.
+          name: release-assets
+          path: release/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Create the release
+    # Tag pushes only. workflow_dispatch is a dry run and stops at the artifact above.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [version, assemble]
+    permissions:
+      contents: write # gh release create, nothing else
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-assets
+          path: release
+      - name: gh release create
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" release/* --repo "$GITHUB_REPOSITORY" --title "$TAG" \
+            --notes "rhen-watch ${TAG#rhen-watch-v}. Windows: irm https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install.ps1 | iex . Verify downloads against SHA256SUMS. Builds are unsigned."
