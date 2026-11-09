@@ -1293,7 +1293,9 @@ export {
   ROUTE_TIERS,
   SIGNAL_NAMES,
   SLOT_BY,
-  TIER_CEILING
+  TIER_CEILING,
+  describeFeedProblems,
+  isRoute
 } from "./signal-availability.js";
 export type {
   Anchor,

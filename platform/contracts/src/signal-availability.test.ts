@@ -9,6 +9,8 @@ import {
   SIGNAL_NAMES,
   SLOT_BY,
   TIER_CEILING,
+  describeFeedProblems,
+  isRoute,
   type Anchor,
   type EvidenceItem,
   type SignalFeed
@@ -34,7 +36,18 @@ describe("signal-availability vocabularies", () => {
     expect(SLOT_BY).toEqual(["origin", "device", "route"]);
     expect(FRESHNESS_MODES).toEqual(["decay", "refreshed-held"]);
     expect(EVIDENCE_SUBJECTS).toEqual(["self", "anyone", "other"]);
-    expect(ORIGINS).toEqual(["phone", "computer", "home_net", "home_hub", "vehicle", "account", "files", "cloud", "room_sensor", "carried"]);
+    expect(ORIGINS).toEqual([
+      "phone",
+      "computer",
+      "home_net",
+      "home_hub",
+      "vehicle",
+      "account",
+      "files",
+      "cloud",
+      "room_sensor",
+      "carried"
+    ]);
     expect(SIGNAL_NAMES).toHaveLength(12);
   });
 
@@ -76,5 +89,19 @@ describe("signal-availability vocabularies", () => {
     expect(anchors).toHaveLength(4);
     expect(feed.holds?.halfLifeMinutes).toBe(Infinity);
     expect(item.subject).toBe("other");
+  });
+});
+
+describe("isRoute and feed problems", () => {
+  it("treats an entry with no availability as a projection", () => {
+    expect(isRoute({})).toBe(false);
+  });
+
+  it("requires staleAfterMinutes for refreshed-held", () => {
+    const base = { signal: "presence_home", weight: 0.5 } as unknown as SignalFeed;
+    expect(describeFeedProblems({ ...base, freshness: "refreshed-held" })).toHaveLength(1);
+    expect(describeFeedProblems({ ...base, freshness: "refreshed-held", staleAfterMinutes: 0 })).toHaveLength(1);
+    expect(describeFeedProblems({ ...base, freshness: "refreshed-held", staleAfterMinutes: 60 })).toEqual([]);
+    expect(describeFeedProblems({ ...base, freshness: "decay" })).toEqual([]);
   });
 });
