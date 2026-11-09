@@ -908,6 +908,14 @@ describe("scopesForRoute: the activity store", () => {
     for (const scope of ["read:activity-event", "write:activity-event"]) expect(isKnownScope(scope)).toBe(true);
   });
 
+  it("gives the import run report to the capture scope only, with no body needed", () => {
+    expect(scopesForRoute("POST", "/api/activity-imports/runs", {})).toEqual({
+      kind: "scopes",
+      scopes: ["write:activity-event"]
+    });
+    expect(routeNeedsBody("POST", "/api/activity-imports/runs")).toBe(false);
+  });
+
   it("keeps the summary, the source settings and every deletion with the owner", () => {
     expect(scopesForRoute("GET", "/api/activity-events/summary")).toMatchObject({
       kind: "refused",
