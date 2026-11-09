@@ -1,3 +1,4 @@
+import type { DataFlowContribution } from "./data-flow/types.js";
 import type { McpToolManifestEntry } from "./mcp-manifest.js";
 
 /**
@@ -93,6 +94,12 @@ export interface ContractsExtension {
   ) => { tool: string; room?: string; action?: string } | undefined;
   /** How often the worker runs each provider the extension adds, by provider name (doctor's late-sync check). */
   syncCadence?: Record<string, SyncCadence>;
+  /**
+   * What the extension adds to the data-flow registry (`data-flow/`): entries, dataset notes, overrides on core
+   * entries and the `composedBuild` flag. A function, so a client bundle never evaluates the entries. Each extension
+   * that supplies one uses its own id (`data-flow-<name>`).
+   */
+  dataFlow?: () => DataFlowContribution;
   /** The required arguments of each tool it adds, as the contract snapshot records them. */
   contractSnapshotTools?: Record<string, string[]>;
   /** What the extension adds to the agent policy prose (agent-policy-text.ts), each in its full and brief wording. */

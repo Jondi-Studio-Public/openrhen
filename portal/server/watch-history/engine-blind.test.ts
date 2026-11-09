@@ -27,6 +27,14 @@ const ACTIVITY_TABLES = [
 ];
 const BLIND_TABLES = [...WATCH_TABLES, ...ACTIVITY_TABLES, "app_secrets", "youtube_quota_use", "offer_log"];
 
+/**
+ * The data-flow registry (`platform/contracts/src/data-flow/`) has to name these tables and the activity store's
+ * modules to describe them, so the whole folder is allowed by prefix. What keeps it out of planning is the import
+ * guard below: it may import neither the database nor the portal, and no planning folder may import it.
+ */
+const DATA_FLOW_PREFIX = "platform/contracts/src/data-flow/";
+const underDataFlow = (path: string) => path.startsWith(DATA_FLOW_PREFIX);
+
 const SKIPPED_DIRECTORIES = new Set([
   "node_modules",
   "dist",
@@ -75,14 +83,29 @@ const MAY_NAME_BLIND_TABLES = new Set([
   "platform/database/src/offer-log/offer-log.ts"
 ]);
 
+/** Everything planning is made of: the portal's state reader, the database planning folder, and the engine. */
+function planningSources(): { path: string; text: string }[] {
+  return [
+    {
+      path: "state-read.ts",
+      text: readFileSync(join(repo, "portal", "server", "persistence", "postgres", "state-read.ts"), "utf8")
+    },
+    ...sources(join(repo, "portal", "server", "persistence", "postgres", "readers")),
+    ...sources(join(repo, "platform", "database", "src", "planning")),
+    ...sources(join(repo, "engine"))
+  ];
+}
+
 describe("watch history is blind to the engine", () => {
   it("is absent from PLAN_INPUT_TABLES", () => {
-    const registry = readFileSync(join(repo, "scripts", "repository", "write-path-registry.mjs"), "utf8");
-    const list = /export const PLAN_INPUT_TABLES = \[([\s\S]*?)\]/.exec(registry)?.[1];
-    expect(list).toBeTruthy();
-    for (const table of BLIND_TABLES) expect(list).not.toContain(`"${table}"`);
+    // The list moved to JSON in the contracts package; `write-path-registry.mjs` imports the same file.
+    const list = JSON.parse(readFileSync(join(repo, DATA_FLOW_PREFIX, "plan-input-tables.json"), "utf8")) as string[];
+    expect(Array.isArray(list)).toBe(true);
+    for (const table of BLIND_TABLES) expect(list).not.toContain(table);
     // The list is really the one that guards plan inputs: it still names a table the engine reads.
-    expect(list).toContain('"actions"');
+    expect(list).toContain("actions");
+    const registry = readFileSync(join(repo, "scripts", "repository", "write-path-registry.mjs"), "utf8");
+    expect(registry).toContain("plan-input-tables.json");
   });
 
   it("is never read by readPortalState or buildPlanForecastRequest", () => {
@@ -132,9 +155,10 @@ describe("watch history is blind to the engine", () => {
       .filter((file) => BLIND_TABLES.some((table) => file.text.includes(table)))
       .map((file) => relative(repo, file.path).split(sep).join("/"))
       .sort();
-    expect(naming.filter((path) => !MAY_NAME_BLIND_TABLES.has(path))).toEqual([]);
-    // The allowance list does not rot: each file on it still names a table.
-    expect(naming).toEqual([...MAY_NAME_BLIND_TABLES].sort());
+    expect(naming.filter((path) => !MAY_NAME_BLIND_TABLES.has(path) && !underDataFlow(path))).toEqual([]);
+    // The allowance list does not rot: each file on it still names a table, and the data-flow prefix still has a file.
+    expect(naming.filter((path) => !underDataFlow(path))).toEqual([...MAY_NAME_BLIND_TABLES].sort());
+    expect(naming.some(underDataFlow)).toBe(true);
   });
 
   it("keeps the activity store's code and drizzle names out of every file but its own routes and store", () => {
@@ -165,8 +189,59 @@ describe("watch history is blind to the engine", () => {
       .filter((file) => NAMES.some((pattern) => pattern.test(file.text)))
       .map((file) => relative(repo, file.path).split(sep).join("/"))
       .sort();
-    expect(using.filter((path) => !MAY_USE_ACTIVITY_CODE.has(path))).toEqual([]);
-    // The allowance does not rot: each file on it still uses the activity code.
-    expect(using).toEqual([...MAY_USE_ACTIVITY_CODE].sort());
+    expect(using.filter((path) => !MAY_USE_ACTIVITY_CODE.has(path) && !underDataFlow(path))).toEqual([]);
+    // The allowance does not rot: each file on it still uses the activity code, and the prefix still has a file.
+    expect(using.filter((path) => !underDataFlow(path))).toEqual([...MAY_USE_ACTIVITY_CODE].sort());
+    expect(using.some(underDataFlow)).toBe(true);
+  });
+
+  it("keeps the data-flow registry out of planning, and its imports to an allowed few", () => {
+    const dataFlow = sources(join(repo, DATA_FLOW_PREFIX));
+    expect(dataFlow.length).toBeGreaterThan(3);
+    // Imports may reach the folder's own files, zod, and these contracts modules; nothing may reach the database, the
+    // portal or the engine.
+    const ALLOWED_CONTRACTS = [
+      /^platform\/contracts\/src\/extensions\.ts$/,
+      /^platform\/contracts\/src\/private\/index\.ts$/,
+      /^platform\/contracts\/src\/activity-events\.ts$/,
+      /^platform\/contracts\/src\/connections\/[\w./-]+\.ts$/,
+      /^platform\/contracts\/src\/mcp-manifest\.ts$/,
+      /^platform\/contracts\/src\/planning\/doctor-cadence\.ts$/
+    ];
+    for (const file of dataFlow) {
+      const from = relative(repo, file.path).split(sep).join("/");
+      const specifiers = [...file.text.matchAll(/(?:from\s+|import\s*\(\s*|import\s+)(["'])([^"']+)\1/g)].map(
+        (match) => match[2]!
+      );
+      for (const specifier of specifiers) {
+        const target = specifier.startsWith(".")
+          ? join(dirname(from), specifier).split(sep).join("/").replace(/\.js$/, ".ts")
+          : null;
+        const allowed =
+          specifier === "zod" ||
+          (target !== null && (underDataFlow(target) || ALLOWED_CONTRACTS.some((pattern) => pattern.test(target))));
+        expect(allowed, `${from} imports ${specifier}`).toBe(true);
+      }
+    }
+    // Planning must not depend on the registry or on the health reader that joins it to live rows.
+    const planning = planningSources();
+    // The guard covers the engine too, so engine code cannot import the registry.
+    expect(planning.some((file) => file.path.includes(`${sep}engine${sep}`))).toBe(true);
+    for (const file of planning) {
+      expect(file.text, `${file.path} imports the data-flow registry`).not.toMatch(/data-flow/);
+      expect(file.text, `${file.path} imports the health reader`).not.toMatch(/health-reader/);
+    }
+    // The health reader (PR B) is imported by the data-flow route, doctor and the header counts loader only.
+    const MAY_IMPORT_HEALTH_READER = new Set(["portal/app/api/data-flow/route.ts"]);
+    const importing = ["engine", "portal", "platform", "integrations", "tools", "scripts"]
+      .flatMap((name) => sources(join(repo, name)))
+      .filter((file) => /from\s+["'][^"']*health-reader(?:\.js)?["']/.test(file.text))
+      .map((file) => relative(repo, file.path).split(sep).join("/"));
+    expect(importing.filter((path) => !MAY_IMPORT_HEALTH_READER.has(path))).toEqual([]);
+  });
+
+  it("holds the same blind tables as the registry's own list", async () => {
+    const { BLIND_TABLES: registryBlind } = await import("@openrhen/contracts/data-flow");
+    expect([...registryBlind].sort()).toEqual([...BLIND_TABLES].sort());
   });
 });

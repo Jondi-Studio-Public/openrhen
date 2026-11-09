@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./integrations/*": "./src/integrations/*.ts",
+    "./data-flow": "./src/data-flow/data-flow.ts",
     "./zoned-time": "./src/zoned-time.ts",
     "./consequence-fit": "./src/planning/consequence-fit.ts",
     "./commitment-repeat": "./src/planning/commitment-repeat.ts",

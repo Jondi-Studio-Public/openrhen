@@ -84,6 +84,7 @@ The Ollama address is the opposite of the calendar-feed guard (`connections/olla
 3. Write a `connection.test.ts` next to it with a fake `fetch`.
 4. Run the conformance test (`src/host/conformance.test.ts`). It checks that every registered manifest is bound exactly once, that each connection implements exactly its declared capabilities and operations, and that every operation answers an empty body, an empty environment and a failing network without throwing and with a well-formed failure.
 5. Document the environment variables in `.env.example` and the user-visible behaviour in [Settings and connections](../product/settings-and-connections.md).
+6. Add the connection's entry to the [data-flow registry](data-flow-registry.md), so where its data goes is recorded and checked.
 
 ## Design guidance
 

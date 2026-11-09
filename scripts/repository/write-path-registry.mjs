@@ -1,6 +1,8 @@
 import "./private/index.mjs";
 import { loadAddonWriters } from "./addon-routes.mjs";
 import { extensionWriters } from "./write-path-extensions.mjs";
+// The list itself lives in the contracts package (data-flow registry, E1), so the registry check and this guard read one file.
+import planInputTables from "../../platform/contracts/src/data-flow/plan-input-tables.json" with { type: "json" };
 // Registry for the one-write-path guard.
 //
 // `check-structure.mjs` uses this to enforce that every production write to a table the planning
@@ -17,45 +19,7 @@ import { extensionWriters } from "./write-path-extensions.mjs";
 // Tables `readPortalState` / `buildPlanForecastRequest` read to build a plan forecast request
 // Every production write to one of these
 // must be logged and enqueued through `recordStateChange`, so every writer must appear in `WRITERS`.
-export const PLAN_INPUT_TABLES = [
-  "user_preferences",
-  "users",
-  "areas",
-  "outcomes",
-  "projects",
-  "actions",
-  "action_dependencies",
-  "action_recurrence_rules",
-  "action_recurrence_windows",
-  "action_cadence_completions",
-  "action_occurrences",
-  "condition_definitions",
-  "action_requirement_pathways",
-  "action_requirements",
-  "action_preferences",
-  "sessions",
-  "session_segments",
-  "daily_plans",
-  "daily_plan_desired_actions",
-  "daily_plan_deferred_actions",
-  "planning_focus_periods",
-  "planning_focus_projects",
-  "deliverables",
-  "deliverable_criteria",
-  "deliverable_blockers",
-  "deliverable_dependencies",
-  "deliverable_criterion_actions",
-  "deliverable_blocker_actions",
-  "commitments",
-  "commitment_recurrence_rules",
-  "routine_steps",
-  "routine_step_dependencies",
-  "routine_presets",
-  "routine_preset_steps",
-  "routine_preset_step_dependencies",
-  "sleep_plans",
-  "journey_samples"
-];
+export const PLAN_INPUT_TABLES = planInputTables;
 
 // Deliberately left out: read but never planned from. `captures` feeds the request hash but
 // `engine/core/src` never reads it. `deliverable_sources`, `source_files` and
