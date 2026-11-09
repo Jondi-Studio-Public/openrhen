@@ -97,7 +97,9 @@ describe("source drift-reason", () => {
   it("refuses a reset that carries tags, a malformed tag list, and tags with unknown attrs", () => {
     expect(problem(corrected({ tags: ["tired"], reset: true }))).toMatch(/reset/i);
     expect(problem(corrected({ tags: ["Tired"] }))).toMatch(/lower case/);
-    expect(problem(corrected({ tags: ["a", "b", "c", "d", "e", "f", "g"] }))).toMatch(/limit/);
+    expect(problem(corrected({ tags: ["a", "b", "c", "d", "e", "f", "g"] }))).toBe(
+      "A reason can have at most 6 tags; this has 7."
+    );
     expect(problem(corrected({ tags: [], reset: false }))).toMatch(/reset/);
     expect(problem(corrected({ tags: [], energy: "low" }))).toMatch(/not allowed/);
     expect(problem(inferred({ input_hash: "x" }))).toMatch(/not allowed/);

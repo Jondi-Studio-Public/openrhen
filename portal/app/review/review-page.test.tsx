@@ -55,6 +55,13 @@ function keepsOnTheServer() {
 let context: typeof baseContext & { state: ReturnType<typeof buildState> };
 vi.mock("@/state/portal-provider", () => ({ usePortal: () => context }));
 
+// The correction card loads its own list; here there is nothing to show, so only its own test sees its alert.
+const reasonTags = vi.hoisted(() => ({ fetchReasonTags: vi.fn() }));
+vi.mock("@/features/check-in/reason-tag-client", async (original) => ({
+  ...(await original<typeof import("@/features/check-in/reason-tag-client")>()),
+  fetchReasonTags: reasonTags.fetchReasonTags
+}));
+
 // Imported after the mock is declared (vi.mock calls are hoisted above imports by vitest, so this
 // import already resolves against the mocked provider).
 import ReviewPage from "./page";
@@ -64,6 +71,15 @@ describe("Review page composition", () => {
   // An earlier test moves the shared clock forward; every test here reads the same instant its fixtures use.
   beforeEach(() => {
     freezeClock(now);
+    reasonTags.fetchReasonTags.mockReset();
+    reasonTags.fetchReasonTags.mockResolvedValue({ modelConfigured: false, reasons: [] });
+  });
+
+  it("shows the correction card's own alert, and only it, when the list of reasons cannot be loaded", async () => {
+    reasonTags.fetchReasonTags.mockRejectedValue(new Error("Could not reach the portal. Try again."));
+    context = { ...baseContext, state: buildState() };
+    render(<ReviewPage />);
+    expect((await screen.findByRole("alert")).textContent).toContain("Your reasons could not be loaded");
   });
 
   it("ticks off the steps that have nothing left, and shows a zero focus line", () => {

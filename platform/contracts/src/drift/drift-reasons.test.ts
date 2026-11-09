@@ -61,7 +61,9 @@ describe("tags", () => {
   });
 
   it("refuses too many, too long, empty, unnormalised, repeated and multi-line tags without echoing them", () => {
-    expect(describeReasonTagsProblem(Array.from({ length: REASON_TAGS_MAX + 1 }, (_, n) => `t${n}`))).toMatch(/limit/);
+    expect(describeReasonTagsProblem(Array.from({ length: REASON_TAGS_MAX + 1 }, (_, n) => `t${n}`))).toBe(
+      "A reason can have at most 6 tags; this has 7."
+    );
     expect(describeReasonTagsProblem(["x".repeat(REASON_TAG_MAX_CHARS + 1)])).toMatch(/1 to 40/);
     expect(describeReasonTagsProblem([""])).toMatch(/1 to 40/);
     expect(describeReasonTagsProblem(["Tired"])).toMatch(/lower case/);
