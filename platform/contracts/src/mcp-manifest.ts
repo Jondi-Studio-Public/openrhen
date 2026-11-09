@@ -49,6 +49,11 @@ export interface McpToolManifestEntry {
   name: string;
   /** The `tools/cli` registry command this tool is derived from. */
   command: string;
+  /**
+   * The repository-relative source file of the command, for a tool an extension adds: the data-flow coverage rule V3
+   * reads it as the tool's evidence. A core tool leaves it out; its command is `tools/cli/src/commands/<command>.ts`.
+   */
+  commandFile?: string;
   description: string;
   inputSchema: McpToolInputSchema;
   annotations: McpToolAnnotations;

@@ -383,3 +383,14 @@ describe("passwords and keys stay out of every tool", () => {
       expect(text, forbidden).not.toContain(forbidden);
   });
 });
+
+describe("a tool an extension adds", () => {
+  it("keeps the source file of its command, which the data-flow coverage rule reads as evidence", () => {
+    const core = [entry("rhen_one", "core one")];
+    const added = { ...entry("rhen_added", "added"), commandFile: "overlay/commands/added.ts" };
+    const tools = extended(core, { id: "command-file-fixture", mcpTools: { after: "rhen_one", tools: [added] } });
+    expect(tools.map((tool) => tool.name)).toEqual(["rhen_one", "rhen_added"]);
+    expect(tools[1]!.commandFile).toBe("overlay/commands/added.ts");
+    expect(tools[0]!.commandFile).toBeUndefined();
+  });
+});
