@@ -19,6 +19,8 @@ export interface InboxItemSpec {
   act?: string | undefined;
   /** Structured facts the item carries beyond its text (the compare room's group), for JSON output. */
   data?: Record<string, unknown> | undefined;
+  /** Mail text, sanitised by the portal: shown as quoted material, never as this server's own words. */
+  quoted?: { from: string; text: string } | undefined;
 }
 
 /** A room a module adds to `rhen inbox`. Registered rooms list ahead of the core's own rooms. */

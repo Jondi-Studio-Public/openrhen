@@ -23,6 +23,7 @@ const storage = new AsyncLocalStorage<{
   claim?: WriteClaim;
   scopes?: readonly string[];
   directWrites?: Readonly<Record<string, string>>;
+  authenticated?: boolean;
 }>();
 
 /**
@@ -65,7 +66,8 @@ export function runWithActor<T>(
   confirmedBy?: "owner",
   claim?: WriteClaim,
   scopes?: readonly string[],
-  directWrites?: Readonly<Record<string, string>>
+  directWrites?: Readonly<Record<string, string>>,
+  authenticated?: boolean
 ): T {
   const hasClaim = claim !== undefined && (claim.basis !== undefined || claim.evidence !== undefined);
   return storage.run(
@@ -74,7 +76,8 @@ export function runWithActor<T>(
       ...(confirmedBy ? { confirmedBy } : {}),
       ...(hasClaim ? { claim } : {}),
       ...(scopes ? { scopes } : {}),
-      ...(directWrites ? { directWrites } : {})
+      ...(directWrites ? { directWrites } : {}),
+      ...(authenticated ? { authenticated } : {})
     },
     fn
   );
@@ -117,6 +120,17 @@ export function changeLogConfirmedBy(): "owner" | undefined {
 export function changeLogActor(): string | null {
   const store = storage.getStore();
   return store === undefined ? SYSTEM_ACTOR : store.actor;
+}
+
+/**
+ * True only when a token (a database token, an OAuth access token or an environment token) named the agent behind this
+ * request. A name declared in the `X-OpenRhen-Agent` header alone is a label, not a credential, and is not authenticated:
+ * a write that must be attributed to a real agent (a mark on a mail fact, which outranks nothing the owner said but is
+ * recorded under its author's name) refuses a caller this is false for.
+ */
+export function requestAgentAuthenticated(): boolean {
+  const store = storage.getStore();
+  return store?.actor ? store.authenticated === true : false;
 }
 
 /** The agent behind this request, or null for a person or a background writer — for `started_by`/`answered_by`. */

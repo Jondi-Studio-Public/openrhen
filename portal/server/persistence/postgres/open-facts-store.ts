@@ -5,6 +5,7 @@ import {
   statusActorOf,
   type FactFold,
   type FoldFactRow,
+  type FoldInput,
   type FoldLink,
   type FoldMessage,
   type FoldOverride,
@@ -144,6 +145,9 @@ function factRowOf(row: { event_key: string; ts_start: Date; ingested_at: Date; 
     factType,
     tsStart: row.ts_start.toISOString(),
     ingestedAt: Number.isNaN(row.ingested_at.getTime()) ? null : row.ingested_at.toISOString(),
+    tier: string(attrs.tier),
+    extractorVersion: string(attrs.extractor_version),
+    reviewReason: string(attrs.review_reason),
     sourceEventId: string(attrs.source_event_id),
     conversationKey: string(attrs.conversation_key),
     icsUid: string(attrs.ics_uid),
@@ -168,7 +172,11 @@ export async function readOpenFacts(sql: PoolSql, options: OpenFactsOptions = {}
   try {
     return await sql.begin("isolation level repeatable read read only", async (tx) => {
       await tx.unsafe(`SET LOCAL statement_timeout = '${OPEN_FACTS_STATEMENT_TIMEOUT}'`);
-      return readInTransaction(tx, userId, { now, days, limit, maxRows, exclude: options.exclude });
+      const read = await readInTransaction(tx, userId, { now, days, maxRows });
+      const all = openFacts(foldFactStates(read.input));
+      const open = options.exclude === undefined ? all : all.filter((fold) => !options.exclude!(fold));
+      const { input: _input, ...rest } = read;
+      return { facts: open.slice(0, limit), total: open.length, ...rest };
     });
   } catch (error) {
     // 57014 is Postgres cancelling a statement that ran past its statement timeout.
@@ -177,18 +185,37 @@ export async function readOpenFacts(sql: PoolSql, options: OpenFactsOptions = {}
   }
 }
 
+/** What one read of the fact tables found: the fold's whole input, and what the read could not see. */
+export interface FactFoldRead {
+  input: FoldInput;
+  horizon: { from: string; to: string; days: number };
+  truncated: boolean;
+  scanned: { facts: number; statuses: number; overrides: number; messages: number };
+  problems: string[];
+}
+
+/**
+ * The rows `foldFactStates` needs, read inside the caller's transaction (see the header for the bounds). `readOpenFacts`
+ * folds them for a listing; the 2b-9 act store reads them under the activity lock and folds them again with the planned
+ * rows added. The status and override rows carry `by` (the agent that wrote them, from `ingested_via`) and `act`
+ * (`attrs.act`), which the fold ignores and the act planner reads for ownership and the per-agent limits.
+ */
+export async function readFactFoldInput(
+  sql: Sql,
+  userId: string,
+  options: { now: Date; days?: number; maxRows?: number }
+): Promise<FactFoldRead> {
+  const days = options.days ?? OPEN_FACTS_HORIZON_DAYS_DEFAULT;
+  const maxRows = options.maxRows ?? OPEN_FACTS_MAX_ROWS_DEFAULT;
+  return readInTransaction(sql, userId, { now: options.now, days, maxRows });
+}
+
 async function readInTransaction(
   sql: Sql,
   userId: string,
-  options: {
-    now: Date;
-    days: number;
-    limit: number;
-    maxRows: number;
-    exclude: ((fold: FactFold) => boolean) | undefined;
-  }
-): Promise<OpenFactsRead> {
-  const { now, days, limit, maxRows } = options;
+  options: { now: Date; days: number; maxRows: number }
+): Promise<FactFoldRead> {
+  const { now, days, maxRows } = options;
   const from = new Date(now.getTime() - days * DAY_MS);
   const to = new Date(now.getTime() + DAY_MS);
   const problems: string[] = [];
@@ -229,7 +256,7 @@ async function readInTransaction(
 
   const scanned = { facts: candidates.length, statuses: 0, overrides: 0, messages: 0 };
   const horizon = { from: from.toISOString(), to: to.toISOString(), days };
-  if (facts.length === 0) return { facts: [], total: 0, horizon, truncated, scanned, problems };
+  if (facts.length === 0) return { input: { facts, now }, horizon, truncated, scanned, problems };
 
   // A status or correction cannot be recorded before the message it is about, so nothing older than the oldest fact read
   // (less a day for clock skew) is looked at.
@@ -258,6 +285,8 @@ async function readInTransaction(
         actor,
         key: item.event_key,
         ingestedAt: item.at.toISOString(),
+        by: item.via,
+        act: string(attrs.act),
         // A status can carry the fact's own end (a reschedule, or a hold that keeps an ask open past 14 days). The
         // fold reads only a valid RFC 3339 time and ignores anything else.
         expiresAt: string(attrs.expires_at)
@@ -270,7 +299,9 @@ async function readInTransaction(
         newValue: attrs.new_value,
         at: item.at.toISOString(),
         actor,
-        key: item.event_key
+        key: item.event_key,
+        by: item.via,
+        act: string(attrs.act)
       });
       scanned.overrides += 1;
     }
@@ -307,9 +338,7 @@ async function readInTransaction(
     }
   }
 
-  const all = openFacts(foldFactStates({ facts, statuses, overrides, conversations, now }));
-  const open = options.exclude === undefined ? all : all.filter((fold) => !options.exclude!(fold));
-  return { facts: open.slice(0, limit), total: open.length, horizon, truncated, scanned, problems };
+  return { input: { facts, statuses, overrides, conversations, now }, horizon, truncated, scanned, problems };
 }
 
 /** What `readFactEvidence` resolves for one fact row. */

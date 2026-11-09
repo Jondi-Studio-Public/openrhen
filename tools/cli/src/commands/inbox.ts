@@ -3,6 +3,7 @@ import { type CommandContext, type CommandSpec, type ParsedArgs } from "../comma
 import { CliError, EXIT } from "../errors.js";
 import { toJson } from "../output.js";
 import { registeredInboxRooms, type InboxItemSpec } from "../command-modules.js";
+import { loadFactsRoom } from "./inbox-facts.js";
 
 /**
  * Everything open in the Inbox, room by room, as the portal's Inbox tabs group it (the design notes,
@@ -15,7 +16,8 @@ const CORE_ROOMS = [
   ["calendar", "Calendar & imports"],
   ["map", "Plan map"],
   ["kept", "Someday & reference"],
-  ["compare", "Compare"]
+  ["compare", "Compare"],
+  ["facts", "Open mail items"]
 ] as const;
 type RoomId = string;
 
@@ -38,6 +40,8 @@ interface InboxRoom {
   label: string;
   /** Items needing a decision; for Someday & reference, items kept. */
   count: number;
+  /** The portal's own words about the room, ahead of its items (trusted; never mail text). */
+  note?: string;
   items: InboxItem[];
   error?: string;
 }
@@ -257,6 +261,27 @@ export const inboxCommand: CommandSpec = {
         )
       );
 
+    if (wanted("facts")) {
+      try {
+        const read = await loadFactsRoom(context);
+        rooms.push({
+          room: "facts",
+          label: labels.get("facts")!,
+          count: read.count,
+          note: read.note,
+          items: read.items
+        });
+      } catch (error) {
+        rooms.push({
+          room: "facts",
+          label: labels.get("facts")!,
+          count: 0,
+          items: [],
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+
     if (context.mode !== "table") {
       context.stdout(toJson(rooms, true));
       return;
@@ -266,12 +291,22 @@ export const inboxCommand: CommandSpec = {
       lines.push(
         `${room.label}: ${room.count}${room.room === "kept" ? " kept" : ""}${room.error ? ` (could not read: ${room.error})` : ""}`
       );
-      for (const item of room.items.slice(0, 20))
+      if (room.note) lines.push(`  ${room.note}`);
+      // The facts room is bounded already (the open items and the marks, each capped by the portal), and its note says what
+      // is listed, so none of it is cut here.
+      const shown = room.room === "facts" ? room.items : room.items.slice(0, 20);
+      for (const item of shown) {
         lines.push(
           `  - ${item.title}${item.detail ? ` — ${item.detail}` : ""}${item.openQuestions ? ` [${item.openQuestions} open question(s)]` : ""}  [${item.id}]`,
           ...(room.room === "compare" && item.act ? [`    ${item.act}`] : [])
         );
-      if (room.items.length > 20) lines.push(`  … ${room.items.length - 20} more (use --json or inbox ${room.room})`);
+        if (item.quoted)
+          lines.push(
+            `      quoted mail text from ${JSON.stringify(item.quoted.from)}: ${JSON.stringify(item.quoted.text)}`
+          );
+      }
+      if (room.items.length > shown.length)
+        lines.push(`  … ${room.items.length - 20} more (use --json or inbox ${room.room})`);
     }
     context.stdout(lines.join("\n"));
   }

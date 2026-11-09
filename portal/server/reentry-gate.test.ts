@@ -72,7 +72,9 @@ const TOOL_CLASSES: [string, string, string][] = [
   ["an arrival or situation write", "POST", "/api/commands/entity"],
   ["an undo", "POST", "/api/commands/revert"],
   ["a recalculate", "POST", "/api/commands/recalculate"],
-  ["a pulse disruption", "POST", "/api/commands/pulse-disruption"]
+  ["a pulse disruption", "POST", "/api/commands/pulse-disruption"],
+  ["a read of the open mail items", "GET", "/api/facts"],
+  ["a mark on an open mail item", "POST", "/api/facts/[id]"]
 ];
 
 describe("the agent gate while the pulse is lapsed", () => {

@@ -216,5 +216,5 @@ describe("countCrossings", () => {
 /** Measured 106 for this seed with the repeated sweeps and swap pass (362 with two sweeps), plus 10% slack; the unsorted order has about 3,900. */
 const BOUND = 117;
 
-/** Crossings of the real core registry, health unavailable so nothing is folded (153 nodes, 195 edges); 583 before the repeated sweeps and swap pass. */
-const REAL_BOUND_MEASURED = 374;
+/** Crossings of the real core registry, health unavailable so nothing is folded (158 nodes, 210 edges); 583 before the repeated sweeps and swap pass. */
+const REAL_BOUND_MEASURED = 436;

@@ -92,9 +92,20 @@ export interface LedgerRow {
   /** The JSON type of the first image's before and after: `null` where the row did not exist before, or is gone after. */
   before_type: string | null;
   after_type: string | null;
+  /** For a mark on a mail item: what was marked (type, due time, short id, sanitised quote), as the write recorded it. */
+  mark_item?: string | null;
 }
 
 const words = (text: string) => text.replaceAll("_", " ");
+
+/** The ledger words for an agent's mark on a mail fact (2b-9, room `facts`), by the write's command type. No mail text. */
+const FACT_MARK_LABELS: Readonly<Record<string, string>> = {
+  fact_confirm: "Held an open mail item open",
+  fact_done: "Marked a mail item done",
+  fact_ignore: "Marked a mail item not wanted",
+  fact_redate: "Changed the date of a mail item",
+  fact_reopen: "Took back a mark on a mail item"
+};
 
 /**
  * What a ledger row is called, close to what the journal's labels read like (`update commitment "Spin class"`):
@@ -111,7 +122,10 @@ export function ledgerLabel(row: {
   title: string | null;
   beforeType?: string | null;
   afterType?: string | null;
+  markItem?: string | null;
 }): string {
+  const factMark = FACT_MARK_LABELS[row.commandType];
+  if (factMark !== undefined) return row.markItem ? `${factMark}: ${row.markItem}` : factMark;
   if (row.commandType === "changeset")
     return `changeset of ${row.members ?? 0} ${row.members === 1 ? "write" : "writes"}`;
   if (!row.entityType) return words(row.commandType);
@@ -174,7 +188,8 @@ export const ledgerRows = async (
            COALESCE(i.image->'after'->>'title', i.image->'after'->>'name',
              i.image->'before'->>'title', i.image->'before'->>'name') AS title,
            jsonb_typeof(i.image->'before') AS before_type,
-           jsonb_typeof(i.image->'after') AS after_type
+           jsonb_typeof(i.image->'after') AS after_type,
+           w.response->>'markItem' AS mark_item
     FROM writes w
     LEFT JOIN LATERAL (
       SELECT r.entity_type, r.entity_id, r.operation, count(*) OVER () AS rows
@@ -207,7 +222,8 @@ export const labelOf = (row: LedgerRow): string =>
     rows: Number(row.rows ?? 0),
     title: row.title,
     beforeType: row.before_type,
-    afterType: row.after_type
+    afterType: row.after_type,
+    markItem: row.mark_item ?? null
   });
 
 /**

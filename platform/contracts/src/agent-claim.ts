@@ -19,6 +19,13 @@ export function parseBasis(raw: string | null | undefined): ClaimParse<AgentBasi
     : { ok: false, reason: `basis must be one of ${AGENT_BASES.join(", ")}.` };
 }
 
+/**
+ * The format characters that hide text or reorder it: zero-width space, word joiner, byte order mark, the bidirectional
+ * embeddings, overrides and isolates, and the tag block. The joiners (ZWNJ, ZWJ) and the directional marks (LRM, RLM)
+ * stay allowed: Persian, Arabic and Hebrew words need them.
+ */
+const HIDDEN_OR_REORDERING = /[\u200B\u2060\uFEFF\u202A-\u202E\u2066-\u2069\u{E0000}-\u{E007F}]/u;
+
 /** Trimmed text of 1 to 300 characters with no control characters; blank or null means not supplied. */
 export function parseEvidence(raw: string | null | undefined): ClaimParse<string> {
   const text = raw?.trim();
@@ -26,6 +33,12 @@ export function parseEvidence(raw: string | null | undefined): ClaimParse<string
   if (text.length > AGENT_PROPOSAL_EVIDENCE_MAX)
     return { ok: false, reason: `evidence must be at most ${AGENT_PROPOSAL_EVIDENCE_MAX} characters.` };
   if (/[\p{Cc}\p{Zl}\p{Zp}]/u.test(text)) return { ok: false, reason: "evidence must not contain control characters." };
+  if (HIDDEN_OR_REORDERING.test(text))
+    return {
+      ok: false,
+      reason:
+        "evidence must not contain hidden or text-reordering characters (zero-width space, word joiner, byte order mark, bidirectional overrides and isolates, tag characters); send the quote as plain text."
+    };
   return { ok: true, value: text };
 }
 

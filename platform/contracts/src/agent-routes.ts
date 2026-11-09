@@ -660,6 +660,15 @@ const WRITE_RULES: Record<string, Rule> = {
   "POST /api/imports/[id]/commit-ready": fixed({ tool: "import", action: "commit" }),
   "PUT /api/imports/[id]": fixed({ tool: "import", action: "update" }),
   "DELETE /api/imports/[id]": fixed({ tool: "import", action: "delete" }),
+  // Marks on the open mail facts (`rhen_inbox_act` room `facts`): the inbox-act tool's `write:inbox`, applied directly,
+  // reversible (the write ledger keeps the derived rows; `reopen` or Review > Agent changes takes the mark back).
+  // An action the handler does not know is refused there, with the five it does.
+  "POST /api/facts/[id]": (body) =>
+    scoped({
+      tool: "inbox-act",
+      room: "facts",
+      ...(str(body?.action) === undefined ? {} : { action: str(body?.action) })
+    }),
   "POST /api/plan-map/links": fixed({ tool: "inbox-act", room: "map", action: "link" }),
   "POST /api/plan-map/links/[id]": fixed({ tool: "inbox-act", room: "map", action: "link" }),
   "POST /api/plan-map/links/bulk": fixed({ tool: "inbox-act", room: "map", action: "links-bulk" }),
@@ -785,6 +794,8 @@ const READ_RULES: Record<string, string | "public"> = {
   "/api/data-flow": "read:plan",
   "/api/attention": "read:plan",
   "/api/consequence/next": "read:plan",
+  // The open mail facts listing (`rhen_inbox` room `facts`): derived data, read under the plan scope like the attention feed.
+  "/api/facts": "read:plan",
   "/api/pulse/reentry": "read:plan",
   // The same read for a token that can only re-enter (the call it may make while every other is held) or only
   // propose (see `READ_ANY_OF`).

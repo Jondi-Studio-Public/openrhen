@@ -32,6 +32,7 @@ export {
   compareOpenFacts,
   foldFactStates,
   openFacts,
+  afterPerson,
   statusActorOf
 } from "./fact-state.js";
 export type {
@@ -46,6 +47,21 @@ export type {
   FoldStatus,
   FoldWhen
 } from "./fact-state.js";
+export type { FactHistoryEntry } from "./fact-act.js";
+export {
+  FACT_ACTS,
+  FACT_CONFIRMS_PER_FACT_PER_DAY,
+  FACT_CLOSINGS_PER_DAY,
+  FACT_CLOSINGS_PER_HOUR,
+  FACT_EVIDENCE_MAX,
+  FACT_HOLD_DEFAULT_DAYS,
+  FACT_HOLD_MAX_DAYS,
+  FACT_REDATE_SPAN_MAX_DAYS,
+  FACT_WRITES_PER_HOUR,
+  agentMarks,
+  planFactAct
+} from "./fact-act.js";
+export type { AgentMark, FactAct, FactActInput, FactActPlan, FactActRefusal, PlannedRow } from "./fact-act.js";
 export { BACKFILL_LIMITS, estimateBackfill } from "./backfill-estimate.js";
 export type { BackfillEstimate, BackfillInput } from "./backfill-estimate.js";
 export { EVAL_CAVEAT, buildEvalReport } from "./eval-report.js";
