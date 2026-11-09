@@ -1337,6 +1337,7 @@ export {
   MESSAGE_FINGERPRINT_ATTR,
   MESSAGE_FINGERPRINT_HEX_CHARS,
   MESSAGE_FINGERPRINT_TEXT_MAX_CHARS,
+  MESSAGE_FINGERPRINT_TIME_TOLERANCE_SECONDS,
   MESSAGE_ID_MAX_CHARS,
   MESSAGE_KIND,
   canonicalMessageKey,
@@ -1347,6 +1348,20 @@ export {
   normaliseMessageText
 } from "./activity-message.js";
 export type { MessageEventInput, MessageKeyInput, MessageVerdict } from "./activity-message.js";
+export {
+  MESSAGE_DUPLICATE_END_STATE,
+  findMessageDuplicates,
+  isMessageCopyCandidate,
+  isRfcMessageId,
+  probeFingerprint,
+  probeSharesMessageId
+} from "./activity-message-dedupe.js";
+export type {
+  HeldMessageRef,
+  MessageCopyProbe,
+  MessageDuplicate,
+  MessageDuplicateBy
+} from "./activity-message-dedupe.js";
 export {
   PHYSIOLOGY_COMMON_ATTRS,
   PHYSIOLOGY_DAILY_FIELDS,

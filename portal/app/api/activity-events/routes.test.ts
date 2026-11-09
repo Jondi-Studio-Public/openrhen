@@ -33,6 +33,7 @@ const result = (extra: Record<string, unknown> = {}) => ({
   contentDropped: 0,
   rejected: [],
   held: [],
+  duplicates: [],
   importId: null,
   ingestedVia: "phone",
   ...extra
@@ -56,6 +57,26 @@ beforeEach(() => {
 });
 
 describe("POST /api/activity-events", () => {
+  it("says which copies were dropped and that nothing needs resending", async () => {
+    const copy = (index: number, by: "message_id" | "fingerprint") => ({
+      index,
+      source: "demo-paste",
+      key: `fp:${index}`,
+      of: { source: "demo-inbox", key: "mid:a@h" },
+      by,
+      endState: "duplicate"
+    });
+    store.ingestActivityEvents.mockResolvedValue(
+      result({ added: 0, alreadyHeld: 2, duplicates: [copy(0, "message_id"), copy(1, "fingerprint")] })
+    );
+    const body = await (await post({ schema: 1, events: [{ id: "a" }] })).json();
+    expect(body.message).toBe(
+      'Saved 0 events; 2 already held; 2 of those are copies of messages another source already holds (1 by message id, 1 by matching sender, time and text); they were not stored. Nothing needs resending or fixing for them: do not post them again, and send your next batch as usual. The "duplicates" list in this response gives each dropped event\'s index and the row that was kept.'
+    );
+    expect(body.message).not.toContain("coverage");
+    expect(body.duplicates).toHaveLength(2);
+  });
+
   it("stores a batch under the agent's name and says in plain words what happened", async () => {
     store.ingestActivityEvents.mockResolvedValue(result({ added: 2, alreadyHeld: 1, contentDropped: 1 }));
     const response = await post({ schema: 1, events: [{ id: "a" }] });

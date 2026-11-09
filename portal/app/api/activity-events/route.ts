@@ -18,10 +18,26 @@ import { databaseUrl } from "@/server/runtime-env";
 
 const NEEDS_DB = "The activity store requires PostgreSQL.";
 
+/**
+ * One sentence on message copies dropped because another source already holds the message (they are part of
+ * `alreadyHeld`). A dropped copy has nothing to fix, so no call is shown: the sentence says to send nothing for it.
+ */
+function duplicatesSentence(duplicates: ActivityIngestResult["duplicates"]): string {
+  const byId = duplicates.filter((copy) => copy.by === "message_id").length;
+  const byText = duplicates.length - byId;
+  const how = [
+    byId > 0 ? `${byId} by message id` : null,
+    byText > 0 ? `${byText} by matching sender, time and text` : null
+  ].filter((part) => part !== null);
+  const copies = duplicates.length === 1 ? "1 of those is a copy" : `${duplicates.length} of those are copies`;
+  return `${copies} of messages another source already holds (${how.join(", ")}); they were not stored. Nothing needs resending or fixing for them: do not post them again, and send your next batch as usual. The "duplicates" list in this response gives each dropped event's index and the row that was kept`;
+}
+
 /** Plain English for what happened to a batch: a phone shortcut shows the response body as it is. */
 function messageFor(result: ActivityIngestResult): string {
   const parts = [`Saved ${result.added} event${result.added === 1 ? "" : "s"}`];
   if (result.alreadyHeld > 0) parts.push(`${result.alreadyHeld} already held`);
+  if (result.duplicates.length > 0) parts.push(duplicatesSentence(result.duplicates));
   if (result.contentDropped > 0)
     parts.push(`text dropped from ${result.contentDropped} (the content gate for that source is off)`);
   if (result.rejected.length > 0)
