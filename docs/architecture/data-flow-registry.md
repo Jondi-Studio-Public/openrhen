@@ -84,7 +84,7 @@ If the probes cannot be read, doctor lists the source checks under `notChecked` 
 
 Known limits:
 
-- A kind that has been quiet for more than twice its own warning counts as retired on purpose and is not raised, so a kind that stops for good shows as late for a window and then disappears.
+- A kind that has been quiet for longer than the larger of twice its own warning and 7 days counts as retired on purpose and is not raised, so a kind that stops for good stays visible for at least a week and then disappears.
 - `import_needs_review` stays for 30 days after the run. Importing the same file again usually skips the same rows and raises it again; there is no dedupe of repeat runs with an unchanged skipped count.
 - The probes run one after another on one connection, on a read-only session, each limited to 8 s and all to 15 s together. Probes not yet run when the 15 s pass are shown as unresolved with a retry step.
 - The header's late count is the number of `source_late` items: sync-provider sources and feeds folded into a silent device have their own items and are not counted.

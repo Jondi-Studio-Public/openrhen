@@ -666,12 +666,16 @@ describe("per-kind lateness (lateKinds)", () => {
     expect(node.lateKinds).toEqual([{ kind: "alert", lastAt: ago(3).toISOString(), warnHours: 2 }]);
   });
 
-  it("stops naming a kind that has been quiet for more than twice its usual rhythm, as one retired on purpose", async () => {
+  it("keeps naming a kind that stopped for real for a week, however short its usual rhythm", async () => {
     await hourly("arrive", 40, 1);
-    await hourly("alert", 30, 3);
+    await hourly("alert", 30, 60);
     expect((await one(pushEntry())).lateKinds?.map((late) => late.kind)).toEqual(["alert"]);
     await sql`DELETE FROM activity_events WHERE kind = 'alert'`;
-    await hourly("alert", 30, 200);
+    // Just inside 7 days (168 h) it is still late; just past it, it is a kind retired on purpose.
+    await hourly("alert", 30, 167);
+    expect((await one(pushEntry())).lateKinds?.map((late) => late.kind)).toEqual(["alert"]);
+    await sql`DELETE FROM activity_events WHERE kind = 'alert'`;
+    await hourly("alert", 30, 169);
     expect((await one(pushEntry())).lateKinds).toBeUndefined();
   });
 
@@ -750,7 +754,6 @@ describe("the cache key and the probe time limit", () => {
       const result = await readHealth(sql as never, {
         now: NOW,
         entries: [slow, ...later],
-        cache: false,
         probeTimeoutMs: 800,
         probeDeadlineMs: 300
       });
@@ -761,9 +764,10 @@ describe("the cache key and the probe time limit", () => {
       await locker`ROLLBACK`.catch(() => {});
       locker.release();
     }
-    // Nothing was cached: the next read, with the table free, answers for every entry.
-    const again = await readHealth(sql as never, { now: NOW, entries: later, cache: true });
-    expect(again.nodes.q1!.freshness).toBe("fresh");
+    // The partial result was not cached: the same read again, default cache, now answers for every entry.
+    const again = await readHealth(sql as never, { now: NOW, entries: [slow, ...later], probeTimeoutMs: 800 });
+    for (const id of ["q1", "q2"]) expect(again.nodes[id]!.freshness).toBe("fresh");
+    expect(again.nodes.slow!.freshness).not.toBe("probe_unresolved");
   });
 
   it("leaves the connection it used free of the time limit and read-only mode", async () => {
