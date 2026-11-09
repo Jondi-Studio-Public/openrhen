@@ -17,18 +17,26 @@ const accepted = (id: string, name: string, activitySource: string, extra: Parti
     ...extra
   });
 
+/** A push source judged by its agent token's last use once the overlay binds a `tokenName`; until then by its rows. */
+const TOKEN_PROBE: FlowEntry["health"] = { kind: "last-used", table: "agent_tokens" };
+
 /** Device feeds and their registered-but-silent siblings. */
 export const DEVICE_ENTRIES: readonly FlowEntry[] = [
-  accepted("iphone-shortcuts", "Phone shortcuts feed", "iphone-shortcuts", { device: "phone" }),
-  accepted("iphone-health", "Health summary", "iphone-health", { device: "phone" }),
+  accepted("iphone-shortcuts", "Phone shortcuts feed", "iphone-shortcuts", { device: "phone", health: TOKEN_PROBE }),
+  accepted("iphone-health", "Health summary", "iphone-health", { device: "phone", health: TOKEN_PROBE }),
   accepted("rhen-watch", "PC activity agent", "rhen-watch", {
     device: "pc",
     category: "device",
-    method: "device-agent"
+    method: "device-agent",
+    health: TOKEN_PROBE
   }),
   accepted("steam", "Game sessions", "steam", { category: "device", method: "api-pull" }),
   accepted("weather", "Weather observations", "weather", { category: "device", method: "api-pull" }),
-  accepted("gmail", "Mail messages", "gmail", { category: "communications", method: "api-pull" }),
+  accepted("gmail", "Mail messages", "gmail", {
+    category: "communications",
+    method: "api-pull",
+    health: TOKEN_PROBE
+  }),
   flow({
     id: "phone-location",
     name: "Phone location",

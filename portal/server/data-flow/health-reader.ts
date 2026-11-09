@@ -40,7 +40,7 @@ interface Raw {
   /** A lag probe found the downstream stage trailing: late even when its own clock is recent. */
   forceLate?: boolean;
 }
-type Outcome = Raw | { unresolved: string };
+type Outcome = Raw | { unresolved: string; transient?: true };
 
 const clip = (text: string) => (text.length > ERROR_MAX ? text.slice(0, ERROR_MAX) : text);
 const when = (value: Date | string | null | undefined) => (value ? new Date(value) : null);
@@ -148,13 +148,19 @@ async function readActivity(
   const read: ActivityRead = { last: new Map(), kinds: new Map(), arrivals: new Map(), imported: new Map() };
   if (sources.length === 0 || !context.userId) return read;
   const list = context.sql([...sources]);
+  // One bound value per source, so each gets its own index-backed lookup for the newest row.
+  const values = sources.map((source) => context.sql`(${source}::text)`).reduce((a, b) => context.sql`${a}, ${b}`);
   const since30 = new Date(context.now.getTime() - 30 * 86_400_000);
   const since24 = new Date(context.now.getTime() - 86_400_000);
   const since7 = new Date(context.now.getTime() - 7 * 86_400_000);
   const [last, kinds, imports] = await Promise.all([
     context.sql<{ source: string; last: Date }[]>`
-      SELECT source, max(ingested_at) AS last FROM activity_events
-      WHERE user_id = ${context.userId} AND source IN ${list} GROUP BY source`,
+      SELECT v.s AS source, newest.ingested_at AS last
+      FROM (VALUES ${values}) AS v(s)
+      CROSS JOIN LATERAL (
+        SELECT ingested_at FROM activity_events
+        WHERE user_id = ${context.userId} AND source = v.s ORDER BY ingested_at DESC LIMIT 1
+      ) AS newest`,
     context.sql<{ source: string; kind: string; c24: number; c7: number }[]>`
       SELECT source, kind, count(*) FILTER (WHERE ingested_at > ${since24})::int AS c24,
         count(*) FILTER (WHERE ingested_at > ${since7})::int AS c7
@@ -366,7 +372,8 @@ async function probeAll(context: Context, entries: readonly FlowEntry[]): Promis
             : { unresolved: "no tokenName and no activity source" };
         }
         const row = tokenRows.find((candidate) => candidate.name === probe.tokenName);
-        if (!row || row.live === 0) return { unresolved: `no live token is named ${probe.tokenName}` };
+        if (!row || row.live === 0)
+          return { unresolved: `no live token is named ${probe.tokenName} (it may be revoked or expired)` };
         return simple(when(row.last_used_at));
       }
       case "json-stamp":
@@ -400,7 +407,8 @@ async function probeAll(context: Context, entries: readonly FlowEntry[]): Promis
         out.set(entry.id, await resolve(entry.health, entry));
       } catch (error) {
         out.set(entry.id, {
-          unresolved: `the probe query failed: ${clip(error instanceof Error ? error.message : String(error))}`
+          unresolved: `the probe query failed: ${clip(error instanceof Error ? error.message : String(error))}`,
+          transient: true
         });
       }
     })
@@ -413,15 +421,23 @@ function lagProviders(probe: Extract<HealthProbe, { kind: "lag" }>): string[] {
   return [...own(probe.upstream), ...own(probe.downstream)];
 }
 
-function nextStepFor(entry: FlowEntry, reason: string): string {
+/** Where the entry's health probe is defined, so a fix is made in the file that owns it. */
+const entriesFileFor = (entry: FlowEntry) =>
+  entry.owner === undefined || entry.owner === "core"
+    ? "platform/contracts/src/data-flow/entries"
+    : `the "${entry.owner}" extension's data-flow entries`;
+
+function nextStepFor(entry: FlowEntry, reason: string, transient: boolean): string {
   const probe = entry.health;
+  if (transient)
+    return `Retry in a minute; the query failed rather than the probe being wrong. If it persists, check that the database is reachable and healthy (${reason}).`;
   if (probe.kind === "last-used" && probe.tokenName)
-    return `Check that an agent token named "${probe.tokenName}" exists and is not revoked, or correct tokenName for entry ${entry.id} in the extension's data-flow amend.`;
+    return `Check that an agent token named "${probe.tokenName}" exists and has not been revoked or expired, or correct tokenName for entry ${entry.id} in the extension's data-flow amend.`;
   if (probe.kind === "sync-status")
-    return `Register an extension that reports a sync status for "${probe.provider}", or change entry ${entry.id}'s health probe in its data-flow entries file.`;
+    return `Register an extension that reports a sync status for "${probe.provider}", or change entry ${entry.id}'s health probe in ${entriesFileFor(entry)}.`;
   if (probe.kind === "json-stamp")
     return `Check that "${probe.path.join(".")}" is still written into ${probe.table}.${probe.column}, or correct the path on entry ${entry.id}.`;
-  return `Correct the health probe on entry ${entry.id} in platform/contracts/src/data-flow/entries (${reason}).`;
+  return `Correct the health probe on entry ${entry.id} in ${entriesFileFor(entry)} (${reason}).`;
 }
 
 function deviceHealth(entries: readonly FlowEntry[], nodes: Record<string, NodeHealth>): DeviceHealth[] {
@@ -488,11 +504,16 @@ export async function readHealth(sql: Sql, options: HealthOptions): Promise<Heal
         entryId: entry.id,
         tier: "degrading",
         title: `The health probe for ${entry.name} cannot be read: ${outcome.unresolved}.`,
-        next: nextStepFor(entry, outcome.unresolved)
+        next: nextStepFor(entry, outcome.unresolved, outcome.transient === true)
       });
       continue;
     }
-    if (probe.kind === "last-used" && probe.tokenName === undefined && entry.activitySource !== undefined) {
+    if (
+      probe.kind === "last-used" &&
+      probe.tokenName === undefined &&
+      entry.activitySource !== undefined &&
+      outcome.everSeen
+    ) {
       issues.push({
         code: "token_not_bound",
         entryId: entry.id,
@@ -523,7 +544,7 @@ export async function readHealth(sql: Sql, options: HealthOptions): Promise<Heal
       freshness:
         outcome.forceLate && freshness === "fresh"
           ? "late"
-          : threshold === null && freshness !== "never" && freshness !== "failing"
+          : threshold === null && freshness !== "never"
             ? "n/a"
             : freshness,
       lastSuccessAt: iso(outcome.lastSuccessAt),

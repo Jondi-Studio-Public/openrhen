@@ -108,8 +108,6 @@ export interface NodeHealth {
   count7d?: number;
   /** Activity sources: the kinds seen in the last 30 days. */
   kindsSeen?: string[];
-  /** Per kind, for a push source: a dead trigger is named here. */
-  lateKinds?: string[];
   threshold: ThresholdInUse | null;
   /** One line of plain explanation, for a person or an agent. */
   note?: string;

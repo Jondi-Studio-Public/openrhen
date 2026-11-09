@@ -81,3 +81,25 @@ describe("the extension seam", () => {
     ).toEqual(["surface:page/review"]);
   });
 });
+
+describe("core push entries", () => {
+  const PUSH = ["iphone-shortcuts", "iphone-health", "rhen-watch", "gmail"];
+
+  it("each judges a bound agent token, falling back to its rows until a tokenName is set", () => {
+    const registry = withoutContractsExtensions(() => dataFlowRegistry());
+    for (const id of PUSH) {
+      const entry = registry.entries.find((candidate) => candidate.id === id)!;
+      expect(entry.health, id).toEqual({ kind: "last-used", table: "agent_tokens" });
+      expect(entry.activitySource, id).toBeDefined();
+    }
+  });
+
+  it("takes an overlay amend's tokenName into the probe", () => {
+    registerContractsExtension({
+      id: "token-fixture",
+      dataFlow: () => ({ amend: { "iphone-shortcuts": { tokenName: "phone-token" } } })
+    });
+    const entry = dataFlowRegistry().entries.find((candidate) => candidate.id === "iphone-shortcuts")!;
+    expect(entry.health).toEqual({ kind: "last-used", table: "agent_tokens", tokenName: "phone-token" });
+  });
+});

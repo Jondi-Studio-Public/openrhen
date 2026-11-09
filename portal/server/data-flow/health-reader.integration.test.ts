@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { integrationDatabaseName } from "@openrhen/database";
 import { dataFlowRegistry, type FlowEntry } from "@openrhen/contracts/data-flow";
+import { withoutContractsExtensions } from "@openrhen/contracts";
 import { ensureUser } from "@/server/persistence/postgres/ensure-user";
 import { readHealth, resetHealthCache } from "./health-reader";
 
@@ -284,6 +285,83 @@ describe("last-used", () => {
       expect.objectContaining({ code: "token_not_bound", tier: "tidy", entryId: "iphone-shortcuts" })
     ]);
     expect(result.issues[0]!.next).toMatch(/tokenName/);
+  });
+});
+
+describe("core push entries through the real registry", () => {
+  const core = () =>
+    withoutContractsExtensions(() => dataFlowRegistry()).entries.filter(
+      (candidate) => candidate.id === "iphone-shortcuts"
+    );
+
+  it("raises token_not_bound for a bare core push entry that has a row", async () => {
+    await event("iphone-shortcuts", "arrive", 2);
+    const result = await readHealth(sql as never, { now: NOW, entries: core(), cache: false });
+    expect(result.nodes["iphone-shortcuts"]!.freshness).not.toBe("probe_unresolved");
+    expect(result.issues).toEqual([
+      expect.objectContaining({ code: "token_not_bound", entryId: "iphone-shortcuts", tier: "tidy" })
+    ]);
+  });
+
+  it("raises nothing for a push source with no rows and no token", async () => {
+    const result = await readHealth(sql as never, { now: NOW, entries: core(), cache: false });
+    expect(result.issues).toEqual([]);
+    expect(result.nodes["iphone-shortcuts"]).toMatchObject({ configured: false, freshness: "never" });
+  });
+
+  it("reads the named token once an overlay amend binds tokenName", async () => {
+    await sql`INSERT INTO agent_tokens (user_id, name, token_hash, expires_at, last_used_at)
+      VALUES (${userId}, 'phone-token', ${"a".repeat(64)}, ${ago(-1000)}, ${ago(3)})`;
+    // What the registry's overlay amend does to the core entry's probe (covered in contracts' data-flow.test.ts).
+    const entries = core().map((candidate) => ({
+      ...candidate,
+      health: { kind: "last-used", table: "agent_tokens", tokenName: "phone-token" } as const
+    }));
+    const result = await readHealth(sql as never, { now: NOW, entries, cache: false });
+    expect(result.issues).toEqual([]);
+    expect(result.nodes["iphone-shortcuts"]).toMatchObject({ configured: true, lastSuccessAt: ago(3).toISOString() });
+  });
+});
+
+describe("probe_unresolved next steps", () => {
+  it("tells a transient query failure to retry and check the database", async () => {
+    const bad = entry("q", {
+      kind: "max",
+      table: "integration_sync_runs",
+      column: "started_at",
+      where: { started_at: "soon" }
+    });
+    const result = await readHealth(sql as never, { now: NOW, entries: [bad], cache: false });
+    expect(result.issues[0]).toMatchObject({ code: "probe_unresolved" });
+    expect(result.issues[0]!.next).toMatch(/retry/i);
+    expect(result.issues[0]!.next).toMatch(/database/);
+    expect(result.issues[0]!.next).not.toContain("platform/contracts");
+  });
+
+  it("names the extension's entries file for an extension-owned entry", async () => {
+    const bad = entry("x", { kind: "max", table: "integration_sync_runs", column: "nope" }, { owner: "acme-ext" });
+    const result = await readHealth(sql as never, { now: NOW, entries: [bad], cache: false });
+    expect(result.issues[0]!.next).toContain("acme-ext");
+    expect(result.issues[0]!.next).not.toContain("platform/contracts");
+  });
+
+  it("says a missing token is revoked or expired", async () => {
+    const e = entry("t", { kind: "last-used", table: "agent_tokens", tokenName: "gone" }, { freshness: fresh });
+    const result = await readHealth(sql as never, { now: NOW, entries: [e], cache: false });
+    expect(result.issues[0]!.next).toContain("revoked or expired");
+  });
+});
+
+describe("activity newest-row lookup", () => {
+  it("returns each source's own newest row, and none for a source without rows", async () => {
+    await event("s1", "k", 9);
+    await event("s1", "k", 4);
+    await event("s2", "k", 30);
+    const entries = ["s1", "s2", "s3"].map((s) => entry(s, { kind: "activity", source: s }, { freshness: fresh }));
+    const result = await readHealth(sql as never, { now: NOW, entries, cache: false });
+    expect(result.nodes.s1!.lastSuccessAt).toBe(ago(4).toISOString());
+    expect(result.nodes.s2!.lastSuccessAt).toBe(ago(30).toISOString());
+    expect(result.nodes.s3).toMatchObject({ configured: false, lastSuccessAt: null });
   });
 });
 
