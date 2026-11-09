@@ -627,6 +627,35 @@ pub fn local_offset_minutes() -> i32 {
     }
 }
 
+/// Minutes east of UTC at a UTC instant, by the user's time zone rules (so a day in the other DST regime
+/// gets its own offset). Falls back to the offset now if the conversion fails.
+fn offset_at(utc: Ms) -> i32 {
+    // FILETIME counts 100 ns ticks since 1601-01-01.
+    let ticks = ((utc + 11_644_473_600_000).max(0) as u64) * 10_000;
+    let ft = FILETIME {
+        dwLowDateTime: ticks as u32,
+        dwHighDateTime: (ticks >> 32) as u32,
+    };
+    unsafe {
+        let mut utc_st: SYSTEMTIME = std::mem::zeroed();
+        let mut local_st: SYSTEMTIME = std::mem::zeroed();
+        if FileTimeToSystemTime(&ft, &mut utc_st) == 0 || SystemTimeToTzSpecificLocalTime(null(), &utc_st, &mut local_st) == 0 {
+            return local_offset_minutes();
+        }
+        let minutes = |s: &SYSTEMTIME| {
+            crate::cli::days_from_civil(i64::from(s.wYear), i64::from(s.wMonth), i64::from(s.wDay)) * 1440
+                + i64::from(s.wHour) * 60
+                + i64::from(s.wMinute)
+        };
+        (minutes(&local_st) - minutes(&utc_st)) as i32
+    }
+}
+
+/// The user's time zone as a function of the instant.
+pub fn local_tz() -> crate::tz::TzOffset {
+    crate::tz::TzOffset::from_fn(offset_at)
+}
+
 /// The current user's SID string, from `whoami /user`.
 fn current_sid() -> Result<String, String> {
     use std::os::windows::process::CommandExt;
