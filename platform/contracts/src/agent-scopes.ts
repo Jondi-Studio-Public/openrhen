@@ -3,8 +3,9 @@
  * remote tool list), and the one table that maps each CLI write tool to the scopes it needs. This module is the
  * contract; the enforcement lives elsewhere and reads it:
  * - `portal/server/agent-enforcement.ts` runs from `withRoute` for a database-token agent. It resolves a route's
- *   scopes (`agent-routes.ts`, via `requiredScopes`), checks them against the token, applies the hard floor
- *   (`hardFloorReason`) and `OWNER_ONLY_SETTINGS_FIELDS`, and refuses a route the contracts map does not place.
+ *   scopes (`agent-routes.ts`, via `requiredScopes`; a settings payload naming an owner-only field is found with
+ *   `ownerOnlySettingsFieldsIn` here), checks them against the token, applies the hard floor
+ *   (`hardFloorReason`), and refuses a route the contracts map does not place.
  * - `tools/cli/src/remote-manifest.ts` lists each remote tool's scopes so `tools/list` hides what a token could
  *   never call; the stdio server's `--allow-writes` / `--deny-writes` filter by command name, not by scope.
  * A header-only agent name and an anonymous caller are not scope-checked (a headerless caller counts as the

@@ -230,7 +230,7 @@ accept a title as well as an id. `rhen status --json` is the one-call summary of
 moment, worth reading before anything else. Over stdio MCP (`rhen mcp`), every command except `mcp` and the owner-only ones, `help`
 included, is served as a tool (`rhen_help`, `rhen_free`). The portal's remote `/mcp` serves fewer: no `help`,
 `schema`, `version`, `free`, `import`, `self-update` or the token commands (`skill --remote` prints the matching skill;
-`free` is `rhen_save_commitment` with `free: true`). Both servers announce the same starting points in its `initialize`
+`free` is `rhen_save_commitment` with `free: true`). Both servers announce starting points in their `initialize`
 response's `instructions`, so a client that surfaces those needs no separate onboarding doc.
 
 Desktop AI apps that speak MCP connect through `rhen mcp`, which serves each command as a tool
