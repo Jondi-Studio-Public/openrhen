@@ -5,6 +5,7 @@ import {
   SHADOW_LIVE_KEPT,
   circuitBackoffMs,
   classifyFailure,
+  isRetired,
   readModelCursor,
   redactMailText,
   runModelTick,
@@ -63,6 +64,22 @@ describe("readModelCursor", () => {
     expect(cursor.models).toEqual({ t2: { id: "m", digest: null }, t3: null });
     expect(cursor.shadow).toEqual({ done: ["a", "b"], evalCount: 2 });
   });
+
+  it("reads the re-offer rest and the running usage totals, and shrugs off junk in them", () => {
+    const cursor = readModelCursor({
+      reoffer: { done: ["k1", 3, "k2"], pauseUntil: "2026-11-08T01:00:00.000Z" },
+      usage: { messages: 4, tokens: 1840, seconds: 12.5 }
+    });
+    expect(cursor.reoffer).toEqual({ done: ["k1", "k2"], pauseUntil: "2026-11-08T01:00:00.000Z" });
+    expect(cursor.usage).toEqual({ messages: 4, tokens: 1840, seconds: 12.5 });
+    const junk = readModelCursor({
+      reoffer: { done: "x", pauseUntil: null },
+      usage: { messages: "many", tokens: null }
+    });
+    expect(junk.reoffer).toEqual({ done: [] });
+    expect(junk.usage).toEqual({ messages: 0, tokens: 0, seconds: 0 });
+    expect(readModelCursor({}).reoffer).toEqual({ done: [] });
+  });
 });
 
 describe("shadowDone", () => {
@@ -82,12 +99,13 @@ describe("shadowDone", () => {
 });
 
 describe("the production registry", () => {
-  it("holds no extractor in 2b-4: fact-llm is slice 2b-6", () => {
-    expect(MODEL_EXTRACTORS).toHaveLength(0);
+  it("registers fact-llm version 1, which is active from its first run", () => {
+    expect(MODEL_EXTRACTORS.map((e) => `${e.name}@${e.version}`)).toEqual(["fact-llm@1"]);
+    expect(MODEL_EXTRACTORS[0]).not.toHaveProperty("startsInactive");
   });
 
   it("makes an empty registry a reported no-op that touches no database", async () => {
-    const result = await runModelTick({} as never);
+    const result = await runModelTick({} as never, { extractors: [] });
     expect(result).toMatchObject({ status: "no_extractors", more: false, extractors: [] });
     expect((result as { summary: string }).summary).toContain("No model extractor is registered");
   });
@@ -104,5 +122,30 @@ describe("redactMailText", () => {
   it("leaves a message alone when nothing is shared or there is nothing to compare", () => {
     expect(redactMailText("timed out", ["unrelated body text"])).toBe("timed out");
     expect(redactMailText("anything at all here", [])).toBe("anything at all here");
+  });
+});
+
+describe("isRetired", () => {
+  const NOW = new Date("2026-11-20T00:00:00.000Z");
+  const held = (promotedAt: string | null) => [
+    { extractor: "fact-llm", version: "1", active: false, cursor: {} },
+    {
+      extractor: "fact-llm",
+      version: "2",
+      active: true,
+      cursor: promotedAt ? { promotions: [{ version: "2", at: promotedAt }] } : {}
+    },
+    { extractor: "fact-llm", version: "3", active: false, cursor: {} }
+  ];
+  it("stops an inactive version once a newer one has been active for more than seven days", () => {
+    expect(isRetired(held("2026-11-10T00:00:00.000Z"), "fact-llm", "1", NOW)).toBe(true);
+  });
+  it("keeps it running inside the seven days, or when the promotion time is unknown", () => {
+    expect(isRetired(held("2026-11-15T00:00:00.000Z"), "fact-llm", "1", NOW)).toBe(false);
+    expect(isRetired(held(null), "fact-llm", "1", NOW)).toBe(false);
+  });
+  it("never retires the active version, nor a version newer than the active one", () => {
+    expect(isRetired(held("2026-11-01T00:00:00.000Z"), "fact-llm", "2", NOW)).toBe(false);
+    expect(isRetired(held("2026-11-01T00:00:00.000Z"), "fact-llm", "3", NOW)).toBe(false);
   });
 });

@@ -25,7 +25,6 @@ import {
   MODEL_BATCH,
   NO_CONTENT_KEPT,
   trimSkipped,
-  DENY_HOSTED,
   MODEL_MESSAGE_BUDGET,
   runModelTick,
   type ModelExtractorResult,
@@ -232,7 +231,7 @@ describe("the model tick", () => {
     const { transport, calls } = fakeTransport();
     const result = await run(0, [], transport);
     expect(result).toMatchObject({ status: "no_extractors", more: false, extractors: [] });
-    expect((result as { summary: string }).summary).toContain("2b-6");
+    expect((result as { summary: string }).summary).toContain("No model extractor is registered");
     expect(calls).toHaveLength(0);
     expect(await sql`SELECT 1 FROM extractor_state`).toHaveLength(0);
   });
@@ -708,7 +707,7 @@ describe("the model tick", () => {
   });
 
   describe("hosted models", () => {
-    it("never sends to the hosted tier without an eligibility checker: the default refuses, and says why", async () => {
+    it("never sends to the hosted tier by default: with no hosted key saved the real rule refuses, and says why", async () => {
       await saveDerivedSettings(sql, { t3Model: "meta-llama/Llama-3.3-70B-Instruct" });
       const replies: string[] = [];
       const { extractor: ex } = extractor(async (message, ctx) => {
@@ -722,7 +721,7 @@ describe("the model tick", () => {
       await run(600, [ex], transport);
       expect(replies).toHaveLength(1);
       expect(replies[0]).toContain("not_eligible");
-      expect(replies[0]).toContain("no hosted-eligibility rule is installed");
+      expect(replies[0]).toContain("no hosted API key is saved");
       expect(calls.filter((c) => c.tier === "t3")).toHaveLength(0);
       expect(await sql`SELECT 1 FROM derived_model_calls`).toHaveLength(0);
     });
@@ -776,11 +775,11 @@ describe("review findings", () => {
     });
     expect(contexts.get("target")).toEqual(["ctx-good"]);
     expect(asked).toContain("ctx-bad");
-    // without a checker nothing is eligible, so a hosted-capable version sees no context at all
+    // without a test checker the real rule runs on the database: plain mail from a person passes it
     contexts.clear();
     await mail(at(700), { thread: "T", key: "later" });
     await run(1200, [ex], fakeTransport().transport);
-    expect(contexts.get("later")).toEqual([]);
+    expect(contexts.get("later")).toEqual(["ctx-bad", "ctx-good", "target"]);
   });
 
   it("F2: a version promoted while its run was calling the model writes nothing, and releases its lease", async () => {
@@ -1065,7 +1064,6 @@ describe("review round 2", () => {
     expect(down.message).toContain("No message was read");
     expect(down.message).toContain('POST /api/derived-settings/test {"tier":"t2"}');
     expect(down.message).toContain('{"tier":"t3"}');
-    expect((await DENY()).reason).toContain("No call enables it");
   });
 
   it("a failed message's note names when and what to call", async () => {
@@ -1079,12 +1077,6 @@ describe("review round 2", () => {
     expect(result.message).toContain(at(600 + RETRY_COOLDOWN_MS[0]! / 1000).toISOString());
   });
 });
-
-async function DENY() {
-  const verdict = await DENY_HOSTED({ sourceEventKey: "x", model: "m" });
-  if (verdict.eligible) throw new Error("expected a refusal");
-  return verdict;
-}
 
 describe("trimSkipped", () => {
   const entry = (i: number, code: string) => ({ id: `i${i}`, key: `k${i}`, code, at: "t" });

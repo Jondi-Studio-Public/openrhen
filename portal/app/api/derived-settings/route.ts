@@ -30,15 +30,20 @@ export const GET = withRoute("/api/derived-settings", async () => {
   );
 });
 
-/** Saves any of the settings: a field left out keeps its value; a text field sent as null (or empty) is cleared. */
+/**
+ * Saves any of the settings: a field left out keeps its value; a text field sent as null (or empty) is cleared. Saving
+ * a model id that no version of the fact extractor runs with also creates the next version, inactive and pinned to it;
+ * the answer's `version` says which and what to do next. Nothing is promoted by a save.
+ */
 export const PUT = withRoute("/api/derived-settings", async (request: Request) => {
   const parsed = parseDerivedSettingsPatch(await request.json().catch(() => null));
   if (!parsed.ok)
     return Response.json({ error: parsed.problems.join(" "), problems: parsed.problems }, { status: 400 });
   const connectionString = databaseUrl();
   if (!connectionString) return Response.json({ error: "Mail understanding requires PostgreSQL." }, { status: 503 });
+  const { pinnedVersion, ...settings } = await saveDerivedSettings(sqlPool(connectionString), parsed.patch);
   return Response.json(
-    { settings: await saveDerivedSettings(sqlPool(connectionString), parsed.patch), note: KEY_NOTE },
+    { settings, note: KEY_NOTE, ...(pinnedVersion ? { version: pinnedVersion } : {}) },
     { headers: { "cache-control": "no-store" } }
   );
 });

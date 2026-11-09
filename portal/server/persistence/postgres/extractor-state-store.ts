@@ -189,3 +189,66 @@ export async function renewExtractorLease(
     RETURNING 1`;
   return rows.length > 0;
 }
+
+/** The models a version runs with, as the model tick pins them in `cursor.models`. */
+export interface ModelPins {
+  t2: { id: string; digest: string | null } | null;
+  t3: { id: string } | null;
+}
+
+export type PinOutcome = { action: "none" | "unchanged" } | { action: "created" | "repinned"; version: string };
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+const pinId = (value: unknown): string | null => {
+  const record = asRecord(value);
+  return record && typeof record.id === "string" ? record.id : null;
+};
+
+/**
+ * Called when the model settings are saved. A model extractor's versions are counters pinned to the models they were
+ * created with (amendment 7), so saving a model id that no version of `extractor` runs with creates the NEXT version,
+ * INACTIVE: it shadow-reads the labelled messages and live mail with the new model, and stays out of every read until
+ * someone promotes it with `promoteExtractorVersion` after reading `?report=eval`. The active version never changes.
+ *
+ * - No version of the extractor yet: nothing to do (the first run pins the then-current settings).
+ * - A version already pinned to exactly these models (whatever its role): nothing to do.
+ * - The newest version is inactive and has not run yet (no forward mark): its pins are replaced in place, so changing
+ *   your mind before it ran does not stack up unread versions.
+ * - Otherwise the next number (highest + 1) is created inactive, pinned to the new models.
+ *
+ * Runs under the per-person activity lock so it cannot interleave with a tick's batch read.
+ */
+export async function pinModelVersionTx(
+  tx: TxSql,
+  userId: string,
+  extractor: string,
+  models: ModelPins
+): Promise<PinOutcome> {
+  await lockActivityUser(tx, userId);
+  const rows = await tx<{ version: string; active: boolean; cursor: Record<string, unknown> | null }[]>`
+    SELECT version, active, cursor FROM extractor_state WHERE user_id = ${userId} AND extractor = ${extractor}`;
+  const numbered = rows
+    .map((row) => ({ ...row, n: /^\d{1,9}$/.test(row.version) ? Number(row.version) : Number.NaN }))
+    .filter((row) => Number.isFinite(row.n))
+    .sort((a, b) => a.n - b.n);
+  if (numbered.length === 0) return { action: "none" };
+  const same = (cursor: Record<string, unknown> | null) => {
+    const held = asRecord(cursor?.models);
+    return held !== null && pinId(held.t2) === (models.t2?.id ?? null) && pinId(held.t3) === (models.t3?.id ?? null);
+  };
+  if (numbered.some((row) => same(row.cursor))) return { action: "unchanged" };
+  const newest = numbered[numbered.length - 1]!;
+  const pins = tx.json({ models } as never);
+  if (!newest.active && asRecord(newest.cursor)?.forward === undefined) {
+    await tx`
+      UPDATE extractor_state SET cursor = COALESCE(cursor, '{}'::jsonb) || ${pins}::jsonb
+      WHERE user_id = ${userId} AND extractor = ${extractor} AND version = ${newest.version}`;
+    return { action: "repinned", version: newest.version };
+  }
+  const version = String(newest.n + 1);
+  await tx`
+    INSERT INTO extractor_state (user_id, extractor, version, cursor, active)
+    VALUES (${userId}, ${extractor}, ${version}, ${pins}, false)`;
+  return { action: "created", version };
+}
