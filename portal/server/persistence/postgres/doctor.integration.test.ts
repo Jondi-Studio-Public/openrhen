@@ -5,6 +5,7 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { resolve } from "node:path";
 import { integrationDatabaseName } from "@openrhen/database";
+import { enterCoreOnly } from "@openrhen/contracts";
 import { ensureUser } from "./ensure-user";
 import { readDoctorReport } from "./doctor";
 
@@ -79,7 +80,11 @@ async function createRoutine(projectId: string, title: string, options: RoutineO
   return action[0]!.id;
 }
 
+// Core's tests of core behaviour: a composed build's extensions would add their own data-flow entries to the report.
+let leaveCoreOnly: (() => void) | undefined;
+
 beforeAll(async () => {
+  leaveCoreOnly = enterCoreOnly();
   const admin = postgres(adminUrl, { max: 1, connect_timeout: 10 });
   try {
     const existing = await admin<{ exists: boolean }[]>`
@@ -112,6 +117,7 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
+  leaveCoreOnly?.();
   await sql?.end();
 });
 

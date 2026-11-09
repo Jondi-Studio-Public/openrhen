@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { calendarSinkLabel, registerConnectionManifest } from "./connections/registry.js";
 import { contractsExtensions, registerContractsExtension } from "./extensions.js";
-import { withoutContractsExtensions } from "./core-only.js";
+import { enterCoreOnly, withoutContractsExtensions } from "./core-only.js";
+import { dataFlowRegistry } from "./data-flow/data-flow.js";
 import { BUILTIN_CONNECTIONS } from "./connections/builtin-connections.js";
 import { connectionRegistry } from "./connections/registry.js";
 
@@ -33,5 +34,24 @@ describe("withoutContractsExtensions", () => {
       label
     ]);
     expect(connectionRegistry()).toHaveLength(before + 1);
+  });
+});
+
+describe("enterCoreOnly", () => {
+  it("cuts the registry back until the returned function runs, and drops a fixture registered meanwhile", () => {
+    registerContractsExtension({
+      id: "core-only-held",
+      dataFlow: () => ({ amend: { "no-such-entry": { device: "x" } } })
+    });
+    const leave = enterCoreOnly();
+    expect(contractsExtensions()).toHaveLength(0);
+    expect(dataFlowRegistry().extensionIds).toEqual([]);
+    registerContractsExtension({ id: "core-only-fixture" });
+    expect(contractsExtensions().map((e) => e.id)).toEqual(["core-only-fixture"]);
+    leave();
+    const ids = contractsExtensions().map((e) => e.id);
+    expect(ids).toContain("core-only-held");
+    expect(ids).not.toContain("core-only-fixture");
+    expect(dataFlowRegistry().extensionIds).toContain("core-only-held");
   });
 });

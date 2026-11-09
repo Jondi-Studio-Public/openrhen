@@ -1,4 +1,3 @@
-import "@/test/example-calendar-sources";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { config } from "dotenv";
 import { drizzle } from "drizzle-orm/postgres-js";
@@ -8,7 +7,7 @@ import { resolve } from "node:path";
 import { integrationDatabaseName } from "@openrhen/database";
 import { ensureUser } from "@/server/persistence/postgres/ensure-user";
 import { readDoctorReport } from "@/server/persistence/postgres/doctor";
-import { registerContractsExtension } from "@openrhen/contracts";
+import { enterCoreOnly, registerContractsExtension } from "@openrhen/contracts";
 import type { FlowEntry } from "@openrhen/contracts/data-flow";
 import { resetHealthCache } from "./health-reader";
 import { readSourcesSlice } from "./doctor-sources-reader";
@@ -55,7 +54,13 @@ const idsOf = async (...wanted: string[]) =>
   (await report()).items.filter((item) => wanted.includes(item.check)).map((item) => item.id);
 const sourceItems = async () => (await report()).items.filter((item) => sourceChecks.includes(item.check));
 
+// Core's tests of core behaviour: a composed build's extensions would add their own entries. The example calendar
+// sources are test fixtures, not extensions, so they are registered after the cut-back.
+let leaveCoreOnly: (() => void) | undefined;
+
 beforeAll(async () => {
+  leaveCoreOnly = enterCoreOnly();
+  await import("@/test/example-calendar-sources");
   const admin = postgres(adminUrl, { max: 1, connect_timeout: 10 });
   try {
     const existing = await admin<{ exists: boolean }[]>`
@@ -85,6 +90,7 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
+  leaveCoreOnly?.();
   await sql?.end();
 });
 
