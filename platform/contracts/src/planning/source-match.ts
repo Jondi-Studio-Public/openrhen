@@ -51,9 +51,21 @@ export type SourceMatchKind = "exact" | "strong" | "possible" | "none";
 
 export interface SourceMatch {
   kind: SourceMatchKind;
+  /** The one commitment matched; on a tie, the earliest of the tied ones (a stable stand-in, never a pick). */
   commitmentId?: string;
   reason: string;
+  /**
+   * Set when several commitments matched equally at `kind`. Callers that act on a single id must check it:
+   * a tie is a question, not an answer. Absent on every non-tie result, so readers of `kind` and
+   * `commitmentId` keep working and see a deterministic id instead of whichever came first in the list.
+   */
+  tie?: true;
+  /** The tied commitments, earliest first (start, then id), at most `MAX_TIE_CANDIDATES`; present only with `tie`. */
+  candidates?: string[];
 }
+
+/** The most commitments a tie lists, so a card list stays short. */
+export const MAX_TIE_CANDIDATES = 5;
 
 const CLOSE_MINUTES = 10;
 const MIN_OVERLAP_SHARE = 0.5;
@@ -131,7 +143,8 @@ function matchOne(
 
 /**
  * The best match for `candidate` among non-cancelled `existing` commitments (exact over strong over
- * possible; the first commitment wins a tie).
+ * possible). When two or more commitments match equally at the best rank the result is a tie
+ * (`tie: true`, `candidates`), the same whatever the order of `existing`; nothing is picked.
  */
 export function matchCommitment(
   candidate: SourceCandidate,
@@ -139,12 +152,28 @@ export function matchCommitment(
   aliases: readonly SourceAlias[]
 ): SourceMatch {
   let best: SourceMatch = { kind: "none", reason: "No match" };
+  let atBest: SourceCommitment[] = [];
   for (const commitment of existing) {
     if (commitment.status === "cancelled") continue;
     const match = matchOne(candidate, commitment, aliases);
-    if (RANK[match.kind] > RANK[best.kind]) best = match;
+    if (RANK[match.kind] > RANK[best.kind]) {
+      best = match;
+      atBest = [commitment];
+    } else if (match.kind !== "none" && RANK[match.kind] === RANK[best.kind]) {
+      atBest.push(commitment);
+    }
   }
-  return best;
+  if (atBest.length < 2) return best;
+  const ordered = [...atBest].sort(
+    (a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+  );
+  return {
+    kind: best.kind,
+    commitmentId: ordered[0]!.id,
+    reason: `${ordered.length} commitments fit equally`,
+    tie: true,
+    candidates: ordered.slice(0, MAX_TIE_CANDIDATES).map((c) => c.id)
+  };
 }
 
 /**

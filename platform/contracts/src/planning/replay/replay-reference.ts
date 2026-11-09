@@ -14,9 +14,8 @@ import {
 
 /**
  * The resolver under test today: the matchers as they behave now, assembled behind the `Reconciler`
- * interface. It deliberately keeps today's quirks so the baseline records them: when two commitments
- * fit equally, the first in list order wins (`matchCommitment`, `findTitleDuplicate`), and a moved
- * deadline is a new one. It is not a model of what should happen; the gold is.
+ * interface. It deliberately keeps today's quirks so the baseline records them: a moved deadline is a
+ * new one. Equal fits are a tie, asked and never picked. It is not a model of what should happen; the gold is.
  *
  * Lanes are the per-fact-type pieces, kept in `LANES` so the matcher changes that follow (a tie
  * result, a deadline matcher, a sender-to-contact map) each replace one entry without touching the
@@ -248,8 +247,14 @@ export const referenceReconciler: Reconciler = (input, { chooser }) => {
   const byId = new Map(scored.map((s) => [s.id, s]));
   const targetOf = (id: string): ReplayTarget => byId.get(id)!.target;
 
+  if (tie) {
+    // Several records fit equally: no pick, by code or by chooser. A chooser's answer between equals would be a
+    // guess code cannot re-validate, so a tie is a question for the owner (`matchCommitment` returns it as
+    // a tie; the deadline and ask lanes tie on equal rank until their own matchers land).
+    return { endState: "asked", reason: "tie", candidates, tie, usedChooser: false };
+  }
+
   if (top >= RANK_STRONG) {
-    // First wins a tie: `matchCommitment` and `findTitleDuplicate` keep the first of equals. Recorded as is.
     const target = scored.find((s) => s.rank === top)!.target;
     if (fact.cancelled) return { endState: "applied", op: "cancel", target, candidates, tie, usedChooser: false };
     return { endState: "duplicate", target, candidates, tie, usedChooser: false };

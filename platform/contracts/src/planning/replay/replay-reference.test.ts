@@ -17,14 +17,20 @@ describe("reference reconciler", () => {
     expect(Object.keys(LANES).sort()).toEqual(["ask", "commitment", "deadline", "event"]);
   });
 
-  it("records first-wins on two equal strong matches as is, and flags the tie", () => {
+  it("asks on two equal strong matches, with both as candidates and no target", () => {
     const outcome = run("event-twin-records");
-    expect(outcome).toMatchObject({ endState: "duplicate", target: { id: "c1" }, tie: true, usedChooser: false });
+    expect(outcome).toMatchObject({ endState: "asked", reason: "tie", tie: true, usedChooser: false });
+    expect(outcome.target).toBeUndefined();
     expect(outcome.candidates.map((c) => c.id)).toEqual(["c1", "c2"]);
   });
 
-  it("takes the first of equals in list order, not the better score", () => {
-    expect(run("deadline-numbered-prefix").target?.id).toBe("a1");
+  it("does not hand a tie to a chooser, even an adversarial one", () => {
+    const outcome = run("event-twin-records", adversarial);
+    expect(outcome).toMatchObject({ endState: "asked", tie: true, usedChooser: false });
+  });
+
+  it("asks on equal deadline fits instead of taking the first", () => {
+    expect(run("deadline-numbered-prefix")).toMatchObject({ endState: "asked", tie: true });
   });
 
   it("reads a moved deadline and a rescheduled event as new", () => {

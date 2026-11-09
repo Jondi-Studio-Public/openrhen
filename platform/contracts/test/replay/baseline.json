@@ -1,16 +1,7 @@
 {
   "tolerance": 0,
   "knownViolations": {
-    "tieGuess": [
-      "ask-twin-open-asks",
-      "deadline-numbered-prefix",
-      "deadline-twin-actions",
-      "event-twin-records",
-      "sender-matches-neither-twin",
-      "sender-picks-between-twins",
-      "sender-picks-first-twin",
-      "sender-unknown-between-twins"
-    ],
+    "tieGuess": [],
     "mustNot": [
       "deadline-moved",
       "deadline-moved-earlier",
@@ -21,48 +12,48 @@
     ]
   },
   "adversarialNewApplies": [],
-  "adversarialNewWrongDuplicates": ["ask-same-thread-new-ask", "event-twin-records-late", "event-two-possible"],
+  "adversarialNewWrongDuplicates": ["ask-same-thread-new-ask"],
   "metrics": {
     "deterministic": {
       "overall": {
         "cases": 40,
         "confusion": {
           "applied": { "applied": 9, "duplicate": 0, "asked": 1, "no_effect": 0, "unresolved": 0 },
-          "duplicate": { "applied": 0, "duplicate": 16, "asked": 2, "no_effect": 0, "unresolved": 0 },
-          "asked": { "applied": 0, "duplicate": 5, "asked": 2, "no_effect": 0, "unresolved": 0 },
+          "duplicate": { "applied": 0, "duplicate": 13, "asked": 5, "no_effect": 0, "unresolved": 0 },
+          "asked": { "applied": 0, "duplicate": 0, "asked": 7, "no_effect": 0, "unresolved": 0 },
           "no_effect": { "applied": 1, "duplicate": 0, "asked": 0, "no_effect": 3, "unresolved": 0 },
           "unresolved": { "applied": 0, "duplicate": 0, "asked": 0, "no_effect": 0, "unresolved": 1 }
         },
         "precision": {
           "applied": { "k": 9, "n": 10 },
-          "duplicate": { "k": 16, "n": 21 },
-          "asked": { "k": 2, "n": 5 },
+          "duplicate": { "k": 13, "n": 13 },
+          "asked": { "k": 7, "n": 13 },
           "no_effect": { "k": 3, "n": 3 },
           "unresolved": { "k": 1, "n": 1 }
         },
         "recall": {
           "applied": { "k": 9, "n": 10 },
-          "duplicate": { "k": 16, "n": 18 },
-          "asked": { "k": 2, "n": 7 },
+          "duplicate": { "k": 13, "n": 18 },
+          "asked": { "k": 7, "n": 7 },
           "no_effect": { "k": 3, "n": 4 },
           "unresolved": { "k": 1, "n": 1 }
         },
         "appliedPrecision": { "k": 4, "n": 10 },
         "falseMergeRate": { "k": 1, "n": 2 },
         "wrongCreateRate": { "k": 5, "n": 8 },
-        "wrongDuplicateRate": { "k": 7, "n": 21 },
+        "wrongDuplicateRate": { "k": 0, "n": 13 },
         "denyRate": { "k": 1, "n": 10 },
         "confirmAccuracy": { "k": 9, "n": 10 },
         "tieRate": { "k": 10, "n": 33 },
         "tieResolution": {
           "chooserCorrect": { "k": 0, "n": 10 },
-          "asked": { "k": 2, "n": 10 },
-          "wronglyApplied": { "k": 7, "n": 10 }
+          "asked": { "k": 10, "n": 10 },
+          "wronglyApplied": { "k": 0, "n": 10 }
         },
         "recallAt5": { "k": 24, "n": 24 },
-        "noJudgeShare": { "k": 34, "n": 40 },
+        "noJudgeShare": { "k": 26, "n": 40 },
         "unresolvedShare": { "k": 1, "n": 40 },
-        "questionsPer100": 12.5
+        "questionsPer100": 32.5
       },
       "byTag": {
         "ask-no-date": {
@@ -70,40 +61,40 @@
           "confusion": {
             "applied": { "applied": 1, "duplicate": 0, "asked": 1, "no_effect": 0, "unresolved": 0 },
             "duplicate": { "applied": 0, "duplicate": 1, "asked": 0, "no_effect": 0, "unresolved": 0 },
-            "asked": { "applied": 0, "duplicate": 1, "asked": 0, "no_effect": 0, "unresolved": 0 },
+            "asked": { "applied": 0, "duplicate": 0, "asked": 1, "no_effect": 0, "unresolved": 0 },
             "no_effect": { "applied": 0, "duplicate": 0, "asked": 0, "no_effect": 0, "unresolved": 0 },
             "unresolved": { "applied": 0, "duplicate": 0, "asked": 0, "no_effect": 0, "unresolved": 0 }
           },
           "precision": {
             "applied": { "k": 1, "n": 1 },
-            "duplicate": { "k": 1, "n": 2 },
-            "asked": { "k": 0, "n": 1 },
+            "duplicate": { "k": 1, "n": 1 },
+            "asked": { "k": 1, "n": 2 },
             "no_effect": { "k": 0, "n": 0 },
             "unresolved": { "k": 0, "n": 0 }
           },
           "recall": {
             "applied": { "k": 1, "n": 2 },
             "duplicate": { "k": 1, "n": 1 },
-            "asked": { "k": 0, "n": 1 },
+            "asked": { "k": 1, "n": 1 },
             "no_effect": { "k": 0, "n": 0 },
             "unresolved": { "k": 0, "n": 0 }
           },
           "appliedPrecision": { "k": 1, "n": 1 },
           "falseMergeRate": { "k": 0, "n": 0 },
           "wrongCreateRate": { "k": 0, "n": 1 },
-          "wrongDuplicateRate": { "k": 1, "n": 2 },
+          "wrongDuplicateRate": { "k": 0, "n": 1 },
           "denyRate": { "k": 0, "n": 1 },
           "confirmAccuracy": { "k": 1, "n": 1 },
           "tieRate": { "k": 1, "n": 3 },
           "tieResolution": {
             "chooserCorrect": { "k": 0, "n": 1 },
-            "asked": { "k": 0, "n": 1 },
-            "wronglyApplied": { "k": 1, "n": 1 }
+            "asked": { "k": 1, "n": 1 },
+            "wronglyApplied": { "k": 0, "n": 1 }
           },
           "recallAt5": { "k": 1, "n": 1 },
-          "noJudgeShare": { "k": 3, "n": 4 },
+          "noJudgeShare": { "k": 2, "n": 4 },
           "unresolvedShare": { "k": 0, "n": 4 },
-          "questionsPer100": 25
+          "questionsPer100": 50
         },
         "cancel": {
           "cases": 3,
@@ -149,41 +140,41 @@
           "cases": 40,
           "confusion": {
             "applied": { "applied": 9, "duplicate": 0, "asked": 1, "no_effect": 0, "unresolved": 0 },
-            "duplicate": { "applied": 0, "duplicate": 16, "asked": 2, "no_effect": 0, "unresolved": 0 },
-            "asked": { "applied": 0, "duplicate": 5, "asked": 2, "no_effect": 0, "unresolved": 0 },
+            "duplicate": { "applied": 0, "duplicate": 13, "asked": 5, "no_effect": 0, "unresolved": 0 },
+            "asked": { "applied": 0, "duplicate": 0, "asked": 7, "no_effect": 0, "unresolved": 0 },
             "no_effect": { "applied": 1, "duplicate": 0, "asked": 0, "no_effect": 3, "unresolved": 0 },
             "unresolved": { "applied": 0, "duplicate": 0, "asked": 0, "no_effect": 0, "unresolved": 1 }
           },
           "precision": {
             "applied": { "k": 9, "n": 10 },
-            "duplicate": { "k": 16, "n": 21 },
-            "asked": { "k": 2, "n": 5 },
+            "duplicate": { "k": 13, "n": 13 },
+            "asked": { "k": 7, "n": 13 },
             "no_effect": { "k": 3, "n": 3 },
             "unresolved": { "k": 1, "n": 1 }
           },
           "recall": {
             "applied": { "k": 9, "n": 10 },
-            "duplicate": { "k": 16, "n": 18 },
-            "asked": { "k": 2, "n": 7 },
+            "duplicate": { "k": 13, "n": 18 },
+            "asked": { "k": 7, "n": 7 },
             "no_effect": { "k": 3, "n": 4 },
             "unresolved": { "k": 1, "n": 1 }
           },
           "appliedPrecision": { "k": 4, "n": 10 },
           "falseMergeRate": { "k": 1, "n": 2 },
           "wrongCreateRate": { "k": 5, "n": 8 },
-          "wrongDuplicateRate": { "k": 7, "n": 21 },
+          "wrongDuplicateRate": { "k": 0, "n": 13 },
           "denyRate": { "k": 1, "n": 10 },
           "confirmAccuracy": { "k": 9, "n": 10 },
           "tieRate": { "k": 10, "n": 33 },
           "tieResolution": {
             "chooserCorrect": { "k": 0, "n": 10 },
-            "asked": { "k": 2, "n": 10 },
-            "wronglyApplied": { "k": 7, "n": 10 }
+            "asked": { "k": 10, "n": 10 },
+            "wronglyApplied": { "k": 0, "n": 10 }
           },
           "recallAt5": { "k": 24, "n": 24 },
-          "noJudgeShare": { "k": 34, "n": 40 },
+          "noJudgeShare": { "k": 26, "n": 40 },
           "unresolvedShare": { "k": 1, "n": 40 },
-          "questionsPer100": 12.5
+          "questionsPer100": 32.5
         },
         "moved-deadline": {
           "cases": 4,
@@ -309,21 +300,21 @@
           "cases": 2,
           "confusion": {
             "applied": { "applied": 0, "duplicate": 0, "asked": 0, "no_effect": 0, "unresolved": 0 },
-            "duplicate": { "applied": 0, "duplicate": 2, "asked": 0, "no_effect": 0, "unresolved": 0 },
+            "duplicate": { "applied": 0, "duplicate": 1, "asked": 1, "no_effect": 0, "unresolved": 0 },
             "asked": { "applied": 0, "duplicate": 0, "asked": 0, "no_effect": 0, "unresolved": 0 },
             "no_effect": { "applied": 0, "duplicate": 0, "asked": 0, "no_effect": 0, "unresolved": 0 },
             "unresolved": { "applied": 0, "duplicate": 0, "asked": 0, "no_effect": 0, "unresolved": 0 }
           },
           "precision": {
             "applied": { "k": 0, "n": 0 },
-            "duplicate": { "k": 2, "n": 2 },
-            "asked": { "k": 0, "n": 0 },
+            "duplicate": { "k": 1, "n": 1 },
+            "asked": { "k": 0, "n": 1 },
             "no_effect": { "k": 0, "n": 0 },
             "unresolved": { "k": 0, "n": 0 }
           },
           "recall": {
             "applied": { "k": 0, "n": 0 },
-            "duplicate": { "k": 2, "n": 2 },
+            "duplicate": { "k": 1, "n": 2 },
             "asked": { "k": 0, "n": 0 },
             "no_effect": { "k": 0, "n": 0 },
             "unresolved": { "k": 0, "n": 0 }
@@ -331,19 +322,19 @@
           "appliedPrecision": { "k": 0, "n": 0 },
           "falseMergeRate": { "k": 0, "n": 0 },
           "wrongCreateRate": { "k": 0, "n": 0 },
-          "wrongDuplicateRate": { "k": 1, "n": 2 },
+          "wrongDuplicateRate": { "k": 0, "n": 1 },
           "denyRate": { "k": 0, "n": 0 },
           "confirmAccuracy": { "k": 0, "n": 0 },
           "tieRate": { "k": 1, "n": 2 },
           "tieResolution": {
             "chooserCorrect": { "k": 0, "n": 1 },
-            "asked": { "k": 0, "n": 1 },
-            "wronglyApplied": { "k": 1, "n": 1 }
+            "asked": { "k": 1, "n": 1 },
+            "wronglyApplied": { "k": 0, "n": 1 }
           },
           "recallAt5": { "k": 2, "n": 2 },
-          "noJudgeShare": { "k": 2, "n": 2 },
+          "noJudgeShare": { "k": 1, "n": 2 },
           "unresolvedShare": { "k": 0, "n": 2 },
-          "questionsPer100": 0
+          "questionsPer100": 50
         },
         "recurring-neighbour": {
           "cases": 3,
@@ -469,81 +460,81 @@
           "cases": 4,
           "confusion": {
             "applied": { "applied": 0, "duplicate": 0, "asked": 0, "no_effect": 0, "unresolved": 0 },
-            "duplicate": { "applied": 0, "duplicate": 2, "asked": 0, "no_effect": 0, "unresolved": 0 },
-            "asked": { "applied": 0, "duplicate": 2, "asked": 0, "no_effect": 0, "unresolved": 0 },
+            "duplicate": { "applied": 0, "duplicate": 0, "asked": 2, "no_effect": 0, "unresolved": 0 },
+            "asked": { "applied": 0, "duplicate": 0, "asked": 2, "no_effect": 0, "unresolved": 0 },
             "no_effect": { "applied": 0, "duplicate": 0, "asked": 0, "no_effect": 0, "unresolved": 0 },
             "unresolved": { "applied": 0, "duplicate": 0, "asked": 0, "no_effect": 0, "unresolved": 0 }
           },
           "precision": {
             "applied": { "k": 0, "n": 0 },
-            "duplicate": { "k": 2, "n": 4 },
-            "asked": { "k": 0, "n": 0 },
+            "duplicate": { "k": 0, "n": 0 },
+            "asked": { "k": 2, "n": 4 },
             "no_effect": { "k": 0, "n": 0 },
             "unresolved": { "k": 0, "n": 0 }
           },
           "recall": {
             "applied": { "k": 0, "n": 0 },
-            "duplicate": { "k": 2, "n": 2 },
-            "asked": { "k": 0, "n": 2 },
+            "duplicate": { "k": 0, "n": 2 },
+            "asked": { "k": 2, "n": 2 },
             "no_effect": { "k": 0, "n": 0 },
             "unresolved": { "k": 0, "n": 0 }
           },
           "appliedPrecision": { "k": 0, "n": 0 },
           "falseMergeRate": { "k": 0, "n": 0 },
           "wrongCreateRate": { "k": 0, "n": 0 },
-          "wrongDuplicateRate": { "k": 3, "n": 4 },
+          "wrongDuplicateRate": { "k": 0, "n": 0 },
           "denyRate": { "k": 0, "n": 0 },
           "confirmAccuracy": { "k": 0, "n": 0 },
           "tieRate": { "k": 4, "n": 4 },
           "tieResolution": {
             "chooserCorrect": { "k": 0, "n": 4 },
-            "asked": { "k": 0, "n": 4 },
-            "wronglyApplied": { "k": 3, "n": 4 }
+            "asked": { "k": 4, "n": 4 },
+            "wronglyApplied": { "k": 0, "n": 4 }
           },
           "recallAt5": { "k": 2, "n": 2 },
-          "noJudgeShare": { "k": 4, "n": 4 },
+          "noJudgeShare": { "k": 0, "n": 4 },
           "unresolvedShare": { "k": 0, "n": 4 },
-          "questionsPer100": 0
+          "questionsPer100": 100
         },
         "tie-twins": {
           "cases": 10,
           "confusion": {
             "applied": { "applied": 0, "duplicate": 0, "asked": 0, "no_effect": 0, "unresolved": 0 },
-            "duplicate": { "applied": 0, "duplicate": 3, "asked": 0, "no_effect": 0, "unresolved": 0 },
-            "asked": { "applied": 0, "duplicate": 5, "asked": 2, "no_effect": 0, "unresolved": 0 },
+            "duplicate": { "applied": 0, "duplicate": 0, "asked": 3, "no_effect": 0, "unresolved": 0 },
+            "asked": { "applied": 0, "duplicate": 0, "asked": 7, "no_effect": 0, "unresolved": 0 },
             "no_effect": { "applied": 0, "duplicate": 0, "asked": 0, "no_effect": 0, "unresolved": 0 },
             "unresolved": { "applied": 0, "duplicate": 0, "asked": 0, "no_effect": 0, "unresolved": 0 }
           },
           "precision": {
             "applied": { "k": 0, "n": 0 },
-            "duplicate": { "k": 3, "n": 8 },
-            "asked": { "k": 2, "n": 2 },
+            "duplicate": { "k": 0, "n": 0 },
+            "asked": { "k": 7, "n": 10 },
             "no_effect": { "k": 0, "n": 0 },
             "unresolved": { "k": 0, "n": 0 }
           },
           "recall": {
             "applied": { "k": 0, "n": 0 },
-            "duplicate": { "k": 3, "n": 3 },
-            "asked": { "k": 2, "n": 7 },
+            "duplicate": { "k": 0, "n": 3 },
+            "asked": { "k": 7, "n": 7 },
             "no_effect": { "k": 0, "n": 0 },
             "unresolved": { "k": 0, "n": 0 }
           },
           "appliedPrecision": { "k": 0, "n": 0 },
           "falseMergeRate": { "k": 0, "n": 0 },
           "wrongCreateRate": { "k": 0, "n": 0 },
-          "wrongDuplicateRate": { "k": 7, "n": 8 },
+          "wrongDuplicateRate": { "k": 0, "n": 0 },
           "denyRate": { "k": 0, "n": 0 },
           "confirmAccuracy": { "k": 0, "n": 0 },
           "tieRate": { "k": 10, "n": 10 },
           "tieResolution": {
             "chooserCorrect": { "k": 0, "n": 10 },
-            "asked": { "k": 2, "n": 10 },
-            "wronglyApplied": { "k": 7, "n": 10 }
+            "asked": { "k": 10, "n": 10 },
+            "wronglyApplied": { "k": 0, "n": 10 }
           },
           "recallAt5": { "k": 3, "n": 3 },
-          "noJudgeShare": { "k": 8, "n": 10 },
+          "noJudgeShare": { "k": 0, "n": 10 },
           "unresolvedShare": { "k": 0, "n": 10 },
-          "questionsPer100": 20
+          "questionsPer100": 100
         }
       },
       "bySize": {
@@ -551,41 +542,41 @@
           "cases": 40,
           "confusion": {
             "applied": { "applied": 9, "duplicate": 0, "asked": 1, "no_effect": 0, "unresolved": 0 },
-            "duplicate": { "applied": 0, "duplicate": 16, "asked": 2, "no_effect": 0, "unresolved": 0 },
-            "asked": { "applied": 0, "duplicate": 5, "asked": 2, "no_effect": 0, "unresolved": 0 },
+            "duplicate": { "applied": 0, "duplicate": 13, "asked": 5, "no_effect": 0, "unresolved": 0 },
+            "asked": { "applied": 0, "duplicate": 0, "asked": 7, "no_effect": 0, "unresolved": 0 },
             "no_effect": { "applied": 1, "duplicate": 0, "asked": 0, "no_effect": 3, "unresolved": 0 },
             "unresolved": { "applied": 0, "duplicate": 0, "asked": 0, "no_effect": 0, "unresolved": 1 }
           },
           "precision": {
             "applied": { "k": 9, "n": 10 },
-            "duplicate": { "k": 16, "n": 21 },
-            "asked": { "k": 2, "n": 5 },
+            "duplicate": { "k": 13, "n": 13 },
+            "asked": { "k": 7, "n": 13 },
             "no_effect": { "k": 3, "n": 3 },
             "unresolved": { "k": 1, "n": 1 }
           },
           "recall": {
             "applied": { "k": 9, "n": 10 },
-            "duplicate": { "k": 16, "n": 18 },
-            "asked": { "k": 2, "n": 7 },
+            "duplicate": { "k": 13, "n": 18 },
+            "asked": { "k": 7, "n": 7 },
             "no_effect": { "k": 3, "n": 4 },
             "unresolved": { "k": 1, "n": 1 }
           },
           "appliedPrecision": { "k": 4, "n": 10 },
           "falseMergeRate": { "k": 1, "n": 2 },
           "wrongCreateRate": { "k": 5, "n": 8 },
-          "wrongDuplicateRate": { "k": 7, "n": 21 },
+          "wrongDuplicateRate": { "k": 0, "n": 13 },
           "denyRate": { "k": 1, "n": 10 },
           "confirmAccuracy": { "k": 9, "n": 10 },
           "tieRate": { "k": 10, "n": 33 },
           "tieResolution": {
             "chooserCorrect": { "k": 0, "n": 10 },
-            "asked": { "k": 2, "n": 10 },
-            "wronglyApplied": { "k": 7, "n": 10 }
+            "asked": { "k": 10, "n": 10 },
+            "wronglyApplied": { "k": 0, "n": 10 }
           },
           "recallAt5": { "k": 24, "n": 24 },
-          "noJudgeShare": { "k": 34, "n": 40 },
+          "noJudgeShare": { "k": 26, "n": 40 },
           "unresolvedShare": { "k": 1, "n": 40 },
-          "questionsPer100": 12.5
+          "questionsPer100": 32.5
         }
       }
     },
@@ -594,121 +585,121 @@
         "cases": 40,
         "confusion": {
           "applied": { "applied": 10, "duplicate": 0, "asked": 0, "no_effect": 0, "unresolved": 0 },
-          "duplicate": { "applied": 0, "duplicate": 18, "asked": 0, "no_effect": 0, "unresolved": 0 },
-          "asked": { "applied": 0, "duplicate": 5, "asked": 2, "no_effect": 0, "unresolved": 0 },
+          "duplicate": { "applied": 0, "duplicate": 15, "asked": 3, "no_effect": 0, "unresolved": 0 },
+          "asked": { "applied": 0, "duplicate": 0, "asked": 7, "no_effect": 0, "unresolved": 0 },
           "no_effect": { "applied": 1, "duplicate": 0, "asked": 0, "no_effect": 3, "unresolved": 0 },
           "unresolved": { "applied": 0, "duplicate": 0, "asked": 0, "no_effect": 0, "unresolved": 1 }
         },
         "precision": {
           "applied": { "k": 10, "n": 11 },
-          "duplicate": { "k": 18, "n": 23 },
-          "asked": { "k": 2, "n": 2 },
+          "duplicate": { "k": 15, "n": 15 },
+          "asked": { "k": 7, "n": 10 },
           "no_effect": { "k": 3, "n": 3 },
           "unresolved": { "k": 1, "n": 1 }
         },
         "recall": {
           "applied": { "k": 10, "n": 10 },
-          "duplicate": { "k": 18, "n": 18 },
-          "asked": { "k": 2, "n": 7 },
+          "duplicate": { "k": 15, "n": 18 },
+          "asked": { "k": 7, "n": 7 },
           "no_effect": { "k": 3, "n": 4 },
           "unresolved": { "k": 1, "n": 1 }
         },
         "appliedPrecision": { "k": 5, "n": 11 },
         "falseMergeRate": { "k": 1, "n": 2 },
         "wrongCreateRate": { "k": 5, "n": 9 },
-        "wrongDuplicateRate": { "k": 7, "n": 23 },
+        "wrongDuplicateRate": { "k": 0, "n": 15 },
         "denyRate": { "k": 1, "n": 11 },
         "confirmAccuracy": { "k": 10, "n": 11 },
         "tieRate": { "k": 10, "n": 33 },
         "tieResolution": {
-          "chooserCorrect": { "k": 2, "n": 10 },
-          "asked": { "k": 2, "n": 10 },
-          "wronglyApplied": { "k": 7, "n": 10 }
+          "chooserCorrect": { "k": 0, "n": 10 },
+          "asked": { "k": 10, "n": 10 },
+          "wronglyApplied": { "k": 0, "n": 10 }
         },
         "recallAt5": { "k": 24, "n": 24 },
-        "noJudgeShare": { "k": 34, "n": 40 },
+        "noJudgeShare": { "k": 26, "n": 40 },
         "unresolvedShare": { "k": 1, "n": 40 },
-        "questionsPer100": 5
+        "questionsPer100": 25
       },
       "adversarial": {
         "cases": 40,
         "confusion": {
           "applied": { "applied": 9, "duplicate": 1, "asked": 0, "no_effect": 0, "unresolved": 0 },
-          "duplicate": { "applied": 0, "duplicate": 18, "asked": 0, "no_effect": 0, "unresolved": 0 },
-          "asked": { "applied": 0, "duplicate": 7, "asked": 0, "no_effect": 0, "unresolved": 0 },
+          "duplicate": { "applied": 0, "duplicate": 15, "asked": 3, "no_effect": 0, "unresolved": 0 },
+          "asked": { "applied": 0, "duplicate": 0, "asked": 7, "no_effect": 0, "unresolved": 0 },
           "no_effect": { "applied": 1, "duplicate": 0, "asked": 0, "no_effect": 3, "unresolved": 0 },
           "unresolved": { "applied": 0, "duplicate": 0, "asked": 0, "no_effect": 0, "unresolved": 1 }
         },
         "precision": {
           "applied": { "k": 9, "n": 10 },
-          "duplicate": { "k": 18, "n": 26 },
-          "asked": { "k": 0, "n": 0 },
+          "duplicate": { "k": 15, "n": 16 },
+          "asked": { "k": 7, "n": 10 },
           "no_effect": { "k": 3, "n": 3 },
           "unresolved": { "k": 1, "n": 1 }
         },
         "recall": {
           "applied": { "k": 9, "n": 10 },
-          "duplicate": { "k": 18, "n": 18 },
-          "asked": { "k": 0, "n": 7 },
+          "duplicate": { "k": 15, "n": 18 },
+          "asked": { "k": 7, "n": 7 },
           "no_effect": { "k": 3, "n": 4 },
           "unresolved": { "k": 1, "n": 1 }
         },
         "appliedPrecision": { "k": 4, "n": 10 },
         "falseMergeRate": { "k": 1, "n": 2 },
         "wrongCreateRate": { "k": 5, "n": 8 },
-        "wrongDuplicateRate": { "k": 10, "n": 26 },
+        "wrongDuplicateRate": { "k": 1, "n": 16 },
         "denyRate": { "k": 1, "n": 10 },
         "confirmAccuracy": { "k": 9, "n": 10 },
         "tieRate": { "k": 10, "n": 33 },
         "tieResolution": {
           "chooserCorrect": { "k": 0, "n": 10 },
-          "asked": { "k": 0, "n": 10 },
-          "wronglyApplied": { "k": 9, "n": 10 }
+          "asked": { "k": 10, "n": 10 },
+          "wronglyApplied": { "k": 0, "n": 10 }
         },
         "recallAt5": { "k": 24, "n": 24 },
-        "noJudgeShare": { "k": 34, "n": 40 },
+        "noJudgeShare": { "k": 26, "n": 40 },
         "unresolvedShare": { "k": 1, "n": 40 },
-        "questionsPer100": 0
+        "questionsPer100": 25
       },
       "noisy": {
         "cases": 40,
         "confusion": {
           "applied": { "applied": 10, "duplicate": 0, "asked": 0, "no_effect": 0, "unresolved": 0 },
-          "duplicate": { "applied": 0, "duplicate": 18, "asked": 0, "no_effect": 0, "unresolved": 0 },
-          "asked": { "applied": 0, "duplicate": 6, "asked": 1, "no_effect": 0, "unresolved": 0 },
+          "duplicate": { "applied": 0, "duplicate": 15, "asked": 3, "no_effect": 0, "unresolved": 0 },
+          "asked": { "applied": 0, "duplicate": 0, "asked": 7, "no_effect": 0, "unresolved": 0 },
           "no_effect": { "applied": 1, "duplicate": 0, "asked": 0, "no_effect": 3, "unresolved": 0 },
           "unresolved": { "applied": 0, "duplicate": 0, "asked": 0, "no_effect": 0, "unresolved": 1 }
         },
         "precision": {
           "applied": { "k": 10, "n": 11 },
-          "duplicate": { "k": 18, "n": 24 },
-          "asked": { "k": 1, "n": 1 },
+          "duplicate": { "k": 15, "n": 15 },
+          "asked": { "k": 7, "n": 10 },
           "no_effect": { "k": 3, "n": 3 },
           "unresolved": { "k": 1, "n": 1 }
         },
         "recall": {
           "applied": { "k": 10, "n": 10 },
-          "duplicate": { "k": 18, "n": 18 },
-          "asked": { "k": 1, "n": 7 },
+          "duplicate": { "k": 15, "n": 18 },
+          "asked": { "k": 7, "n": 7 },
           "no_effect": { "k": 3, "n": 4 },
           "unresolved": { "k": 1, "n": 1 }
         },
         "appliedPrecision": { "k": 5, "n": 11 },
         "falseMergeRate": { "k": 1, "n": 2 },
         "wrongCreateRate": { "k": 5, "n": 9 },
-        "wrongDuplicateRate": { "k": 8, "n": 24 },
+        "wrongDuplicateRate": { "k": 0, "n": 15 },
         "denyRate": { "k": 1, "n": 11 },
         "confirmAccuracy": { "k": 10, "n": 11 },
         "tieRate": { "k": 10, "n": 33 },
         "tieResolution": {
-          "chooserCorrect": { "k": 1, "n": 10 },
-          "asked": { "k": 1, "n": 10 },
-          "wronglyApplied": { "k": 8, "n": 10 }
+          "chooserCorrect": { "k": 0, "n": 10 },
+          "asked": { "k": 10, "n": 10 },
+          "wronglyApplied": { "k": 0, "n": 10 }
         },
         "recallAt5": { "k": 24, "n": 24 },
-        "noJudgeShare": { "k": 34, "n": 40 },
+        "noJudgeShare": { "k": 26, "n": 40 },
         "unresolvedShare": { "k": 1, "n": 40 },
-        "questionsPer100": 2.5
+        "questionsPer100": 25
       }
     }
   }

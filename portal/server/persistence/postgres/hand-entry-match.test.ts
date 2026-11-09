@@ -26,6 +26,11 @@ describe("handEntryMatchFrom", () => {
     });
   });
 
+  it("reports a tie as a possible match on the earliest of the tied commitments, never strong", () => {
+    const later = existing({ id: "c0", startsAt: "2026-09-29T23:05:00.000Z" });
+    expect(handEntryMatchFrom(entry, [later, existing()], tz)).toMatchObject({ kind: "possible", id: "c1" });
+  });
+
   it("reports a possible match for the same times under another title", () => {
     expect(handEntryMatchFrom({ ...entry, title: "Dentist" }, [existing()], tz)?.kind).toBe("possible");
   });
