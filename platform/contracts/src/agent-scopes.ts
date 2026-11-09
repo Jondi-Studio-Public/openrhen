@@ -585,7 +585,8 @@ function hardFloorOf(call: HardFloorCall): HardFloor | null {
 /**
  * Hard floor (design section 2): whatever the basis or the token, these land as proposals. Returns the reason
  * to show the person, or null when the call is not on the floor. Pure; PR 3 applies it after scope resolution.
- * Setting a status to cancelled, archived or dropped is not on it: that is a field change the person can undo.
+ * Closing a row (cancelled, archived) is not on it either, but an agent cannot do it through save: the close floor
+ * (`assertNoClosedTransition`) refuses that and names `priorities_archive` or `priorities_cancel`, which the person can undo.
  * Each reason starts with its class and names what the agent can do instead, or says only the person can and
  * where. The same text goes back to the agent whether the write was filed as a proposal or refused.
  */

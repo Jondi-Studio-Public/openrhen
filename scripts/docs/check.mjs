@@ -313,6 +313,18 @@ for (const absolute of markdownFiles) {
   }
 }
 
+// A proof named in the behaviour contract must be a file that exists: a renamed test otherwise leaves a row that
+// claims an invariant is proven by something that cannot run. Only backticked `*.test.ts(x)` paths are checked.
+const contractPath = "docs/product/behaviour-contract.md";
+if (existsSync(resolve(root, contractPath))) {
+  const contract = readFileSync(resolve(root, contractPath), "utf8");
+  const proofPath = /`([A-Za-z0-9_./-]+\.test\.tsx?)`/g;
+  for (const match of contract.matchAll(proofPath)) {
+    if (!existsSync(resolve(root, match[1])))
+      errors.push(`${contractPath} cites a test file that does not exist: ${match[1]}`);
+  }
+}
+
 const indexPath = resolve(root, "docs/README.md");
 if (!existsSync(indexPath)) {
   errors.push("Missing docs/README.md");
