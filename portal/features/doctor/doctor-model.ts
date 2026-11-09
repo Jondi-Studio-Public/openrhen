@@ -98,5 +98,8 @@ export function handleLink(handle: string, plan: PlanLookup): { href: string; la
     const outcome = plan.outcomes.find((item) => item.id === id);
     return outcome ? { href: outcomePlanHref(outcome, plan.areas), label: "Open outcome" } : null;
   }
+  // Sources and devices are shown on the Data page.
+  if (type === "source") return { href: "/data", label: "Open data page" };
+  if (type === "device") return { href: "/data", label: "Open data page" };
   return null;
 }

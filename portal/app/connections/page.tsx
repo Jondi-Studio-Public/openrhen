@@ -17,6 +17,8 @@ import {
   DetailSubheading
 } from "@/components/connection-detail";
 import { DatabaseStatus } from "@/components/database-status";
+import { SourcesCountsLine } from "@/features/doctor/components/sources-counts-line";
+import { useDoctorReport } from "@/features/doctor/doctor-client";
 import { useNow } from "@/shared/clock";
 import { formatConnectionDateTime } from "@/shared/connection-date-time";
 import { connectionExtensions } from "@/features/connections/connection-extensions";
@@ -249,6 +251,7 @@ const isConnectionId = (value: string): boolean =>
 
 export default function ConnectionsPage() {
   const data = useConnectionData();
+  const doctor = useDoctorReport();
   const { inputs } = data;
   const [openId, setOpenId] = useState<string | null>(null);
   // The sheet keeps showing the last connection while it slides away.
@@ -333,6 +336,7 @@ export default function ConnectionsPage() {
   return (
     <main className={`content-page ${styles.page}`}>
       <PageHeader title="Connections" answer={connectionsAnswer(summaries)} />
+      <SourcesCountsLine report={doctor} className={styles.caption} />
       <DatabaseStatus />
       <Card className={styles.list}>
         <List>

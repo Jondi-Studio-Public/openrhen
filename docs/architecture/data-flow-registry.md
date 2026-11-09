@@ -48,9 +48,35 @@ The closure walker (`enumerate.ts`) follows relative imports, the portal's `@/` 
 - **Freshness:** `fresh`, `late`, `stale`, `never`, `failing`, `n/a` or `probe_unresolved`. A threshold is the entry's own, then the connection's cadence, then learned from 30 days of hourly arrivals (warn at 1.5 x and error at 3 x the p95 gap, clamped to 2 h to 14 d, at least 20 buckets), then the entry's own `coldStart` numbers (set on the entry by its owner; core holds no table keyed by product). A failing attempt shows as `failing` even with no threshold. Imports and manual sources are `n/a` and show their age. Learned thresholds carry the days of arrivals they rest on; the issue tiering that limits a short history to the degrading tier is applied by the checks, not the reader.
 - **`probe_unresolved`** means the probe query errored or its token or stamp is gone; the issue's `next` line says what to change. Only connection, timeout and resource errors (SQLSTATE 08, 57, 53) are called transient and told to retry with `rhen doctor`; any other error means the entry or its probe is wrong. **`token_not_bound`** (tidy) means a push source has no `tokenName`, so it is judged by its rows.
 - **Devices** (`phone`, `pc` and `wearable`; the `physiology` source is accepted and nothing sends yet) roll up by `device`: last seen is the newest success among their entries, with the entry it came from.
+- **Per-kind lateness:** for a push source with a learned rhythm, each kind is also learned on its own (20 hourly buckets over 30 days). A kind whose newest row is past its own warning while the source as a whole is fresh appears as `lateKinds` on the node (the node stays `fresh`; doctor names the kind).
+- **`credentialPresent`:** true when the source's bound agent token exists and is live, used or not, so a `never` source with a token reads as silence rather than a source never set up.
+- **Time limit:** the probes run on one reserved connection with a `statement_timeout` of 8 s (cleared before the connection returns to the pool). A probe that hits it shows as `probe_unresolved` with a retry step instead of holding the whole answer.
 
 `GET /api/data-flow` (scope `read:plan`, hand-added in `mcp-route-table.ts`) returns `{ generatedAt, build, entries, datasets, devices, edges, unused, health }`; without `DATABASE_URL` it answers 503 and says to set it and call `GET /api/data-flow` again; if the probes fail, `health` is `{ unavailable, reason, next }` with a fixed reason (the real error goes to the server log) and the static graph still comes back. `health.counts.never` is the number of sources not set up. The body carries run-log error text (clipped to 200 characters), so it stays behind `read:plan`; the narrower `read:activity-health` scope is not granted to connectors by default and nothing here changes that. `rhen sources [id] [--problems] [--unused] [--json] [--offline]` prints it. It is a stdio-only MCP tool (`rhen_sources`), so the remote tool list is unchanged, and its output is fenced as untrusted because run-log error text is in it.
 
+## Doctor source checks
+
+`platform/contracts/src/planning/doctor-sources.ts` is pure; `portal/server/data-flow/doctor-sources-reader.ts` builds its slice from the health reader and the registry's graph, and `readDoctorReport` adds the items beside the existing ones. Calendar and other sync-provider sources keep `sync_late` and `sync_failing` untouched (`keepsSyncChecks`); doctor still writes nothing.
+
+| Check | Raised when | Tier |
+|---|---|---|
+| `source_late` | a non-calendar source is past its warning, or one kind of it is (`lateKinds`) | degrading; blocking only when past its error threshold, the engine reads it and the threshold is stated (a learned one counts once the source has a month of history: the reader learns the rhythm from the last 30 days and measures the history over 45, so a source gone quiet can still show 30 days) |
+| `source_silent` | `never`, and the source's own token exists | degrading |
+| `device_silent` | a device with at least two configured feeds has every one of them past its warning; its per-feed items fold into this one (it is blocking if any folded feed's own item would have been), and `location_ping_silent` folds in when the phone's ping feed is one of them | degrading |
+| `probe_unresolved` | the probe query errors, a bound token name matches no live token, or a stamp path is gone | degrading; fix `agent` with a `next` step, except a missing token, which is the person's (`rhen agent-token list`, then `create`) |
+| `token_not_bound` | a push source has rows and no `tokenName`; only raised when an extension is registered that could bind one | tidy, fix `agent` |
+| `sources_collecting_unused` | one summary of rows that arrived this week into a continuous source whose reach is empty; file imports never count | tidy |
+| `import_needs_review` | the newest `import:<source>` run in the last 30 days finished `needs_review` ("Archive import skipped 212 rows") | tidy |
+
+If the probes cannot be read, doctor lists the source checks under `notChecked` and answers the rest, with a fixed reason (the real error goes to the server log). Doctor shares the health reader's 60 s cache with `/api/data-flow`, so a fix can take up to a minute to show. The report also carries `sources` (late, device silent, collected-unused and accepted-nothing-sends counts, and the one-line `line`), which the Data check and Connections headers show with a link to `/data`. `DoctorFix.next` holds the exact next step in words for an agent fix. Each check also has a fixed `attention.ts` template.
+
+Known limits:
+
+- A kind that has been quiet for more than twice its own warning counts as retired on purpose and is not raised, so a kind that stops for good shows as late for a window and then disappears.
+- `import_needs_review` stays for 30 days after the run. Importing the same file again usually skips the same rows and raises it again; there is no dedupe of repeat runs with an unchanged skipped count.
+- The probes run one after another on one connection, on a read-only session, each limited to 8 s and all to 15 s together. Probes not yet run when the 15 s pass are shown as unresolved with a retry step.
+- The header's late count is the number of `source_late` items: sync-provider sources and feeds folded into a silent device have their own items and are not counted.
+
 ## Not yet built
 
-The Data page and the doctor source checks are later changes. See [Writing a connection](writing-a-connection.md) and [Writing an add-on](writing-an-addon.md) for the code a new entry describes.
+The Data page is a later change. See [Writing a connection](writing-a-connection.md) and [Writing an add-on](writing-an-addon.md) for the code a new entry describes.

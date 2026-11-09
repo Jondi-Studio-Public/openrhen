@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@/test/render";
 import { createSeedState } from "@/state/portal-state";
 import { freezeClock } from "@/shared/clock";
@@ -64,6 +64,42 @@ describe("Connections page — database line", () => {
 
     expect(await screen.findByText("PostgreSQL connected")).toBeTruthy();
     expect(screen.getByText(/PostgreSQL 16\.4 · 3 ms/)).toBeTruthy();
+  });
+});
+
+describe("Connections page — data-source counts", () => {
+  it("carries the counts line from the data check under the heading, linked to the Data page", async () => {
+    // An earlier test in this file left the doctor read pending in the client's 30 s share window; step past it.
+    const realNow = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(realNow + 120_000);
+    onTestFinished(() => clock.mockRestore());
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/doctor"))
+          return answer({
+            generatedAt: "2026-11-09T12:00:00.000Z",
+            healthy: true,
+            counts: { blocking: 0, degrading: 0, tidy: 0 },
+            byArea: {},
+            items: [],
+            notChecked: [],
+            sources: {
+              late: 2,
+              deviceSilent: 0,
+              collectedUnused: 3,
+              nothingSends: 1,
+              line: "2 late · 3 collected, unused · 1 accepted, nothing sends"
+            }
+          });
+        if (url.includes("/api/connections/status")) return answer({ providers: [] });
+        return new Promise(() => {});
+      })
+    );
+    render(<ConnectionsPage />);
+    expect(await screen.findByText(/2 late · 3 collected, unused · 1 accepted, nothing sends/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "See the Data page" }).getAttribute("href")).toBe("/data");
   });
 });
 

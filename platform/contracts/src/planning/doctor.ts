@@ -10,6 +10,12 @@ import { closedStampItems, type DoctorClosedSlice } from "./doctor-closed.js";
 import { recordingItems, type DoctorRecordingSlice } from "./doctor-recording.js";
 import { prerequisiteItems, type DoctorPrerequisitesSlice } from "./doctor-prerequisites.js";
 import { publishingItems, type DoctorPublishingSlice } from "./doctor-publishing.js";
+import {
+  DOCTOR_SOURCE_CHECKS,
+  sourceItems,
+  type DoctorSourceCounts,
+  type DoctorSourcesSlice
+} from "./doctor-sources.js";
 import type { Freshness } from "./freshness.js";
 
 export const DOCTOR_TIERS = ["blocking", "degrading", "tidy"] as const;
@@ -83,7 +89,14 @@ export const DOCTOR_CHECKS = [
   "location_ping_silent",
   "agent_wake_dead",
   "closed_stamp_stray",
-  "closed_stamp_missing"
+  "closed_stamp_missing",
+  "source_late",
+  "source_silent",
+  "device_silent",
+  "probe_unresolved",
+  "token_not_bound",
+  "sources_collecting_unused",
+  "import_needs_review"
 ] as const;
 export type DoctorCheck = (typeof DOCTOR_CHECKS)[number];
 
@@ -104,6 +117,8 @@ export interface DoctorFix {
   /** What has to be supplied. */
   fields?: string[];
   cli?: string;
+  /** The exact next step in words, for an agent, when one tool call does not say it. */
+  next?: string;
 }
 
 export interface DoctorItem {
@@ -137,6 +152,8 @@ export interface DoctorReport {
   byArea: Partial<Record<DoctorArea, number>>;
   items: DoctorItem[];
   notChecked: DoctorNotChecked[];
+  /** The data-source counts the Data check and Connections headers show; absent when the source checks were not given. */
+  sources?: DoctorSourceCounts;
 }
 
 export interface DoctorProject {
@@ -226,6 +243,8 @@ export interface DoctorSnapshot {
   duplicates: DoctorDuplicatesSlice;
   recording: DoctorRecordingSlice;
   closed: DoctorClosedSlice;
+  /** The registry's source health (`doctor-sources.ts`); absent for a caller with no registry, which then raises none of those checks. */
+  sources?: DoctorSourcesSlice;
 }
 
 /** The slices of a database with none of those problems (a backup that just ran), for a caller that has nothing to say about them. */
@@ -670,6 +689,27 @@ export function runDoctor(snapshot: DoctorSnapshot): DoctorReport {
     ...closedStampItems(snapshot.closed)
   );
 
+  const notChecked: DoctorNotChecked[] = [...DOCTOR_UNBUILT_CHECKS];
+  let sources: DoctorSourceCounts | undefined;
+  if (snapshot.sources) {
+    if (snapshot.sources.unavailable !== undefined) {
+      for (const check of DOCTOR_SOURCE_CHECKS)
+        notChecked.push({
+          check,
+          reason:
+            "the source health probes could not be read, so this check did not run; run `rhen sources --problems`, and if that also fails run `rhen doctor` again in a minute (results are cached for up to a minute)"
+        });
+    } else {
+      const found = sourceItems(snapshot.sources, now);
+      sources = found.counts;
+      items.push(...found.items);
+      // A silent phone is one device item; the separate location-ping item would say the same thing twice.
+      if (found.devicePing)
+        for (let index = items.length - 1; index >= 0; index -= 1)
+          if (items[index]!.check === "location_ping_silent") items.splice(index, 1);
+    }
+  }
+
   items.sort(compare(now));
 
   const counts: Record<DoctorTier, number> = { blocking: 0, degrading: 0, tidy: 0 };
@@ -684,7 +724,8 @@ export function runDoctor(snapshot: DoctorSnapshot): DoctorReport {
     counts,
     byArea,
     items,
-    notChecked: [...DOCTOR_UNBUILT_CHECKS]
+    notChecked,
+    ...(sources ? { sources } : {})
   };
 }
 
