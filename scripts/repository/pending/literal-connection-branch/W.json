@@ -1,0 +1,9 @@
+{
+  "lane": "W",
+  "sites": {
+    "total": 13,
+    "files": {
+      "platform/database/src/planning/journey-summary.ts": 13
+    }
+  }
+}

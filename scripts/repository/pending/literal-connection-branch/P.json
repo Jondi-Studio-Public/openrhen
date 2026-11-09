@@ -1,0 +1,9 @@
+{
+  "lane": "P",
+  "sites": {
+    "total": 1,
+    "files": {
+      "integrations/outbound-proxy/src/server.ts": 1
+    }
+  }
+}

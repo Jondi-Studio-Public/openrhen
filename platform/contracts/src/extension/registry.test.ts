@@ -153,4 +153,12 @@ describe("resetRegistry (the /testing subpath)", () => {
   it("refuses an object that is not a registry", () => {
     expect(() => resetRegistry({} as never)).toThrow(/createRegistry/);
   });
+
+  it("is frozen, so register and freeze cannot be replaced", () => {
+    const registry = make();
+    expect(Object.isFrozen(registry)).toBe(true);
+    expect(() => {
+      (registry as { register: unknown }).register = () => () => {};
+    }).toThrow();
+  });
 });

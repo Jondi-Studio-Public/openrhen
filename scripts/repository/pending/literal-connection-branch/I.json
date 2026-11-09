@@ -1,0 +1,10 @@
+{
+  "lane": "I",
+  "sites": {
+    "total": 5,
+    "files": {
+      "integrations/activity-importers/src/plan.ts": 4,
+      "integrations/communication-readers/src/message-context.ts": 1
+    }
+  }
+}

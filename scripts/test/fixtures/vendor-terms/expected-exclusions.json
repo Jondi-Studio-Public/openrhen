@@ -58,6 +58,7 @@
       "scripts/repository/pending/module-state/**",
       "scripts/repository/pending/side-effect-imports/**",
       "scripts/repository/pending/seam-inventory/**",
+      "scripts/repository/pending/literal-connection-branch/**",
       "scripts/test/fixtures/vendor-terms/**"
     ]
   }

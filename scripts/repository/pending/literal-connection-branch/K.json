@@ -1,0 +1,9 @@
+{
+  "lane": "K",
+  "sites": {
+    "total": 1,
+    "files": {
+      "platform/contracts/src/activity-events.ts": 1
+    }
+  }
+}
