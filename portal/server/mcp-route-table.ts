@@ -106,6 +106,7 @@ export const CORE_MCP_ROUTE_TABLE: Record<string, () => Promise<RouteModule>> = 
   "/api/integrations/pulse/tick": () => import("@/app/api/integrations/pulse/tick/route"),
   "/api/integrations/push/drain": () => import("@/app/api/integrations/push/drain/route"),
   "/api/integrations/travel/tick": () => import("@/app/api/integrations/travel/tick/route"),
+  "/api/integrations/work-label/tick": () => import("@/app/api/integrations/work-label/tick/route"),
   "/api/location/observe": () => import("@/app/api/location/observe/route"),
   "/api/location/ping": () => import("@/app/api/location/ping/route"),
   "/api/location/suggestion": () => import("@/app/api/location/suggestion/route"),
@@ -152,7 +153,9 @@ export const CORE_MCP_ROUTE_TABLE: Record<string, () => Promise<RouteModule>> = 
   "/api/state": () => import("@/app/api/state/route"),
   "/api/travel/budget": () => import("@/app/api/travel/budget/route"),
   "/api/travel/geocode": () => import("@/app/api/travel/geocode/route"),
-  "/api/travel/refresh": () => import("@/app/api/travel/refresh/route")
+  "/api/travel/refresh": () => import("@/app/api/travel/refresh/route"),
+  "/api/work-labels": () => import("@/app/api/work-labels/route"),
+  "/api/work-labels/[areaId]": () => import("@/app/api/work-labels/[areaId]/route")
 };
 
 /** Adds a drop-in's routes (`drop-ins/<name>/route-table.ts`, called when the folder loads). */

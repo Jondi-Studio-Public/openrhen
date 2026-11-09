@@ -26,3 +26,15 @@ export function derivedTickDelayMs(outcome: DerivedTickOutcome): number {
   if (body?.status === "ok" && body.more === true) return DERIVED_TICK_MORE_MS;
   return DERIVED_TICK_IDLE_MS;
 }
+
+/** The work-label loop's idle and failure pace: areas change rarely, and a model that is down should not be asked every minute. */
+export const WORK_LABEL_TICK_IDLE_MS = 300_000;
+
+/** How long the work-label loop waits after an answer: soon when another area waits or the store was busy, else the slow pace. */
+export function workLabelTickDelayMs(outcome: DerivedTickOutcome): number {
+  if (!outcome.ok) return WORK_LABEL_TICK_IDLE_MS;
+  const body = outcome.body as { status?: unknown; more?: unknown } | null;
+  if (body?.status === "busy") return DERIVED_TICK_BUSY_MS;
+  if ((body?.status === "ok" || body?.status === "discarded") && body.more === true) return DERIVED_TICK_MORE_MS * 5;
+  return WORK_LABEL_TICK_IDLE_MS;
+}

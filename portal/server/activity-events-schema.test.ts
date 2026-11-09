@@ -27,7 +27,12 @@ describe("the published activity-events JSON Schema", () => {
     expect(schema["x-sources"].physiology.class).toBe("health");
     expect(schema["x-sources"]["apple-health"].class).toBe("health");
     expect(schema["x-sources"]["iphone-health"].class).toBe("health");
-    const classed = Object.entries(schema["x-sources"]).filter(([, entry]) => (entry as any).class !== undefined);
+    const classed = Object.entries(schema["x-sources"]).filter(([, entry]) => (entry as any).class === "health");
     expect(classed.map(([name]) => name).sort()).toEqual(["apple-health", "iphone-health", "physiology"]);
+    expect(schema["x-sources"].drift).toMatchObject({
+      schemaVersion: 1,
+      kinds: ["flag", "work_label"],
+      class: "drift"
+    });
   });
 });

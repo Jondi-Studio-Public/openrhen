@@ -90,6 +90,7 @@ describe("GET /api/data-flow body", () => {
         "apple-health",
         "chrome-takeout",
         "discord-package",
+        "drift",
         "fit",
         "google-access-log",
         "google-activity",

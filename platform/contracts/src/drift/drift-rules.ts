@@ -18,6 +18,9 @@ export const DRIFT_RULE_THRESHOLDS = Object.freeze({
   bucketMinutes: 5
 });
 
+/** Stamped on every flag row (`attrs.thresholds_version`); bumped in the reviewed change that alters a value above. */
+export const DRIFT_THRESHOLDS_VERSION = 1;
+
 export const DRIFT_RULE_IDS = ["work_item_diversion", "after_shift"] as const;
 export type DriftRuleId = (typeof DRIFT_RULE_IDS)[number];
 

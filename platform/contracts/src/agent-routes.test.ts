@@ -897,6 +897,23 @@ describe("scopesForRoute: the activity store", () => {
       }
     });
 
+    it("keeps every drift row with the owner session, whatever its kind, shape or company in the batch", () => {
+      for (const kind of ["flag", "work_label", "correction", "reason", "prompt"]) {
+        const decision = post({ source: "drift", kind });
+        expect(decision).toMatchObject({ kind: "refused", reason: "owner-only" });
+        const message = (decision as { message: string }).message;
+        expect(message).toMatch(/owner session/);
+        expect(message).toMatch(/Source "drift"/);
+        expect(message).not.toMatch(/write:activity-derived/);
+      }
+      expect(needs(post({ source: "rhen-watch", kind: "window" }, { source: "drift", kind: "work_label" }))).toBe(
+        "owner-only"
+      );
+      expect(
+        needs(scopesForRoute("POST", "/api/activity-events", { source: "drift", kind: "work_label", start: "x" }))
+      ).toBe("owner-only");
+    });
+
     it("demands the union for a mixed batch, and the owner for a batch with an owner-only row", () => {
       expect(needs(post({ source: "derived", kind: "fact" }, { source: "derived", kind: "override" }))).toEqual([
         "write:activity-derived",

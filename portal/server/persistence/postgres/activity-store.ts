@@ -552,6 +552,11 @@ export async function setActivitySourceSettings(sql: PoolSql, source: string, se
       `Retention is not applied to derived rows, they are kept as history (message classes and facts are what Mark learned from your mail). Set retention on the raw source instead, such as "gmail", and send {"retentionDays": null} to "${source}" to clear any value.`,
       400
     );
+  if (typeof settings.retentionDays === "number" && source === "drift")
+    throw new ActivityInputError(
+      `Retention is not applied to the drift source: its work labels are your own answers and its flags are the history the detector is judged on. Send {"retentionDays": null} to "drift" to clear any value.`,
+      400
+    );
   const userId = await ensureUser(sql);
   return sql.begin(async (tx) => {
     const [current] = await tx<SourceStateRow[]>`
@@ -805,6 +810,39 @@ export async function deleteActivityImport(
   return { deleted: true, removed };
 }
 
+/**
+ * Stores one already-validated event written by the server itself (the drift detector's rows) inside the caller's
+ * transaction, with the writer's stamp (`via`, null for the person's own). No content gate and no import: the caller has
+ * judged the row with `validateActivityEvent` and holds the per-person activity lock. A key already held is left as it
+ * is, and the answer says whether a row was added.
+ */
+export async function insertServerEventTx(
+  tx: TxSql,
+  userId: string,
+  event: ValidActivityEvent,
+  via: string | null
+): Promise<boolean> {
+  const inserted = await tx<{ id: string }[]>`
+    INSERT INTO activity_events ${tx({
+      user_id: userId,
+      source: event.source,
+      kind: event.kind,
+      event_key: event.key,
+      device: null,
+      ts_start: event.tsStart,
+      ts_end: event.tsEnd,
+      tz_offset_min: event.tzOffsetMin,
+      approximate: event.approximate,
+      attrs: tx.json(event.attrs as never),
+      content: null,
+      import_id: null,
+      ingested_via: via
+    })}
+    ON CONFLICT (user_id, source, event_key) DO NOTHING
+    RETURNING id`;
+  return inserted.length > 0;
+}
+
 /** Deletes every event of one source, and the import records for it (so a file is not still "held" with nothing in it). */
 export async function purgeActivitySource(sql: PoolSql, source: string): Promise<{ removed: number }> {
   if (!isKnownActivitySource(source))
@@ -842,7 +880,7 @@ export async function purgeExpiredActivity(
 ): Promise<{ source: string; removed: number }[]> {
   const people = await sql<{ user_id: string }[]>`
     SELECT DISTINCT user_id FROM activity_source_state
-    WHERE retention_days IS NOT NULL AND source NOT IN ('derived', 'derived-shadow')`;
+    WHERE retention_days IS NOT NULL AND source NOT IN ('derived', 'derived-shadow', 'drift')`;
   const totals = new Map<string, number>();
   for (const person of people) {
     for (;;) {

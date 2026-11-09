@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { describeDerivedProblem } from "./activity-derived.js";
+import { describeDriftProblem } from "./activity-drift.js";
 import { HIDDEN_OR_CONTROL_CHARS, MESSAGE_FAMILY, describeMessageProblem } from "./activity-message.js";
 import {
   PHYSIOLOGY_KINDS,
@@ -50,14 +51,24 @@ export const ACTIVITY_WHEREABOUTS_SCOPE = "read:activity-whereabouts";
 /** The scope that lets a token write the owner's place model (rooms, links, names): its rows will count as owner rows once the `place-owner` source maps to it. */
 export const PLACE_MODEL_WRITE_SCOPE = "write:place-model";
 
+/** The class of the drift source: flags, and which areas count as work. Reading it over a token needs `ACTIVITY_DRIFT_SCOPE`. */
+export const ACTIVITY_DRIFT_CLASS = "drift";
+/** The scope that lets a token read drift-class sources. Deliberately not offered to OAuth clients (`SCOPES_SUPPORTED`). A token can never write the source. */
+export const ACTIVITY_DRIFT_SCOPE = "read:activity-drift";
+
 /** Every source class, frozen. */
-export const ACTIVITY_SOURCE_CLASSES = Object.freeze([ACTIVITY_HEALTH_CLASS, ACTIVITY_WHEREABOUTS_CLASS] as const);
+export const ACTIVITY_SOURCE_CLASSES = Object.freeze([
+  ACTIVITY_HEALTH_CLASS,
+  ACTIVITY_WHEREABOUTS_CLASS,
+  ACTIVITY_DRIFT_CLASS
+] as const);
 export type ActivitySourceClass = (typeof ACTIVITY_SOURCE_CLASSES)[number];
 
 /** The read scope each class needs, beside `read:activity-event`. One table: add a class here and every helper follows. */
 export const ACTIVITY_CLASS_READ_SCOPE: Readonly<Record<ActivitySourceClass, string>> = Object.freeze({
   [ACTIVITY_HEALTH_CLASS]: ACTIVITY_HEALTH_SCOPE,
-  [ACTIVITY_WHEREABOUTS_CLASS]: ACTIVITY_WHEREABOUTS_SCOPE
+  [ACTIVITY_WHEREABOUTS_CLASS]: ACTIVITY_WHEREABOUTS_SCOPE,
+  [ACTIVITY_DRIFT_CLASS]: ACTIVITY_DRIFT_SCOPE
 });
 
 /**
@@ -223,6 +234,10 @@ export const ACTIVITY_SOURCES: Readonly<Record<string, ActivitySourceEntry>> = {
   // kind. A status, override or label is never stored here for any writer. Reads of `derived` never show these rows,
   // and only the in-process runner path and a write:activity-derived token write them. Not a user-facing shadow mode.
   "derived-shadow": { schemaVersion: 1, kinds: ["msg_class", "fact"] },
+  // The drift detector's own rows (docs/architecture/drift.md): shadow flags, and whether an area counts as work (inferred by
+  // the local model, or corrected by the owner). Written in-process or by the owner session only, read by the owner
+  // only (class `drift`), and never open to a token. Per-kind attrs are validated in activity-drift.ts.
+  drift: { schemaVersion: 1, kinds: ["flag", "work_label"], class: ACTIVITY_DRIFT_CLASS },
   "iphone-shortcuts": {
     schemaVersion: 1,
     kinds: [
@@ -366,8 +381,8 @@ export function isKnownActivitySource(source: string): boolean {
   return Object.hasOwn(mergedActivitySources(), source);
 }
 
-/** Sources that hold one kind of output only and so take no `correction` row. */
-const NO_CORRECTIONS: readonly string[] = ["derived-shadow"];
+/** Sources that take no `correction` row: one kind of output only (`derived-shadow`), or corrections that are rows of their own kind (`drift` work labels). */
+const NO_CORRECTIONS: readonly string[] = ["derived-shadow", "drift"];
 
 export function activityKindsOf(source: string): readonly string[] {
   const entry = activitySourceEntry(source);
@@ -710,6 +725,10 @@ export function validateActivityEvent(
   if (source === "derived" || source === "derived-shadow") {
     const derivedProblem = describeDerivedProblem(kind, attrs, content);
     if (derivedProblem) return reject(derivedProblem);
+  }
+  if (source === "drift") {
+    const driftProblem = describeDriftProblem({ id, kind, tsStart, tsEnd, attrs, content });
+    if (driftProblem) return reject(driftProblem);
   }
   if (source === PHYSIOLOGY_SOURCE) {
     const physiologyProblem = describePhysiologyProblem({

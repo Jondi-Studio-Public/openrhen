@@ -13,7 +13,8 @@ export const CORE_SOURCES = [
   "weather",
   "physiology",
   "derived",
-  "derived-shadow"
+  "derived-shadow",
+  "drift"
 ] as const;
 
 export type CoreSource = (typeof CORE_SOURCES)[number];

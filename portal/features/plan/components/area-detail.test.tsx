@@ -12,6 +12,11 @@ const recordCadenceCompletionCommand = vi.fn().mockResolvedValue(undefined);
 let state: PortalState;
 let ready = true;
 
+// The work-label line fetches from the server; its own tests cover it.
+vi.mock("@/features/plan/components/area-work-label", () => ({
+  AreaWorkLabel: ({ areaId }: { areaId: string }) => <p>work label for {areaId}</p>
+}));
+
 vi.mock("@/state/portal-provider", () => ({
   usePortal: () => ({
     state,
@@ -59,6 +64,14 @@ describe("AreaDetail", () => {
     expect(screen.getByText("Submit Networking Assignment 2")).toBeTruthy();
     expect(screen.queryByText("Reset and clean my room")).toBeNull();
     expect(screen.queryByText("Make the bedroom calm and usable")).toBeNull();
+  });
+
+  it("puts the work-label line under a real area's heading, and not on the unassigned page", () => {
+    render(<AreaDetail areaId="area-study" />);
+    expect(screen.getByText("work label for area-study")).toBeTruthy();
+    document.body.innerHTML = "";
+    render(<AreaDetail areaId="unassigned" />);
+    expect(screen.queryByText(/work label for/)).toBeNull();
   });
 
   it("keeps Plan's tabs under the area's heading, with Areas marked", () => {

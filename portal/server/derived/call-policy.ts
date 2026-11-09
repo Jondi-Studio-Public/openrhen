@@ -88,8 +88,14 @@ export interface ModelCallRow {
 export interface PolicyState {
   warmed: Set<string>;
   localQueue: Promise<unknown>;
+  /** Names a caller marks while its call is in line or running, so a second caller can skip the same piece of work. */
+  working: Set<string>;
 }
-export const createPolicyState = (): PolicyState => ({ warmed: new Set(), localQueue: Promise.resolve() });
+export const createPolicyState = (): PolicyState => ({
+  warmed: new Set(),
+  localQueue: Promise.resolve(),
+  working: new Set()
+});
 /** The process-wide state the real call site uses. */
 export const processPolicyState = createPolicyState();
 

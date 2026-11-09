@@ -903,10 +903,17 @@ describe("activity store", () => {
     expect(isKnownScope("read:activity-health")).toBe(true);
     expect(withheldActivitySources(["read:plan", "read:activity-event"])).toEqual([
       "apple-health",
+      "drift",
       "iphone-health",
       "physiology"
     ]);
-    expect(withheldActivitySources(["read:activity-event", "read:activity-health"])).toEqual([]);
+    expect(withheldActivitySources(["read:activity-event", "read:activity-health"])).toEqual(["drift"]);
+    expect(withheldActivitySources(["read:activity-event", "read:activity-health", "read:activity-drift"])).toEqual([]);
+  });
+
+  it("knows read:activity-drift as a scope an agent token may hold, and no scope that writes the drift source", () => {
+    expect(isKnownScope("read:activity-drift")).toBe(true);
+    expect(withheldActivitySources(["read:activity-event", "read:activity-drift"])).not.toContain("drift");
   });
 
   it("knows the whereabouts read scope and the place-model write scope as scopes an agent token may hold", () => {
@@ -932,6 +939,42 @@ describe("activity store", () => {
         kind
       ).toBeNull();
     }
+  });
+
+  it("refuses every token write of the drift source, whatever scopes it holds, so a token cannot forge a flag or a label", async () => {
+    const drift = (...rows: Array<Record<string, unknown>>) => ({
+      schema: 1,
+      events: rows.map((row, n) => ({ id: `k${n}`, source: "drift", start: "2026-11-08T01:00:00Z", ...row }))
+    });
+    const everything = principal([
+      "write:activity-event",
+      "write:activity-derived",
+      "read:activity-event",
+      "read:activity-drift",
+      "write:place-model"
+    ]);
+    for (const body of [
+      drift({ kind: "work_label" }),
+      drift({ kind: "flag" }),
+      drift({ kind: "correction" }),
+      { source: "drift", kind: "work_label", start: "2026-11-08T01:00:00Z" },
+      {
+        schema: 1,
+        events: [
+          { id: "a", source: "rhen-watch", kind: "idle", start: "2026-11-08T01:00:00Z" },
+          ...drift({ kind: "work_label" }).events
+        ]
+      }
+    ]) {
+      const refused = await call("POST", "/api/activity-events", everything, body);
+      expect(refused?.status, JSON.stringify(body)).toBe(403);
+      expect(await refused?.json()).toMatchObject({ error: expect.stringContaining('Source "drift"') });
+    }
+    // The owner's own page route for a label is not an agent route either.
+    const put = await call("PUT", "/api/work-labels/area-1", everything, { label: "work", requestId: "req-12345678" });
+    expect(put?.status).toBe(403);
+    const read = await call("GET", "/api/work-labels", everything);
+    expect(read?.status).toBe(403);
   });
 
   it("answers an oversize activity body with the handler's 413, valid JSON or not, and does not parse it", async () => {

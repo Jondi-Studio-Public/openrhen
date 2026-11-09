@@ -365,6 +365,8 @@ export function isKnownScope(scope: string): boolean {
     knownScopes.add("read:activity-health");
     // Whereabouts-class sources (location, indoor, place) are withheld the same way, and likewise kept out of SCOPES_SUPPORTED.
     knownScopes.add("read:activity-whereabouts");
+    // Drift-class rows (shadow flags, which areas count as work) are withheld the same way, and likewise kept out of SCOPES_SUPPORTED. No scope writes them.
+    knownScopes.add("read:activity-drift");
     // Writing the owner's place model (rooms, links, names). Its rows will count as owner rows once the place-owner source maps to it. Not in SCOPES_SUPPORTED.
     knownScopes.add("write:place-model");
     // Writing derived rows an extractor produces (fact, msg_class). Never override or fact_status: those need write:activity-event.
