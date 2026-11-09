@@ -138,6 +138,15 @@ describe("runDoctor", () => {
     expect(report.items.every((i) => i.fix.who === "person")).toBe(true);
   });
 
+  it("does not call a sync failing when its latest run needs review and it last worked days ago", () => {
+    const report = run(
+      snapshot({
+        syncRuns: [{ provider: "example_daily", status: "needs_review", lastSuccessAt: day(-3), lastRunAt: day(0) }]
+      })
+    );
+    expect(report.items.filter((i) => i.check === "sync_failing")).toEqual([]);
+  });
+
   it("flags a connection whose diff profile is not registered as blocking", () => {
     const report = run(snapshot({ unregisteredDiffProfiles: [{ connectionId: "example_daily", profile: "roster" }] }));
     expect(report.items).toMatchObject([

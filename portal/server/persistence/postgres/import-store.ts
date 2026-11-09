@@ -387,6 +387,14 @@ export class PostgresImportStore {
           WHERE user_id=${userId} AND source_type=${sourceType} AND id != ${keepBatchId}
             AND status IN ${this.sql(OPEN_IMPORT_BATCH_STATUSES)}
         `;
+    // A record still held after the replacement keeps the time it was first held, so the age Doctor reports for a
+    // held change does not restart each time the held set changes.
+    if (rows.length)
+      await this.sql`
+        UPDATE import_records n SET created_at = o.first_held
+        FROM (SELECT import_key, min(created_at) AS first_held FROM import_records
+              WHERE batch_id IN ${this.sql(rows.map((row) => row.id))} GROUP BY import_key) o
+        WHERE n.batch_id = ${keepBatchId} AND n.import_key = o.import_key AND o.first_held < n.created_at`;
     let deleted = 0;
     for (const row of rows) if (await this.delete(row.id)) deleted += 1;
     return deleted;
