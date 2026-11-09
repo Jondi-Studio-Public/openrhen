@@ -24,8 +24,8 @@ fn group_of(exe: &str) -> String {
     match exe {
         "code.exe" | "wt.exe" => "work",
         "chrome.exe" => "browser",
-        "discord.exe" => "comms",
-        "spotify.exe" => "media",
+        "chat.exe" => "comms",
+        "music.exe" => "media",
         _ => "other",
     }
     .to_string()
@@ -213,7 +213,7 @@ fn blocks_of(b: &[BucketRow], p: &Params) -> DayFacts {
 #[test]
 fn a_short_visit_to_another_group_is_absorbed_but_not_counted_active() {
     let mut b = run("code.exe", 100, 106);
-    b.extend(run("discord.exe", 106, 108));
+    b.extend(run("chat.exe", 106, 108));
     b.extend(run("code.exe", 108, 114));
     let f = blocks_of(&b, &params());
     assert_eq!(f.blocks.len(), 1);
@@ -236,7 +236,7 @@ fn a_short_visit_to_another_group_is_absorbed_but_not_counted_active() {
 #[test]
 fn a_longer_visit_is_not_absorbed() {
     let mut b = run("code.exe", 100, 112);
-    b.extend(run("discord.exe", 112, 115));
+    b.extend(run("chat.exe", 112, 115));
     b.extend(run("code.exe", 115, 127));
     let f = blocks_of(&b, &params());
     assert_eq!(f.blocks.len(), 2);
@@ -248,12 +248,12 @@ fn absorbed_detours_are_capped_at_a_share_of_the_blocks_active_minutes() {
     let p = block_params(3, 2, 25);
     // 4 + 4 active with a 2 minute detour: 2 is exactly 25% of 8, kept together
     let mut b = run("code.exe", 100, 104);
-    b.extend(run("discord.exe", 104, 106));
+    b.extend(run("chat.exe", 104, 106));
     b.extend(run("code.exe", 106, 110));
     assert_eq!(blocks_of(&b, &p).blocks.len(), 1);
     // 3 + 3 with a 2 minute detour: 2 is 33% of 6, so the block splits
     let mut b = run("code.exe", 100, 103);
-    b.extend(run("discord.exe", 103, 105));
+    b.extend(run("chat.exe", 103, 105));
     b.extend(run("code.exe", 105, 108));
     let f = blocks_of(&b, &p);
     assert_eq!(f.blocks.len(), 2);
@@ -285,8 +285,8 @@ fn a_block_with_many_internal_gaps_is_loose_and_reports_them() {
 fn only_work_and_browser_form_blocks_other_groups_are_plain_stretches() {
     let mut b = run("code.exe", 100, 115);
     b.extend(calm(115, 117));
-    b.extend(run("spotify.exe", 117, 135));
-    b.extend(run("discord.exe", 135, 150));
+    b.extend(run("music.exe", 117, 135));
+    b.extend(run("chat.exe", 135, 150));
     let f = blocks_of(&b, &params());
     assert!(f.blocks.iter().all(|x| x.group == "work" || x.group == "browser"));
     assert_eq!(f.blocks.len(), 1);
@@ -504,7 +504,7 @@ fn a_retention_cutoff_mid_day_splits_sessions_and_marks_the_day_partial() {
 #[test]
 fn the_order_of_rows_does_not_change_the_answer() {
     let mut b = run("code.exe", 100, 112);
-    b.extend(run("discord.exe", 112, 114));
+    b.extend(run("chat.exe", 112, 114));
     b.extend(run("code.exe", 114, 125));
     b.extend(run("chrome.exe", 200, 230));
     let events = vec![
@@ -528,7 +528,7 @@ fn blocks_never_overlap_active_stays_within_span_and_input_within_observed() {
         seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
         (seed >> 33) as u32
     };
-    let exes = ["code.exe", "chrome.exe", "discord.exe", "spotify.exe", "wt.exe"];
+    let exes = ["code.exe", "chrome.exe", "chat.exe", "music.exe", "wt.exe"];
     for round in 0..200 {
         let mut b = Vec::new();
         for k in 0..400 {
