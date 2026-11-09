@@ -12,11 +12,5 @@
     "files": {
       "tools/rhen-watch/src/categories.rs": 3
     }
-  },
-  "owner": {
-    "total": 1,
-    "files": {
-      "tools/rhen-watch/src/categories.rs": 1
-    }
   }
 }
