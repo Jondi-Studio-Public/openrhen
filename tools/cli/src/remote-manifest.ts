@@ -21,8 +21,11 @@ import { COMMON_PARAMS, REMOTE_TOOL_TEXT, type RemoteToolText } from "./remote-t
  * `platform/contracts/src/mcp-manifest-data.ts` by `pnpm manifest`.
  *
  * Not served, by design: `agent-token` and `owner-token` (owner only), `import` (files), an outward-message command,
- * `self-update`, `mcp`, `help`, `version`
- * and `schema` (the guide covers vocabulary and recipes). Every text served to a remote agent (the guide, the
+ * `self-update`, `mcp`, `help`, `version`, `schema` (the guide covers vocabulary and recipes) and `free` (the shortcut
+ * for a commitment save that sends `free` alone: a remote agent makes that call with `rhen_save` or
+ * `rhen_save_commitment` and `free: true`, under the commitment save's scope). The stdio server (`rhen mcp`) serves
+ * every command except `mcp` and the owner-only ones, so `rhen_help`, `rhen_schema`, `rhen_version` and `rhen_free`
+ * exist there and not here. Every text served to a remote agent (the guide, the
  * skill, the instructions, the plugin's SKILL.md, these descriptions) may name only what is served: a test
  * (`agent-text-drift.test.ts`) fails when one names a tool or command that is not in this table.
  */
