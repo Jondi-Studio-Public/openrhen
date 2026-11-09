@@ -481,7 +481,6 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
             // Mirror the hook thread's drop counter into the runner's.
             dropped.store(win::DROPPED.load(Ordering::Relaxed), Ordering::Relaxed);
             run.tick()?;
-            run.resync_if_pending()?;
             win::set_state(run.state());
         }
     }));

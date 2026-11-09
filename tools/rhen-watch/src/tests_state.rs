@@ -201,6 +201,7 @@ struct StateSys {
     now: Rc<Cell<Ms>>,
     session: Rc<Cell<(Option<bool>, bool)>>,
     lookups: Rc<Cell<u32>>,
+    idle_probes: Rc<Cell<u32>>,
 }
 
 impl Sys for StateSys {
@@ -211,6 +212,7 @@ impl Sys for StateSys {
         self.now.get()
     }
     fn idle_ms(&self) -> Option<u64> {
+        self.idle_probes.set(self.idle_probes.get() + 1);
         Some(500_000)
     }
     fn resolve(&self, _: usize) -> Fg {
@@ -235,6 +237,7 @@ struct Rig {
     now: Rc<Cell<Ms>>,
     session: Rc<Cell<(Option<bool>, bool)>>,
     lookups: Rc<Cell<u32>>,
+    idle_probes: Rc<Cell<u32>>,
     dropped: Arc<AtomicU64>,
     r: Runner<StateSys>,
 }
@@ -244,12 +247,14 @@ impl Rig {
         let now = Rc::new(Cell::new(1_000_000_000_000));
         let session = Rc::new(Cell::new(session));
         let lookups = Rc::new(Cell::new(0));
+        let idle_probes = Rc::new(Cell::new(0));
         let dropped = Arc::new(AtomicU64::new(0));
         let r = Runner::new(
             StateSys {
                 now: now.clone(),
                 session: session.clone(),
                 lookups: lookups.clone(),
+                idle_probes: idle_probes.clone(),
             },
             engine(),
             Store::in_memory().unwrap(),
@@ -261,6 +266,7 @@ impl Rig {
             now,
             session,
             lookups,
+            idle_probes,
             dropped,
             r,
         }
@@ -363,10 +369,9 @@ fn a_queued_lock_and_a_dropped_unlock_end_unlocked() {
     rig.run(3);
     // The user locked and unlocked; the Lock is still queued, the Unlock was dropped.
     rig.dropped.store(1, Ordering::Relaxed);
-    rig.run(1);
     rig.r.handle(crate::runner::Raw::Session(SessionEvt::Lock)).unwrap();
-    // The queue is empty now: the re-read sees the real state, which is unlocked.
-    rig.r.resync_if_pending().unwrap();
+    // The queue is empty now: the tick notices the drop and re-reads the real state, which is unlocked.
+    rig.run(1);
     rig.run(5);
     let kinds = rig.kinds();
     assert!(
@@ -380,9 +385,8 @@ fn the_resync_waits_for_the_queue_and_happens_once() {
     let mut rig = Rig::new((Some(false), false));
     rig.r.start().unwrap();
     rig.dropped.store(1, Ordering::Relaxed);
-    rig.run(1);
     let before = rig.lookups.get();
-    rig.r.resync_if_pending().unwrap();
+    rig.run(1);
     assert_eq!(rig.lookups.get(), before + 1);
     rig.r.resync_if_pending().unwrap();
     assert_eq!(rig.lookups.get(), before + 1, "nothing pending the second time");
@@ -418,4 +422,54 @@ fn a_backward_clock_step_keeps_remote_and_display_off_open() {
     // They are still tracked: their end events close them.
     assert_eq!(close_count(&e.step(1000, Signal::Session(SessionEvt::RemoteDisconnect)).ops), 1);
     assert_eq!(close_count(&e.step(2000, Signal::Power(PowerEvt::DisplayOn)).ops), 1);
+}
+
+#[test]
+fn resume_while_locked_records_the_lock() {
+    let mut rig = Rig::new((Some(true), false));
+    rig.r.start().unwrap();
+    rig.run(5);
+    rig.r.control(Control::Pause).unwrap();
+    rig.run(5);
+    rig.r.control(Control::Resume).unwrap();
+    rig.run(5);
+    let kinds = rig.kinds();
+    assert_eq!(kinds.iter().filter(|k| *k == "locked").count(), 2, "{kinds:?}");
+    assert!(!kinds.contains(&"app".to_string()), "{kinds:?}");
+}
+
+#[test]
+fn resume_after_a_lost_unlock_reads_the_real_state() {
+    let mut rig = Rig::new((Some(true), false));
+    rig.r.start().unwrap();
+    rig.run(3);
+    rig.r.control(Control::Pause).unwrap();
+    rig.session.set((Some(false), false));
+    rig.run(3);
+    rig.r.control(Control::Resume).unwrap();
+    rig.run(3);
+    let kinds = rig.kinds();
+    assert!(kinds.contains(&"app".to_string()), "{kinds:?}");
+}
+
+#[test]
+fn a_drop_is_resynced_before_the_idle_probe_in_the_same_tick() {
+    let mut rig = Rig::new((Some(false), false));
+    rig.r.start().unwrap();
+    rig.run(1);
+    // The Lock signal is dropped; the real state is locked, and the next probe is due.
+    rig.session.set((Some(true), false));
+    rig.dropped.store(1, Ordering::Relaxed);
+    rig.now.set(rig.now.get() + 6_000);
+    let probes = rig.idle_probes.get();
+    rig.r.tick().unwrap();
+    assert_eq!(rig.idle_probes.get(), probes, "no input sample on stale state");
+    let kinds = rig.kinds();
+    assert!(kinds.contains(&"locked".to_string()), "{kinds:?}");
+}
+
+#[test]
+fn an_executable_name_with_a_drive_colon_is_refused() {
+    assert!(crate::categories::normalise_exe("c:foo.exe").is_err());
+    assert_eq!(crate::categories::normalise_exe("Foo.EXE").unwrap(), "foo.exe");
 }

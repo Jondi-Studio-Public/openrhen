@@ -158,7 +158,7 @@ fn valid_word(w: &str) -> bool {
 pub fn normalise_exe(exe: &str) -> Result<String, String> {
     let e = exe.trim().to_ascii_lowercase();
     let stem = e.strip_suffix(".exe").unwrap_or("");
-    if stem.is_empty() || e.chars().any(|c| c.is_control() || matches!(c, '"' | '\\' | '/')) {
+    if stem.is_empty() || e.chars().any(|c| c.is_control() || matches!(c, '"' | '\\' | '/' | ':')) {
         return Err(format!("\"{exe}\": an executable name must be a file name ending in .exe"));
     }
     Ok(e)

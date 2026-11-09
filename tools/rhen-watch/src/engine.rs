@@ -259,9 +259,9 @@ impl Engine {
             }
             self.floor = now;
         } else if gap < -2_000 {
-            // The wall clock moved backwards. Close at the old time and start again; do not invent time.
+            // The wall clock moved backwards. Close at the earlier of the old and new times and start again; do not invent time.
             // The tally gets a new run, so the minutes it revisits are added to, not overwritten.
-            // A lock, suspend, remote session or display-off is still going on: close it at the old time and reopen it at the new one,
+            // A lock, suspend, remote session or display-off is still going on: close it at that earlier time and reopen it at the new one,
             // so its end event still has an interval to close, and the holds stay.
             self.meter.reset(); // clock jump
             let (was_locked, was_suspended) = (self.locked.is_some(), self.suspended.is_some());

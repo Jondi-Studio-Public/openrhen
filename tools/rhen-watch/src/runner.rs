@@ -195,7 +195,19 @@ impl<S: Sys> Runner<S> {
         };
         // Remember it, so a restart or reboot does not silently start recording again.
         self.store.set_meta("paused", flag).map_err(|e| e.to_string())?;
-        self.feed(signal)
+        if !matches!(c, Control::Resume) {
+            return self.feed(signal);
+        }
+        // Pause drops lock and remote state and ignores their signals, so read what the OS says now,
+        // before the foreground is read: a window behind a lock must not open an app interval.
+        let now = self.sys.now_ms();
+        let step = self.engine.step(now, signal);
+        self.apply(now, step.ops)?;
+        self.sync_session()?;
+        if let Some(fg) = self.sys.current_foreground() {
+            self.feed(Signal::Foreground(fg))?;
+        }
+        Ok(())
     }
 
     /// Called about once a second.
@@ -222,6 +234,9 @@ impl<S: Sys> Runner<S> {
                 self.resync_pending = true;
             }
         }
+        // Before the idle probe: a dropped Lock must not let one input sample through on stale state.
+        // The caller has drained its queue by now, so the OS state is read after the signals still in it.
+        self.resync_if_pending()?;
         // A wall clock stepped back must not silence the probe until it catches up: negative means due.
         let since_poll = now - self.last_idle;
         if !(0..self.engine.idle_cadence_ms()).contains(&since_poll) {
