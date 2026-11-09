@@ -58,7 +58,7 @@ enum Probe {
     static func run(write: Bool) -> [String] {
         var lines = ["process: \(me)", "bundle id: \(Bundle.main.bundleIdentifier ?? "nil")", "derived group: \(derivedGroup)"]
         let stamp = ISO8601DateFormatter().string(from: Date())
-        for name in [derivedGroup, originalGroup] where name == derivedGroup || name != derivedGroup {
+        for name in [derivedGroup, originalGroup] {
             let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: name)
             lines.append("group \(name): container " + (container == nil ? "NO" : "yes"))
             if let d = groupDefaults(name), container != nil {
@@ -66,7 +66,7 @@ enum Probe {
                 lines.append("  app marker: \(d.string(forKey: "marker-app") ?? "none")")
                 lines.append("  extension marker: \(d.string(forKey: "marker-extension") ?? "none")")
             }
-            if derivedGroup == originalGroup { break }
+
         }
         guard let team = teamPrefix() else { lines.append("keychain: could not find team prefix"); return lines }
         lines.append("team prefix: \(team)")
