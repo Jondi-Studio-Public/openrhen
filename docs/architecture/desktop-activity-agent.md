@@ -76,3 +76,5 @@ Pure logic is tested on Linux and Windows runners: interval building, de-duplica
 - A machine with no input at all for 49.7 days can alias the 32-bit tick counter and read a small idle time; unlock and boot are input, so this needs an untouched machine.
 - Derived facts are recomputed from rows: a short `retention.events` removes the interruptions they are read against, and `report` then says "partial: events purged" and prints no facts for that day rather than glue sessions across purged locks.
 - A first input is the first minute with enough input, not a wake time or a presence claim; nothing derived here feeds energy, capacity or any wake estimate.
+- Local-day offsets come from `SystemTimeToTzSpecificLocalTime(NULL, ..)`, which applies the current year's daylight-saving rules to every date; a day before a rule change gets the wrong offset (and window).
+- Retention is checked against the oldest event still stored: input rows older than it are read as unknown and never joined into a session, and the day is marked partial.

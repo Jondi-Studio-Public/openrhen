@@ -72,8 +72,11 @@ pub struct DeriveInput<'a> {
     /// exe -> group.
     pub group_of: &'a dyn Fn(&str) -> String,
     pub params: &'a Params,
-    /// Where intervals still open are cut off.
+    /// Where intervals still open are cut off; also the end of what has been recorded so far.
     pub open_until: Ms,
+    /// The end of the oldest event still stored. Retention may have removed older events (locks, suspends)
+    /// that the input rows before this instant must be read against.
+    pub events_floor: Option<Ms>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -275,7 +278,7 @@ pub fn derive(input: &DeriveInput) -> DayFacts {
         return DayFacts::empty(Availability::NoInputData);
     }
     let spans: Vec<(Span, &EventRow)> = input.events.iter().map(|e| (span_of(e, input.open_until), e)).collect();
-    if !spans.iter().any(|((s, e), _)| *s < input.to && *e >= input.from) {
+    if !spans.iter().any(|((s, e), _)| *s < input.to && *e >= input.from) || input.events_floor.is_some_and(|f| f >= input.to) {
         return DayFacts::empty(Availability::EventsPurged);
     }
     let mut facts = DayFacts::empty(Availability::Ok);
@@ -291,11 +294,16 @@ pub fn derive(input: &DeriveInput) -> DayFacts {
     let wm_from = input.from.div_euclid(MINUTE_MS);
     let wm_to = (input.to + MINUTE_MS - 1).div_euclid(MINUTE_MS);
 
-    let interruptions: Vec<Span> = spans
+    let mut interruptions: Vec<Span> = spans
         .iter()
         .filter(|(_, e)| is_interruption(&e.source, &e.kind))
         .map(|(s, _)| *s)
         .collect();
+    if let Some(floor) = input.events_floor {
+        // Retention removed the events before this; a lock or suspend among them is unknowable, so nothing
+        // may be joined across that region.
+        interruptions.push((i64::MIN / 2, floor));
+    }
     let explained = union(
         spans
             .iter()
@@ -486,18 +494,32 @@ pub fn derive(input: &DeriveInput) -> DayFacts {
         });
     }
 
-    // How much of the day is known: watched, or accounted for by a lock, suspend, pause or game.
+    // How much of the recorded part of the day is known: watched, or accounted for by a lock, suspend, pause
+    // or game. The span runs from the first record of the day to now (or the end of the day), so minutes that
+    // have not happened yet, or came before the agent first recorded, are not "unknown".
+    let first_recorded = input
+        .buckets
+        .iter()
+        .map(|b| b.minute_ts)
+        .chain(spans.iter().map(|((s, _), _)| *s))
+        .filter(|&t| t < input.to)
+        .min()
+        .unwrap_or(input.from)
+        .max(input.from);
+    let rec_from = first_recorded.div_euclid(MINUTE_MS);
+    let rec_to = ((input.open_until.min(input.to) + MINUTE_MS - 1).div_euclid(MINUTE_MS)).max(rec_from);
     let mut unknown = 0u32;
-    for k in wm_from..wm_to {
+    for k in rec_from..rec_to {
         let watched = minutes.get(&k).map_or(0, |m| m.observed);
         let accounted = overlap_len(&explained, k * MINUTE_MS, (k + 1) * MINUTE_MS);
-        if watched + accounted < OBSERVED_MINUTE_MS {
+        let events_lost = input.events_floor.is_some_and(|f| (k + 1) * MINUTE_MS <= f);
+        if events_lost || watched + accounted < OBSERVED_MINUTE_MS {
             unknown += 1;
         }
     }
-    let total = (wm_to - wm_from).max(1);
+    let total = rec_to - rec_from;
     facts.unknown_minutes = unknown;
-    facts.partial = (total - i64::from(unknown)) * 100 < MIN_KNOWN_PERCENT * total;
+    facts.partial = total > 0 && (total - i64::from(unknown)) * 100 < MIN_KNOWN_PERCENT * total;
     facts
 }
 

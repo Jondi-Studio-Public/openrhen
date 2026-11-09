@@ -433,7 +433,7 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
         ));
     }
     let settings = engine::Settings {
-        idle_threshold_ms: cfg.idle_threshold_secs.unwrap_or(120) * 1000,
+        idle_threshold_ms: cfg.idle_threshold_secs.unwrap_or(120).saturating_mul(1000),
         foreground: cfg.collectors.foreground,
         idle: cfg.collectors.idle,
         session: cfg.collectors.session,

@@ -394,3 +394,55 @@ fn uncategorised_lists_unmapped_exes_by_time_in_front() {
         "labelling removes it from the list"
     );
 }
+
+#[test]
+fn the_old_config_init_template_with_an_empty_categories_table_still_loads() {
+    // `config init` used to write a [categories] table holding only a commented example.
+    let old = "idle_threshold_secs = 120\nextra_games = []\n\n[collectors]\nforeground = true\n\n[retention]\nevents = \"permanent\"\nmetrics = \"permanent\"\n\n# exe file name -> category. Overrides the built-in table.\n[categories]\n# \"mything.exe\" = \"editor\"\n";
+    let cfg = Config::parse(old).unwrap();
+    assert!(cfg.reject_legacy_categories().is_ok(), "an empty table holds nothing to move");
+    assert!(
+        Config::parse("[categories]\n\"a.exe\" = \"editor\"\n")
+            .unwrap()
+            .reject_legacy_categories()
+            .is_err()
+    );
+}
+
+#[test]
+fn config_set_on_a_file_where_a_table_is_a_plain_value_is_an_error_not_a_panic() {
+    for text in ["derive = 5\n", "retention = \"x\"\n", "collectors = [1]\n"] {
+        for key in ["derive.min_block_minutes", "retention.events", "collectors.idle"] {
+            let r = std::panic::catch_unwind(|| config::set_key(text, key, "1"));
+            let r = r.unwrap_or_else(|_| panic!("set_key panicked on {text:?} / {key}"));
+            if let Err(e) = r {
+                assert!(!e.contains('\n'), "{e}");
+            }
+        }
+    }
+    let e = config::set_key("derive = 5\n", "derive.min_block_minutes", "12").unwrap_err();
+    assert!(e.contains("derive.min_block_minutes") && e.contains("table"), "{e}");
+}
+
+#[test]
+fn idle_threshold_is_bounded_so_milliseconds_cannot_overflow() {
+    assert!(Config::parse("idle_threshold_secs = 86400\n").is_ok());
+    assert!(Config::parse("idle_threshold_secs = 86401\n").is_err());
+    assert!(Config::parse("idle_threshold_secs = 9223372036854775807\n").is_err());
+    let e = config::set_key(config::TEMPLATE, "idle_threshold_secs", "99999999999").unwrap_err();
+    assert!(e.contains("idle_threshold_secs") && e.contains("86400"), "{e}");
+}
+
+#[test]
+fn case_variant_duplicate_exe_keys_are_an_error_not_a_silent_merge() {
+    let e = CategoryFile::parse("[exe]\n\"Foo.exe\" = \"editor\"\n\"foo.exe\" = \"media\"\n").unwrap_err();
+    assert!(e.contains("foo.exe") && e.contains("twice"), "{e}");
+}
+
+#[test]
+fn utf16_without_a_bom_is_detected_in_either_byte_order() {
+    let le: Vec<u8> = "[exe]\n".encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+    let be: Vec<u8> = "[exe]\n".encode_utf16().flat_map(|u| u.to_be_bytes()).collect();
+    assert!(config::decode_text(&le, "config.toml").unwrap_err().contains("UTF-8"));
+    assert!(config::decode_text(&be, "config.toml").unwrap_err().contains("UTF-8"));
+}

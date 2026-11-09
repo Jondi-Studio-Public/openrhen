@@ -82,6 +82,8 @@ pub struct Rows<'a> {
     pub all_events: &'a [EventRow],
     pub buckets: &'a [BucketRow],
     pub has_buckets_table: bool,
+    /// End of the oldest stored event (see `DeriveInput::events_floor`).
+    pub events_floor: Option<Ms>,
     pub metrics: &'a [MetricRow],
     pub db_bytes: i64,
 }
@@ -105,6 +107,7 @@ pub fn build(store: &Store, input: &ReportInput) -> Result<String, String> {
             all_events: &all,
             buckets: &buckets,
             has_buckets_table: store.has_input_buckets(),
+            events_floor: store.earliest_event_end().map_err(|e| e.to_string())?,
             metrics: &metrics,
             db_bytes: store.db_bytes(),
         },
@@ -116,6 +119,16 @@ const WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 fn clock(ts: Ms, tz: &TzOffset) -> String {
     fmt_clock(ts, tz.offset_at(ts))
+}
+
+/// The offset of the day, or both when clocks changed during it.
+fn offset_label(input: &ReportInput) -> String {
+    let (start, end) = (input.tz.offset_at(input.from), input.tz.offset_at(input.to - 1));
+    if start == end {
+        fmt_offset(start)
+    } else {
+        format!("{} then {}", fmt_offset(start), fmt_offset(end))
+    }
 }
 
 fn plural(n: u32, one: &str) -> String {
@@ -148,12 +161,7 @@ fn day_section(facts: &DayFacts, rows: &Rows, input: &ReportInput, uncategorised
     let tz = &input.tz;
     let mut out = String::new();
     let weekday = WEEKDAYS[(tz.day_of(input.from) + 4).rem_euclid(7) as usize];
-    let (off_start, off_end) = (tz.offset_at(input.from), tz.offset_at(input.to - 1));
-    let offset = if off_start == off_end {
-        fmt_offset(off_start)
-    } else {
-        format!("{} then {}", fmt_offset(off_start), fmt_offset(off_end))
-    };
+    let offset = offset_label(input);
     let _ = writeln!(
         out,
         "Your day at the PC, {weekday} {} ({offset})   [derived from the rows below; not stored]",
@@ -358,13 +366,13 @@ pub fn render(rows: &Rows, input: &ReportInput) -> String {
         group_of: &group_of,
         params: input.params,
         open_until: input.open_until,
+        events_floor: rows.events_floor,
     });
     let totals: Vec<(String, Ms)> = apps.iter().map(|(exe, a)| (exe.clone(), a.total)).collect();
     let uncategorised = categories::uncategorised(&totals, input.catalogue, 15);
     let mut out = day_section(&facts, rows, input, &uncategorised);
     out.push('\n');
-    let off_start = input.tz.offset_at(input.from);
-    let _ = writeln!(out, "Activity for {} ({})", input.label, fmt_offset(off_start));
+    let _ = writeln!(out, "Activity for {} ({})", input.label, offset_label(input));
     if events.is_empty() {
         let _ = writeln!(
             out,

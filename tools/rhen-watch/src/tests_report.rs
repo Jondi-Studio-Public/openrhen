@@ -34,8 +34,19 @@ fn bucket(k: i64, exe: &str, input_s: i64) -> Op {
     }
 }
 
+fn agent_start(ts: i64) -> Op {
+    Op::Instant {
+        source: "agent",
+        kind: "start".into(),
+        ts,
+        end: None,
+        attrs: Default::default(),
+    }
+}
+
 fn app_rows(store: &mut Store, rows: &[(&str, i64, i64, &str)]) {
-    let mut ops = Vec::new();
+    // The agent's own start is the oldest event, as in a real database.
+    let mut ops = vec![agent_start(at(rows.iter().map(|r| r.1).min().unwrap_or(0)) - MIN)];
     for (i, (exe, s, e, stored_category)) in rows.iter().enumerate() {
         ops.push(Op::Open {
             id: format!("a{i}"),
@@ -59,6 +70,7 @@ struct Setup {
     idle_collector: bool,
     from: i64,
     to: i64,
+    open_until: Option<i64>,
 }
 
 impl Setup {
@@ -70,6 +82,7 @@ impl Setup {
             idle_collector: true,
             from: at(0),
             to: at(24 * 60),
+            open_until: None,
         }
     }
     fn text(&self) -> String {
@@ -80,7 +93,7 @@ impl Setup {
                 label: "2026-11-09",
                 from: self.from,
                 to: self.to,
-                open_until: self.to,
+                open_until: self.open_until.unwrap_or(self.to),
                 tz: self.tz.clone(),
                 catalogue: &self.catalogue,
                 params: &p,
@@ -152,7 +165,7 @@ fn a_scripted_day_prints_the_expected_section() {
     let t = busy_day().text();
     let want = "\
 Your day at the PC, Fri 2026-11-09 (UTC+00:00)   [derived from the rows below; not stored]
-  (partial: 1350 min unknown)
+  (partial: 811 min unknown)
   First input 09:00, last input 15:29   (first and last input of the day; not a claim about presence)
   Input: 18m in 5 s slots, 2h 11m in front, observed coverage 68%
   Longest unbroken stretch: 09:00-09:30 (30m; gaps of up to 5 min count as unbroken)
@@ -245,12 +258,26 @@ fn input_rows_whose_events_are_purged_print_partial_and_no_facts() {
 
 #[test]
 fn a_day_known_for_under_80_percent_says_how_many_minutes_are_unknown() {
+    // recorded from the agent start at 08:59 to the end of the day: 901 minutes, of which 90 were watched
     let t = busy_day().text();
-    assert!(
-        t.lines().next().unwrap().contains("partial:") || section(&t).contains("partial:"),
-        "{t}"
-    );
-    assert!(section(&t).contains("min unknown"));
+    assert!(section(&t).contains("(partial: 811 min unknown)"), "{t}");
+}
+
+#[test]
+fn minutes_that_have_not_happened_yet_and_minutes_before_the_first_record_are_not_unknown() {
+    // the same day viewed at 16:11: recorded from 08:59 to 16:11 = 432 minutes, 90 watched
+    let mut s = busy_day();
+    s.open_until = Some(at(971));
+    let t = s.text();
+    assert!(section(&t).contains("(partial: 342 min unknown)"), "{t}");
+    // a day watched from its first record to "now" is not partial, however early it is
+    let mut s = Setup::new();
+    let ops: Vec<Op> = (540..600).map(|k| bucket(k, "code.exe", 20)).collect();
+    s.store.apply("d", &ops, at(0)).unwrap();
+    app_rows(&mut s.store, &[("code.exe", 540, 600, "editor")]);
+    s.open_until = Some(at(600));
+    let t = s.text();
+    assert!(!section(&t).contains("partial"), "{t}");
 }
 
 #[test]
@@ -384,6 +411,10 @@ fn the_report_for_a_dst_day_uses_that_days_own_window_and_labels() {
     let t = s.text();
     assert!(t.lines().next().unwrap().contains("UTC+13:00"), "{t}");
     assert!(
+        t.contains("Activity for 2026-11-09 (UTC+13:00 then UTC+12:00)"),
+        "both offsets on a DST day: {t}"
+    );
+    assert!(
         t.contains("First input 02:30, last input 02:30"),
         "both at 02:30, an hour apart: {t}"
     );
@@ -394,6 +425,7 @@ fn app_rows_at(store: &mut Store, from: i64, to: i64) {
         .apply(
             "d",
             &[
+                agent_start(from),
                 Op::Open {
                     id: "a".into(),
                     source: "foreground",
