@@ -15,6 +15,15 @@ pub fn export_db(db: &Path, dest: &Path) -> Result<u64, String> {
         return Err("no database yet; run `rhen-watch run` first".into());
     }
     let store = Store::open_read_only(db).map_err(|e| e.to_string())?;
+    // Claim the name first: VACUUM INTO accepts an empty file, and on failure we then delete only a file
+    // this call created, never one another process put there after the check above.
+    match std::fs::OpenOptions::new().write(true).create_new(true).open(dest) {
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            return Err(format!("{} already exists; choose a new file name", dest.display()));
+        }
+        Err(e) => return Err(format!("cannot write {}: {e}", dest.display())),
+    }
     if let Err(e) = store.vacuum_into(dest) {
         let _ = std::fs::remove_file(dest);
         return Err(format!("cannot write {}: {e}", dest.display()));
