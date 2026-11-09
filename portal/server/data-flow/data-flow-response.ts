@@ -26,6 +26,7 @@ export async function readDataFlow(sql: Sql, now: Date = new Date()): Promise<Da
   const registry = dataFlowRegistry();
   const view = buildDataFlowView(TABLES, registry);
   let health: DataFlowHealth;
+  const startedAt = Date.now();
   try {
     const read = await readHealth(sql, { now, entries: registry.entries });
     const counts: Record<string, number> = Object.fromEntries(COUNTED.map((state) => [state, 0]));
@@ -38,7 +39,7 @@ export async function readDataFlow(sql: Sql, now: Date = new Date()): Promise<Da
       route: "/api/data-flow",
       method: "GET",
       status: 200,
-      durationMs: 0,
+      durationMs: Date.now() - startedAt,
       errorClass: error instanceof Error ? error.constructor.name : typeof error,
       ...(typeof code === "string" ? { errorCode: code } : {})
     });

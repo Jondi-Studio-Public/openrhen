@@ -113,6 +113,15 @@ describe("sync-runs", () => {
     expect(await one(entry("a", probe, { freshness: fresh }))).toMatchObject({ freshness: "never", configured: false });
   });
 
+  it("is failing, not n/a, when the newest run failed and no threshold applies", async () => {
+    // A pull source whose provider has no known cadence gets no threshold; a failed attempt must still show.
+    const probe = { kind: "sync-runs", provider: "no-cadence" } as const;
+    await run("no-cadence", "synced", 30);
+    await run("no-cadence", "failed", 1, { error: "refused" });
+    const pull = entry("nc", probe, { freshness: "from-connection", syncProvider: "no-cadence" });
+    expect(await one(pull)).toMatchObject({ freshness: "failing", threshold: null });
+  });
+
   it("separates two stages that share a provider by summaryMatch", async () => {
     await run("g", "synced", 1, { stage: "ingest" });
     await run("g", "failed", 1, { stage: "reasoning" });

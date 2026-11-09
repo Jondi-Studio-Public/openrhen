@@ -622,7 +622,7 @@ async function computeHealth(
       freshness:
         outcome.forceLate && freshness === "fresh"
           ? "late"
-          : threshold === null && freshness !== "never"
+          : threshold === null && freshness !== "never" && freshness !== "failing"
             ? "n/a"
             : freshness,
       lastSuccessAt: iso(outcome.lastSuccessAt),

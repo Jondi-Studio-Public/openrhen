@@ -15,7 +15,7 @@ export interface ThresholdInUse {
   errorHours: number | null;
   /** `learned` (arrivals over 30 days), `connection`, `overlay` (an extension's own number) or `default`. */
   from: "learned" | "connection" | "overlay" | "default";
-  /** Days of arrivals a learned threshold rests on. The reader only reports it; the issue tiering that limits a threshold under 30 days to the degrading tier is applied downstream. */
+  /** Days of arrivals a learned threshold rests on. The reader only reports it. Nothing in this reader limits a threshold under 30 days to the degrading tier; the doctor source checks (a later change) are where that rule belongs. */
   days?: number;
 }
 
