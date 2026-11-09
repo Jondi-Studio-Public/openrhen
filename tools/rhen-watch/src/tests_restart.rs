@@ -8,7 +8,8 @@ const EXE: &str = r"C:\Users\Ann\AppData\Local\Programs\rhen-watch\rhen-watchw.e
 
 #[test]
 fn task_xml_golden() {
-    let want = format!(r#"<?xml version="1.0" encoding="UTF-16"?>
+    let want = format!(
+        r#"<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="{TASK_NS}">
   <RegistrationInfo>
     <Description>Restarts the rhen-watch activity recorder if it crashes or is killed.</Description>
@@ -49,7 +50,8 @@ fn task_xml_golden() {
     </Exec>
   </Actions>
 </Task>
-"#);
+"#
+    );
     assert_eq!(task_xml(SID, EXE), want);
 }
 
