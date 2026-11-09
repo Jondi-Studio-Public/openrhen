@@ -16,7 +16,10 @@ export const SIGNAL_NAMES = Object.freeze([
   "web_activity",
   "weather",
   "travel_time",
-  "vehicle"
+  "vehicle",
+  "space",
+  "posture",
+  "occupancy"
 ] as const);
 export type SignalName = (typeof SIGNAL_NAMES)[number];
 
@@ -33,7 +36,9 @@ export const ORIGINS = Object.freeze([
   "vehicle",
   "account",
   "files",
-  "cloud"
+  "cloud",
+  "room_sensor",
+  "carried"
 ] as const);
 export type Origin = (typeof ORIGINS)[number];
 

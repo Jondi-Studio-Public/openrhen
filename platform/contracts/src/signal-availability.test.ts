@@ -34,8 +34,8 @@ describe("signal-availability vocabularies", () => {
     expect(SLOT_BY).toEqual(["origin", "device", "route"]);
     expect(FRESHNESS_MODES).toEqual(["decay", "refreshed-held"]);
     expect(EVIDENCE_SUBJECTS).toEqual(["self", "anyone", "other"]);
-    expect(ORIGINS).toEqual(["phone", "computer", "home_net", "home_hub", "vehicle", "account", "files", "cloud"]);
-    expect(SIGNAL_NAMES).toHaveLength(9);
+    expect(ORIGINS).toEqual(["phone", "computer", "home_net", "home_hub", "vehicle", "account", "files", "cloud", "room_sensor", "carried"]);
+    expect(SIGNAL_NAMES).toHaveLength(12);
   });
 
   it("caps every tier at 0.95 or less, in descending order of trust", () => {
