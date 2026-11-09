@@ -244,8 +244,12 @@ impl Config {
     }
 
     pub fn parse(text: &str) -> Result<Self, String> {
-        let cfg: Config = toml::from_str(text).map_err(|e| format!("config.toml: {e}"))?;
+        let mut cfg: Config = toml::from_str(text).map_err(|e| format!("config.toml: {e}"))?;
         cfg.validate()?;
+        // Stored as the bare lower-case name the OS layer resolves, so the entry matches whatever way it was typed.
+        for g in &mut cfg.extra_games {
+            *g = crate::categories::normalise_exe(g)?;
+        }
         Ok(cfg)
     }
 
@@ -257,6 +261,9 @@ impl Config {
             && !(1..=MAX_IDLE_THRESHOLD_SECS).contains(&n)
         {
             return Err(format!("idle_threshold_secs must be between 1 and {MAX_IDLE_THRESHOLD_SECS}"));
+        }
+        for g in &self.extra_games {
+            crate::categories::normalise_exe(g).map_err(|e| format!("extra_games: {e}"))?;
         }
         self.retention.events.days().map_err(|e| format!("retention.events: {e}"))?;
         self.retention.metrics.days().map_err(|e| format!("retention.metrics: {e}"))?;

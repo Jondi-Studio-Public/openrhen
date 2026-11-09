@@ -204,6 +204,37 @@ impl Sys for WinSys {
         if hwnd.is_null() { None } else { Some(self.resolve(hwnd as usize)) }
     }
 
+    fn session_state(&self) -> (Option<bool>, bool) {
+        // Remote: the documented test for a session shown over Remote Desktop.
+        let remote = unsafe { GetSystemMetrics(SM_REMOTESESSION) } != 0;
+        let mut buf: *mut u16 = null_mut();
+        let mut len = 0u32;
+        let ok =
+            unsafe { WTSQuerySessionInformationW(WTS_CURRENT_SERVER_HANDLE, WTS_CURRENT_SESSION, WTSSessionInfoEx, &mut buf, &mut len) };
+        if ok == 0 || buf.is_null() {
+            return (None, remote);
+        }
+        // The buffer belongs to the WTS API and must be freed with WTSFreeMemory on every path.
+        let locked = if len as usize >= std::mem::size_of::<WTSINFOEXW>() {
+            let info = unsafe { std::ptr::read_unaligned(buf as *const WTSINFOEXW) };
+            if info.Level == 1 {
+                // WTS_SESSIONSTATE_LOCK = 0, WTS_SESSIONSTATE_UNLOCK = 1 (Windows 7 and Server 2008 R2 return
+                // them swapped, which is why those versions are not supported); anything else is unknown.
+                match unsafe { info.Data.WTSInfoExLevel1.SessionFlags } as u32 {
+                    WTS_SESSIONSTATE_LOCK => Some(true),
+                    WTS_SESSIONSTATE_UNLOCK => Some(false),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        unsafe { WTSFreeMemory(buf as *mut std::ffi::c_void) };
+        (locked, remote)
+    }
+
     fn proc_stats(&self) -> (i64, i64) {
         unsafe {
             let h = GetCurrentProcess();
