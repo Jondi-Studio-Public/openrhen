@@ -254,7 +254,6 @@ export const PROPOSE_ONLY_SETTINGS_FIELDS = ["timezone", "setupCompleted", "setu
  */
 export const PLAN_PREFERENCE_SETTINGS_FIELDS = [
   "planningHorizonEnd",
-  "assertedConditions",
   "defaultUsableFraction",
   "defaultSetupBufferMinutes",
   "defaultTransitionBufferMinutes",

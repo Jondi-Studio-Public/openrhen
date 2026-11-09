@@ -8,7 +8,9 @@ describe("BuffersSection", () => {
   it("edits each buffer independently", () => {
     const onChange = vi.fn();
     render(<BuffersSection draft={defaultPlanningSettings()} onChange={onChange} />);
-    fireEvent.change(screen.getByLabelText("Default setup before (minutes)"), { target: { value: "15" } });
+    fireEvent.change(screen.getByLabelText("Starting value for new commitments: setup before (minutes)"), {
+      target: { value: "15" }
+    });
     expect(onChange).toHaveBeenCalledWith({ defaultSetupBufferMinutes: 15 });
     fireEvent.change(screen.getByLabelText("Minimum submission buffer (minutes)"), { target: { value: "90" } });
     expect(onChange).toHaveBeenLastCalledWith({ submissionBufferMinutes: 90 });

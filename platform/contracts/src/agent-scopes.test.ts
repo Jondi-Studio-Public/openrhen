@@ -170,10 +170,9 @@ describe("owner-only", () => {
       WAKE_SETTINGS_FIELDS,
       PLAN_PREFERENCE_SETTINGS_FIELDS
     ];
-    // The settings handler also takes these two, which the state does not echo back under the same name.
+    // The settings handler also takes this one, which the state does not echo back under the same name.
     const fields = [
       ...Object.keys(portalStateSchema.shape.settings.shape).filter((key) => key !== "version"),
-      "assertedConditions",
       "setupCompleted"
     ];
     for (const field of fields) expect(classes.filter((list) => list.includes(field)).length, field).toBe(1);

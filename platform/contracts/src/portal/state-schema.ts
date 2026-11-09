@@ -875,8 +875,7 @@ export const portalStateSchema = z
       sessionBreakMinutes: z.number().int().min(0).max(120).default(15),
       /**
        * The mode `resolveMode` falls to when a commitment names none and the place has no usual mode
-       * of its own. Persisted by a later task;
-       * declared here, minimally, so the engine's mode order can read it as soon as it is set.
+       * of its own. Saved with the settings and read by the engine's mode order.
        */
       defaultTransportMode: transportModeSchema.optional(),
       /**

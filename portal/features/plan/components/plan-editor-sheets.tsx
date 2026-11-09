@@ -32,6 +32,7 @@ export function PlanEditorSheets({
   actions,
   deliverables,
   conditionDefinitions,
+  estimateBucketsMinutes,
   timezone
 }: {
   editors: UsePlanEditors;
@@ -41,6 +42,8 @@ export function PlanEditorSheets({
   actions: StoredAction[];
   deliverables: StoredDeliverable[];
   conditionDefinitions: PortalState["conditionDefinitions"];
+  /** `settings.estimateBucketsMinutes`: the quick remaining-effort choices the action editor offers. */
+  estimateBucketsMinutes?: number[] | undefined;
   /** The planning timezone the deliverable deadline fields read and write in (finding 30). */
   timezone: string;
 }) {
@@ -155,6 +158,7 @@ export function PlanEditorSheets({
           actions={actions}
           deliverables={deliverables}
           conditionDefinitions={conditionDefinitions}
+          estimateBucketsMinutes={estimateBucketsMinutes}
           outcomes={outcomes}
           areas={areas}
           onChange={editors.setAction}
