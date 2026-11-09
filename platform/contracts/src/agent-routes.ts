@@ -792,6 +792,8 @@ const READ_RULES: Record<string, string | "public"> = {
   "/api/catch-up": "read:plan",
   "/api/doctor": "read:plan",
   "/api/data-flow": "read:plan",
+  // Drift episodes from the check-in and session tables: counts and ids, no activity content.
+  "/api/drift-report": "read:plan",
   "/api/attention": "read:plan",
   "/api/consequence/next": "read:plan",
   // The open mail facts listing (`rhen_inbox` room `facts`): derived data, read under the plan scope like the attention feed.

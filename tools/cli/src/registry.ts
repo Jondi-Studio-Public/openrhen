@@ -11,6 +11,7 @@ import { captureCommand } from "./commands/capture.js";
 import { catchUpCommand } from "./commands/catch-up.js";
 import { attentionCommand } from "./commands/attention.js";
 import { doctorCommand } from "./commands/doctor.js";
+import { driftCommand } from "./commands/drift.js";
 import { sourcesCommand } from "./commands/sources.js";
 import { catchUpSettleCommand } from "./commands/catch-up-settle.js";
 import { changesCommand } from "./commands/changes.js";
@@ -69,6 +70,7 @@ const coreCommands: CommandSpec[] = [
   catchUpCommand,
   doctorCommand,
   sourcesCommand,
+  driftCommand,
   attentionCommand,
   saveCommand,
   changesetCommand,

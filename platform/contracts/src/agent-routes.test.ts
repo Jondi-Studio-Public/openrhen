@@ -950,6 +950,12 @@ describe("scopesForRoute: the activity store", () => {
     });
   });
 
+  it("opens the drift report to the plan read scope only and refuses every write method on it", () => {
+    expect(scopesForRoute("GET", "/api/drift-report")).toEqual({ kind: "scopes", scopes: ["read:plan"] });
+    for (const method of ["POST", "PUT", "PATCH", "DELETE"] as const)
+      expect(scopesForRoute(method, "/api/drift-report", {}).kind, method).not.toBe("scopes");
+  });
+
   it("opens the read-back to the read scope only, and the import check to the capture scope only", () => {
     expect(scopesForRoute("GET", "/api/activity-events")).toEqual({ kind: "scopes", scopes: ["read:activity-event"] });
     expect(scopesForRoute("GET", "/api/activity-imports")).toEqual({

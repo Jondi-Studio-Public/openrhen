@@ -1021,6 +1021,13 @@ describe("mcp: tool count pin", () => {
     expect(result.tools).toHaveLength(EXPECTED_CORE_TOOL_COUNT + EXTENSION_TOOL_COUNT);
   });
 
+  it("serves no tool for the owner-only drift report", async () => {
+    const { parsed } = await send([req(1, "tools/list")]);
+    const result = parsed[0]?.result as { tools: { name: string }[] };
+    expect(result.tools.map((tool) => tool.name)).not.toContain("rhen_drift");
+    expect(commands.some((command) => command.name === "drift" && command.ownerOnly === true)).toBe(true);
+  });
+
   it("never serves a manifest's commandFile, which is repository evidence, not part of a tool", async () => {
     const { parsed } = await send([req(1, "tools/list")]);
     const result = parsed[0]?.result as { tools: Record<string, unknown>[] };

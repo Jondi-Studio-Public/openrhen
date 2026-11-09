@@ -608,6 +608,14 @@ describe("coverage of every entry point (PR A2, PR C)", () => {
     }
   });
 
+  it("holds the drift report as a pass-through read that gives the plan tables no new use", () => {
+    const entry = core.find((candidate) => candidate.id === "rest-drift-report");
+    expect(entry?.passThrough).toBe(true);
+    expect(entry?.code.routes).toEqual(["GET /api/drift-report"]);
+    expect(entry?.from).toEqual(["pg:check_in", "pg:sessions"]);
+    expect(entry?.to).toEqual(["surface:rest"]);
+  });
+
   it("keeps the consequence answers reaching the engine through the refit reader", () => {
     const graph = withoutContractsExtensions(() => dataFlowGraph(coreTables));
     expect(graph.reach("portal-consequence-ranking").map((r) => r.surface)).toContain("surface:engine");
@@ -618,6 +626,7 @@ describe("coverage of every entry point (PR A2, PR C)", () => {
     const CAUGHT_ELSEWHERE: Record<string, string> = {
       "eval-report": "the acceptance test: derived rows stay unused without a value reader",
       "rest-activity-read": "the acceptance test: pass-through reads never make a source used",
+      "rest-drift-report": "the drift report test: a pass-through read of check-ins and sessions behind its route",
       "backup-run": "the acceptance test: pass-through reads never make a table used",
       "watch-history-panel": "the acceptance test: youtube-watch-history stays used through the review page",
       "inbox-view": "the data pages test (page claimed, tables read)",
