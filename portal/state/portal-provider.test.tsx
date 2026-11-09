@@ -939,7 +939,10 @@ describe("PortalProvider live events", () => {
     } finally {
       vi.useRealTimers();
     }
-    await waitFor(() => expect(banner(view)).toMatch(/Can't reach OpenRhen\. Showing data from \d{1,2}:\d{2} [ap]m\./));
+    // planTime adds the weekday when the last good read was on another day, as it is when the 90s cross midnight.
+    await waitFor(() =>
+      expect(banner(view)).toMatch(/Can't reach OpenRhen\. Showing data from (?:\p{L}+ )?\d{1,2}:\d{2} [ap]m\./u)
+    );
     // The next good read clears it.
     server.mode = "up";
     await act(async () => sources[0]!.emit("changed", { kind: "state", at: "t2" }));
