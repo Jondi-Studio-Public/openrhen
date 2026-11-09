@@ -117,6 +117,16 @@ pub fn build(store: &Store, input: &ReportInput) -> Result<String, String> {
 
 const WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+/// Kinds written as instants. Everything else is an interval, which can also end up with no length.
+fn is_instant_kind(source: &str, kind: &str) -> bool {
+    matches!(
+        (source, kind),
+        (SRC_SESSION, "logon" | "logoff")
+            | (SRC_POWER, "ac" | "battery")
+            | (SRC_AGENT, "start" | "stop" | "degraded" | "dropped" | "clock_jump")
+    )
+}
+
 fn clock(ts: Ms, tz: &TzOffset) -> String {
     fmt_clock(ts, tz.offset_at(ts))
 }
@@ -343,7 +353,8 @@ pub fn render(rows: &Rows, input: &ReportInput) -> String {
     for e in events {
         // An instant has no length, so it cannot be clipped: it counts when it falls inside the day.
         if e.ts_end == Some(e.ts_start) {
-            if (input.from..input.to).contains(&e.ts_start) {
+            // Only kinds that are instants by nature: an interval closed at its own start also has no length.
+            if is_instant_kind(&e.source, &e.kind) && (input.from..input.to).contains(&e.ts_start) {
                 if (e.source.as_str(), e.kind.as_str()) == (SRC_AGENT, "clock_jump") {
                     clock_jumps += 1;
                 } else {

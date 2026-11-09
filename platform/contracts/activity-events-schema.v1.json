@@ -141,6 +141,7 @@
         "battery",
         "suppressed",
         "unknown",
+        "off",
         "clock_jump",
         "dropped",
         "paused",

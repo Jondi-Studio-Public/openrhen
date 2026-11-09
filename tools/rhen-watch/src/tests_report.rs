@@ -516,6 +516,18 @@ fn interval(source: &'static str, kind: &str, from: i64, to: i64) -> Vec<Op> {
 }
 
 #[test]
+fn zero_length_intervals_are_not_listed_as_events() {
+    let mut s = busy_day();
+    for (src, kind) in [("foreground", "app"), ("idle", "idle"), ("session", "locked")] {
+        s.store.apply("d", &interval(src, kind, 700, 700), at(0)).unwrap();
+    }
+    let t = s.text();
+    for needle in ["foreground/app", "idle/idle", "session/locked"] {
+        assert!(!t.contains(&format!("{needle}: ")), "{needle} is not an instant: {t}");
+    }
+}
+
+#[test]
 fn instant_events_and_clock_jumps_are_counted() {
     let mut s = busy_day();
     s.store
@@ -551,7 +563,12 @@ fn paused_time_is_its_own_line_and_counts_as_known() {
     let t = s.text();
     assert!(t.contains("Paused (from the tray): 5h 00m"), "{t}");
     // 901 recorded minutes, 90 watched, 300 paused: still under 80% known, but 300 fewer unknown
-    assert!(section(&t).contains("(partial: 511 min unknown)"), "{t}");
+    let unknown_min = |t: &str| -> i64 {
+        let tail = &section(t)[section(t).find("(partial: ").expect("partial note") + 10..];
+        tail.split(' ').next().unwrap().parse().unwrap()
+    };
+    let baseline = busy_day().text();
+    assert_eq!(unknown_min(&baseline) - unknown_min(&t), 300, "{baseline}\n{t}");
 }
 
 #[test]

@@ -110,6 +110,9 @@ pub struct Config {
     pub categories: Option<toml::Value>,
 }
 
+/// The idle threshold when the config does not set one; the template shows the same number.
+pub const DEFAULT_IDLE_THRESHOLD_SECS: u64 = 120;
+
 pub const TEMPLATE: &str = r#"# rhen-watch configuration. Every setting shown is the default.
 # Change one with `rhen-watch config set <key> <value>`; `rhen-watch config show` lists them all.
 # The per-exe category map is a separate file: `rhen-watch categories init` writes categories.toml.
@@ -296,8 +299,8 @@ impl Config {
         };
         add(
             "idle_threshold_secs",
-            self.idle_threshold_secs.unwrap_or(120).to_string(),
-            "120".into(),
+            self.idle_threshold_secs.unwrap_or(DEFAULT_IDLE_THRESHOLD_SECS).to_string(),
+            DEFAULT_IDLE_THRESHOLD_SECS.to_string(),
         );
         add("extra_games", list(&self.extra_games), "[]".into());
         add(

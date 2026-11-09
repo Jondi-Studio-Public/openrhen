@@ -115,7 +115,10 @@ impl<S: Sys> Runner<S> {
         let c = &self.cfg.collectors;
         let retention = &self.cfg.retention;
         let start_attrs = attrs([
-            ("idle_threshold_secs", json!(self.cfg.idle_threshold_secs.unwrap_or(120))),
+            (
+                "idle_threshold_secs",
+                json!(self.cfg.idle_threshold_secs.unwrap_or(crate::config::DEFAULT_IDLE_THRESHOLD_SECS)),
+            ),
             (
                 "collectors",
                 json!({"foreground": c.foreground, "idle": c.idle, "session": c.session, "power": c.power}),
@@ -124,7 +127,8 @@ impl<S: Sys> Runner<S> {
                 "retention",
                 json!({"events": retention.events, "metrics": retention.metrics, "input_buckets": retention.input_buckets}),
             ),
-            ("extra_games", json!(self.cfg.extra_games)),
+            // A count only: the user's own game list is never written to the store.
+            ("extra_games_count", json!(self.cfg.extra_games.len())),
             ("categories", json!(self.categories)),
         ]);
         // The marker only means something until the next run starts.
@@ -252,7 +256,7 @@ impl<S: Sys> Runner<S> {
         self.finish_run(true)
     }
 
-    /// Close everything after a caught panic. The stop is noted but not marked clean, so the next start
+    /// Close everything after a caught panic. No stop is noted and nothing is marked clean, so the next start
     /// records the downtime as `unknown`.
     pub fn stop_after_panic(&mut self) -> Result<(), String> {
         self.finish_run(false)
@@ -261,13 +265,16 @@ impl<S: Sys> Runner<S> {
     fn finish_run(&mut self, clean: bool) -> Result<(), String> {
         let now = self.sys.now_ms();
         let mut ops = self.engine.finish(now);
-        ops.push(Op::Instant {
-            source: SRC_AGENT,
-            kind: "stop".into(),
-            ts: now,
-            end: None,
-            attrs: Default::default(),
-        });
+        // After a panic no stop is noted, so the report does not show a stop next to an `unknown` gap.
+        if clean {
+            ops.push(Op::Instant {
+                source: SRC_AGENT,
+                kind: "stop".into(),
+                ts: now,
+                end: None,
+                attrs: Default::default(),
+            });
+        }
         // Same write as the heartbeat `now`: recovery tells a clean stop from a crash by the two matching.
         if clean {
             ops.push(Op::Meta {

@@ -951,7 +951,8 @@ fn the_start_row_carries_the_settings_the_run_used() {
         a["retention"],
         json!({"events": 30, "metrics": "permanent", "input_buckets": "permanent"})
     );
-    assert_eq!(a["extra_games"], json!(["foo.exe"]));
+    assert_eq!(a["extra_games_count"], 1);
+    assert!(a.get("extra_games").is_none(), "game names are never recorded: {a}");
     assert_eq!(a["categories"], "degraded");
 }
 
@@ -969,4 +970,38 @@ fn a_stop_after_a_panic_is_not_a_clean_stop() {
     assert!(gap.is_some(), "a panic is reported like a crash");
     assert!(kinds_of(&r).iter().any(|k| k.0 == "unknown"));
     assert!(!kinds_of(&r).iter().any(|k| k.0 == "off"));
+    assert!(
+        !kinds_of(&r).iter().any(|k| k.0 == "stop"),
+        "a panic leaves no agent/stop next to the unknown gap"
+    );
+}
+
+#[test]
+fn the_clean_stop_marker_survives_reopening_the_file() {
+    let dir = std::env::temp_dir().join(format!("rhen-watch-marker-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("w.db");
+    let now = Rc::new(Cell::new(1_000_000_000_000i64));
+    let mut r = fake(&now, Config::default(), Store::open(&path).unwrap());
+    r.start().unwrap();
+    now.set(now.get() + 5000);
+    r.stop().unwrap();
+    drop(r);
+    now.set(now.get() + 3_600_000);
+    let mut s = Store::open(&path).unwrap();
+    assert_eq!(s.recover("d", now.get()).unwrap(), None, "the marker is read back from the file");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_clean_stop_gap_of_ten_seconds_or_less_writes_no_row() {
+    let now = Rc::new(Cell::new(1_000_000_000_000i64));
+    let mut r = fake(&now, Config::default(), Store::in_memory().unwrap());
+    r.start().unwrap();
+    now.set(now.get() + 5000);
+    r.stop().unwrap();
+    now.set(now.get() + 10_000);
+    assert_eq!(r.store_mut().recover("d", now.get()).unwrap(), None);
+    assert!(!kinds_of(&r).iter().any(|k| k.0 == "off" || k.0 == "unknown"));
 }
