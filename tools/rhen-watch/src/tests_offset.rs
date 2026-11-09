@@ -147,6 +147,29 @@ fn a_time_long_before_the_write_gets_no_offset() {
 }
 
 #[test]
+fn a_time_just_ahead_of_the_write_is_fresh_and_one_far_ahead_is_not() {
+    let mut s = Store::in_memory().unwrap();
+    s.set_tz(TzOffset::fixed(60));
+    let instant = |kind: &str, ts: i64| Op::Instant {
+        source: SRC_AGENT,
+        kind: kind.into(),
+        ts,
+        end: None,
+        attrs: Map::new(),
+    };
+    s.apply(
+        "d",
+        &[instant("near", 20 * MIN + MIN), instant("far", 20 * MIN + 10 * MIN)],
+        20 * MIN,
+    )
+    .unwrap();
+    assert_eq!(
+        s.raw_offsets_for_test().0,
+        vec![("near".to_string(), Some(60)), ("far".to_string(), None)]
+    );
+}
+
+#[test]
 fn without_a_time_zone_no_offset_is_stored() {
     let mut s = Store::in_memory().unwrap();
     s.apply("d", &[open("a", 0)], 0).unwrap();
