@@ -25,15 +25,24 @@ async function failure(response: Response): Promise<Error> {
   );
 }
 
+/** A network failure (offline, portal down) reads as one plain sentence, not the browser's own wording. */
+async function request(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch {
+    throw new Error("Could not reach the portal. Try again.");
+  }
+}
+
 export async function fetchWorkLabels(): Promise<WorkLabelsAnswer> {
-  const response = await fetch("/api/work-labels", { cache: "no-store" });
+  const response = await request("/api/work-labels", { cache: "no-store" });
   if (!response.ok) throw await failure(response);
   return (await response.json()) as WorkLabelsAnswer;
 }
 
 /** `requestId` is new for each tap; a retry of the same tap reuses it so it is stored once. */
 export async function putWorkLabel(areaId: string, label: WorkLabelAnswer, requestId: string): Promise<WorkLabelView> {
-  const response = await fetch(`/api/work-labels/${encodeURIComponent(areaId)}`, {
+  const response = await request(`/api/work-labels/${encodeURIComponent(areaId)}`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ label, requestId })
