@@ -1,6 +1,6 @@
 //! Executable name -> category, the executable denylist and the shell-window ignore list.
 //!
-//! Every app Jondi uses is Electron or Chromium, so the window class is always `Chrome_WidgetWin_1`; the
+//! Many desktop apps are Electron or Chromium and share the window class `Chrome_WidgetWin_1`, so the
 //! executable name is the identity and the category comes from this table. The shipped defaults are compiled
 //! in; `categories.toml` (beside `config.toml`) holds overrides, `[exe]` for exe -> category and `[group]` for
 //! category -> group. That file is the only home for overrides.
@@ -146,7 +146,8 @@ pub struct CategoryFile {
 #[derive(Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
 struct RawCategoryFile {
-    exe: BTreeMap<String, String>,
+    /// Values are read loosely so an unquoted `notepad.exe = ...` (a dotted key, so a table) gets a useful message.
+    exe: BTreeMap<String, toml::Value>,
     group: BTreeMap<String, String>,
 }
 
@@ -164,6 +165,18 @@ pub fn normalise_exe(exe: &str) -> Result<String, String> {
     Ok(e)
 }
 
+/// `prefix` plus the chain of single-key tables under it: the name a dotted key was meant to be.
+fn dotted_name(mut name: String, mut t: &toml::Table) -> String {
+    while let Some((k, v)) = t.iter().next().filter(|_| t.len() == 1) {
+        name = format!("{name}.{k}");
+        match v {
+            toml::Value::Table(next) => t = next,
+            _ => break,
+        }
+    }
+    name
+}
+
 pub fn validate_category(category: &str) -> Result<(), String> {
     if valid_word(category) {
         Ok(())
@@ -177,6 +190,18 @@ impl CategoryFile {
         let raw: RawCategoryFile = toml::from_str(text).map_err(|e| format!("categories.toml: {e}"))?;
         let mut out = CategoryFile::default();
         for (exe, category) in raw.exe {
+            let category = match category {
+                toml::Value::String(c) => c,
+                toml::Value::Table(t) => {
+                    // `notepad.exe = "editor"` reads as table `notepad` holding `exe`: rebuild the name to show.
+                    let name = dotted_name(exe.clone(), &t);
+                    return Err(format!(
+                        "categories.toml: [exe] \"{exe}\" is a table; put the exe name in quotes: \"{name}\" = \"category\""
+                    ));
+                }
+                _ => return Err(format!("categories.toml: [exe] \"{exe}\" must be a category name in quotes")),
+            };
+            let category = category.to_ascii_lowercase();
             let key = normalise_exe(&exe).map_err(|e| format!("categories.toml: [exe] {e}"))?;
             validate_category(&category).map_err(|e| format!("categories.toml: [exe] \"{exe}\": {e}"))?;
             if out.exe.insert(key.clone(), category).is_some() {
@@ -187,6 +212,7 @@ impl CategoryFile {
         }
         for (category, group) in raw.group {
             validate_category(&category).map_err(|e| format!("categories.toml: [group] {e}"))?;
+            let category = category.to_ascii_lowercase(); // names are not case sensitive, like exe names
             if !GROUPS.contains(&group.as_str()) {
                 return Err(format!(
                     "categories.toml: [group] {category}: \"{group}\" is not a group ({})",
@@ -339,6 +365,8 @@ const NEW_FILE: &str = "# rhen-watch category overrides. See `rhen-watch categor
 pub fn set_entry(existing: Option<&str>, exe: &str, category: &str) -> Result<(String, Vec<String>), String> {
     let exe = normalise_exe(exe)?;
     validate_category(category)?;
+    let category = category.to_ascii_lowercase(); // parsed that way; written that way
+    let category = category.as_str();
     let mut doc: toml_edit::DocumentMut = existing
         .unwrap_or(NEW_FILE)
         .parse()
@@ -348,7 +376,9 @@ pub fn set_entry(existing: Option<&str>, exe: &str, category: &str) -> Result<(S
     }
     let table = doc["exe"].as_table_like_mut().ok_or("categories.toml: [exe] is not a table")?;
     let mut new_value = toml_edit::Value::from(category);
-    if let Some(item) = table.get_mut(&exe) {
+    // A hand-written `"Code.exe"` is the same exe: change that entry rather than add a second, clashing one.
+    let existing_key = table.iter().map(|(k, _)| k.to_string()).find(|k| k.to_ascii_lowercase() == exe);
+    if let Some(item) = existing_key.as_deref().and_then(|k| table.get_mut(k)) {
         // Change the value in place so the key keeps the comments above it.
         if let Some(old) = item.as_value() {
             *new_value.decor_mut() = old.decor().clone();

@@ -117,7 +117,7 @@ fn cmd_config(args: &[String]) -> Result<(), String> {
             Ok(())
         }
         Some("show") => {
-            print!("{}", config::show(&Config::load(&path)?));
+            print!("{}", config::show_file(&path)?);
             Ok(())
         }
         Some("set") => match (args.get(1), args.get(2)) {
@@ -157,12 +157,7 @@ fn cmd_categories(args: &[String]) -> Result<(), String> {
             (Some(exe), Some(category)) if args.len() == 3 => {
                 let existing = config::read_text(&path, "categories.toml")?;
                 let (text, warnings) = categories::set_entry(existing.as_deref(), exe, category)?;
-                let tmp = path.with_extension("toml.tmp");
-                std::fs::write(&tmp, &text).map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
-                if let Err(e) = std::fs::rename(&tmp, &path) {
-                    let _ = std::fs::remove_file(&tmp);
-                    return Err(format!("cannot replace {}: {e}", path.display()));
-                }
+                config::write_atomic(&path, &text)?;
                 for w in warnings {
                     crate::log::warn(&w);
                 }
@@ -230,12 +225,29 @@ fn cmd_wipe(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-/// True while an agent holds `run.lock` (the OS drops it if the process dies).
+/// True while an agent holds `run.lock` (the OS drops it if the process dies). The probe takes a shared lock,
+/// so two probes at once do not see each other as an agent; the agent's exclusive lock still refuses it.
 pub fn agent_running(dir: &std::path::Path) -> bool {
     match std::fs::OpenOptions::new().write(true).open(dir.join("run.lock")) {
-        Ok(f) => matches!(f.try_lock(), Err(std::fs::TryLockError::WouldBlock)),
+        Ok(f) => matches!(f.try_lock_shared(), Err(std::fs::TryLockError::WouldBlock)),
         Err(_) => false,
     }
+}
+
+/// Take the exclusive run lock, trying `tries` times `delay` apart. A `status` or `install` probe holds the file
+/// for a moment, and that must not make a starting agent give up as "already running".
+pub fn lock_with_retry(lock: &std::fs::File, tries: u32, delay: std::time::Duration) -> Result<(), String> {
+    for attempt in 0..tries.max(1) {
+        match lock.try_lock() {
+            Ok(()) => return Ok(()),
+            Err(std::fs::TryLockError::WouldBlock) if attempt + 1 < tries => std::thread::sleep(delay),
+            Err(std::fs::TryLockError::WouldBlock) => {
+                return Err("another rhen-watch is already running (use `rhen-watch stop`)".to_string());
+            }
+            Err(std::fs::TryLockError::Error(e)) => return Err(format!("cannot lock run.lock: {e}")),
+        }
+    }
+    unreachable!("the loop returns on its last try")
 }
 
 fn cmd_status() -> Result<(), String> {
@@ -343,7 +355,7 @@ fn cmd_report(args: &[String]) -> Result<(), String> {
             tz,
             catalogue: &catalogue,
             params: &params,
-            idle_collector: cfg.collectors.idle,
+            idle_collector: cfg.idle_enabled(),
         },
     )?;
     print!("{text}");
@@ -362,7 +374,7 @@ fn cmd_run(_args: &[String]) -> Result<(), String> {
 
 #[cfg(windows)]
 fn cmd_stop() -> Result<(), String> {
-    if platform::windows::signal_stop() {
+    if platform::windows::signal_stop(&dir()?) {
         println!("stop requested; the agent flushes and exits within a few seconds");
         Ok(())
     } else {
@@ -405,10 +417,10 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
         .truncate(false)
         .open(d.join("run.lock"))
         .map_err(|e| e.to_string())?;
-    lock.try_lock()
-        .map_err(|_| "another rhen-watch is already running (use `rhen-watch stop`)".to_string())?;
+    // About a second of retries: a status or install probe may be holding the file for a moment.
+    lock_with_retry(&lock, 10, Duration::from_millis(100))?;
 
-    let stop_event = win::StopEvent::create()?;
+    let stop_event = win::StopEvent::create(&d)?;
     win::install_ctrl_handler();
     win::set_data_dir(&d);
 
@@ -433,10 +445,15 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
             "category \"{category}\" has no group, so it counts as other (add it under [group] in categories.toml)"
         ));
     }
+    if cfg.collectors.idle && !cfg.collectors.foreground {
+        crate::log::warn(
+            "collectors.idle needs collectors.foreground (a game in front could not be spotted), so idle and input are not recorded",
+        );
+    }
     let settings = engine::Settings {
         idle_threshold_ms: cfg.idle_threshold_secs.unwrap_or(120).saturating_mul(1000),
         foreground: cfg.collectors.foreground,
-        idle: cfg.collectors.idle,
+        idle: cfg.idle_enabled(),
         session: cfg.collectors.session,
         power: cfg.collectors.power,
         ..Default::default()
@@ -462,6 +479,10 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
         if !missing.is_empty() {
             crate::log::warn(&format!("could not register for: {} (recorded as degraded)", missing.join(", ")));
             run.degraded(&missing)?;
+            if missing.iter().any(|m| m == "foreground") {
+                crate::log::warn("the foreground hook failed, so idle and input are not recorded (a game in front could not be spotted)");
+                run.disable_idle();
+            }
         }
         loop {
             if win::STOP.load(Ordering::SeqCst) || stop_event.signalled() || limit.is_some_and(|l| started.elapsed() >= l) {
@@ -533,10 +554,11 @@ fn wait_released(files: &[PathBuf]) -> Result<(), String> {
 #[cfg(windows)]
 fn stop_and_wait() -> Result<(), String> {
     use std::time::{Duration, Instant};
-    if !platform::windows::signal_stop() {
+    let data = paths::data_dir()?;
+    if !platform::windows::signal_stop(&data) {
         return Ok(());
     }
-    let lock = paths::data_dir()?.join("run.lock");
+    let lock = data.join("run.lock");
     let started = Instant::now();
     while started.elapsed() < Duration::from_secs(10) {
         match std::fs::OpenOptions::new().write(true).open(&lock) {

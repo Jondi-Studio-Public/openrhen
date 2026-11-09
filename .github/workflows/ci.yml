@@ -353,14 +353,30 @@ jobs:
           & "$dest\rhen-watch.exe" uninstall --purge
           if (Test-Path "$dest\rhen-watchw.exe") { throw 'program still installed' }
           if (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'rhen-watch' -ErrorAction SilentlyContinue) { throw 'start-at-logon entry still set' }
-      # The agent records locally and must stay that way: no network crate in its dependency tree.
+      # The agent records locally and must stay that way. A crate-name list alone cannot see std::net or a
+      # Win32 networking feature, so this also checks the source and the windows-sys features. It is a
+      # tripwire for review, not a proof.
       - name: No network code
         shell: bash
         run: |
+          fail=0
           if cargo tree --locked --prefix none | grep -Ei '^(reqwest|hyper|ureq|curl|isahc|surf|attohttpc|native-tls|rustls|openssl|tokio|socket2|mio|tonic) '; then
             echo "::error::rhen-watch must not depend on a network crate"
-            exit 1
+            fail=1
           fi
+          if grep -rnE 'std::net|TcpStream|TcpListener|UdpSocket|ToSocketAddrs' src --include='*.rs' --exclude='tests*.rs'; then
+            echo "::error::rhen-watch must not use std::net or sockets"
+            fail=1
+          fi
+          if grep -rniE '(winhttp|wininet|winsock|ws2_32|wsock32|urlmon)' src --include='*.rs' --exclude='tests*.rs'; then
+            echo "::error::rhen-watch must not link or call a Windows networking API"
+            fail=1
+          fi
+          if grep -nE 'Win32_Networking|Win32_NetworkManagement' Cargo.toml; then
+            echo "::error::rhen-watch must not enable a windows-sys networking feature"
+            fail=1
+          fi
+          exit "$fail"
 
   ios:
     name: iOS app

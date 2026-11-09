@@ -67,8 +67,6 @@ const GUID_ACDC_POWER_SOURCE: GUID = GUID {
 };
 static SENDER: OnceLock<SyncSender<Raw>> = OnceLock::new();
 
-const STOP_EVENT_NAME: &str = "Local\\rhen-watch-stop";
-
 fn guid_eq(a: &GUID, b: &GUID) -> bool {
     a.data1 == b.data1 && a.data2 == b.data2 && a.data3 == b.data3 && a.data4 == b.data4
 }
@@ -332,7 +330,9 @@ unsafe fn show_menu(hwnd: HWND) {
                 // setup on this thread, unlike ShellExecute.
                 if let Some(dir) = DATA_DIR.get() {
                     let path = String::from_utf16_lossy(&dir[..dir.len().saturating_sub(1)]);
-                    let _ = std::process::Command::new("explorer.exe").arg(path).spawn();
+                    if let Ok(explorer) = system_path("explorer.exe", true) {
+                        let _ = std::process::Command::new(explorer).arg(path).spawn();
+                    }
                 }
             }
             TrayAction::Quit => STOP.store(true, Ordering::SeqCst),
@@ -493,6 +493,9 @@ unsafe fn hook_thread(foreground: bool, session: bool, power: bool, ready: std::
         TRAY_HWND.store(hwnd as isize, Ordering::SeqCst);
         TASKBAR_CREATED.store(RegisterWindowMessageW(wide("TaskbarCreated").as_ptr()), Ordering::SeqCst);
         tray_add(hwnd);
+        // A collector that cannot register is recorded as degraded and the rest keep running; nothing after the
+        // tray icon exists may return early, or the icon would outlive the thread.
+        let mut missing: Vec<String> = Vec::new();
         let mut hook = null_mut();
         if foreground {
             hook = SetWinEventHook(
@@ -505,11 +508,9 @@ unsafe fn hook_thread(foreground: bool, session: bool, power: bool, ready: std::
                 WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
             );
             if hook.is_null() {
-                let _ = ready.send(Err("SetWinEventHook failed".into()));
-                return;
+                missing.push("foreground".into());
             }
         }
-        let mut missing: Vec<String> = Vec::new();
         let mut session_registered = false;
         if session {
             session_registered = WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_THIS_SESSION) != 0;
@@ -591,8 +592,8 @@ pub struct StopEvent(HANDLE);
 
 impl StopEvent {
     /// Create the event `rhen-watch stop` signals. Default security: only the creating user can open it.
-    pub fn create() -> Result<Self, String> {
-        let h = unsafe { CreateEventW(null(), 1, 0, wide(STOP_EVENT_NAME).as_ptr()) };
+    pub fn create(data_dir: &std::path::Path) -> Result<Self, String> {
+        let h = unsafe { CreateEventW(null(), 1, 0, wide(&crate::paths::stop_event_name(data_dir)).as_ptr()) };
         if h.is_null() {
             Err("could not create the stop event".into())
         } else {
@@ -611,17 +612,20 @@ impl Drop for StopEvent {
     }
 }
 
-/// Ask a running agent in this logon session to stop. Returns false if none is running.
-pub fn signal_stop() -> bool {
-    unsafe {
-        let h = OpenEventW(EVENT_MODIFY_STATE, 0, wide(STOP_EVENT_NAME).as_ptr());
-        if h.is_null() {
-            return false;
+/// Ask the agent using this data directory (in this logon session) to stop. Returns false if none is running.
+pub fn signal_stop(data_dir: &std::path::Path) -> bool {
+    let mut sent = false;
+    for name in crate::paths::stop_event_names(data_dir) {
+        unsafe {
+            let h = OpenEventW(EVENT_MODIFY_STATE, 0, wide(&name).as_ptr());
+            if h.is_null() {
+                continue;
+            }
+            sent |= SetEvent(h) != 0;
+            CloseHandle(h);
         }
-        let ok = SetEvent(h) != 0;
-        CloseHandle(h);
-        ok
     }
+    sent
 }
 
 /// Minutes east of UTC right now.
@@ -663,10 +667,27 @@ pub fn local_tz() -> crate::tz::TzOffset {
     crate::tz::TzOffset::from_fn(offset_at)
 }
 
+/// `GetSystemDirectoryW` or `GetWindowsDirectoryW`, to build the full path of a helper program. A bare name
+/// would be looked up in the program's own folder first, which is user-writable.
+fn system_path(file: &str, windows_dir: bool) -> Result<std::path::PathBuf, String> {
+    let mut buf = [0u16; 260];
+    let n = unsafe {
+        if windows_dir {
+            GetWindowsDirectoryW(buf.as_mut_ptr(), buf.len() as u32)
+        } else {
+            GetSystemDirectoryW(buf.as_mut_ptr(), buf.len() as u32)
+        }
+    } as usize;
+    if n == 0 || n >= buf.len() {
+        return Err(format!("could not find the Windows folder for {file}"));
+    }
+    Ok(std::path::PathBuf::from(String::from_utf16_lossy(&buf[..n])).join(file))
+}
+
 /// The current user's SID string, from `whoami /user`.
 fn current_sid() -> Result<String, String> {
     use std::os::windows::process::CommandExt;
-    let out = std::process::Command::new("whoami")
+    let out = std::process::Command::new(system_path("whoami.exe", false)?)
         .args(["/user", "/fo", "csv", "/nh"])
         .creation_flags(CREATE_NO_WINDOW)
         .output()
@@ -684,7 +705,7 @@ fn current_sid() -> Result<String, String> {
 pub fn restrict_dir(dir: &std::path::Path) -> Result<(), String> {
     let sid = current_sid()?;
     use std::os::windows::process::CommandExt;
-    let out = std::process::Command::new("icacls")
+    let out = std::process::Command::new(system_path("icacls.exe", false)?)
         .creation_flags(CREATE_NO_WINDOW)
         .arg(dir)
         .args(["/inheritance:r", "/grant:r"])
