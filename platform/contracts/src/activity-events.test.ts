@@ -139,7 +139,11 @@ describe("the source registry", () => {
   });
 
   it("registers gmail messages and the derived facts, at schema version 1", () => {
-    expect(ACTIVITY_SOURCES.gmail).toEqual({ schemaVersion: 1, kinds: ["message"] });
+    expect(ACTIVITY_SOURCES.gmail).toMatchObject({
+      schemaVersion: 1,
+      kinds: ["message"],
+      availability: { delivery: "periodic", origin: "account", feeds: [] }
+    });
     expect(ACTIVITY_SOURCES.derived).toEqual({
       schemaVersion: 1,
       kinds: ["msg_class", "fact", "fact_status", "override", "label"]

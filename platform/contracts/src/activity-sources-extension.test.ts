@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   ACTIVITY_CORRECTION_KIND,
+  ACTIVITY_SOURCES,
   KNOWN_ACTIVITY_FAMILIES,
   activityKindsOf,
   activitySourceEntry,
@@ -8,10 +9,15 @@ import {
   describeExtensionSourceProblem,
   isKnownActivitySource
 } from "./activity-events.js";
+import { activityCoverageScopeRequired } from "./activity-batch.js";
 import { registerContractsExtension, suspendContractsExtensions } from "./extensions.js";
 import type { ActivitySourceEntry } from "./activity-events.js";
 
 const availability = { delivery: "live", origin: "phone", feeds: [], recoveryHint: "Open the app." } as const;
+const bare = (extra: Partial<ActivitySourceEntry> = {}): ActivitySourceEntry => {
+  const { availability: _dropped, ...rest } = entry(extra);
+  return rest;
+};
 const entry = (extra: Partial<ActivitySourceEntry> = {}): ActivitySourceEntry => ({
   schemaVersion: 1,
   kinds: ["ping"],
@@ -72,5 +78,43 @@ describe("optional source entry fields", () => {
       projectionKinds: ["b"]
     };
     expect(entry.projectionKinds).toEqual(["b"]);
+  });
+});
+
+describe("activityCoverageScopeRequired", () => {
+  it("looks sources up in the merged core and extension registry", () => {
+    register("mine", {
+      "mine-chat": bare({ kinds: ["message"] }),
+      "mine-reader": entry({ availability }),
+      "mine-ledger": entry({
+        availability: {
+          ...availability,
+          feeds: [{ signal: "spend", tier: "live", kinds: ["ping"], weight: 0.5, complete: true }]
+        }
+      }),
+      "mine-plain": bare()
+    });
+    // An availability with no feeds needs a scope; a ledger feed or no availability does not.
+    expect(activityCoverageScopeRequired("mine-reader")).toBe(true);
+    expect(activityCoverageScopeRequired("mine-ledger")).toBe(false);
+    expect(activityCoverageScopeRequired("mine-plain")).toBe(false);
+    expect(activityCoverageScopeRequired("mine-chat")).toBe(false);
+    // The core source with availability and no feeds needs one; a core source without availability does not.
+    const core = Object.keys(ACTIVITY_SOURCES).find(
+      (name) => ACTIVITY_SOURCES[name]!.availability?.feeds.length === 0
+    )!;
+    expect(activityCoverageScopeRequired(core)).toBe(true);
+    expect(activityCoverageScopeRequired("rhen-watch")).toBe(false);
+    expect(activityCoverageScopeRequired("nowhere")).toBe(false);
+  });
+
+  it("needs a scope for an extension source of the message family", () => {
+    (KNOWN_ACTIVITY_FAMILIES as Set<string>).add("message@1");
+    try {
+      register("mine", { "mine-chat": bare({ family: "message@1" }) });
+      expect(activityCoverageScopeRequired("mine-chat")).toBe(true);
+    } finally {
+      (KNOWN_ACTIVITY_FAMILIES as Set<string>).delete("message@1");
+    }
   });
 });

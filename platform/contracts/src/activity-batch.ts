@@ -1,6 +1,8 @@
 import {
   ACTIVITY_COVERAGE_KIND,
   activityEnvelopeSchema,
+  activitySourceEntry,
+  coverageScopeRequiredFor,
   validateActivityEvent,
   type ActivityEventVerdict,
   type ActivityRejection,
@@ -56,6 +58,47 @@ export function applyCoverageRule(inputs: readonly CoverageRuleInput[]): Activit
   });
 }
 
+/** `coverageScopeRequiredFor` for a source of the merged core and extension registry: the lookup the server's ingest uses. */
+export function activityCoverageScopeRequired(source: string): boolean {
+  return coverageScopeRequiredFor(activitySourceEntry(source));
+}
+
+/** What `judgeActivityEvents` needs besides the events: the batch's own fields, which the per-event rules read. */
+export interface JudgeEventsOptions {
+  /** The sources to judge against; absent means the merged core and extension registry the server uses. */
+  registry?: Readonly<Record<string, ActivitySourceEntry>> | undefined;
+  now: Date;
+  /** The batch's `device`, which a heartbeat key names. */
+  device?: string | undefined;
+  /** False for an import (a file); only the coverage time bounds differ. */
+  live: boolean;
+  scopeRequired?: ((source: string) => boolean) | undefined;
+}
+
+/**
+ * Judges each event alone, in order, and records which known source each one named, ready for `applyCoverageRule`.
+ * The server's ingest and `validateActivityBatch` both call it, so a batch that passes in an adapter's tests is judged
+ * the same way by the store.
+ */
+export function judgeActivityEvents(events: readonly unknown[], options: JudgeEventsOptions): CoverageRuleInput[] {
+  const known = (name: string) =>
+    options.registry ? Object.hasOwn(options.registry, name) : activitySourceEntry(name) !== undefined;
+  return events.map((raw) => {
+    const record = raw !== null && typeof raw === "object" ? (raw as Record<string, unknown>) : undefined;
+    const named = record?.source;
+    const source = typeof named === "string" && known(named) ? named : null;
+    return {
+      verdict: validateActivityEvent(raw, options.now, {
+        registry: options.registry,
+        device: options.device,
+        live: options.live,
+        scopeRequired: options.scopeRequired
+      }),
+      source
+    };
+  });
+}
+
 export interface ActivityBatchOptions {
   /** The sources to judge against: the core registry plus any extension's. */
   registry: Readonly<Record<string, ActivitySourceEntry>>;
@@ -88,19 +131,12 @@ export function validateActivityBatch(batch: unknown, options: ActivityBatchOpti
   }
   const { device, events } = envelope.data;
   const live = envelope.data.import === undefined && envelope.data.importId === undefined;
-  const inputs: CoverageRuleInput[] = events.map((raw) => {
-    const record = raw !== null && typeof raw === "object" ? (raw as Record<string, unknown>) : undefined;
-    const named = record?.source;
-    const source = typeof named === "string" && Object.hasOwn(options.registry, named) ? named : null;
-    return {
-      verdict: validateActivityEvent(raw, options.now, {
-        registry: options.registry,
-        device,
-        live,
-        scopeRequired: options.scopeRequired
-      }),
-      source
-    };
+  const inputs = judgeActivityEvents(events, {
+    registry: options.registry,
+    now: options.now,
+    device,
+    live,
+    scopeRequired: options.scopeRequired
   });
   const verdicts = applyCoverageRule(inputs);
   const accepted: ValidActivityEvent[] = [];

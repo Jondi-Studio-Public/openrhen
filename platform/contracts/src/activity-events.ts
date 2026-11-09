@@ -104,6 +104,9 @@ export const ACTIVITY_COVERAGE_FLOOR = new Date("1990-01-01T00:00:00.000Z");
 /** In a live (non-import) batch a coverage window must start within this many days of `now`. */
 export const ACTIVITY_COVERAGE_LIVE_DAYS = 400;
 
+/** The neutral family of message sources. A source in it may always post a heartbeat and a coverage row. */
+export const ACTIVITY_MESSAGE_FAMILY = "message@1";
+
 export interface ActivitySourceEntry {
   /** Bumped when the meaning of a source's kinds or attrs changes, so the predictor can tell old rows from new. */
   schemaVersion: number;
@@ -198,7 +201,18 @@ export const ACTIVITY_SOURCES: Readonly<Record<string, ActivitySourceEntry>> = {
   // Discord and notification messages reuse this attrs shape, with thread_id the channel id. The source's header and
   // calendar attrs (auth, ics, jsonld, and the ics event time) are described in message-calendar-attrs.ts, which drops a malformed one and
   // notes it in attrs.calendar_dropped instead of rejecting the message.
-  gmail: { schemaVersion: 1, kinds: ["message"] },
+  // It reports liveness (heartbeat) and how far it has read (coverage); it supplies no signal, so its feeds are empty.
+  gmail: {
+    schemaVersion: 1,
+    kinds: ["message"],
+    availability: {
+      delivery: "periodic",
+      origin: "account",
+      feeds: [],
+      recoveryHint:
+        "Check that the message collector is running and signed in, then post a heartbeat (POST /api/activity-events with kind heartbeat) to confirm it is alive."
+    }
+  },
   // Rows read out of other events by a versioned reader. msg_class and fact name their source_event_id; fact_status,
   // override and label name a fact_id. A status change is a later fact_status row (rows are never updated). Per-kind
   // attrs are validated in activity-derived.ts; a derived row never carries the raw body.
@@ -735,7 +749,7 @@ export function validateActivityEvent(
 /** What `validateActivityEvent` needs beyond the event: where the source is looked up, and the batch it came in. */
 export interface ActivityEventOptions {
   /** The sources to judge against; default the merged core and extension registry. */
-  registry?: Readonly<Record<string, ActivitySourceEntry>>;
+  registry?: Readonly<Record<string, ActivitySourceEntry>> | undefined;
   /** The batch's `device`, which a heartbeat key names; absent gives `_`. */
   device?: string | null | undefined;
   /** False for an import (a file), true (default) for a live batch; only coverage time bounds differ. */
@@ -744,14 +758,28 @@ export interface ActivityEventOptions {
   scopeRequired?: ((source: string) => boolean) | undefined;
 }
 
+/**
+ * True when a coverage row of this entry must name its `attrs.scope` (the account or channel it covers): a message-family
+ * source, or any source that declares availability with no feeds (the mail source). Without a scope, a collector reading
+ * two accounts would let a window of one account hide silence on the other.
+ */
+export function coverageScopeRequiredFor(entry: ActivitySourceEntry | undefined): boolean {
+  if (!entry) return false;
+  return entry.family === ACTIVITY_MESSAGE_FAMILY || entry.availability?.feeds.length === 0;
+}
+
 function describeCrossFamilyKindProblem(source: string, kind: string, entry: ActivitySourceEntry): string | undefined {
   const availability = entry.availability;
+  const message = entry.family === ACTIVITY_MESSAGE_FAMILY;
+  const own = entry.kinds[0];
   if (kind === ACTIVITY_HEARTBEAT_KIND) {
-    if (availability?.delivery === "live" || availability?.delivery === "periodic") return undefined;
-    return `heartbeat is not accepted for source "${source}": only a source that delivers live or periodically takes one.`;
+    if (message || availability?.delivery === "live" || availability?.delivery === "periodic") return undefined;
+    return `heartbeat is not accepted for source "${source}": only a source that delivers live or periodically takes one. Send ${own ? `an event of kind "${own}"` : "this source's own events"} now; to report liveness for this source, tell the owner its registry entry must declare availability (delivery live or periodic).`;
   }
-  if (availability?.feeds.some((feed) => feed.complete === true)) return undefined;
-  return `coverage is not accepted for source "${source}": only a source with a complete (ledger) feed takes one.`;
+  // A source with availability and no feeds supplies no signal, so coverage there only says how far it has been read.
+  if (message || availability?.feeds.some((feed) => feed.complete === true) || availability?.feeds.length === 0)
+    return undefined;
+  return `coverage is not accepted for source "${source}": only a source with a complete (ledger) feed, or a message source, takes one. ${own ? `Send an event of kind "${own}" now` : "Send this source's own events now"}; to report coverage for this source, tell the owner its registry entry must declare availability (a complete feed, or no feeds).`;
 }
 
 const unknownAttrs = (attrs: Record<string, unknown>, allowed: readonly string[]) => {
@@ -788,7 +816,8 @@ function describeHeartbeatProblem(
   if (start.getTime() > now.getTime() + ACTIVITY_CLOCK_SKEW_MINUTES * 60_000)
     return `heartbeat start (${start.toISOString()}) is more than ${ACTIVITY_CLOCK_SKEW_MINUTES} minutes in the future. Check the device clock.`;
   const expected = heartbeatKey(device, start, status);
-  if (id !== expected) return `heartbeat id "${id.slice(0, 80)}" must be "${expected}".`;
+  if (id !== expected)
+    return `heartbeat id "${id.slice(0, 80)}" must be "${expected}". The key names the batch device (${device ? `"${device}"` : 'none sent, so "_"'}) and the hour, so send "device" at the top of the batch and use that key.`;
   return undefined;
 }
 
@@ -817,15 +846,22 @@ function describeCoverageProblem(
   if (extra) return extra;
   if (attrs.complete !== true) return "attrs.complete must be true: a coverage row only declares a complete window.";
   const scope = attrs.scope;
-  if (scope === undefined) {
-    if (scopeRequired) return "attrs.scope is required for this source (for example the account or profile reference).";
-  } else if (typeof scope !== "string" || scope.length === 0 || scope.length > ACTIVITY_COVERAGE_SCOPE_MAX_CHARS)
+  const scopeFix = `Add "scope": "<name>" to attrs and use the id ${coverageKey("<name>", start, end, undefined)}.`;
+  const scopeWhy =
+    "the account, mailbox or channel the window covers, so one account's window cannot hide silence on another";
+  if (scope === undefined || (typeof scope === "string" && scope.trim() === "")) {
+    if (scopeRequired)
+      return `attrs.scope is required for this source (${scopeWhy}) and must not be blank. ${scopeFix}`;
+    if (scope !== undefined) return "attrs.scope must not be blank: name the account or channel, or leave it out.";
+  } else if (typeof scope !== "string" || scope.length > ACTIVITY_COVERAGE_SCOPE_MAX_CHARS)
     return `attrs.scope must be text of 1 to ${ACTIVITY_COVERAGE_SCOPE_MAX_CHARS} characters, or left out.`;
+  else if (scope !== scope.trim()) return "attrs.scope must not start or end with spaces. Send it trimmed.";
   const rev = attrs.rev;
   if (rev !== undefined && (typeof rev !== "number" || !Number.isInteger(rev) || rev < 1))
     return "attrs.rev must be a whole number of 1 or more, or left out.";
   const expected = coverageKey(scope as string | undefined, start, end, rev as number | undefined);
-  if (id !== expected) return `coverage id "${id.slice(0, 120)}" must be "${expected}".`;
+  if (id !== expected)
+    return `coverage id "${id.slice(0, 120)}" must be "${expected}". The key is built from the scope, start, end and rev, so send exactly that id.`;
   return undefined;
 }
 
