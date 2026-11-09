@@ -361,7 +361,8 @@ jobs:
           bin=./target/release/rhen-watch
           "$bin" run --for 60 > "$RUNNER_TEMP/run.out" 2>&1 &
           agent=$!
-          for _ in $(seq 1 30); do "$bin" status | grep -q 'agent: running' && break; sleep 1; done
+          running() { local out; out=$("$bin" status) && [[ "$out" == *'agent: running'* ]]; }
+          for _ in $(seq 1 30); do running && break; sleep 1; done
           "$bin" status | tee "$RUNNER_TEMP/status.txt"
           grep -q 'agent: running' "$RUNNER_TEMP/status.txt"
           [ "$(stat -f '%Lp' "$RHEN_WATCH_DIR")" = 700 ] || { echo "::error::data folder is not private"; exit 1; }
@@ -380,9 +381,11 @@ jobs:
           grep -q '^power|' "$RUNNER_TEMP/rows.txt" || echo "::warning::no power row (no power source on this runner)"
           grep -q '^foreground|' "$RUNNER_TEMP/rows.txt" || { echo "::error::no foreground row"; exit 1; }
           # A kill without a clean stop is recorded as an unknown gap at the next start.
-          "$bin" run --for 30 > /dev/null 2>&1 &
+          "$bin" run --for 120 > /dev/null 2>&1 &
           agent=$!
-          for _ in $(seq 1 30); do "$bin" status | grep -q 'agent: running' && break; sleep 1; done
+          for _ in $(seq 1 30); do running && break; sleep 1; done
+          running || { echo "::error::the second run did not start"; exit 1; }
+          sleep 3
           kill -9 "$agent"; wait "$agent" || true
           "$bin" run --for 5 > "$RUNNER_TEMP/after-kill.out" 2>&1
           cat "$RUNNER_TEMP/after-kill.out"

@@ -33,6 +33,12 @@ pub fn main() {
     // The no-console build has nowhere to show a panic, so put it in the log.
     std::panic::set_hook(Box::new(|info| crate::log::error(&format!("internal error: {info}"))));
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // `report | head` should end quietly, as Unix tools do, not panic on a closed pipe. Never for `run`: the
+    // agent must not be killed by a reader going away.
+    #[cfg(target_os = "macos")]
+    if args.first().map(String::as_str) != Some("run") {
+        platform::macos::default_sigpipe();
+    }
     let code = match real_main(&args) {
         Ok(()) => 0,
         Err(e) => {

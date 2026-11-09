@@ -387,6 +387,13 @@ extern "C" fn on_terminate(_sig: libc::c_int) {
     STOP.store(true, Ordering::SeqCst);
 }
 
+/// A closed pipe ends a reporting command silently (the default Unix behaviour Rust turns off).
+pub fn default_sigpipe() {
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+}
+
 /// SIGTERM (launchd at logout, `stop`) and SIGINT (Ctrl+C) end the agent cleanly.
 pub fn install_signal_handlers() {
     unsafe {
