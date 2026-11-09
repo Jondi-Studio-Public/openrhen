@@ -1,4 +1,4 @@
-// This export reads the current backup format (24), and the legacy formats 23, 22, 21 and 20.
+// This export reads the current backup format (25), and the legacy formats 24, 23, 22, 21 and 20.
 import type { BackupTable, OpenRhenBackup } from "../backup-format.js";
 import { groupBackupTables } from "../../schema/table-groups.js";
 
@@ -96,8 +96,12 @@ const FORMAT_22_CORE_TABLES = [
 /** Format 23 is format 22 with `activity_events` streamed; format 24 added `derived_lineage` and `extractor_state`. */
 const FORMAT_23_CORE_TABLES = FORMAT_22_CORE_TABLES;
 
+/** Format 24 is format 23 plus the two derived-reader tables; format 25 added the two consequence comparison tables. */
+const FORMAT_24_CORE_TABLES = [...FORMAT_23_CORE_TABLES, "derived_lineage", "extractor_state"] as const;
+
 export function legacyRequiredTables(formatVersion: number): readonly BackupTable[] | undefined {
   if (formatVersion === 20) return [...FORMAT_20_CORE_TABLES, ...groupBackupTables("current")];
+  if (formatVersion === 24) return [...FORMAT_24_CORE_TABLES, ...groupBackupTables("current")];
   if (formatVersion === 23) return [...FORMAT_23_CORE_TABLES, ...groupBackupTables("current")];
   if (formatVersion === 22) return [...FORMAT_22_CORE_TABLES, ...groupBackupTables("current")];
   if (formatVersion === 21) return [...FORMAT_21_CORE_TABLES, ...groupBackupTables("current")];

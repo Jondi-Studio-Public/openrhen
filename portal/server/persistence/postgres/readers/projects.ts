@@ -2,7 +2,7 @@ import { projects } from "@openrhen/database";
 import type { StoredProject } from "@/state/portal-state";
 import type { Row } from "../db-row";
 import type { readPrerequisiteMap } from "../prerequisites";
-import { iso } from "../row-values";
+import { iso, refinedConsequenceFields } from "../row-values";
 import type { Sql } from "../sql-pool";
 
 export async function readProjects(
@@ -25,6 +25,8 @@ export async function readProjects(
       | "overdue_seen_at"
       | "created_at"
       | "consequence"
+      | "consequence_refined"
+      | "consequence_refined_for_stars"
       | "version"
       | "remaining_effort_override_minutes"
       | "actual_completion_ratio"
@@ -34,7 +36,7 @@ export async function readProjects(
   >`
       SELECT p.id, p.outcome_id, p.title, a.name AS area, p.status, p.uncertainty,
         p.internal_deadline_at, p.external_deadline_at, p.last_worked_at, p.last_reviewed_at, p.overdue_seen_at, p.created_at,
-        o.value, p.consequence, p.version, p.remaining_effort_override_minutes, p.actual_completion_ratio, p.required_completion_ratio, p.private
+        o.value, p.consequence, p.consequence_refined, p.consequence_refined_for_stars, p.version, p.remaining_effort_override_minutes, p.actual_completion_ratio, p.required_completion_ratio, p.private
       FROM projects p
       JOIN outcomes o ON o.id = p.outcome_id
       JOIN areas a ON a.id = o.area_id
@@ -51,6 +53,7 @@ export async function readProjects(
     uncertainty: row.uncertainty,
     value: row.value,
     consequence: row.consequence,
+    ...refinedConsequenceFields(row),
     ...(iso(row.internal_deadline_at) ? { internalDeadlineAt: iso(row.internal_deadline_at)! } : {}),
     ...(iso(row.external_deadline_at) ? { externalDeadlineAt: iso(row.external_deadline_at)! } : {}),
     ...(iso(row.last_worked_at) ? { lastWorkedAt: iso(row.last_worked_at)! } : {}),

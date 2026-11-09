@@ -8,6 +8,7 @@ import { databaseName, validateBackup } from "./backup-format.js";
 import { loadMigrationSets, migratorOptions } from "./migration-sets.js";
 import { upgradeLegacyBackup } from "./private/legacy-backups.js";
 import { restoreBackup } from "./restore-run.js";
+import { refitConsequenceNow } from "../consequence/refit.js";
 import { verifySection } from "./streamed-sections.js";
 import { latestValidBackup } from "./backup-files.js";
 import { missingBlobHashes, referencedBlobHashes } from "./photo-blobs.js";
@@ -88,6 +89,13 @@ try {
     backup,
     backupPath
   );
+  // The row-for-row check above compared the backup's own consequence_refined columns, so they were restored verbatim.
+  // Those values are a cache of the comparison log and the local day, and the day has probably moved on: refit them
+  // now, after the check and per user, so the restored database ranks as the log says today. A failed refit leaves the
+  // restored values, which the engine already ignores when they were fitted for different stars.
+  let consequenceRefits = 0;
+  for (const user of await restoreSql<{ id: string }[]>`SELECT id FROM users`)
+    if ((await refitConsequenceNow(restoreSql, user.id)).ok) consequenceRefits += 1;
   // Photos are files beside the database, so a restore is only whole if every photo it points at exists. The
   // backup copy (BACKUP_COPY_DIR/photos, what `backup:run` keeps add-only) is what protects them, so a hash
   // missing there fails the run; the live store is reported only, since a fresh machine may not hold it yet.
@@ -111,6 +119,7 @@ try {
       formatVersion: backup.formatVersion,
       records,
       verifiedTables: present.length,
+      consequenceRefits,
       ...(Object.keys(streamedRows).length ? { streamedRows } : {}),
       ...(referenced.length
         ? {

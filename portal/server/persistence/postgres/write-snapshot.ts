@@ -79,6 +79,13 @@ export type SnapshotTable = string;
 /** Every table a snapshot may hold, in restore order: the core list, then each registered table after its anchor. */
 export const SNAPSHOT_TABLES: string[] = [...CORE_SNAPSHOT_TABLES];
 
+/** The comparison-derived consequence the refit writes (comparison-consequence-ranking design). */
+const CONSEQUENCE_REFINED_COLUMNS = [
+  "consequence_refined",
+  "consequence_refined_for_stars",
+  "consequence_refined_as_of"
+] as const;
+
 /**
  * Columns the system keeps up to date on its own, which a revert neither compares nor writes back. Every agent write
  * enqueues a recalculation that rewrites them within seconds (the planner's occurrence upsert in
@@ -119,7 +126,9 @@ const CORE_SYSTEM_COLUMNS: Readonly<Record<CoreSnapshotTable, readonly string[]>
     "forecast_started_at",
     "baseline_estimate_minutes",
     "actual_completion_ratio",
-    "required_completion_ratio"
+    "required_completion_ratio",
+    // The consequence refit rewrites these after any comparison answer, with no version bump.
+    ...CONSEQUENCE_REFINED_COLUMNS
   ],
   commitment_recurrence_rules: ["updated_at"],
   // `presence` and `share_to_calendar` of a series occurrence follow the series until edited by hand: see
@@ -128,7 +137,7 @@ const CORE_SYSTEM_COLUMNS: Readonly<Record<CoreSnapshotTable, readonly string[]>
   // Imports refresh `last_seen_at` on every sync; the link itself is what a write sets.
   calendar_event_links: ["updated_at", "last_seen_at"],
   deliverables: ["updated_at"],
-  actions: ["updated_at"],
+  actions: ["updated_at", ...CONSEQUENCE_REFINED_COLUMNS],
   action_recurrence_rules: ["updated_at"],
   // The link and edge tables hold only their key and what the write set: nothing the planner rewrites.
   action_requirement_pathways: [],

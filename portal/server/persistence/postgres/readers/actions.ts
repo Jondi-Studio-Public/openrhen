@@ -11,7 +11,7 @@ import {
 import type { StoredAction } from "@/state/portal-state";
 import type { DbRow, Row } from "../db-row";
 import type { readPrerequisiteMap } from "../prerequisites";
-import { iso, localDateString } from "../row-values";
+import { iso, localDateString, refinedConsequenceFields } from "../row-values";
 import type { Sql } from "../sql-pool";
 
 type Recurrence = NonNullable<StoredAction["recurrence"]>;
@@ -41,6 +41,8 @@ export async function readActions(
       | "setup_minutes"
       | "importance"
       | "consequence"
+      | "consequence_refined"
+      | "consequence_refined_for_stars"
       | "available_from"
       | "deadline_at"
       | "latest_start_at"
@@ -57,7 +59,7 @@ export async function readActions(
     > & { scheduling_mode: StoredAction["schedulingMode"] })[]
   >`
       SELECT ac.id, ac.project_id, ac.title, ac.status, ac.optimistic_minutes, ac.expected_minutes, ac.remaining_minutes, ac.remaining_set_at, ac.pessimistic_minutes,
-        ac.energy, ac.minimum_session_minutes, ac.maximum_session_minutes, ac.splittable, ac.setup_minutes, ac.importance, ac.consequence,
+        ac.energy, ac.minimum_session_minutes, ac.maximum_session_minutes, ac.splittable, ac.setup_minutes, ac.importance, ac.consequence, ac.consequence_refined, ac.consequence_refined_for_stars,
         ac.available_from, ac.deadline_at, ac.latest_start_at, ac.last_worked_at, ac.created_at, ac.dependencies_complete, ac.estimate_needs_review, to_jsonb(ac.assumed_fields) AS assumed_fields, ac.version, ac.scheduling_mode, ac.notes, ac.private, ac.prep_for_commitment_id
       FROM actions ac
       JOIN projects p ON p.id = ac.project_id
@@ -156,6 +158,7 @@ export async function readActions(
       maximumSessionMinutes: row.maximum_session_minutes,
       importance: row.importance,
       consequence: row.consequence,
+      ...refinedConsequenceFields(row),
       // `action_contexts` is retired — `requirementPathways` is the sole stored source, and
       // this flat mirror is derived from it (the first route, matching what every writer already
       // keeps in step, see `plan-commands.ts`'s `actionCommand`) purely for the engine's own legacy
