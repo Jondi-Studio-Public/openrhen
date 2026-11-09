@@ -1,10 +1,16 @@
 import "../private/index.js";
 import { contractsExtensions } from "../extensions.js";
+import { AGENT_ENTRIES } from "./entries/agents.js";
+import { CALENDAR_ENTRIES } from "./entries/calendar.js";
+import { DERIVED_ENTRIES } from "./entries/derived.js";
 import { DEVICE_ENTRIES } from "./entries/devices.js";
 import { FILE_ENTRIES } from "./entries/files.js";
+import { MANUAL_ENTRIES } from "./entries/manual.js";
+import { PLANNED_ENTRIES } from "./entries/planned.js";
 import { READER_ENTRIES } from "./entries/readers.js";
 import { buildFlowGraph, type FlowRegistry, type GraphOptions } from "./graph.js";
-import type { DataFlowContribution, DatasetNote, FlowEntry } from "./types.js";
+import { CORE_DATASET_NOTES } from "./notes.js";
+import type { DataFlowContribution, FlowEntry } from "./types.js";
 
 /**
  * The public module of the data-flow registry (the `@openrhen/contracts/data-flow` subpath). It assembles core's entries
@@ -12,12 +18,21 @@ import type { DataFlowContribution, DatasetNote, FlowEntry } from "./types.js";
  * overrides. Everything else is re-exported so a consumer needs one import.
  */
 export * from "./graph.js";
+export { CORE_DATASET_NOTES } from "./notes.js";
 export * from "./surfaces.js";
 export * from "./types.js";
 
 /** Core's entries: generic systems and code facts only. Anything naming a person's providers or devices is overlay. */
-export const CORE_FLOW_ENTRIES: readonly FlowEntry[] = [...FILE_ENTRIES, ...DEVICE_ENTRIES, ...READER_ENTRIES];
-export const CORE_DATASET_NOTES: readonly DatasetNote[] = [];
+export const CORE_FLOW_ENTRIES: readonly FlowEntry[] = [
+  ...FILE_ENTRIES,
+  ...CALENDAR_ENTRIES,
+  ...DEVICE_ENTRIES,
+  ...MANUAL_ENTRIES,
+  ...AGENT_ENTRIES,
+  ...DERIVED_ENTRIES,
+  ...READER_ENTRIES,
+  ...PLANNED_ENTRIES
+];
 
 export interface DataFlowRegistryParts extends FlowRegistry {
   /** Amend keys the extensions supplied, so check S6 can name the ones that match no core entry. */

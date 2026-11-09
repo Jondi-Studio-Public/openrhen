@@ -1,6 +1,6 @@
 # Data-flow registry
 
-Status: foundation implemented (types, graph, closure walker and the staleness checks, over a few seed entries); the full set of core entries, the coverage rules, the health reader and the Data page follow. Owns: the typed registry of every data entry point (`platform/contracts/src/data-flow/`), the checks that hold it to the code (`portal/server/data-flow/`), and the seam an extension uses to add its own entries.
+Status: implemented for the registry, the full set of core entries and the coverage rules; the health reader and the Data page follow. Owns: the typed registry of every data entry point (`platform/contracts/src/data-flow/`), the checks that hold it to the code (`portal/server/data-flow/`), and the seam an extension uses to add its own entries.
 
 Every collector, shared pipe, reader and sink is one entry, so "where does this data come from, where does it go, and what does it give" has one answer that CI keeps true. Tables come from the schema; activity data is split per source and kind (`pg:activity_events[source=<source>,kind=<kind>]`).
 
@@ -28,10 +28,18 @@ The plan-input table list is `platform/contracts/src/data-flow/plan-input-tables
 - **X1, X2:** ids are unique and kebab-case, a reader with no probe gives a reason, and every free-text field is within its cap.
 - **E1:** the engine reader reads exactly the plan-input list minus its `notRead`, and no table the engine is blind to is a plan input.
 
-The closure walker (`enumerate.ts`) follows relative imports, the portal's `@/` alias and `@openrhen/*` imports, and resolves a named import through re-export barrels to the module that defines it. It stops at shared pipe modules, infrastructure modules and every `private/index.ts` seam. Its depth is capped at 6. A measurement test prints how many tables each route and loop reaches.
+**Coverage** (core-owned entry points only; overlay files in `.sync-core.json`, `private/` seams and extension registrations are exempt until the extension's own entries cover them):
+
+- **A1, P1, C1:** every activity source, every parser and extractor file, and every connection is in some entry.
+- **L1, L2, R1, R2, M1:** every worker and service loop, every write route, every GET route that writes, and every write tool is in an entry's `code`, or is on a short infrastructure list with a reason (sign-in, tokens, probes).
+- **T1, D1:** every table is on an entry's `from` or `to`, or noted as infrastructure or dead; every device has a probe.
+- **V1, V1-reverse, V2, V3:** each entry's `to` is a table its closure writes, a table its closure writes is in `to` or `incidentalWrites`, a partition appears in the code, and a reader's page, tool or device surface is backed by its code.
+- Removing any entry fails one of these, and the 2.5 acceptance list (which sources are collected but unused, which are accepted with nothing sending) is pinned against the core-only registry.
+
+The closure walker (`enumerate.ts`) follows relative imports, the portal's `@/` alias and `@openrhen/*` imports, and resolves a named import through re-export barrels to the module that defines it. It stops at shared pipe modules, infrastructure modules (the database client, secrets and logging) and every `private/index.ts` seam. Its depth is capped at 6.
 
 `portal/server/watch-history/engine-blind.test.ts` keeps the registry out of planning: the `data-flow/` folder may import only zod and a short list of contracts modules, and no planning code may import it.
 
 ## Not yet built
 
-The coverage rules (every entry point has an entry), the write-evidence checks over the closure, the health reader, `GET /api/data-flow`, `rhen sources` and the Data page are later changes. See [Writing a connection](writing-a-connection.md) and [Writing an add-on](writing-an-addon.md) for the code a new entry describes.
+The health reader, `GET /api/data-flow`, `rhen sources` and the Data page are later changes. See [Writing a connection](writing-a-connection.md) and [Writing an add-on](writing-an-addon.md) for the code a new entry describes.
