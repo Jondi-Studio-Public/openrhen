@@ -370,7 +370,10 @@ export function runDoctor(snapshot: DoctorSnapshot): DoctorReport {
     const last = ms(run.lastSuccessAt);
     const failing =
       run.status === "failed" ||
-      (last !== undefined && now - last > T.syncFailingHours * HOUR && run.status !== "synced");
+      (last !== undefined &&
+        now - last > T.syncFailingHours * HOUR &&
+        run.status !== "synced" &&
+        run.status !== "needs_review");
     if (!failing) continue;
     items.push({
       id: `sync_failing:${run.provider}`,

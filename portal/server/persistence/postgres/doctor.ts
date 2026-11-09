@@ -3,7 +3,7 @@ import {
   DOCTOR_KEEP_FOR_DAYS,
   DOCTOR_OPEN_ACTION_STATUSES,
   DOCTOR_THRESHOLDS,
-  intervalCalendarSourceIds,
+  calendarSourceIds,
   projectHealthFromSchedule,
   resolveFreshness,
   runDoctor,
@@ -305,20 +305,25 @@ async function readCommitments(sql: Queryable, userId: string, now: Date): Promi
   }));
 }
 
+/**
+ * Open review batches of every calendar source, interval or daily. A batch is aged by its oldest held record, not its
+ * own creation: a sync that replaces the batch carries each record's first-held time across (`supersedeOpenBatches`).
+ */
 async function readHeldEvents(sql: Queryable, userId: string): Promise<DoctorSnapshot["heldEvents"]> {
-  const rows = await sql<{ id: string; source_type: string; created_at: Date }[]>`
-    SELECT b.id, b.source_type, b.created_at FROM import_batches b
+  const rows = await sql<{ id: string; source_type: string; held_since: Date }[]>`
+    SELECT b.id, b.source_type, min(r.created_at) AS held_since FROM import_batches b
+    JOIN import_records r ON r.batch_id = b.id AND r.entity_type IN ('fixed_commitment','fixed_commitment_recurrence')
     WHERE b.user_id = ${userId} AND b.status IN ('draft','ready','blocked')
-      AND b.source_type IN ${sql(intervalCalendarSourceIds())}
-      AND EXISTS (SELECT 1 FROM import_records r WHERE r.batch_id = b.id
-        AND r.entity_type IN ('fixed_commitment','fixed_commitment_recurrence'))
+      AND b.source_type IN ${sql(calendarSourceIds())}
+    GROUP BY b.id, b.source_type, b.created_at
     ORDER BY b.created_at LIMIT 50`;
-  return rows.map((row) => ({ batchId: row.id, provider: row.source_type, heldSince: row.created_at.toISOString() }));
+  return rows.map((row) => ({ batchId: row.id, provider: row.source_type, heldSince: row.held_since.toISOString() }));
 }
 
 /**
  * The latest run per provider and the last time each synced, from status columns only. A latest run that failed
- * with a success inside the failing window reads as synced: doctor flags a sync that has not worked for a day,
+ * with a success inside the failing window reads as synced (a run that held changes for review, `needs_review`, is a
+ * success: the connection worked): doctor flags a sync that has not worked for a day,
  * not one bad tick.
  */
 async function readSyncRuns(sql: Queryable, userId: string, now: Date): Promise<DoctorSnapshot["syncRuns"]> {
@@ -326,7 +331,7 @@ async function readSyncRuns(sql: Queryable, userId: string, now: Date): Promise<
     sql<{ provider: string; status: string; last_run_at: Date; last_success_at: Date | null }[]>`
       SELECT DISTINCT ON (r.provider) r.provider, r.status, r.started_at AS last_run_at,
         (SELECT max(COALESCE(s.finished_at, s.started_at)) FROM integration_sync_runs s
-          WHERE s.user_id = r.user_id AND s.provider = r.provider AND s.status = 'synced') AS last_success_at
+          WHERE s.user_id = r.user_id AND s.provider = r.provider AND s.status IN ('synced','needs_review')) AS last_success_at
       FROM integration_sync_runs r WHERE r.user_id = ${userId} AND r.provider <> 'backup'
       ORDER BY r.provider, r.started_at DESC LIMIT 50`,
     readExtensionSyncStatuses(sql)
