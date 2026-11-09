@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs";
-import { open, stat } from "node:fs/promises";
+import { open } from "node:fs/promises";
 import { pipeline } from "node:stream";
 import { createInflateRaw, crc32 } from "node:zlib";
 import { ImportReadError } from "./types.js";
@@ -166,8 +166,4 @@ export async function* readZipEntry(zipPath: string, entry: ZipEntry): AsyncGene
   }
   if (length !== entry.size) throw notZip(zipPath, `${entry.path} has ${length} bytes, expected ${entry.size}`);
   if (crc >>> 0 !== entry.crc) throw notZip(zipPath, `${entry.path} fails its checksum`);
-}
-
-export async function fileSize(path: string): Promise<number> {
-  return (await stat(path)).size;
 }

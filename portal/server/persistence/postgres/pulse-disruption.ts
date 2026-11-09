@@ -224,23 +224,3 @@ async function finishDisruption(
   await tx`UPDATE writes SET response=${tx.json(result as never)}, updated_at=now() WHERE id=${cmd.commandId}`;
   return result;
 }
-
-/** The disruption in force, if any: the newest row not ended. `until` may already be past (the recorder decides). */
-export async function readActiveDisruption(sql: Sql, userId: string) {
-  const rows = await sql<
-    {
-      id: string;
-      doing: string;
-      until: Date;
-      location_id: string;
-      contexts: string[];
-      exclusive: boolean;
-      recorded_by: "person" | "agent";
-      created_at: Date;
-    }[]
-  >`
-    SELECT id, doing, until, location_id, contexts, exclusive, recorded_by, created_at
-    FROM pulse_disruptions WHERE user_id=${userId} AND ended_at IS NULL
-    ORDER BY created_at DESC LIMIT 1`;
-  return rows[0] ?? null;
-}

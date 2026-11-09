@@ -46,7 +46,6 @@ export const TOKEN_PATH = "/oauth/token";
 export const AUTHORIZE_PATH = "/oauth/authorize";
 export const REGISTER_PATH = "/oauth/register";
 export const PROTECTED_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource";
-export const AUTHORIZATION_SERVER_METADATA_PATH = "/.well-known/oauth-authorization-server";
 
 /**
  * The origin this request was addressed to, as the client sees it: Caddy terminates TLS, so the scheme comes
