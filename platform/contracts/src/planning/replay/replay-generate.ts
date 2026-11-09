@@ -257,6 +257,8 @@ interface Pools {
   actions: Action[];
   actionTwins: Array<[Action, Action]>;
   numbered: Array<{ low: Action; high: Action; prefix: boolean }>;
+  /** An action with no number in its title and no other of that title, so a deadline a week from it is a new one. */
+  deadlineNeighbours: Action[];
   projects: Project[];
   asks: OpenFact[];
   askTwins: Array<[OpenFact, OpenFact]>;
@@ -286,7 +288,8 @@ export const SHAPE_COUNTS = {
   contacts: 40,
   asks: 20,
   askTwins: 3,
-  askUids: 5
+  askUids: 5,
+  deadlineNeighbours: 3
 } as const;
 
 function deepFreeze<T>(value: T): T {
@@ -347,7 +350,8 @@ export function generatePlan(seed: string, size: PlanSize): GeneratedPlan {
     projects: [],
     asks: [],
     askTwins: [],
-    askUids: []
+    askUids: [],
+    deadlineNeighbours: []
   };
   const aliases: Plan["aliases"] = [];
 
@@ -437,6 +441,11 @@ export function generatePlan(seed: string, size: PlanSize): GeneratedPlan {
     pools.askUids.push(addFact(askTitle(), `conv-u${i + 1}`, `uid-${i + 1}@example.test`));
   }
 
+  // Last, so the draws above (and every plan before this shape existed) are unchanged.
+  for (let i = 0; i < SHAPE_COUNTS.deadlineNeighbours * m; i++) {
+    pools.deadlineNeighbours.push(addAction(title(rng), deadlineDay()));
+  }
+
   const plan: Plan = deepFreeze({ commitments, actions, projects, contacts, aliases, openFacts });
   const freshAskTitle = (r: Rng) =>
     cap([pick(r, half(VERBS, true)), pick(r, half(NOUNS, true)), pick(r, half(NOUNS, true))].join(" "));
@@ -468,7 +477,8 @@ export const KINDS = [
   "ask-new",
   "ask-uid",
   "ask-same-thread-new",
-  "ask-twin"
+  "ask-twin",
+  "deadline-neighbour"
 ] as const;
 export type Kind = (typeof KINDS)[number];
 
@@ -663,6 +673,14 @@ function draft(kind: Kind, built: GeneratedPlan, rng: Rng): Draft {
       return {
         fact: deadlineFact(`${a.title} due`, a.deadlineAt!),
         gold: { endState: "asked", mustNot: ["apply"] }
+      };
+    }
+    case "deadline-neighbour": {
+      // The same title a week before the one on the plan: a new instance, not that one moved.
+      const a = pick(rng, pools.deadlineNeighbours);
+      return {
+        fact: deadlineFact(`${a.title} due`, addDays(a.deadlineAt!, -7)),
+        gold: { endState: "applied", op: "create" }
       };
     }
     case "ask-same-thread": {

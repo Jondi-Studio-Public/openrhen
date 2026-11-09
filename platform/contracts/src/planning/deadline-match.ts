@@ -64,12 +64,16 @@ function numbersIn(title: string): Set<string> {
   return new Set(normalizeTitle(title).match(/\p{N}+/gu) ?? []);
 }
 
-/** "Assignment 1" and "Assignment 2" contain each other's words but are different things. */
+/**
+ * "Assignment 1" and "Assignment 2" contain each other's words but are different things. Numbers are whole
+ * tokens, and the titles differ only when neither number set is within the other: "Quiz 3 due 15" still
+ * matches "Quiz 3" (the extra number is a date), "Assignment 1" does not match "Assignment 12".
+ */
 function numbersDiffer(a: string, b: string): boolean {
   const left = numbersIn(a);
   const right = numbersIn(b);
-  if (left.size === 0 || right.size === 0) return false;
-  return left.size !== right.size || [...left].some((n) => !right.has(n));
+  const within = (small: Set<string>, large: Set<string>) => [...small].every((n) => large.has(n));
+  return !within(left, right) && !within(right, left);
 }
 
 function matchOne(probe: DeadlineProbe, target: DeadlineTarget): DeadlineMatch {

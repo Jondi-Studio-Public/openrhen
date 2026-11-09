@@ -65,7 +65,11 @@ describe("matchDeadline", () => {
       targetId: "a2"
     });
     expect(matchDeadline(probe({ title: "Assignment 2" }), siblings).kind).toBe("none");
-    // A number on one side only is not a conflict.
+    // A number on one side only, or an extra number such as a date, is not a conflict.
+    expect(matchDeadline(probe({ title: "Quiz 3 due 15" }), [target({ title: "Quiz 3" })]).kind).toBe("strong");
+    expect(matchDeadline(probe({ title: "Quiz 3" }), [target({ title: "Quiz 3 due 15" })]).kind).toBe("strong");
+    expect(matchDeadline(probe({ title: "Quiz 3 due 15" }), [target({ title: "Quiz 4" })]).kind).toBe("none");
+    expect(matchDeadline(probe({ title: "Quiz 3 due 15" }), [target({ title: "Quiz 4 due 15" })]).kind).toBe("none");
     expect(matchDeadline(probe({ title: "Assignment" }), [target({ title: "Assignment 1" })]).kind).toBe("strong");
   });
 
