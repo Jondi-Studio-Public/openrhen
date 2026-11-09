@@ -271,6 +271,7 @@ export function AreaDetail({ areaId }: { areaId: string }) {
         actions={state.actions}
         deliverables={state.deliverables}
         conditionDefinitions={state.conditionDefinitions}
+        estimateBucketsMinutes={state.settings.estimateBucketsMinutes}
         timezone={state.settings.timezone}
       />
     </main>

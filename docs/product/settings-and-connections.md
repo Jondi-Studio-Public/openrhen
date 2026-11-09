@@ -32,7 +32,7 @@ The catalogue of places, capabilities, contacts and live commitments that work m
 
 ### Buffers and travel
 
-- **Default setup before** and **transition after** a commitment.
+- **Setup before** and **transition after**: the starting values for new commitments; they do not change existing ones.
 - **Minimum submission buffer** and **percentage** before a deadline.
 - **Arrival margin**: minutes added to travel before a commitment with a journey.
 - **Break after a maximum session**.
@@ -42,7 +42,7 @@ Setup time protects getting ready to leave; the journey is protected separately,
 
 ### Estimates
 
-**Estimate buckets** are quick remaining-effort choices. **Learned calibration** shows how much longer or shorter finished work ran than estimated once five timed actions exist, and scales future estimates for that area. It can be switched off.
+**Estimate buckets** are the quick remaining-effort choices shown as chips beside Remaining minutes in the action editor. **Learned calibration** shows how much longer or shorter finished work ran than estimated once five timed actions exist, and scales future estimates for that area. It can be switched off.
 
 ### Routines
 

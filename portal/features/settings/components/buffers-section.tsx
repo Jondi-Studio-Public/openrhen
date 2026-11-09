@@ -13,13 +13,13 @@ export function BuffersSection({
 }) {
   return (
     <Section id="buffers" title="Buffers" reason="Protected time the system avoids promising elsewhere.">
-      <Field label="Default setup before (minutes)">
+      <Field label="Starting value for new commitments: setup before (minutes)">
         <MinuteInput
           value={draft.defaultSetupBufferMinutes}
           onChange={(value) => onChange({ defaultSetupBufferMinutes: value })}
         />
       </Field>
-      <Field label="Default transition after (minutes)">
+      <Field label="Starting value for new commitments: transition after (minutes)">
         <MinuteInput
           value={draft.defaultTransitionBufferMinutes}
           onChange={(value) => onChange({ defaultTransitionBufferMinutes: value })}

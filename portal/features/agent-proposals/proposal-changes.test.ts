@@ -343,9 +343,7 @@ describe("proposalChanges", () => {
       find
     );
     expect(availability![0]!.title).toMatch(/^Update current availability/);
-    expect(availability![0]!.rows.map((row) => row.field)).toEqual(
-      expect.arrayContaining(["current energy", "asserted conditions"])
-    );
+    expect(availability![0]!.rows.map((row) => row.field)).toEqual(expect.arrayContaining(["current energy"]));
   });
 
   it("finds a planning focus by its period, so an omitted project list shows as cleared on that period", () => {

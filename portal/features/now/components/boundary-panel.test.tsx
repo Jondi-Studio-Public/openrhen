@@ -104,6 +104,32 @@ describe("BoundaryPanel", () => {
     expect(save.mock.calls[0]![0].entity.currentSituation.locationId).toBe("shops");
   });
 
+  it("carries today's stored wins and deferrals through unchanged when it extends the horizon", () => {
+    const save = vi.fn().mockResolvedValue(undefined);
+    const dailyPlan = {
+      id: "daily-plan-2026-08-18",
+      version: 4,
+      localDate: "2026-08-18",
+      desiredActionIds: ["a1"],
+      recoverySkipped: false,
+      deferredItems: [{ actionId: "a2", reason: "Ran out of time" }]
+    };
+    render(
+      <BoundaryPanel
+        {...props}
+        state={{ ...state, dailyPlan }}
+        saveEntityCommand={save}
+        directive={directive}
+        isDailyHorizon
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "+1 hour" }));
+    const command = save.mock.calls[0]![0];
+    expect(command.expectedVersion).toBe(4);
+    expect(command.entity.desiredActionIds).toEqual(["a1"]);
+    expect(command.entity.deferredItems).toEqual([{ actionId: "a2", reason: "Ran out of time" }]);
+  });
+
   it("extends from now once the horizon has already passed", () => {
     const save = vi.fn().mockResolvedValue(undefined);
     render(

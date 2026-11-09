@@ -476,7 +476,6 @@ const settingsSchema = entity({
     .min(1)
     .optional()
     .describe("Recovery days, 0 Sunday to 6 Saturday."),
-  assertedConditions: stringList.optional().describe("Context ids currently asserted as available."),
   bedtimeRoutinePresetId: clearableText.describe("Routine preset id used at bedtime."),
   wakeRoutinePresetId: clearableText.describe("Routine preset id used on waking."),
   homeLocationId: clearableText.describe("Active location context you sleep at."),
@@ -556,7 +555,6 @@ const dailyPlanSchema = entity({
 const currentAvailabilitySchema = entity({
   currentEnergy: energyTypeSchema,
   energyAsserted: z.boolean().optional().describe("true re-asserts the same energy so it counts as said now."),
-  assertedConditions: stringList.optional().describe("Context ids currently asserted as available."),
   currentSituation: currentSituationSchema
     .partial()
     .passthrough()

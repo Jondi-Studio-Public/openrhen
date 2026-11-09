@@ -22,11 +22,6 @@ import type { PortalState } from "@/state/portal-state";
  */
 const requestSchema = z.object({ toLocationId: z.string().min(1) });
 
-const modeRowSchema = z.object({
-  usual_transport_mode: z.enum(["car", "bike", "walk"]).nullable(),
-  default_transport_mode: z.enum(["car", "bike", "walk"]).nullable()
-});
-
 export const POST = withRoute("/api/travel/refresh", async (request, _context, log) => {
   const body = await request.json().catch(() => null);
   const parsed = requestSchema.safeParse(body);
@@ -63,19 +58,11 @@ export const POST = withRoute("/api/travel/refresh", async (request, _context, l
   if (destination.latitude === undefined || destination.longitude === undefined)
     return Response.json({ error: "That place has no coordinates to measure to." }, { status: 409 });
 
-  const userId = await ensureUser(sql);
-
-  // The place's usual mode and the user's default mode are not yet on the portal-state wire — a
-  // later task (`state-read.ts`) carries them there. Read directly so Manual Measure already
-  // resolves a real mode rather than falling straight to "fastest by distance".
-  const modeRows = await sql`
-    SELECT
-      (SELECT usual_transport_mode FROM condition_definitions WHERE user_id=${userId} AND id=${destination.id}) AS usual_transport_mode,
-      (SELECT default_transport_mode FROM user_preferences WHERE user_id=${userId}) AS default_transport_mode
-  `;
-  const modeRow = modeRowSchema.safeParse(modeRows[0]);
-  const placeUsualMode = (modeRow.success ? modeRow.data.usual_transport_mode : null) ?? undefined;
-  const userDefaultMode = (modeRow.success ? modeRow.data.default_transport_mode : null) ?? undefined;
+  // Both modes are on the portal-state wire: the place's usual mode on its condition definition and the
+  // user's default on the settings, so Manual Measure resolves a real mode rather than falling straight
+  // to "fastest by distance".
+  const placeUsualMode = destination.usualTransportMode;
+  const userDefaultMode = state.settings.defaultTransportMode;
 
   // No commitment context for an ad hoc measurement, and no journey summary here (a single manual
   // lookup does not warrant the full request-build query) — `resolveMode` falls through to the
@@ -101,6 +88,7 @@ export const POST = withRoute("/api/travel/refresh", async (request, _context, l
   });
   if (!mode) return Response.json({ error: "No travel mode is available to measure with." }, { status: 409 });
 
+  const userId = await ensureUser(sql);
   try {
     const spend = await spendTravelLookup(
       sql,

@@ -45,6 +45,20 @@ describe("ActionEditor", () => {
     expect(onChange).toHaveBeenCalledWith({ ...emptyAction(SEED_ZONE), expectedMinutes: 40, remainingMinutes: 40 });
   });
 
+  it("offers the estimate buckets as quick picks that set the remaining minutes", () => {
+    const onChange = vi.fn();
+    const draft = { ...emptyAction(SEED_ZONE), id: "room-floor", remainingMinutes: 7 };
+    render(editor({ draft, onChange, estimateBucketsMinutes: [15, 45] }));
+    fireEvent.click(screen.getByRole("button", { name: "45 min" }));
+    expect(onChange).toHaveBeenCalledWith({ ...draft, remainingMinutes: 45 });
+    expect(screen.getByRole("button", { name: "15 min" }).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("shows no quick picks when there are no estimate buckets", () => {
+    render(editor());
+    expect(screen.queryByRole("button", { name: /^\d+ min$/ })).toBeNull();
+  });
+
   it("leaves the remaining effort alone when an existing action is re-estimated", () => {
     const onChange = vi.fn();
     const draft = { ...emptyAction(SEED_ZONE), id: "room-floor", remainingMinutes: 7 };

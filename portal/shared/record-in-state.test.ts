@@ -120,14 +120,13 @@ describe("omittedStoredFields", () => {
     expect(keys("capture", { proposedFields: {} })).toEqual([]);
   });
 
-  it("clears a planning focus's projects, a daily plan's lists and an availability's conditions", () => {
+  it("clears a planning focus's projects, a daily plan's lists", () => {
     expect(keys("planning_focus", { projectIds: ["p"] })).toEqual(["projectIds"]);
     expect(
       keys("daily_plan", { desiredActionIds: ["a"], deferredItems: [{ actionId: "b" }], recoverySkipped: true })
     ).toEqual(["desiredActionIds", "deferredItems"]);
-    expect(keys("current_availability", { assertedConditions: ["desk"], currentEnergy: "high" })).toEqual([
-      "assertedConditions"
-    ]);
+    // assertedConditions is not a field an agent can save (the engine ignores it), so it is never listed as cleared.
+    expect(keys("current_availability", { currentEnergy: "high" })).toEqual([]);
   });
 
   it("changes nothing for singleton, append-only and review kinds", () => {

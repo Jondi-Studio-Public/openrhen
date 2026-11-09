@@ -101,8 +101,8 @@ describe("settings fields", () => {
     const stored = Object.keys(portalStateSchema.shape.settings.shape).filter((key) => key !== "version");
     const saveable = entityFieldNames("settings");
     expect(stored.filter((key) => !saveable.includes(key))).toEqual([]);
-    // The two a save takes that the state reads elsewhere (a setup flag, and conditions kept at the top level).
-    expect(saveable.filter((key) => !stored.includes(key)).sort()).toEqual(["assertedConditions", "setupCompleted"]);
+    // The one a save takes that the state reads elsewhere: a setup flag. (assertedConditions is no longer saveable: the engine ignores it; currentSituation is the situation.)
+    expect(saveable.filter((key) => !stored.includes(key)).sort()).toEqual(["setupCompleted"]);
   });
 
   it("no longer lists the old calendar-sharing names", () => {
