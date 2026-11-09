@@ -23,6 +23,8 @@ const MINUTE_MS: i64 = 60_000;
 const OBSERVED_MINUTE_MS: i64 = 30_000;
 /// Foreground intervals shorter than this are flicker and do not count towards switches.
 const FLICKER_MS: i64 = 3_000;
+/// A stretch of this length with no foreground row at all is a hole, not a continuation.
+const HOLE_MS: i64 = 2_000;
 /// Below this share of the foreground time observed, the switch rate is not printed.
 const MIN_SWITCH_COVERAGE_PERCENT: i64 = 50;
 /// A day known for less than this share of its minutes is partial.
@@ -449,6 +451,8 @@ pub fn derive(input: &DeriveInput) -> DayFacts {
     }
     apps.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
     facts.foreground_ms = apps.iter().map(|a| a.2 - a.1).sum();
+    // Every foreground interval, flicker included: time none of them covers is time nothing recorded.
+    let covered = union(apps.iter().map(|a| (a.1, a.2)).collect());
     if facts.foreground_ms > 0 {
         facts.coverage_percent = Some((facts.observed_ms * 100 / facts.foreground_ms).min(100) as u32);
     }
@@ -463,7 +467,9 @@ pub fn derive(input: &DeriveInput) -> DayFacts {
     if facts.foreground_ms > 0 && facts.observed_ms * 100 >= MIN_SWITCH_COVERAGE_PERCENT * facts.foreground_ms {
         let (mut apps_n, mut groups_n) = (0u32, 0u32);
         for w in merged.windows(2) {
-            if hits(&breaks, w[0].2, w[1].1) {
+            // A change across a hole in the record (more than flicker long) is not known to be a switch.
+            let hole = (w[1].1 - w[0].2) - overlap_len(&covered, w[0].2, w[1].1);
+            if hits(&breaks, w[0].2, w[1].1) || hole > HOLE_MS {
                 continue;
             }
             apps_n += 1;

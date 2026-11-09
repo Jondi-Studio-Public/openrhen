@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use crate::categories::{self, CategoryFile};
 use crate::config::{self, Config};
 use crate::model::Ms;
+use crate::tz::TzOffset;
 #[cfg(windows)]
 use crate::{engine, ids, platform, runner};
 use crate::{paths, report, store};
@@ -80,6 +81,23 @@ fn load_config(dir: &std::path::Path) -> Result<Config, String> {
     let cfg = Config::load(&dir.join("config.toml"))?;
     cfg.reject_legacy_categories()?;
     Ok(cfg)
+}
+
+/// Settings for `report`: a bad `categories.toml` is an error naming file, line and reason.
+pub fn load_report_settings(dir: &std::path::Path) -> Result<(Config, categories::Catalogue), String> {
+    let cfg = load_config(dir)?;
+    let file = CategoryFile::load(&dir.join("categories.toml"))?;
+    let catalogue = categories::Catalogue::with_file(&file, &cfg.extra_games);
+    Ok((cfg, catalogue))
+}
+
+/// Settings for `run`: a bad `categories.toml` must not stop recording (a typo in a cosmetic file cannot open a
+/// hole in the day), so it falls back to the built-in categories and returns the problem to log and record.
+pub fn load_run_settings(dir: &std::path::Path) -> Result<(Config, categories::Catalogue, Option<String>), String> {
+    let cfg = load_config(dir)?;
+    let (file, problem) = categories::load_or_default(&dir.join("categories.toml"));
+    let catalogue = categories::Catalogue::with_file(&file, &cfg.extra_games);
+    Ok((cfg, catalogue, problem))
 }
 
 fn cmd_config(args: &[String]) -> Result<(), String> {
@@ -250,14 +268,15 @@ pub fn now_ms() -> Ms {
         .unwrap_or(0)
 }
 
-fn local_offset() -> i32 {
+/// The user's time zone: per-instant offsets on Windows, UTC elsewhere.
+fn local_tz() -> TzOffset {
     #[cfg(windows)]
     {
-        platform::windows::local_offset_minutes()
+        platform::windows::local_tz()
     }
     #[cfg(not(windows))]
     {
-        0
+        TzOffset::fixed(0)
     }
 }
 
@@ -290,12 +309,13 @@ fn cmd_report(args: &[String]) -> Result<(), String> {
     if !db.exists() {
         return Err("no database yet; run `rhen-watch run` first".into());
     }
-    let offset: i32 = match flag_value(args, "--utc-offset-minutes")? {
-        Some(v) => v.parse().map_err(|_| "--utc-offset-minutes must be a whole number".to_string())?,
-        None => local_offset(),
+    let (cfg, catalogue) = load_report_settings(&d)?;
+    // A fixed offset overrides the zone; otherwise each end of the day gets its own offset.
+    let tz = match flag_value(args, "--utc-offset-minutes")? {
+        Some(v) => TzOffset::fixed(v.parse().map_err(|_| "--utc-offset-minutes must be a whole number".to_string())?),
+        None => local_tz(),
     };
     let now = now_ms();
-    let local_day = (now + i64::from(offset) * 60_000).div_euclid(86_400_000);
     let day = match flag_value(args, "--day")? {
         Some(v) => {
             let parts: Vec<i64> = v.split('-').filter_map(|p| p.parse().ok()).collect();
@@ -304,21 +324,25 @@ fn cmd_report(args: &[String]) -> Result<(), String> {
             }
             days_from_civil(parts[0], parts[1], parts[2])
         }
-        None => local_day,
+        None => tz.day_of(now),
     };
-    let from = day * 86_400_000 - i64::from(offset) * 60_000;
+    let (from, to) = tz.day_window(day);
     let (y, m, dd) = civil_from_days(day);
     let label = format!("{y:04}-{m:02}-{dd:02}");
     let store = store::Store::open_read_only(&db).map_err(|e| e.to_string())?;
     let open_until = store.last_heartbeat().map_err(|e| e.to_string())?.unwrap_or(now).min(now);
+    let params = crate::derive::Params::from(&cfg.derive);
     let text = report::build(
         &store,
         &report::ReportInput {
             label: &label,
             from,
-            to: from + 86_400_000,
+            to,
             open_until,
-            offset_min: offset,
+            tz,
+            catalogue: &catalogue,
+            params: &params,
+            idle_collector: cfg.collectors.idle,
         },
     )?;
     print!("{text}");
@@ -370,7 +394,8 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
     if d.to_string_lossy().starts_with("\\\\") {
         crate::log::warn("the data directory is on a network share; SQLite write-ahead logging is unsafe there");
     }
-    let cfg = load_config(&d)?;
+    // A leftover [categories] table in config.toml stops the agent; a bad categories.toml does not.
+    let (cfg, catalogue, category_error) = load_run_settings(&d)?;
 
     // One agent per data directory. The OS drops the lock if the process dies.
     let lock = OpenOptions::new()
@@ -401,9 +426,6 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
             (to - from) / 1000
         );
     }
-    // A bad categories.toml must not stop recording: log it, record one degraded marker, use the defaults.
-    let (category_file, category_error) = categories::load_or_default(&d.join("categories.toml"));
-    let catalogue = categories::Catalogue::with_file(&category_file, &cfg.extra_games);
     for category in catalogue.groupless() {
         crate::log::warn(&format!(
             "category \"{category}\" has no group, so it counts as other (add it under [group] in categories.toml)"

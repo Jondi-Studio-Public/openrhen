@@ -11,11 +11,13 @@ use serde_json::json;
 
 use crate::categories::{Catalogue, is_shell_window};
 use crate::config::Config;
+use crate::derive::Params;
 use crate::engine::{Engine, Fg, PowerEvt, SessionEvt, Settings, Signal};
 use crate::model::{Op, SRC_AGENT, attrs};
 use crate::report::{ReportInput, build};
 use crate::runner::{Raw, Runner, Sys};
 use crate::store::Store;
+use crate::tz::TzOffset;
 
 fn engine() -> Engine {
     let mut n = 0u32;
@@ -453,6 +455,8 @@ fn a_day_through_the_runner_reports_honestly() {
     r.tick().unwrap();
     r.stop().unwrap();
     let from = t0 - t0 % 86_400_000;
+    let catalogue = Catalogue::new(&HashMap::new(), &[]);
+    let params = Params::from(&Config::default().derive);
     let text = build(
         r.store(),
         &ReportInput {
@@ -460,7 +464,10 @@ fn a_day_through_the_runner_reports_honestly() {
             from,
             to: from + 86_400_000,
             open_until: now.get(),
-            offset_min: 0,
+            tz: TzOffset::fixed(0),
+            catalogue: &catalogue,
+            params: &params,
+            idle_collector: true,
         },
     )
     .unwrap();
@@ -485,6 +492,8 @@ fn civil_date_round_trip() {
 #[test]
 fn report_on_an_empty_database_says_so() {
     let s = Store::in_memory().unwrap();
+    let catalogue = Catalogue::new(&HashMap::new(), &[]);
+    let params = Params::from(&Config::default().derive);
     let text = build(
         &s,
         &ReportInput {
@@ -492,7 +501,10 @@ fn report_on_an_empty_database_says_so() {
             from: 0,
             to: 86_400_000,
             open_until: 0,
-            offset_min: 60,
+            tz: TzOffset::fixed(60),
+            catalogue: &catalogue,
+            params: &params,
+            idle_collector: true,
         },
     )
     .unwrap();
