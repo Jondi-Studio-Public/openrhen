@@ -21,6 +21,9 @@ const accepted = (id: string, name: string, activitySource: string, extra: Parti
 export const DEVICE_ENTRIES: readonly FlowEntry[] = [
   accepted("iphone-shortcuts", "Phone shortcuts feed", "iphone-shortcuts", { device: "phone" }),
   accepted("iphone-health", "Health summary", "iphone-health", { device: "phone" }),
+  // Provider-neutral: core ships no collector. The user's own collector maps wearable or health-app data onto the
+  // physiology kinds and posts it to the ingest endpoint (docs/operations/posting-physiology-data.md).
+  accepted("physiology", "Physiology (your own collector)", "physiology", { method: "push" }),
   accepted("rhen-watch", "PC activity agent", "rhen-watch", {
     device: "pc",
     category: "device",

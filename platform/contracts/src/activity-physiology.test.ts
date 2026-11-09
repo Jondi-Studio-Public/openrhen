@@ -751,6 +751,15 @@ describe("review nits", () => {
     expect(hrv({ avg: 22 })).toMatch(/attrs\.avg 22.*0\.5/);
   });
 
+  it("lets avg sit outside min and max only by half a unit of the precision it is posted in", () => {
+    // One reading of 70.4: a two-decimal avg has no room past it, a one-decimal one has 0.05, a whole number 0.5.
+    expect(hrv({ avg: 70.4 }, [70.4])).toBeNull();
+    expect(hrv({ avg: 70.41 }, [70.4])).toMatch(/attrs\.avg/);
+    expect(hrv({ avg: 70.35 }, [70.4])).toMatch(/attrs\.avg/);
+    expect(hrv({ avg: 70.3 }, [70.4])).toMatch(/attrs\.avg/);
+    expect(hrv({ avg: 70 }, [70.4])).toBeNull();
+  });
+
   it("lets a whole-number avg sit just outside min and max by its rounding", () => {
     expect(hrv({ avg: 70 }, [70.4])).toBeNull();
     expect(hrv({ avg: 71 }, [70.4])).toMatch(/attrs\.avg/);

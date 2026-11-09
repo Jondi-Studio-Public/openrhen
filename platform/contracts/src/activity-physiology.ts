@@ -371,7 +371,9 @@ function checkSamples(kind: string, attrs: Attrs, period: number): string | null
   const avgTolerance = Math.max(PHYSIOLOGY_AVG_TOLERANCE, 0.5 * 10 ** -avgDecimals);
   if (Math.abs(avg - mean) > avgTolerance + 1e-9)
     return `attrs.avg ${avg} differs from the mean ${Math.round(mean * 100) / 100} of the values by more than ${avgTolerance} (half a unit of avg's own precision, and at least ${PHYSIOLOGY_AVG_TOLERANCE}). Send the mean, rounded.`;
-  if (!(min - avgTolerance <= avg && avg <= max + avgTolerance))
+  // Past min or max, avg may only be rounding: half a unit of the precision it was posted in.
+  const roundingSlack = 0.5 * 10 ** -avgDecimals;
+  if (!(min - roundingSlack - 1e-9 <= avg && avg <= max + roundingSlack + 1e-9))
     return `attrs.min, attrs.avg and attrs.max must satisfy min <= avg <= max (got ${min}, ${avg}, ${max}).`;
   const coverage = attrs.coverage_s;
   if (!isInt(coverage) || coverage < 0)
