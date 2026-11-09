@@ -1319,6 +1319,23 @@ export {
   describeDerivedProblem
 } from "./activity-derived.js";
 export {
+  MESSAGE_ATTRS,
+  MESSAGE_DIRECTIONS,
+  MESSAGE_FAMILY,
+  MESSAGE_FINGERPRINT_ATTR,
+  MESSAGE_FINGERPRINT_HEX_CHARS,
+  MESSAGE_FINGERPRINT_TEXT_MAX_CHARS,
+  MESSAGE_ID_MAX_CHARS,
+  MESSAGE_KIND,
+  canonicalMessageKey,
+  describeMessageProblem,
+  messageFingerprint,
+  normaliseMessageId,
+  normaliseMessageSender,
+  normaliseMessageText
+} from "./activity-message.js";
+export type { MessageEventInput, MessageKeyInput, MessageVerdict } from "./activity-message.js";
+export {
   PHYSIOLOGY_COMMON_ATTRS,
   PHYSIOLOGY_DAILY_FIELDS,
   PHYSIOLOGY_HRV_METHODS,

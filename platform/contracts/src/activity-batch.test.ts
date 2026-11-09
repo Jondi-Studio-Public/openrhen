@@ -310,6 +310,29 @@ describe("validateActivityBatch", () => {
     const padded = validateActivityBatch(body([row("chat", " a ")]), options);
     expect(padded.ok && padded.rejected[0]!.reason).toContain("must not start or end with spaces");
     expect(validateActivityBatch(body([row("chat", "a b")]), options)).toMatchObject({ rejected: [] });
+    // Hidden characters pass trim(): refuse them, alone or inside a name, but keep ZWNJ/ZWJ for non-Latin text.
+    for (const bad of [
+      "\u200b",
+      "in\u200bbox",
+      "\u2060x",
+      "\ufeffx",
+      "a\u202eb",
+      "a\u2066b",
+      "a\u0007b",
+      "a\u2028b",
+      "a\u{e0041}b"
+    ]) {
+      const hidden = validateActivityBatch(body([row("chat", bad)]), options);
+      expect(hidden.ok && hidden.rejected[0]!.reason, JSON.stringify(bad)).toContain("hidden");
+    }
+    for (const fine of ["می\u200cخواهم", "क\u200d\u094dष", "caf\u00e9"])
+      expect(validateActivityBatch(body([row("chat", fine)]), options), fine).toMatchObject({ rejected: [] });
+    // Scope is exact: "Inbox" and "inbox" are two scopes with two coverage ids (pinned, not folded).
+    const upper = validateActivityBatch(body([row("chat", "Inbox")]), options);
+    expect(upper).toMatchObject({ rejected: [] });
+    expect(coverageKey("Inbox", new Date("2026-11-06T00:00:00Z"), new Date("2026-11-07T00:00:00Z"))).not.toBe(
+      coverageKey("inbox", new Date("2026-11-06T00:00:00Z"), new Date("2026-11-07T00:00:00Z"))
+    );
   });
 
   it("requires a scope on a message-family source's coverage row when asked to", () => {
@@ -339,5 +362,53 @@ describe("validateActivityBatch", () => {
   it("reports a bad envelope", () => {
     expect(validateActivityBatch({ schema: 2, events: [] }, { registry, now })).toMatchObject({ ok: false });
     expect(validateActivityBatch(null, { registry, now })).toMatchObject({ ok: false });
+  });
+});
+
+describe("message@1 events inside a batch", () => {
+  const options = {
+    registry,
+    now,
+    scopeRequired: (name: string) => coverageScopeRequiredFor(registry[name as keyof typeof registry])
+  };
+  const msg = (extra: Record<string, unknown> = {}, attrs: Record<string, unknown> = {}) => ({
+    id: "mid:One@example.com",
+    source: "chat",
+    kind: "message",
+    start: "2026-11-07T10:00:00Z",
+    attrs: { message_id: "<One@Example.com>", from: "alex@example.com", ...attrs },
+    ...extra
+  });
+  const chatCov = (scope: string) => ({
+    ...cov({ source: "chat" }, { scope }),
+    id: coverageKey(scope, new Date("2026-11-06T00:00:00Z"), new Date("2026-11-07T00:00:00Z"))
+  });
+
+  it("holds a message row to the family rules and gives it the server-computed fp", () => {
+    const result = validateActivityBatch(body([msg({ content: "Hello there" })]), options);
+    expect(result).toMatchObject({ ok: true, rejected: [] });
+    expect(result.ok && typeof result.accepted[0]!.attrs?.fp).toBe("string");
+    const bad = validateActivityBatch(body([msg({}, { subject_line: "x" })]), options);
+    expect(bad.ok && bad.rejected[0]!.reason).toContain("subject_line");
+  });
+
+  it("lets coverage ride with valid message rows and refuses it beside a rejected one in its source", () => {
+    const good = validateActivityBatch(body([msg(), chatCov("inbox")]), options);
+    expect(good).toMatchObject({ ok: true, rejected: [] });
+    const refused = validateActivityBatch(body([msg({ id: "wrong" }), chatCov("inbox")]), options);
+    expect(refused.ok && refused.rejected.map((r) => r.index)).toEqual([0, 1]);
+    expect(refused.ok && refused.rejected[1]!.reason).toContain("coverage refused: event #0 of chat");
+  });
+
+  it("judges message, heartbeat and coverage rows with scope required for the family", () => {
+    const inputs = judgeActivityEvents([msg(), chatCov("inbox")], {
+      now,
+      live: true,
+      registry,
+      scopeRequired: options.scopeRequired
+    });
+    expect(inputs).toHaveLength(2);
+    const unscoped = validateActivityBatch(body([msg(), cov({ source: "chat" })]), options);
+    expect(unscoped.ok && unscoped.rejected[0]!.reason).toContain("attrs.scope is required");
   });
 });

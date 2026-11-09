@@ -92,7 +92,7 @@ export function schemaOrgName(type: string): string {
   return type.replace(/^(?:https?:\/\/schema\.org\/|schema:)/u, "");
 }
 
-/** The types in `attrs.jsonld`: the bridge writes an array of objects keyed `@type`; one object, or `type`, is tolerated. */
+/** The types in `attrs.jsonld`: the collector writes an array of objects keyed `@type`; one object, or `type`, is tolerated. */
 function jsonldTypes(value: unknown): string[] {
   const items = Array.isArray(value) ? value : [value];
   return items.flatMap((item) => {
@@ -107,8 +107,8 @@ const AUTH_FAILURES = new Set(["fail", "softfail", "permerror"]);
  * Tier T0 of the message classifier: headers and sender only, plain code, no model. `attrs` is a gmail-shaped row's
  * attrs: `list_id`, `auto_submitted`, `has_unsubscribe`, `auth {spf,dkim,dmarc}`, `message_id`, `in_reply_to`,
  * `ics {...}`, `jsonld [{"@type": ...}]`, plus `from`, `from_self` and `subject`. When none of the header inputs is present (empty
- * attrs, a chat source, a bridge that has not parsed headers) the answer is `unknown` with reason `no_headers`, never
- * `person`. In practice `message_id` is the marker that the bridge parsed headers (nearly every mail has one); only
+ * attrs, a chat source, a collector that has not parsed headers) the answer is `unknown` with reason `no_headers`, never
+ * `person`. In practice `message_id` is the marker that the collector parsed headers (nearly every mail has one); only
  * `has_unsubscribe: true` counts, since `false` says nothing. `auth_failed` (fail, softfail, permerror) is a reason
  * only and never changes the class, so a downstream rule must not auto-act on it alone. A guess here would train and act on mail nobody looked at. Strongest class wins: calendar, transaction,
  * automated, bulk, person. Never throws.

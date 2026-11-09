@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { describeDerivedProblem } from "./activity-derived.js";
+import { MESSAGE_FAMILY, describeMessageProblem } from "./activity-message.js";
 import {
   PHYSIOLOGY_KINDS,
   PHYSIOLOGY_SCHEMA_VERSION,
@@ -105,7 +106,7 @@ export const ACTIVITY_COVERAGE_FLOOR = new Date("1990-01-01T00:00:00.000Z");
 export const ACTIVITY_COVERAGE_LIVE_DAYS = 400;
 
 /** The neutral family of message sources. A source in it may always post a heartbeat and a coverage row. */
-export const ACTIVITY_MESSAGE_FAMILY = "message@1";
+export const ACTIVITY_MESSAGE_FAMILY = MESSAGE_FAMILY;
 
 export interface ActivitySourceEntry {
   /** Bumped when the meaning of a source's kinds or attrs changes, so the predictor can tell old rows from new. */
@@ -313,8 +314,8 @@ export function describeWithheldClasses(withheld: Partial<Record<ActivitySourceC
 }
 
 const FAMILY_REF = /^[a-z0-9][a-z0-9-]*@[1-9][0-9]*$/;
-/** Families an extension source may name. Slice 1.3 replaces this with the family registry. */
-export const KNOWN_ACTIVITY_FAMILIES: ReadonlySet<string> = new Set<string>();
+/** Families an extension source may name. Slice 1.3 replaces this with the family registry. `message@1` is the neutral message family (activity-message.ts). */
+export const KNOWN_ACTIVITY_FAMILIES: ReadonlySet<string> = new Set<string>([MESSAGE_FAMILY]);
 
 /** What is wrong with the sources one extension registers, or undefined when they are fine. */
 export function describeExtensionSourceProblem(
@@ -722,6 +723,17 @@ export function validateActivityEvent(
     });
     if (physiologyProblem) return reject(physiologyProblem);
   }
+  if (entry.family === MESSAGE_FAMILY && kind === "message") {
+    const verdict = describeMessageProblem({ id, kind, tsStart, tsEnd, content, attrs });
+    if (!verdict.ok) return reject(verdict.reason);
+    // The tidied attrs and the computed fingerprint (taken from the raw content, before any content gate) are what is stored.
+    attrs = verdict.attrs;
+    const messageBytes = byteLength(JSON.stringify(attrs));
+    if (messageBytes > ACTIVITY_ATTRS_MAX_BYTES)
+      return reject(
+        `attrs is ${messageBytes} bytes; the limit is ${ACTIVITY_ATTRS_MAX_BYTES}. Keep small facts in attrs and put text in content.`
+      );
+  }
   if (content !== null) {
     const contentProblem = describeUnstorableText("content", content);
     if (contentProblem) return reject(contentProblem);
@@ -821,6 +833,14 @@ function describeHeartbeatProblem(
   return undefined;
 }
 
+/**
+ * Characters a scope may not hold: controls and line separators, and the format characters that hide text or reorder it
+ * (the same subset as the agent evidence rule). ZWNJ and ZWJ stay legal: Persian, Arabic and Indic names need them. Scope
+ * is compared exactly and case-sensitively ("Inbox" and "inbox" are two scopes): it is part of the coverage id, so
+ * folding it would silently alias windows a collector keeps apart.
+ */
+const HIDDEN_SCOPE_CHARS = /[\p{Cc}\p{Zl}\p{Zp}\u200B\u2060\uFEFF\u202A-\u202E\u2066-\u2069\u{E0000}-\u{E007F}]/u;
+
 function describeCoverageProblem(
   id: string,
   start: Date,
@@ -855,6 +875,8 @@ function describeCoverageProblem(
     if (scope !== undefined) return "attrs.scope must not be blank: name the account or channel, or leave it out.";
   } else if (typeof scope !== "string" || scope.length > ACTIVITY_COVERAGE_SCOPE_MAX_CHARS)
     return `attrs.scope must be text of 1 to ${ACTIVITY_COVERAGE_SCOPE_MAX_CHARS} characters, or left out.`;
+  else if (HIDDEN_SCOPE_CHARS.test(scope))
+    return "attrs.scope must not contain control, hidden or text-reordering characters (zero-width space, word joiner, byte order mark, bidirectional overrides and isolates, tag characters); name the account or channel in plain text.";
   else if (scope !== scope.trim()) return "attrs.scope must not start or end with spaces. Send it trimmed.";
   const rev = attrs.rev;
   if (rev !== undefined && (typeof rev !== "number" || !Number.isInteger(rev) || rev < 1))
@@ -994,7 +1016,7 @@ export function activityEventsJsonSchema(): Record<string, unknown> {
     $id: "https://openrhen.example/schemas/activity-events.v1.json",
     title: "OpenRhen activity events, version 1",
     description:
-      "The batch body of POST /api/activity-events. It does not describe the single-event shorthand body ({source, kind, start, id?, device?, end?, attrs?, content?}) or the rules that compare fields (end not before start, start not more than 24 hours ahead, attrs under 8 KB, content under 64 KB, offsets within -14:00 to +14:00, no NUL or lone surrogate in text, one source per import); the server states each of those in the rejection text. A time with an offset sets tz_offset_min to that offset (so +00:00 gives 0; Z leaves it unknown). Events of source physiology are also held to physiology-schema.v1.json and its canonical key rule.",
+      "The batch body of POST /api/activity-events. It does not describe the single-event shorthand body ({source, kind, start, id?, device?, end?, attrs?, content?}) or the rules that compare fields (end not before start, start not more than 24 hours ahead, attrs under 8 KB, content under 64 KB, offsets within -14:00 to +14:00, no NUL or lone surrogate in text, one source per import); the server states each of those in the rejection text. A time with an offset sets tz_offset_min to that offset (so +00:00 gives 0; Z leaves it unknown). Events of source physiology are also held to physiology-schema.v1.json and its canonical key rule. Events of a source whose family is message@1 are held to the message rules (closed attrs, the mid: or fp: key, a server-computed attrs.fp).",
     ...(withoutDatePatterns(
       z.toJSONSchema(ingestActivityEventsSchema, { io: "input", unrepresentable: "any" })
     ) as Record<string, unknown>),
