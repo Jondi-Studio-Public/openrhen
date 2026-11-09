@@ -777,6 +777,7 @@ describe("health-class sources withheld from a read", () => {
     expect(page.events.map((row) => row.source)).toEqual(["rhen-watch"]);
     expect(page.withheld).toEqual(health);
     expect(page.withheldNote).toContain("read:activity-health");
+    expect(page.withheldClasses).toEqual({ health: health.length });
   });
 
   it("attaches the notice only when no source was named or the named one is withheld", async () => {

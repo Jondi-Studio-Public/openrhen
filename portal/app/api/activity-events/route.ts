@@ -81,8 +81,9 @@ export const POST = withRoute("/api/activity-events", async (request, _context, 
  * `source_changed`. `as_of` (RFC 3339) reads as the
  * store stood then: rows ingested at or before it, and the derived extractor version that was active at that time.
  * Rows of source `derived` come from the active extractor version only. Content comes back too, so a
- * token needs `read:activity-event`; the owner session may always read. Sources of class `health` (physiology and the
- * legacy health sources) are left out for a token without `read:activity-health`, and named in `withheld`.
+ * token needs `read:activity-event`; the owner session may always read. Sources of a class (`health`: physiology and the
+ * legacy health sources; `whereabouts`) are left out for a token without that class's read scope, and named in `withheld`
+ * with a count per class in `withheldClasses`.
  */
 export const GET = withRoute("/api/activity-events", async (request) => {
   const connectionString = databaseUrl();
@@ -128,7 +129,7 @@ export const GET = withRoute("/api/activity-events", async (request) => {
         asOf: asOf(),
         after: params.get("after") ?? undefined,
         limit,
-        // A database token without read:activity-health does not see health-class sources; the owner and background writers hold no token scopes.
+        // A database token without a class's read scope (read:activity-health, read:activity-whereabouts) does not see that class's sources; the owner and background writers hold no token scopes.
         excludeSources: withheldActivitySources(requestScopes())
       }),
       { headers: { "cache-control": "no-store" } }

@@ -1,6 +1,5 @@
 import {
   ACTIVITY_DEVICES_WINDOW_DAYS,
-  ACTIVITY_HEALTH_SCOPE,
   ACTIVITY_PURGE_BATCH,
   ACTIVITY_READ_DEFAULT_LIMIT,
   ACTIVITY_READ_MAX_LIMIT,
@@ -10,6 +9,8 @@ import {
   DERIVED_EXTRACTOR_KINDS,
   PHYSIOLOGY_SOURCE,
   activityHealthSources,
+  describeWithheldClasses,
+  groupWithheldByClass,
   isKnownActivitySource,
   sanitiseQuoted,
   validateActivityEvent,
@@ -732,7 +733,10 @@ export async function readActivityEvents(sql: Sql, query: ActivityReadQuery): Pr
       ? {}
       : {
           withheld: [...excluded],
-          withheldNote: `These sources hold health data and are left out: this token lacks the ${ACTIVITY_HEALTH_SCOPE} scope. Create a token with --scopes read:activity-event,${ACTIVITY_HEALTH_SCOPE} to read them.`
+          withheldClasses: Object.fromEntries(
+            Object.entries(groupWithheldByClass(excluded)).map(([sourceClass, names]) => [sourceClass, names.length])
+          ),
+          withheldNote: describeWithheldClasses(groupWithheldByClass(excluded))
         })
   };
 }

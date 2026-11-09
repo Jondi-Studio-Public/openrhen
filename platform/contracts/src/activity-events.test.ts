@@ -2,11 +2,17 @@ import { describe, expect, it } from "vitest";
 import {
   ACTIVITY_ATTRS_MAX_BYTES,
   ACTIVITY_CONTENT_MAX_BYTES,
+  ACTIVITY_CLASS_READ_SCOPE,
   ACTIVITY_HEALTH_SCOPE,
+  ACTIVITY_SOURCE_CLASSES,
+  ACTIVITY_WHEREABOUTS_SCOPE,
   ACTIVITY_SOURCES,
   activityEventsJsonSchema,
   activityHealthSources,
   withheldActivitySources,
+  describeWithheldClasses,
+  groupWithheldByClass,
+  withheldActivityClasses,
   activityEnvelopeSchema,
   activityKindsOf,
   activityShorthandSchema,
@@ -74,6 +80,55 @@ describe("the source registry", () => {
     expect(withheldActivitySources(["read:activity-event"])).toEqual(["apple-health", "iphone-health", "physiology"]);
     expect(withheldActivitySources([])).toEqual(["apple-health", "iphone-health", "physiology"]);
     expect(withheldActivitySources(["read:activity-event", ACTIVITY_HEALTH_SCOPE])).toEqual([]);
+  });
+
+  it("has one read scope per class, and both scopes cover themselves only", () => {
+    expect(ACTIVITY_SOURCE_CLASSES).toEqual(["health", "whereabouts"]);
+    expect(ACTIVITY_CLASS_READ_SCOPE).toEqual({
+      health: ACTIVITY_HEALTH_SCOPE,
+      whereabouts: ACTIVITY_WHEREABOUTS_SCOPE
+    });
+    expect(ACTIVITY_WHEREABOUTS_SCOPE).toBe("read:activity-whereabouts");
+    // The health scope does not open whereabouts, and the reverse.
+    expect(withheldActivityClasses(["read:activity-event", ACTIVITY_HEALTH_SCOPE])).toEqual({});
+    expect(withheldActivityClasses(["read:activity-event", ACTIVITY_WHEREABOUTS_SCOPE])).toHaveProperty("health");
+    expect(withheldActivityClasses(undefined)).toEqual({});
+  });
+
+  it.each(ACTIVITY_SOURCE_CLASSES)(
+    "withholds a %s source from a token without that class's scope only",
+    (sourceClass) => {
+      const sourcesOf = (c: string) => (c === sourceClass ? ["fake-source"] : []);
+      const held = ["read:activity-event"];
+      expect(withheldActivityClasses(held, sourcesOf)).toEqual({ [sourceClass]: ["fake-source"] });
+      expect(withheldActivityClasses([...held, ACTIVITY_CLASS_READ_SCOPE[sourceClass]], sourcesOf)).toEqual({});
+      expect(withheldActivityClasses(undefined, sourcesOf)).toEqual({});
+    }
+  );
+
+  it("groups withheld sources by class and words the note from the classes present", () => {
+    expect(groupWithheldByClass(["physiology", "apple-health", "gmail"])).toEqual({
+      health: ["physiology", "apple-health"]
+    });
+    const note = describeWithheldClasses({ health: ["physiology"], whereabouts: ["x"] });
+    expect(note).toContain("health and whereabouts data");
+    expect(note).toContain("--scopes read:activity-event,read:activity-health,read:activity-whereabouts");
+    expect(describeWithheldClasses({ health: ["physiology"] })).toContain("hold health data");
+  });
+
+  it("declares positions, external ids and place hints as data on the existing import entries", () => {
+    expect(ACTIVITY_SOURCES.timeline!.positionInputs).toEqual([
+      { kind: "point", accuracyAttr: "accuracy_m", defaultAccuracyM: 50, snapped: false, mints: true },
+      { kind: "place_visit", defaultAccuracyM: 50, snapped: true, mints: true }
+    ]);
+    expect(ACTIVITY_SOURCES.timeline!.extIdAttrs).toEqual(["place_id"]);
+    expect(ACTIVITY_SOURCES["google-photos"]!.positionInputs!.every((input) => !input.mints)).toBe(true);
+    expect(ACTIVITY_SOURCES["maps-places"]!.placeHints).toEqual({ nameFrom: "name", listAttr: "list" });
+    // Core declares no imported-type attr or value set; a provider's vocabulary is the overlay's.
+    expect(ACTIVITY_SOURCES.timeline!.placeHints).toEqual({ nameFrom: "content-first-line" });
+    // Every declared position kind is a kind the source stores.
+    for (const [name, entry] of Object.entries(ACTIVITY_SOURCES))
+      for (const input of entry.positionInputs ?? []) expect(entry.kinds, name).toContain(input.kind);
   });
 
   it("publishes each source's class in x-sources", () => {
