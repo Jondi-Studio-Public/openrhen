@@ -9,6 +9,17 @@ const EXAMPLE_ADDRESS = /^[a-z0-9._+-]+@example\.test$/;
 /** Fields whose words must come from the lexicon. */
 const WORD_FIELDS = new Set(["title", "quote", "name", "remoteTitleNorm", "localTitleNorm"]);
 
+/** Author's commentary on a case: free prose, so it is held to a length cap (and the address and secret checks) instead. */
+const NOTE_FIELDS = new Set(["note"]);
+export const NOTE_MAX = 200;
+
+/**
+ * Every other string must look like a token (an id, a timestamp, an address, a timezone or an enum
+ * value). The guard is fail-closed: a new field that carries prose is flagged until it is added to
+ * `WORD_FIELDS`, so a free-text field cannot slip past by not being on a list.
+ */
+const TOKEN_VALUE = /^[A-Za-z0-9][A-Za-z0-9._:@+/-]*$/;
+
 /** Patterns of key- and token-shaped strings, built from parts so this file holds no token-shaped literal. */
 const SECRET_PATTERNS: readonly RegExp[] = [
   new RegExp(["-----BEGIN", "[A-Z ]*PRIVATE KEY-----"].join(" ")),
@@ -51,6 +62,10 @@ export function fixtureProblems(fixture: unknown, lexicon: Lexicon, name = "fixt
       for (const word of text.toLowerCase().match(/\p{L}+/gu) ?? []) {
         if (!known.has(word)) problems.push(`${path}: word "${word}" is not in the lexicon`);
       }
+    } else if (key !== null && NOTE_FIELDS.has(key)) {
+      if (text.length > NOTE_MAX) problems.push(`${path}: note longer than ${NOTE_MAX} characters`);
+    } else if (!TOKEN_VALUE.test(text)) {
+      problems.push(`${path}: free text in a field the guard does not read`);
     }
   });
   return problems;
