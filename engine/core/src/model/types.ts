@@ -185,9 +185,8 @@ export interface FixedCommitment extends TimeRange {
   transportMode?: TransportMode;
   /**
    * The slug of a `condition_definitions` row of kind `contact` this commitment is with, when set.
-   * Stored and copied through (including onto
-   * recurrence occurrences); the engine does not rank on it, the portal uses it to offer letting that
-   * contact know.
+   * Stored and copied through (including onto recurrence occurrences); the engine does not rank on
+   * it, the portal uses it to offer letting that contact know.
    */
   contactId?: string;
   /**

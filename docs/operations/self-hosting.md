@@ -111,8 +111,9 @@ These optional variables are read from the service's process environment and eac
 | `PLANNING_RETENTION_PER_USER` | engine-worker | `50` | Superseded planning runs kept per person. |
 | `PLANNING_RETENTION_PROVIDER_TELEMETRY_DAYS` | engine-worker | `7` | Days of provider call telemetry kept. |
 | `PLANNING_RETENTION_INTERVAL_MINUTES` | engine-worker | `60` | Gap between prune runs. |
+| `PLANNING_RETENTION_ENABLED` | engine-worker | `true` | Set to `false` to stop pruning altogether. |
 
-`PLANNING_RETENTION_ENABLED`, `PLANNING_RETENTION_JOB_DAYS` and `PLANNING_RETENTION_RUN_DAYS` are described in [Database and backups](database-and-backups.md#retention-of-planning-evidence).
+`PLANNING_RETENTION_JOB_DAYS` and `PLANNING_RETENTION_RUN_DAYS` are described in [Database and backups](database-and-backups.md#retention-of-planning-evidence).
 
 ## Changing settings on a remote server
 
