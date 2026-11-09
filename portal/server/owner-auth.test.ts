@@ -390,7 +390,9 @@ describe("device token", () => {
       const anonymous = await gate(route, req({}, method), { deps: t.deps });
       expect(anonymous.refusal?.status).toBe(401);
       expect(anonymous.refusal?.headers.get("x-owner-reason")).toBe("device-anonymous");
-      expect(await gate(route, req({ "x-openrhen-device": DEVICE }, method), { deps: t.deps })).toEqual({});
+      expect(await gate(route, req({ "x-openrhen-device": DEVICE }, method), { deps: t.deps })).toEqual({
+        device: true
+      });
       expect(
         (await gate(route, req({ "x-openrhen-owner": "pri_own_x" }, method), { deps: t.deps })).owner
       ).toBeDefined();
@@ -441,6 +443,46 @@ describe("device token", () => {
       expect((await gate(route, req({ "x-openrhen-worker": "w" }, method), { deps: t.deps })).refusal?.status).toBe(
         401
       );
+  });
+
+  describe("onDeviceRefused", () => {
+    const refused = (spy: (reason: "device-invalid" | "device-anonymous") => void, over: Partial<OwnerDeps> = {}) => ({
+      ...store("token", "a").deps,
+      onDeviceRefused: spy,
+      ...over
+    });
+
+    it("hears device-invalid for a wrong token and device-anonymous for no credential", async () => {
+      vi.stubEnv("DEVICE_TOKEN_HASH", hash(DEVICE));
+      const spy = vi.fn();
+      await gate("/api/device/now", req({ "x-openrhen-device": "nope" }, "GET"), { deps: refused(spy) });
+      await gate("/api/device/now", req({}, "GET"), { deps: refused(spy) });
+      expect(spy.mock.calls).toEqual([["device-invalid"], ["device-anonymous"]]);
+    });
+
+    it("stays quiet for an accepted token, an owner credential, a throttled address, shadow mode and other routes", async () => {
+      vi.stubEnv("DEVICE_TOKEN_HASH", hash(DEVICE));
+      const spy = vi.fn();
+      await gate("/api/device/now", req({ "x-openrhen-device": DEVICE }, "GET"), { deps: refused(spy) });
+      await gate("/api/device/now", req({ "x-openrhen-owner": "a" }, "GET"), { deps: refused(spy) });
+      const hot = refused(spy, { throttle: { retryAfter: () => 30, fail: vi.fn() } });
+      await gate("/api/device/now", req({ "x-openrhen-device": "nope" }, "GET"), { deps: hot });
+      await gate("/api/device/now", req({}, "GET"), { mode: "shadow", deps: refused(spy) });
+      await gate("/api/state", req({}, "GET"), { deps: refused(spy) });
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("never lets a failing hook change the refusal", async () => {
+      vi.stubEnv("DEVICE_TOKEN_HASH", hash(DEVICE));
+      const out = await gate("/api/device/now", req({}, "GET"), {
+        deps: refused(
+          vi.fn(() => {
+            throw new Error("hook broke");
+          })
+        )
+      });
+      expect(out.refusal?.status).toBe(401);
+    });
   });
 
   it("shadow reports what require would refuse as a device refusal; off changes nothing", async () => {
