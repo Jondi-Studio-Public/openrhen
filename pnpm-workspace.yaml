@@ -11,3 +11,8 @@ allowBuilds:
 
 verifyDepsBeforeRun: false
 confirmModulesPurge: false
+
+overrides:
+  fflate: 0.7.5
+  uuid: 11.1.1
+  esbuild@0.18.20: 0.25.12
