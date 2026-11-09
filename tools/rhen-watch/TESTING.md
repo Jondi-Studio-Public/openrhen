@@ -231,7 +231,7 @@ Expected: `Uninstalled.` and `Your data is kept in ...`. Check:
 
 ```powershell
 Test-Path "$env:LOCALAPPDATA\Programs\rhen-watch"          # False
-Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'rhen-watch' -ErrorAction SilentlyContinue   # prints nothing
+Get-CimInstance Win32_StartupCommand | Where-Object Name -eq 'rhen-watch'   # prints nothing: no start-at-logon entry
 Get-Process rhen-watch* -ErrorAction SilentlyContinue      # prints nothing
 Test-Path "$env:LOCALAPPDATA\rhen-watch\activity.db"       # True: plain uninstall keeps your data
 ```
