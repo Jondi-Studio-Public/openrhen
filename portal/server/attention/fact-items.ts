@@ -19,8 +19,8 @@ import type { PoolSql } from "@/server/persistence/postgres/sql-pool";
  * counts pass `quotes: false` and get the same items without it. At most `FACT_ITEMS_MAX` facts are listed, so a
  * count above that is capped (stated limit).
  *
- * Whether a person's status beats Mark's whatever the time is an open design question; it lives in `resolveFactStatus`
- * and the fold, not here, so this read does not change when it is decided.
+ * Which status wins is the fold's rule, not this read's: the latest `valid_from`, a person's over Mark's on a tie, and a
+ * person's status recorded after Mark's winning whatever its `valid_from` (`afterPerson` in `fact-state.ts`).
  */
 export const FACT_ITEMS_MAX = 200;
 

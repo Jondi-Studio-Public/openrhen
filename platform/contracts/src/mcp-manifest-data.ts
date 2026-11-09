@@ -602,8 +602,8 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       properties: {
         room: {
           type: "string",
-          description: "One of captured, calendar, map, kept, compare; default all",
-          enum: ["captured", "calendar", "map", "kept", "compare"]
+          description: "One of captured, calendar, map, kept, compare, facts; default all",
+          enum: ["captured", "calendar", "map", "kept", "compare", "facts"]
         }
       },
       additionalProperties: false
@@ -3181,23 +3181,23 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
     name: "rhen_inbox_act",
     command: "inbox-act",
     description:
-      'Acts on one Inbox item through the same paths as the portal\'s buttons; find ids with rhen_inbox. Confirm only when the owner has said so or the capture\'s own text already holds every field the confirm needs; otherwise ask. room captured: action confirm (id; type outcome | project | action | fixed_commitment | deliverable | someday | reference; set ["title=...","areaId=..."] for draft fields; answer ["field=text"] for each open question; tentative: true for a maybe commitment) or ignore. room kept: reopen (back to Needs review) or drop. room map: link (id, decision confirm | reject | remove), links-bulk (proposer, kind) or finding (id, decision accept | dismiss). Calendar imports are the owner\'s, in Inbox > Calendar. Returns the result; rhen_undo reverses a confirm (ignore and the other actions cannot be undone). WRITES DATA.',
+      'Acts on one Inbox item through the same paths as the portal\'s buttons; find ids with rhen_inbox. Confirm only when the owner has said so or the capture\'s own text already holds every field the confirm needs; otherwise ask. room captured: action confirm (id; type outcome | project | action | fixed_commitment | deliverable | someday | reference; set ["title=...","areaId=..."] for draft fields; answer ["field=text"] for each open question; tentative: true for a maybe commitment) or ignore. room kept: reopen (back to Needs review) or drop. room map: link (id, decision confirm | reject | remove), links-bulk (proposer, kind) or finding (id, decision accept | dismiss). room facts: confirm, done, ignore, redate or reopen on a mail item (rhen_inbox facts lists the calls; reopen takes back your own mark). Calendar imports are the owner\'s, in Inbox > Calendar. Returns the result; rhen_undo reverses a captured confirm and any mark in room facts (not the other actions). WRITES DATA.',
     inputSchema: {
       type: "object",
       properties: {
         room: {
           type: "string",
           description: "The room; the description names each one.",
-          enum: ["captured", "kept", "map"]
+          enum: ["captured", "kept", "map", "facts"]
         },
         action: {
           type: "string",
           description: "What to do; the description lists the actions for each room.",
-          enum: ["confirm", "ignore", "reopen", "drop", "link", "links-bulk", "finding"]
+          enum: ["confirm", "ignore", "reopen", "drop", "link", "links-bulk", "finding", "done", "redate"]
         },
         id: {
           type: "string",
-          description: "The item's id, from rhen_inbox (capture, submission, link or finding)."
+          description: "The item's id, from rhen_inbox (capture, submission, link, finding or mail item)."
         },
         decision: {
           type: "string",
@@ -3213,7 +3213,8 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
           items: {
             type: "string"
           },
-          description: "confirm: a draft field as `key=value` (title, areaId, projectId, startsAt, ...), repeatable."
+          description:
+            "confirm: a draft field as `key=value` (title, areaId, projectId, startsAt, ...), repeatable; facts: days=N or when=ISO."
         },
         answer: {
           type: "array",

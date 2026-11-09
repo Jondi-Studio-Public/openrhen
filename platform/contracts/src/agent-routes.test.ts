@@ -18,6 +18,27 @@ import { planningEntityCommandSchema } from "./planning/commands.js";
 
 const entity = (entityType: string, entity: Record<string, unknown> = {}) => ({ entityType, entity });
 
+describe("scopesForRoute: marks on open mail facts (slice 2b-9)", () => {
+  it("classifies a mark with the inbox-act tool's write:inbox and nothing wider, whatever the action", () => {
+    for (const action of ["confirm", "done", "ignore", "redate", "reopen"])
+      expect(scopesForRoute("POST", "/api/facts/[id]", { action }), action).toMatchObject({
+        kind: "scopes",
+        scopes: ["write:inbox"],
+        call: { tool: "inbox-act", room: "facts", action }
+      });
+    expect(scopesForRoute("POST", "/api/facts/[id]", {})).toMatchObject({ kind: "scopes", scopes: ["write:inbox"] });
+  });
+
+  it("does not let a token with only another write scope mark a fact", () => {
+    const decision = scopesForRoute("POST", "/api/facts/[id]", { action: "done" });
+    expect(decision.kind === "scopes" ? decision.scopes : []).not.toContain("write:activity-event");
+  });
+
+  it("lists the open facts under read:plan", () => {
+    expect(scopesForRoute("GET", "/api/facts", undefined)).toMatchObject({ kind: "scopes", scopes: ["read:plan"] });
+  });
+});
+
 describe("scopesForRoute: entity writes", () => {
   it("maps every entity type the save_entity schema accepts, so none is unclassified", () => {
     const types = planningEntityCommandSchema.shape.entityType.options as readonly string[];

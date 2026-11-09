@@ -30,7 +30,7 @@ describe("command modules", () => {
       client: { getState: async () => ({ captures: [] }), get: async () => ({}) }
     } as unknown as CommandContext;
     await expect(inbox.run(context, { positionals: ["nope"], values: {} } as never)).rejects.toThrow(
-      /Unknown room "nope". Rooms: captured, calendar, map, kept, compare\./
+      /Unknown room "nope". Rooms: captured, calendar, map, kept, compare, facts\./
     );
   });
 

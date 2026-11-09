@@ -73,6 +73,10 @@ const MAY_NAME_BLIND_TABLES = new Set([
   "portal/server/persistence/postgres/derived-source-gone-store.ts",
   "portal/server/persistence/postgres/eval-report-store.ts",
   "portal/server/persistence/postgres/open-facts-store.ts",
+  // A mark on a mail fact (2b-9) writes derived rows and snapshots them for undo; the change detail shows them.
+  "portal/server/persistence/postgres/fact-act-store.ts",
+  "portal/server/persistence/postgres/write-snapshot.ts",
+  "portal/server/persistence/postgres/agent-change-detail.ts",
   "portal/server/persistence/postgres/extractor-state-store.ts",
   "portal/server/persistence/postgres/derived-settings-store.ts",
   "portal/server/persistence/postgres/derived-model-calls-store.ts",
@@ -216,6 +220,7 @@ describe("watch history is blind to the engine", () => {
     const MAY_USE_ACTIVITY_CODE = new Set([
       "portal/server/persistence/postgres/activity-store.ts",
       "portal/server/persistence/postgres/derived-model-scan-store.ts",
+      "portal/server/persistence/postgres/fact-act-store.ts",
       "portal/server/activity-ingest.ts",
       "portal/app/api/activity-events/route.ts",
       "portal/app/api/activity-events/summary/route.ts",

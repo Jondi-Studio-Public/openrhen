@@ -1,5 +1,6 @@
 import { validateActivityEvent } from "@openrhen/contracts";
 import {
+  afterPerson,
   isOpenStatus,
   resolveFactStatus,
   statusEventKey,
@@ -125,20 +126,29 @@ export async function markSourceGoneTx(
     endOf.set(fact.fact_id, held === undefined || (end !== null && (held === null || end > held)) ? end : held);
   }
   if (endOf.size === 0) return 0;
-  const rows = await tx<{ fact_id: string; status: string; valid_from: string; via: string | null; key: string }[]>`
+  const rows = await tx<
+    { fact_id: string; status: string; valid_from: string; via: string | null; key: string; recorded: Date }[]
+  >`
     SELECT attrs->>'fact_id' AS fact_id, attrs->>'status' AS status, attrs->>'valid_from' AS valid_from,
-           ingested_via AS via, event_key AS key
+           ingested_via AS via, event_key AS key, ingested_at AS recorded
     FROM activity_events
     WHERE user_id = ${userId} AND source = 'derived' AND kind = 'fact_status'
       AND attrs->>'fact_id' IN (SELECT value FROM jsonb_array_elements_text(${idList(tx, [...endOf.keys()])}))`;
-  const byFact = new Map<string, StatusRow[]>();
+  const byFact = new Map<string, (StatusRow & { ingestedAt: string })[]>();
   for (const row of rows) {
     const list = byFact.get(row.fact_id) ?? [];
-    list.push({ status: row.status as FactStatus, validFrom: row.valid_from, actor: actorOf(row.via), key: row.key });
+    list.push({
+      status: row.status as FactStatus,
+      validFrom: row.valid_from,
+      actor: actorOf(row.via),
+      key: row.key,
+      ingestedAt: row.recorded.toISOString()
+    });
     byFact.set(row.fact_id, list);
   }
   const open: string[] = [];
   for (const [factId, end] of endOf)
-    if (isOpenStatus(resolveFactStatus(byFact.get(factId) ?? [], { now, expiresAt: end }).status)) open.push(factId);
+    if (isOpenStatus(resolveFactStatus(afterPerson(byFact.get(factId) ?? []), { now, expiresAt: end }).status))
+      open.push(factId);
   return appendRunnerFactStatusTx(tx, userId, open, "source_gone", now);
 }

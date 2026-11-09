@@ -911,6 +911,7 @@ export function factOpenItem(input: AttentionFactInput): AttentionItem | undefin
     canWrite
       ? `To put it on the plan, call ${TOOL.saveAction} with fields.notes holding the exact words fact_id:${input.factId}; this item then stops listing. Do that only after the owner says yes (askOwner).`
       : "This token cannot write the plan; say the askOwner words once and let the owner decide.",
+    "Open mail items and the marks a token may put on them are listed in rhen_inbox with room facts.",
     askLike
       ? canWrite
         ? `It drops off this list after ${FACT_ASK_AGE_OUT_DAYS} days with no reply. Only if the owner asks you to keep it, save it to the plan as above (${TOOL.saveAction} with fields.notes holding fact_id:${input.factId}), where it stays; otherwise let it drop.`
