@@ -83,7 +83,7 @@ describe("the extension seam", () => {
 });
 
 describe("core push entries", () => {
-  const PUSH = ["iphone-shortcuts", "iphone-health", "rhen-watch", "gmail"];
+  const PUSH = ["iphone-shortcuts", "iphone-health", "rhen-watch", "physiology", "gmail"];
 
   it("each judges a bound agent token, falling back to its rows until a tokenName is set", () => {
     const registry = withoutContractsExtensions(() => dataFlowRegistry());
