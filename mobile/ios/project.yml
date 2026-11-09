@@ -1,0 +1,31 @@
+name: OpenRhen
+options:
+  bundleIdPrefix: org.openrhen
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  OpenRhen:
+    type: application
+    platform: iOS
+    sources: [Sources]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.openrhen.app
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: OpenRhen
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        NSCameraUsageDescription: Take photos for check-ins.
+        NSMicrophoneUsageDescription: Record a spoken line with a check-in.
+        NSLocationWhenInUseUsageDescription: Tell OpenRhen where you are so it can plan the day.
+        NSLocationAlwaysAndWhenInUseUsageDescription: Tell OpenRhen when you arrive or leave a place, even when the app is closed.
+        # App Transport Security stays at its default: https only, no exceptions. The portal is reached
+        # by its https name, and the location token never travels over plain http.
