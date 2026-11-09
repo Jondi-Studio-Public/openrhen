@@ -71,7 +71,7 @@ export function globToRegExp(glob) {
   });
   return new RegExp(`^(?:${sources.join("|")})$`);
 }
-const matcher = (globs = []) => {
+export const matcher = (globs = []) => {
   const regexps = globs.map(globToRegExp);
   return (path) => regexps.some((regexp) => regexp.test(path));
 };
