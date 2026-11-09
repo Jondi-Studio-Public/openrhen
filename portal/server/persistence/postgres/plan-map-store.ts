@@ -528,14 +528,6 @@ export async function bulkConfirm(
   });
 }
 
-/** One add-on's effective mode for one user (`effectiveMode`); an absent row reads as `off`. */
-export async function getSwitchMode(sql: Sql, userId: string, addon: PlanMapAddon): Promise<PlanMapMode> {
-  const rows = await sql<Row<typeof planMapSwitches, "mode">[]>`
-    SELECT mode FROM plan_map_switches WHERE user_id = ${userId} AND addon = ${addon}
-  `;
-  return effectiveMode(addon, rows[0]?.mode);
-}
-
 /** One add-on's effective mode, or null when the person never set it (so an env fallback can apply). */
 export async function findSwitchMode(sql: Sql, userId: string, addon: PlanMapAddon): Promise<PlanMapMode | null> {
   const rows = await sql<Row<typeof planMapSwitches, "mode">[]>`

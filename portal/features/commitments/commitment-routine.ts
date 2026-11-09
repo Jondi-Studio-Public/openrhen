@@ -75,11 +75,6 @@ export function routineProvenance(
   };
 }
 
-/** What the compact chip on a preparation row says, and the title it carries for the long version. */
-export function routineChipText(provenance: RoutineProvenance): { text: string; title: string } {
-  return { text: provenance.short, title: provenance.label };
-}
-
 function ordinal(n: number): string {
   const remainder10 = n % 10,
     remainder100 = n % 100;

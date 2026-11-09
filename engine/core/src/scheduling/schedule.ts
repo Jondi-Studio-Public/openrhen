@@ -2202,17 +2202,3 @@ function completed(projectId: string, deadline: Date, through: Date): ProjectFor
     reasons: ["No remaining work is recorded."]
   };
 }
-export function energyCapacity(slots: PlanningSlot[]): Record<EnergyType, number> {
-  return {
-    high: 0,
-    medium: 0,
-    low: 0,
-    recovery: 0,
-    ...Object.fromEntries(
-      (["high", "medium", "low", "recovery"] as EnergyType[]).map((energy) => [
-        energy,
-        slots.filter((slot) => slot.energy === energy).reduce((sum, slot) => sum + slot.capacityMinutes, 0)
-      ])
-    )
-  };
-}

@@ -84,15 +84,6 @@ export function SearchIcon({ size = 18 }: { size?: number }) {
   );
 }
 
-export function PencilIcon({ size = 18 }: { size?: number }) {
-  return (
-    <Icon size={size}>
-      <path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z" />
-      <path d="M14 8l2.9 2.9" />
-    </Icon>
-  );
-}
-
 export function ChevronIcon({ direction, size = 18 }: { direction: "left" | "right"; size?: number }) {
   return <Icon size={size}>{direction === "left" ? <path d="m15 6-6 6 6 6" /> : <path d="m9 6 6 6-6 6" />}</Icon>;
 }

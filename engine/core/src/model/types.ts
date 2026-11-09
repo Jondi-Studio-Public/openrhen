@@ -174,18 +174,20 @@ export interface FixedCommitment extends TimeRange {
   freedFrom?: Date;
   /**
    * Whether lateness to this commitment matters. Stored and carried on the timeline
-   * (`commitmentTimeline`'s `latenessMatters`, defaulting to `true` when absent); nothing reads it
-   * yet — see the commitment timeline design note.
+   * (`commitmentTimeline`'s `latenessMatters`, defaulting to `true` when absent); the situation
+   * projection reads it to pick the journey caution for the leave-by estimate.
    */
   latenessMatters?: boolean;
   /**
-   * How the person gets to this commitment, when chosen. Stored, not read by the engine yet — see
-   * The commitment timeline design note.
+   * How the person gets to this commitment, when chosen. Stored; the situation projection passes it
+   * to the travel estimate for the journey to this commitment.
    */
   transportMode?: TransportMode;
   /**
    * The slug of a `condition_definitions` row of kind `contact` this commitment is with, when set.
-   * Stored, not read by the engine yet — see the commitment timeline design note.
+   * Stored and copied through (including onto
+   * recurrence occurrences); the engine does not rank on it, the portal uses it to offer letting that
+   * contact know.
    */
   contactId?: string;
   /**
