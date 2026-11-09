@@ -8,6 +8,7 @@ import { planningAttention } from "@/features/plan/planning-attention";
 import { planAnswer } from "@/features/plan/plan-answer";
 import { DecisionsBanner } from "@/features/plan/components/decisions-banner";
 import { TimeAhead } from "@/features/plan/components/time-ahead";
+import { ConsequenceRankCard } from "@/features/plan/components/consequence-rank-card";
 import { AreaOverview } from "@/features/plan/components/area-overview";
 import { PlanEditorSheets } from "@/features/plan/components/plan-editor-sheets";
 import { usePlanEditors } from "@/features/plan/use-plan-editors";
@@ -16,7 +17,7 @@ import styles from "./plan.module.css";
 /**
  * `/plan`, the Areas tab: does the math work, in one sentence. Under it the decisions that stop
  * something being planned, every area as a row that opens `/plan/[areaId]` (where its outcomes,
- * projects and actions live and are edited), and beside them the time ahead. New area opens its
+ * projects and actions live and are edited), and beside them the time ahead. Below the areas, the optional "Rank these four" card. New area opens its
  * editor in a sheet over this page.
  */
 export default function PlanPage() {
@@ -48,6 +49,7 @@ export default function PlanPage() {
             forecasts={forecasts}
             timezone={state.settings.timezone}
           />
+          <ConsequenceRankCard />
         </div>
         <TimeAhead bands={capacityEnvelopes} timezone={state.settings.timezone} />
       </div>

@@ -47,6 +47,7 @@ const REGISTRY_WRITE_TOOLS = [
   "import",
   "inbox-act",
   "propose",
+  "rank",
   "recalculate",
   "reenter",
   "review",
@@ -124,7 +125,7 @@ describe("the write-tool table", () => {
       expect(scope, type).toBeDefined();
       expect(isKnownScope(scope!), scope).toBe(true);
     }
-    expect(AGENT_ENTITY_TYPES).toHaveLength(19);
+    expect(AGENT_ENTITY_TYPES).toHaveLength(20);
   });
   it("resolves the documented examples", () => {
     expect(requiredScopes({ tool: "save", entityType: "commitment" })).toEqual(["write:entity:commitment"]);

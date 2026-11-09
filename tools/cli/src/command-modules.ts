@@ -17,6 +17,8 @@ export interface InboxItemSpec {
   openQuestions?: number | undefined;
   /** The command that acts on it. */
   act?: string | undefined;
+  /** Structured facts the item carries beyond its text (the compare room's group), for JSON output. */
+  data?: Record<string, unknown> | undefined;
 }
 
 /** A room a module adds to `rhen inbox`. Registered rooms list ahead of the core's own rooms. */
