@@ -2,7 +2,7 @@
 
 A small Windows program that records which app was in front, when you were idle, and when the screen was locked or the machine slept, into a database on your own computer. It never sends anything anywhere and it has no network code (CI fails if a network crate is added). The design and its rules are in [Desktop activity agent](../../docs/architecture/desktop-activity-agent.md).
 
-It is visible and stoppable: it runs in a console window you started, `rhen-watch stop` ends it, and `rhen-watch wipe --yes` deletes everything it recorded. It does not hide, autostart, or install a service.
+It is visible and stoppable: a tray icon shows whenever it runs, with Pause and Quit; `rhen-watch stop` ends it; `install` makes it start at logon (listed in Task Manager > Startup) and `uninstall` removes that. `rhen-watch wipe --yes` deletes everything it recorded. It never installs a service.
 
 ## Install
 
@@ -16,7 +16,7 @@ cargo build --release
 
 This copies `rhen-watch.exe` (the command line) and `rhen-watchw.exe` (the same program with no console window) to `%LOCALAPPDATA%\Programs\rhen-watch`, makes the second one start at logon (the Startup tab of Task Manager lists it) and starts it. A tray icon shows while it runs; its menu has Pause or Resume, Open settings (opens the data folder, where `config.toml` and `categories.toml` live), Open data folder and Quit. Pause is recorded as paused time and survives a restart, so a reboot does not silently start recording again. Errors go to `rhen-watch.log` in the data folder.
 
-`rhen-watch.exe uninstall` stops it, removes start-at-logon and the program, and keeps your data; `uninstall --purge` deletes the data too. The build is unsigned, so Windows SmartScreen may warn on first run of a downloaded copy.
+`rhen-watch.exe uninstall` stops it, removes start-at-logon and the program, and keeps your data; `uninstall --purge` deletes the data too (database, config, `rhen-watch.log` and its rotated copy, and the data folder when nothing else is in it). Run it from a copy outside the install folder to remove that folder as well: a program cannot delete itself. The build is unsigned, so Windows SmartScreen may warn on first run of a downloaded copy.
 
 ## Build and run
 
@@ -28,13 +28,15 @@ cargo build --release
 .\target\release\rhen-watch.exe stop             # from another window
 .\target\release\rhen-watch.exe report           # today
 .\target\release\rhen-watch.exe report --day 2026-11-06
+.\target\release\rhen-watch.exe report --from 2026-11-06 --to 2026-11-12   # several days, one after another
+.\target\release\rhen-watch.exe export $env:USERPROFILE\Desktop\activity-copy.db   # safe copy while it runs; never overwrites
 .\target\release\rhen-watch.exe status
 .\target\release\rhen-watch.exe config init      # writes config.toml with every default
 .\target\release\rhen-watch.exe config show      # every setting, its value, and whether it is the default
 .\target\release\rhen-watch.exe config set derive.session_gap_minutes 8   # keeps the file's comments
 .\target\release\rhen-watch.exe categories set foo.exe editor   # label an app (categories.toml)
 .\target\release\rhen-watch.exe categories list --uncategorised # apps with no category yet
-.\target\release\rhen-watch.exe wipe --yes
+.\target\release\rhen-watch.exe wipe --yes     # database, config and log files; keeps the folder
 ```
 
 Data lives in `%LOCALAPPDATA%\rhen-watch` (`activity.db`, `config.toml`, and `categories.toml` once you label an app). The folder is restricted to your user on first run.
@@ -55,18 +57,10 @@ Retention is `permanent` by default; set `[retention] events = 90` (days) to del
 
 ## Games
 
-While an executable from the built-in anti-cheat game list (or `extra_games` in the config) is in front, the agent records only that it was suppressed, not the name, and takes no idle samples. It still has a foreground hook registered, which does nothing but pass a window handle to a thread. Looking up the executable name uses a process list snapshot, not a handle on the game. This is best-effort: if you play a game with kernel anti-cheat, stop the agent first (`rhen-watch stop`) until it has been checked against that game.
+While an executable from the built-in anti-cheat game list (or `extra_games` in the config) is in front, the agent records only that it was suppressed, not the name, and takes no idle samples. It still has a foreground hook registered, which does nothing but pass a window handle to a thread. Looking up the executable name uses a process list snapshot, not a handle on the game. This is best-effort. The agent starts at every logon, so before you play a game that is not on the list, either add its exe name to `extra_games` (`rhen-watch config set extra_games "mygame.exe"`, then restart the agent) or choose Pause in the tray, which survives a reboot, and Resume afterwards. [TESTING.md](TESTING.md) has a step to check your own games against the list.
 
 ## Manual check on a real machine (observation only)
 
-CI proves the code builds and the rules work; only a real Windows session proves the hooks. Run `run --for 300`, then in that time: switch between a few apps, press Win+L and unlock, let the display sleep (or use the power button's sleep), and leave the keyboard alone for over two minutes. Then run `report` and check that: apps and categories look right, the lock and sleep show as their own lines and not as app time, idle is listed, there is a `Gaps` section only if you slept the machine, and `Agent cost` shows well under 1% CPU and under 50 MB. Also, once each (these are what Linux tests cannot prove):
-
-- Press Win+L once and unlock: the report shows a locked interval, no input tallied while locked, and input resumes after unlock.
-- Right-click the tray icon and choose Open settings: Explorer opens the data folder, with `config.toml` and `categories.toml` (if you created one) in it, and nothing else on the machine changes.
-- Type steadily for one minute, with a stopwatch, in one app: `report` shows about a minute of input in "Input" for that day (credit is in 5 s slots, so expect within a few seconds of the minute, not an exact figure).
-- Connect and disconnect a remote desktop session and let the machine sleep and wake: the report shows the remote and suspended time as their own lines, no input is tallied while suspended, and the first poll after resume only sets a baseline. Sleeping also settles whether Rust's `Instant` counts time asleep; note the answer here (the meter does not depend on it: its stall limit and its wall-versus-monotonic check discard such a slot either way).
-- Run `report --day` for a day on the other side of a daylight-saving change from today: the header offset and the clock times match that day's offset, not today's.
-
-Do not do this with a game open. The tool never types, clicks, focuses or closes anything.
+CI proves the code builds and the rules work; only a real Windows session proves the hooks. [TESTING.md](TESTING.md) is the script: install from a normal prompt, a day-1 list where each step has the `report` line to expect, a kill test, an upgrade test, a week run, how to hand the data back, uninstall and purge checks, and the known limits. It never simulates input and never touches other apps. Do not do it with a game open.
 
 `rhen-watch stop` works within the same logon session only; from a remote desktop session use Ctrl+C in the console that is running it. `report` and `status` open the database read-only and are safe to run while the agent records. Closing the console window, logging off or shutting down all stop it cleanly.

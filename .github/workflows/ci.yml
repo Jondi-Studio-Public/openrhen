@@ -327,28 +327,98 @@ jobs:
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked
       - run: cargo build --locked --release
-      # The real Windows binaries on a real runner (a throwaway VM): install, run, stop and remove them, and
-      # check the files and the start-at-logon entry appear and disappear. Observation only.
+      # The testers' download: the two release binaries (TESTING.md step 1). Paths are from the repo root because
+      # `uses` steps ignore the job's working-directory.
+      - name: Upload Windows binaries
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rhen-watch-windows
+          path: |
+            tools/rhen-watch/target/release/rhen-watch.exe
+            tools/rhen-watch/target/release/rhen-watchw.exe
+          if-no-files-found: error
+          retention-days: 30
+      # The real Windows binaries on a real runner (a throwaway VM): install, record, upgrade over a running copy,
+      # kill and restart, export, uninstall and purge. Every native call is checked, because pwsh does not stop
+      # on a non-zero exit by itself. Observation only. The runner may have no interactive desktop, so the only
+      # event that is certain is the agent's own start; the app switches are checked by hand (TESTING.md).
       - name: Install and uninstall smoke
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $built = (Resolve-Path .\target\release\rhen-watch.exe).Path
           $dest = Join-Path $env:LOCALAPPDATA 'Programs\rhen-watch'
-          .\target\release\rhen-watch.exe install
+          $data = Join-Path $env:LOCALAPPDATA 'rhen-watch'
+          $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+
+          # Run a native command, fail on a non-zero exit, show and return its output.
+          function Rw([string]$exe, [string[]]$cmdArgs) {
+            $out = (& $exe @cmdArgs 2>&1 | Out-String)
+            if ($LASTEXITCODE -ne 0) { throw "rhen-watch $cmdArgs failed with exit code ${LASTEXITCODE}: $out" }
+            Write-Host "> rhen-watch $cmdArgs"
+            Write-Host $out
+            return $out
+          }
+          function Wait-Agent([bool]$running, [int]$seconds) {
+            $until = (Get-Date).AddSeconds($seconds)
+            while ((Get-Date) -lt $until) {
+              $s = Rw "$dest\rhen-watch.exe" @('status')
+              if (($s -match 'agent: running') -eq $running) { return }
+              Start-Sleep -Milliseconds 500
+            }
+            throw "the agent did not become running=$running within $seconds s"
+          }
+
+          # 1. Install, and the start-at-logon entry points at the no-console program.
+          Rw $built @('install') | Out-Null
           if (-not (Test-Path "$dest\rhen-watchw.exe")) { throw 'program not installed' }
-          if (-not (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'rhen-watch' -ErrorAction SilentlyContinue)) { throw 'no start-at-logon entry' }
+          $run = (Get-ItemProperty $runKey -Name 'rhen-watch').'rhen-watch'
+          if ($run -ne "`"$dest\rhen-watchw.exe`" run") { throw "unexpected start-at-logon entry: $run" }
+
+          # 2. After about 5 s it has recorded something. Its own start is the one event that is certain.
           Start-Sleep -Seconds 5
-          $status = (& "$dest\rhen-watch.exe" status) -join "`n"
-          Write-Host $status
+          $status = Rw "$dest\rhen-watch.exe" @('status')
           if ($status -notmatch 'agent: running') { throw 'the installed agent is not running' }
-          & "$dest\rhen-watch.exe" report
-          & "$dest\rhen-watch.exe" stop
-          Start-Sleep -Seconds 3
-          if ((& "$dest\rhen-watch.exe" status) -match 'agent: running') { throw 'the agent did not stop' }
-          & "$dest\rhen-watch.exe" uninstall --purge
+          if ($status -notmatch 'database: [\d.]+ MB, (\d+) events' -or [int]$Matches[1] -lt 1) { throw 'the agent recorded no events' }
+          if ($status -notmatch 'last heartbeat: (\d+) s ago' -or [int]$Matches[1] -gt 35) { throw 'no recent heartbeat' }
+          $report = Rw "$dest\rhen-watch.exe" @('report')
+          if ($report -notmatch 'Activity for \d{4}-\d{2}-\d{2}') { throw 'the report has no day heading' }
+          if ($report -match 'Nothing was captured') { throw 'the report shows nothing recorded although the agent runs' }
+
+          # 3. Install again while the agent runs: it must stop the old copy, replace the files and start a new one.
+          $oldPid = (Get-Process rhen-watchw).Id
+          Rw $built @('install') | Out-Null
+          Wait-Agent $true 10
+          $newPid = (Get-Process rhen-watchw).Id
+          if ($newPid -eq $oldPid) { throw 'the running copy was not replaced' }
+          if ((Get-FileHash "$dest\rhen-watchw.exe").Hash -ne (Get-FileHash (Join-Path (Split-Path $built) 'rhen-watchw.exe')).Hash) { throw 'rhen-watchw.exe was not replaced' }
+          if (Get-ChildItem $dest -Filter '*.new') { throw 'a staged .new file was left behind' }
+          Rw "$dest\rhen-watch.exe" @('report') | Out-Null
+
+          # 4. Kill the agent as Task Manager or a power cut would, then start the real binary again.
+          Stop-Process -Name rhen-watchw -Force
+          Wait-Agent $false 15
+          Start-Sleep -Seconds 12   # a gap is recorded only when the agent was down for more than 10 s
+          $restart = Rw "$dest\rhen-watch.exe" @('run', '--for', '5')
+          if ($restart -notmatch 'previous run ended without a clean stop') { throw 'the restart did not notice the kill' }
+          $report = Rw "$dest\rhen-watch.exe" @('report')
+          if ($report -notmatch 'Gaps where nothing is known' -or $report -notmatch 'agent not running') { throw 'the kill left no unknown gap' }
+
+          # 5. Export a copy of the database; a second export to the same file must refuse.
+          $copy = Join-Path $env:RUNNER_TEMP 'rhen-watch-export.db'
+          Remove-Item $copy -ErrorAction SilentlyContinue
+          Rw "$dest\rhen-watch.exe" @('export', $copy) | Out-Null
+          if ((Get-Item $copy).Length -le 0) { throw 'the export is empty' }
+          & "$dest\rhen-watch.exe" export $copy 2>&1 | Out-Null
+          if ($LASTEXITCODE -eq 0) { throw 'export overwrote an existing file' }
+
+          # 6. Uninstall with --purge: program, start-at-logon entry and the whole data folder go.
+          Rw "$dest\rhen-watch.exe" @('uninstall', '--purge') | Out-Null
           if (Test-Path "$dest\rhen-watchw.exe") { throw 'program still installed' }
-          if (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'rhen-watch' -ErrorAction SilentlyContinue) { throw 'start-at-logon entry still set' }
+          if (Get-ItemProperty $runKey -Name 'rhen-watch' -ErrorAction SilentlyContinue) { throw 'start-at-logon entry still set' }
+          if (Test-Path $data) { throw "the data folder is still there: $((Get-ChildItem $data).Name -join ', ')" }
       # The agent records locally and must stay that way: no network crate in its dependency tree.
       - name: No network code
         shell: bash
