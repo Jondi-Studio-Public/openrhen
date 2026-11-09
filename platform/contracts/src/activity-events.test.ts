@@ -363,3 +363,72 @@ describe("validateActivityEvent: impossible times, text Postgres refuses, and pl
     expect(validateActivityEvent(event({ attrs: null }), now)).toMatchObject({ ok: true, event: { attrs: {} } });
   });
 });
+
+describe("gmail calendar attrs (ics event time and JSON-LD dates)", () => {
+  const gmail = (attrs: Record<string, unknown>) =>
+    reason({ id: "g1", source: "gmail", kind: "message", start: "2026-11-07T11:00:00Z", attrs });
+  const ics = (extra: Record<string, unknown>) => gmail({ message_id: "<m@x>", ics: { uid: "u1", ...extra } });
+
+  it("accepts the event time the bridge writes: DATE, UTC and zone-less ISO, a tzid, a status and a summary", () => {
+    expect(ics({ dtstart: "2026-11-13", dtend: "2026-11-14" })).toBeNull();
+    expect(ics({ dtstart: "2026-11-13T02:00:00Z", dtend: "2026-11-13T03:00:00Z", status: "CONFIRMED" })).toBeNull();
+    expect(
+      ics({ dtstart: "2026-11-13T09:00:00", tzid: "Australia/Sydney", status: "TENTATIVE", summary: "Plan" })
+    ).toBeNull();
+    expect(ics({ status: "CANCELLED", sequence: 3, method: "CANCEL", organizer: "boss@org.example" })).toBeNull();
+    expect(gmail({ message_id: "<m@x>" })).toBeNull();
+  });
+
+  it("refuses a start or end that is not one of those three forms, naming the field", () => {
+    for (const bad of ["tomorrow", "2026-11-13T09:00", "20261113T090000Z", "2026-11-13T09:00:00+11:00", 5]) {
+      expect(ics({ dtstart: bad })).toContain("attrs.ics.dtstart");
+      expect(ics({ dtend: bad })).toContain("attrs.ics.dtend");
+    }
+  });
+
+  it("refuses an unknown status, a long tzid and a summary over 200 code points", () => {
+    expect(ics({ status: "DONE" })).toContain("CONFIRMED, TENTATIVE, CANCELLED");
+    expect(ics({ tzid: "x".repeat(65) })).toContain("attrs.ics.tzid");
+    expect(ics({ summary: "x".repeat(201) })).toContain("attrs.ics.summary");
+    expect(ics({ summary: "😀".repeat(200) })).toBeNull();
+  });
+
+  it("checks JSON-LD start and end dates when they are present", () => {
+    expect(
+      gmail({ jsonld: [{ "@type": "Event", startDate: "2026-11-20T19:30:00+11:00", endDate: "2026-11-20" }] })
+    ).toBeNull();
+    expect(gmail({ jsonld: [{ "@type": "Event", startDate: "soon" }] })).toContain("attrs.jsonld[0].startDate");
+    expect(gmail({ jsonld: [{ "@type": "Event", endDate: 4 }] })).toContain("attrs.jsonld[0].endDate");
+    expect(gmail({ jsonld: "x" })).toContain("attrs.jsonld");
+  });
+
+  it("checks auth.dmarc_domain as a lower-case domain when it is present", () => {
+    const auth = (extra: Record<string, unknown>) => gmail({ message_id: "<m@x>", auth: { dmarc: "pass", ...extra } });
+    expect(auth({ dmarc_domain: "example.com" })).toBeNull();
+    expect(auth({ dmarc_domain: "mail.example.co.uk" })).toBeNull();
+    expect(auth({})).toBeNull();
+    for (const bad of [
+      "Example.com",
+      "example",
+      "a@example.com",
+      "",
+      "-a.example.com",
+      `${"a".repeat(64)}.com`,
+      5,
+      null
+    ])
+      expect(auth({ dmarc_domain: bad })).toContain("attrs.auth.dmarc_domain");
+  });
+
+  it("does not look at other sources", () => {
+    expect(
+      reason({
+        id: "d1",
+        source: "discord-package",
+        kind: "message",
+        start: "2026-11-07T11:00:00Z",
+        attrs: { ics: { dtstart: "x" } }
+      })
+    ).toBeNull();
+  });
+});

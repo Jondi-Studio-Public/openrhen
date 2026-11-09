@@ -462,6 +462,31 @@ describe("the fact attrs a 2b extractor writes", () => {
     });
   });
 
+  describe("ics_sequence and ics_organizer", () => {
+    it("takes the ICS SEQUENCE as a whole number from 0 up", () => {
+      for (const ics_sequence of [0, 1, 2147483647]) expect(fact({ ics_uid: "u", ics_sequence })).toBeNull();
+      for (const ics_sequence of [-1, 1.5, "2", null, Number.NaN, 2 ** 31])
+        expect(fact({ ics_uid: "u", ics_sequence }), String(ics_sequence)).toContain("attrs.ics_sequence");
+    });
+    it("takes the organizer as one lower-case address, not text", () => {
+      expect(fact({ ics_uid: "u", ics_organizer: "boss@org.example" })).toBeNull();
+      for (const ics_organizer of [
+        "Boss <boss@org.example>",
+        "BOSS@org.example",
+        "no address",
+        "",
+        "a@b\u0000c",
+        7,
+        "x@".repeat(200)
+      ])
+        expect(fact({ ics_uid: "u", ics_organizer }), String(ics_organizer)).toContain("attrs.ics_organizer");
+    });
+    it("needs the uid they belong to", () => {
+      expect(fact({ ics_sequence: 1 })).toContain("attrs.ics_uid");
+      expect(fact({ ics_organizer: "boss@org.example" })).toContain("attrs.ics_uid");
+    });
+  });
+
   describe("links", () => {
     it("accepts the three relations and no other", () => {
       for (const relation of DERIVED_LINK_RELATIONS)
@@ -562,6 +587,8 @@ describe("the fact attrs a 2b extractor writes", () => {
           "direction",
           "conversation_key",
           "ics_uid",
+          "ics_sequence",
+          "ics_organizer",
           "links",
           "model",
           "review_reason"

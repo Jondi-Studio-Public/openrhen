@@ -1740,3 +1740,10 @@ export type {
 } from "./planning/stretch.js";
 
 export { ARCHIVE_OR_CANCEL_BRIEF, ARCHIVE_OR_CANCEL_FULL } from "./archive-cancel-text.js";
+
+export {
+  GMAIL_ICS_STATUSES,
+  GMAIL_ICS_SUMMARY_MAX_CODE_POINTS,
+  GMAIL_ICS_TZID_MAX_CHARS,
+  describeGmailCalendarProblem
+} from "./gmail-calendar-attrs.js";

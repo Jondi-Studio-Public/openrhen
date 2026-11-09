@@ -17,6 +17,9 @@ import { isOpenStatus, resolveFactStatus, type FactStatus, type StatusActor, typ
  *   - An event or deadline ends at its resolved time (the latest reading's end, else start; an ambiguous time keeps
  *     `AMBIGUOUS_TIME_GRACE_HOURS` more) and, with no resolved time, expires `NO_TIME_HORIZON_DAYS` after its source message.
  *   - A fact message later than the latest closing status (`done`, `cancelled`, `superseded`) reopens the fact.
+ *   - A row with `reviewReason` `unmatched_update` is skipped altogether. A cancel link written by a calendar extractor
+ *     (it carries an `icsUid`; every link is a `cancel`) whose target is not in the read set is an orphan: it is a
+ *     `link`, not a plain fact, so a cancel notice with no time is never listed as an open event.
  *   - A link row closes (`cancel`), moves (`reschedule`) or restarts (`repeat`) its target. It counts only when the
  *     target's message is strictly earlier than the link row's, follows a chain of at most `LINK_CHAIN_MAX` hops, and
  *     is void if the person or Mark closed the link row. A status from the person or Mark always beats a link; the
@@ -69,7 +72,11 @@ export interface FoldFactRow {
   tier?: string | null | undefined;
   /** The extractor version that wrote the row (`attrs.extractor_version`); the higher wins among rows of one tier. */
   extractorVersion?: string | null | undefined;
-  /** The stored review reason. A row held back by the daily cap (`over_cap`) is not shown to readers. */
+  /**
+   * The stored review reason. A row held back by the daily cap (`over_cap`) is not shown to readers. An `unmatched_update`
+   * row (a calendar update or cancel `fact-ics` could not apply) is a review item: it takes no part in the fold, so it is
+   * never listed, never a link target and never the winner of its id.
+   */
   reviewReason?: string | null | undefined;
   sourceEventId?: string | null | undefined;
   conversationKey?: string | null | undefined;
@@ -150,6 +157,9 @@ export interface FactFold {
   /** The instant the fact ages out (null once closed). */
   expiresAt: string | null;
 }
+
+/** A review item the fold leaves out: a calendar update or cancel that applied to nothing. */
+export const UNMATCHED_UPDATE = "unmatched_update";
 
 /** The actor of a fact_status or override row from the server-derived `ingested_via`: null is the person, `extractor:*` an extractor, any other agent is Mark. */
 export function statusActorOf(ingestedVia: string | null): StatusActor {
@@ -320,8 +330,9 @@ export function foldFactStates(input: FoldInput): FactFold[] {
   const winners = new Map<string, FoldFactRow>();
   for (const row of input.facts) {
     if (ms(row.tsStart) === NEG) continue;
-    // A row the daily cap held back is not shown to readers; `low_signal` stays, as uncertain.
-    if (row.reviewReason === "over_cap") continue;
+    // A row the daily cap held back is not shown to readers; `low_signal` stays, as uncertain. An unmatched calendar
+    // update is a review item, not a fact.
+    if (row.reviewReason === "over_cap" || row.reviewReason === UNMATCHED_UPDATE) continue;
     const held = winners.get(row.factId);
     if (held === undefined || better(row, held)) winners.set(row.factId, row);
   }
@@ -433,7 +444,11 @@ export function foldFactStates(input: FoldInput): FactFold[] {
       direction: item.direction,
       tsStart: row.tsStart
     };
-    if (item.isLink && resolvedLinks.has(factId)) {
+    // A calendar cancel whose event is not in the read set (older than the horizon, or removed) hides nothing and has
+    // no time of its own, so it is not shown as an event.
+    const orphanCalendarCancel =
+      item.isLink && !!row.icsUid && (row.links ?? []).every((link) => link.relation === "cancel");
+    if (item.isLink && (resolvedLinks.has(factId) || orphanCalendarCancel)) {
       folds.push({
         ...base,
         recentAt: row.tsStart,

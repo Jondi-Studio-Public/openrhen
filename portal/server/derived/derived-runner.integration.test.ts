@@ -86,7 +86,7 @@ const cursorOf = async () =>
     SELECT cursor, last_ok_at, last_error FROM extractor_state WHERE extractor = 'msg-class-t0' AND active`
   )[0]!;
 const tick = (seconds: number, extra: Parameters<typeof runDerivedTick>[1] = {}) =>
-  runDerivedTick(sql, { now: () => at(seconds), ...extra });
+  runDerivedTick(sql, { now: () => at(seconds), extractors: [msgClassT0], ...extra });
 
 describe("msg-class-t0 runner", () => {
   it("classifies live mail and history, one msg_class row per message, in the fixed extractor name", async () => {

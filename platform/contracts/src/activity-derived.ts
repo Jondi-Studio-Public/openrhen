@@ -98,6 +98,8 @@ export const DERIVED_FACT_ATTR_KEYS = [
   "direction",
   "conversation_key",
   "ics_uid",
+  "ics_sequence",
+  "ics_organizer",
   "links",
   "model",
   "review_reason"
@@ -341,6 +343,32 @@ function checkIcsUid(value: unknown): string | null {
   return null;
 }
 
+/** The SEQUENCE of the ICS part a calendar fact was read from: it orders an update against the event it changes. */
+function checkIcsSequence(value: unknown, attrs: Record<string, unknown>): string | null {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || value > 2147483647)
+    return `attrs.ics_sequence ${shown(value)} is not an ICS SEQUENCE. Send a whole number from 0 to 2147483647, or leave it out.`;
+  return attrs.ics_uid === undefined
+    ? "attrs.ics_uid is missing. attrs.ics_sequence orders updates of one calendar event, so send the event's uid beside it."
+    : null;
+}
+
+const ORGANIZER_ADDRESS = /^[^\s@<>]+@[^\s@<>]+$/;
+
+/** The ORGANIZER address of the ICS part, as the bridge reports it: one lower-case address, never a name or text. */
+function checkIcsOrganizer(value: unknown, attrs: Record<string, unknown>): string | null {
+  if (
+    typeof value !== "string" ||
+    value.length > 254 ||
+    value !== value.toLowerCase() ||
+    CONTROL.test(value) ||
+    !ORGANIZER_ADDRESS.test(value)
+  )
+    return `attrs.ics_organizer ${shown(value)} is not an organizer address. Send one lower-case address of up to 254 characters, such as "boss@org.example", or leave it out.`;
+  return attrs.ics_uid === undefined
+    ? "attrs.ics_uid is missing. attrs.ics_organizer says who owns a calendar event, so send the event's uid beside it."
+    : null;
+}
+
 function checkLinks(attrs: Record<string, unknown>): string | null {
   const links = attrs.links;
   if (!Array.isArray(links) || links.length === 0)
@@ -412,6 +440,8 @@ const FACT_ATTR_CHECKS: ReadonlyArray<[string, (value: unknown, attrs: Record<st
   ["who", (_value, attrs) => checkWho(attrs)],
   ["conversation_key", checkConversationKey],
   ["ics_uid", checkIcsUid],
+  ["ics_sequence", checkIcsSequence],
+  ["ics_organizer", checkIcsOrganizer],
   ["links", (_value, attrs) => checkLinks(attrs)],
   ["model", checkModel],
   ["review_reason", checkReviewReason]

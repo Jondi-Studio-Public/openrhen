@@ -10,6 +10,7 @@ import { scopeCovers } from "./agent-scopes.js";
 import { withoutDatePatterns } from "./agent-sessions.js";
 import { mergedRecord } from "./extensions.js";
 import type { SourceAvailability } from "./signal-availability.js";
+import { describeGmailCalendarProblem } from "./gmail-calendar-attrs.js";
 
 /**
  * The activity store: the ingest contract (schema version 1) every non-plan data source posts through, the source
@@ -104,7 +105,9 @@ export const ACTIVITY_SOURCES: Readonly<Record<string, ActivitySourceEntry>> = {
   steam: { schemaVersion: 1, kinds: ["session"] },
   weather: { schemaVersion: 1, kinds: ["observation"] },
   // attrs: thread_id, gmail_id, from, to[], from_self, direction (in|out), labels[], subject; content is the stripped body (gated).
-  // Discord and notification messages reuse this attrs shape, with thread_id the channel id.
+  // Discord and notification messages reuse this attrs shape, with thread_id the channel id. The bridge's header and
+  // calendar attrs (auth, ics, jsonld, and the ics event time) are described in gmail-calendar-attrs.ts, which also
+  // checks the shape of the event-time names.
   gmail: { schemaVersion: 1, kinds: ["message"] },
   // Rows read out of other events by a versioned reader. msg_class and fact name their source_event_id; fact_status,
   // override and label name a fact_id. A status change is a later fact_status row (rows are never updated). Per-kind
@@ -519,6 +522,10 @@ export function validateActivityEvent(raw: unknown, now: Date): ActivityEventVer
       `attrs is ${attrsBytes} bytes; the limit is ${ACTIVITY_ATTRS_MAX_BYTES}. Keep small facts in attrs and put text in content.`
     );
   const content = rawContent as string | null;
+  if (source === "gmail") {
+    const calendarProblem = describeGmailCalendarProblem(attrs);
+    if (calendarProblem) return reject(calendarProblem);
+  }
   if (source === "derived" || source === "derived-shadow") {
     const derivedProblem = describeDerivedProblem(kind, attrs, content);
     if (derivedProblem) return reject(derivedProblem);

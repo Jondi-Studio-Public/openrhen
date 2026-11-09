@@ -464,14 +464,17 @@ async function readInTransaction(sql: Sql, userId: string, options: EvalReportOp
         problems.push(`${gone.length} label(s) are about mail that has since been deleted and are not scored.`);
       }
       reached = reachedMessages(group.active, group.cursor, read.marks);
-      t0 = {
-        messages: read.windowMessages,
-        resolvedByT0: read.t0.get(`${group.source}\u0000${group.extractor}\u0000${group.version}`) ?? 0
-      };
-      if (read.windowCut)
-        problems.push(
-          `The T0 share is over the newest ${window} messages only; there are more. Pass a larger window to widen it.`
-        );
+      // An extractor that writes no class (fact-ics) has no T0 share: counting its zero classes would read as "nothing resolved".
+      if (known.classifies !== false) {
+        t0 = {
+          messages: read.windowMessages,
+          resolvedByT0: read.t0.get(`${group.source}\u0000${group.extractor}\u0000${group.version}`) ?? 0
+        };
+        if (read.windowCut)
+          problems.push(
+            `The T0 share is over the newest ${window} messages only; there are more. Pass a larger window to widen it.`
+          );
+      }
     }
 
     // This version's fact rows, one per fact id (the latest write).
