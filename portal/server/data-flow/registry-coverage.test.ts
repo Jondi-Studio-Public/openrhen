@@ -32,6 +32,7 @@ import {
   checkR2,
   checkT1,
   checkV1,
+  checkStaleIncidental,
   checkV1Reverse,
   checkV2,
   checkV3
@@ -426,6 +427,7 @@ function allProblems(entries: readonly FlowEntry[]): string[] {
     ...checkD1(entries),
     ...checkV1(entries, closureWrites),
     ...checkV1Reverse(entries, nearWrites),
+    ...checkStaleIncidental(entries, nearWrites),
     ...checkV2(entries, closureText),
     ...checkV3(entries, evidence)
   ];
@@ -512,13 +514,30 @@ describe("coverage of core entry points (PR A2)", () => {
       ]));
   });
 
-  it("keeps the data pages claimed by a reader", () => {
-    const claimed = new Set(core.flatMap((entry) => entry.to.filter((ref) => ref.startsWith("surface:page/"))));
-    for (const page of ["inbox", "photo-checkins", "map", "reports", "doctor", "review", "deliverables"]) {
-      expect([page, claimed.has(`surface:page/${page}`) || claimed.has(`surface:page/inbox/${page}`)]).toEqual([
-        page,
-        true
-      ]);
+  it("keeps the data pages claimed, and the tables behind each view read", () => {
+    const VIEWS: Record<string, { page: string; tables: string[] }> = {
+      "inbox-view": { page: "inbox", tables: ["agent_proposals", "import_batches", "import_records", "catch_up_runs"] },
+      "photo-checkins-view": { page: "photo-checkins", tables: ["photo_checkin", "photo_checkin_settings"] },
+      "plan-map-view": { page: "map", tables: ["plan_subjects", "plan_links", "plan_findings", "plan_map_switches"] },
+      "snapshots-view": { page: "reports", tables: ["issue_snapshots"] },
+      "doctor-view": {
+        page: "doctor",
+        tables: ["integration_sync_runs", "planning_runs", "push_outbox", "pulse_segments"]
+      },
+      "agent-review-view": { page: "review", tables: ["agent_sessions", "agent_proposals", "writes", "write_rows"] },
+      "deliverables-view": {
+        page: "deliverables",
+        tables: ["sources", "source_files", "deliverable_sources", "deliverable_chat_messages"]
+      }
+    };
+    expect(Object.keys(VIEWS)).toHaveLength(7);
+    for (const [id, { page, tables }] of Object.entries(VIEWS)) {
+      const entry = core.find((candidate) => candidate.id === id);
+      expect([id, entry !== undefined]).toEqual([id, true]);
+      const claimed = entry!.to.some((ref) => ref === `surface:page/${page}` || ref === `surface:page/inbox/${page}`);
+      expect([id, claimed]).toEqual([id, true]);
+      expect(entry!.from.length).toBeGreaterThan(0);
+      for (const table of tables) expect([id, entry!.from]).toEqual([id, expect.arrayContaining([`pg:${table}`])]);
     }
   });
 
@@ -529,13 +548,13 @@ describe("coverage of core entry points (PR A2)", () => {
       "rest-activity-read": "the acceptance test: pass-through reads never make a source used",
       "backup-run": "the acceptance test: pass-through reads never make a table used",
       "watch-history-panel": "the acceptance test: youtube-watch-history stays used through the review page",
-      "inbox-view": "the data pages test",
-      "photo-checkins-view": "the data pages test",
-      "plan-map-view": "the data pages test",
-      "snapshots-view": "the data pages test",
-      "doctor-view": "the data pages test",
-      "agent-review-view": "the data pages test",
-      "deliverables-view": "the data pages test"
+      "inbox-view": "the data pages test (page claimed, tables read)",
+      "photo-checkins-view": "the data pages test (page claimed, tables read)",
+      "plan-map-view": "the data pages test (page claimed, tables read)",
+      "snapshots-view": "the data pages test (page claimed, tables read)",
+      "doctor-view": "the data pages test (page claimed, tables read)",
+      "agent-review-view": "the data pages test (page claimed, tables read)",
+      "deliverables-view": "the data pages test (page claimed, tables read)"
     };
     const survivors = core
       .filter((entry) => entry.planned === undefined && !(entry.id in CAUGHT_ELSEWHERE))

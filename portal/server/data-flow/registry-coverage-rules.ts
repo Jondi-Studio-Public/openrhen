@@ -178,6 +178,22 @@ export function checkV1Reverse(
   return problems;
 }
 
+/** An `incidentalWrites` table the entry's closure no longer writes is stale and must go. */
+export function checkStaleIncidental(
+  entries: readonly FlowEntry[],
+  nearWrites: (entry: FlowEntry) => ReadonlySet<string>
+): string[] {
+  const problems: string[] = [];
+  for (const entry of live(entries)) {
+    if (!hasCode(entry) || (entry.incidentalWrites ?? []).length === 0) continue;
+    const written = nearWrites(entry);
+    for (const { table } of entry.incidentalWrites ?? [])
+      if (!written.has(table))
+        problems.push(`${entry.id}: incidentalWrites lists ${table}, which its closure no longer writes`);
+  }
+  return problems;
+}
+
 /** V2: a reader naming `[source=s]` has the literal `"s"` in its closure, or declares `[source=*]` with a note. */
 export function checkV2(entries: readonly FlowEntry[], closureText: (entry: FlowEntry) => string): string[] {
   const problems: string[] = [];

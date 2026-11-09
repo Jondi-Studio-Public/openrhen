@@ -356,6 +356,7 @@ import {
   checkR2,
   checkT1,
   checkV1,
+  checkStaleIncidental,
   checkV1Reverse,
   checkV2,
   checkV3
@@ -454,6 +455,20 @@ describe("coverage rules (A2)", () => {
     const pipe = src("pipe", { role: "pipe", to: ["pg:t5"] });
     const viaPipe = src("b", { code: { paths: ["p.ts"] }, via: ["pipe"] });
     expect(checkV1Reverse([viaPipe, pipe], (x) => (x.id === "b" ? new Set(["t5"]) : new Set()))).toEqual([]);
+  });
+
+  it("stale incidentalWrites: a listed incidental write must still be reached by the closure", () => {
+    const e = src("a", {
+      code: { paths: ["p.ts"] },
+      incidentalWrites: [
+        { table: "t3", reason: "r" },
+        { table: "t9", reason: "r" }
+      ]
+    });
+    expect(checkStaleIncidental([e], () => new Set(["t3", "t1"]))).toEqual([
+      "a: incidentalWrites lists t9, which its closure no longer writes"
+    ]);
+    expect(checkStaleIncidental([e], () => new Set(["t3", "t9"]))).toEqual([]);
   });
 
   it("V2: a source-partition reader names the source in its closure, or [source=*] with a note", () => {

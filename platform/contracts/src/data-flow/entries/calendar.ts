@@ -24,7 +24,7 @@ export const CALENDAR_ENTRIES: readonly FlowEntry[] = [
       loops: ["calendar-sync"]
     },
     from: ["ext:calendar-account"],
-    to: ["pg:calendar_source_selections", "pg:calendar_event_links", "pg:calendar_event_dismissals"],
+    to: ["pg:calendar_source_selections", "pg:calendar_event_links", "pg:calendar_event_dismissals", "pg:commitments"],
     incidentalWrites: [{ table: "integration_sync_runs", reason: "the run record of the sync" }],
     health: { kind: "sync-runs", provider: "google_calendar" }
   }),
@@ -43,10 +43,7 @@ export const CALENDAR_ENTRIES: readonly FlowEntry[] = [
       paths: ["portal/server/imports/calendar-feed-adapter.ts", "portal/server/imports/calendar-sync-providers.ts"]
     },
     from: ["ext:calendar-feed"],
-    incidentalWrites: [
-      { table: "calendar_event_links", reason: "links between feed events and commitments" },
-      { table: "commitments", reason: "a synced event becomes a commitment" }
-    ],
+    to: ["pg:calendar_event_links", "pg:commitments"],
     health: { kind: "sync-runs", provider: "calendar_feed" }
   }),
   flow({
@@ -88,8 +85,7 @@ export const CALENDAR_ENTRIES: readonly FlowEntry[] = [
       { table: "action_cadence_completions", reason: "the cadence completion moves with the occurrence" },
       { table: "action_occurrences", reason: "a lookup updates the occurrence's travel time" },
       { table: "action_recurrence_rules", reason: "a lookup updates the rule's travel time" },
-      { table: "actions", reason: "a lookup updates the action's travel time" },
-      { table: "provider_call_telemetry", reason: "outbound call counts for the provider" }
+      { table: "actions", reason: "a lookup updates the action's travel time" }
     ],
     health: { kind: "telemetry", name: "google" }
   }),
