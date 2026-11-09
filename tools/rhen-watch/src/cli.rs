@@ -618,6 +618,10 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
                     return Err("the hook thread ended".into());
                 }
             }
+            // Work through what is already queued first, so a re-read after a drop sees the state they leave.
+            while let Ok(raw) = rx.try_recv() {
+                run.handle(raw)?;
+            }
             // Mirror the hook thread's drop counter into the runner's.
             dropped.store(win::DROPPED.load(Ordering::Relaxed), Ordering::Relaxed);
             run.tick()?;
