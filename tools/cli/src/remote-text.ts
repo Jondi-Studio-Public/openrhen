@@ -797,8 +797,9 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
         .map((room) => room.remoteDescription ?? "")
         .join("") +
       "room map: link (id, decision confirm | reject | remove), links-bulk (proposer, kind) or finding (id, decision " +
-      "accept | dismiss). Calendar imports are the owner's, in Inbox > Calendar. Returns the result; rhen_undo " +
-      "reverses a confirm (ignore and the other actions cannot be undone)" +
+      "accept | dismiss). room facts: confirm, done, ignore, redate or reopen on a mail item (rhen_inbox facts lists the calls; " +
+      "reopen takes back your own mark). Calendar imports are the owner's, in Inbox > Calendar. Returns the result; " +
+      "rhen_undo reverses a captured confirm and any mark in room facts (not the other actions)" +
       registeredInboxActRooms()
         .flatMap((room) =>
           room.confirmNote ? [`, and ${room.confirmNote.replace("the person's", "the owner's")}`] : []
@@ -808,14 +809,14 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
     params: {
       room: "The room; the description names each one.",
       action: "What to do; the description lists the actions for each room.",
-      id: "The item's id, from rhen_inbox (capture, submission, link or finding).",
+      id: "The item's id, from rhen_inbox (capture, submission, link, finding or mail item).",
       decision: "link: confirm, reject or remove; finding: accept or dismiss.",
       type: "confirm: what the capture becomes.",
-      set: "confirm: a draft field as `key=value` (title, areaId, projectId, startsAt, ...), repeatable.",
+      set: "confirm: a draft field as `key=value` (title, areaId, projectId, startsAt, ...), repeatable; facts: days=N or when=ISO.",
       answer: "An answer as `field=text` to an open question (captured confirm, map finding accept), repeatable."
     },
     enums: {
-      room: () => ["captured", "kept", ...registeredInboxActRooms().map((room) => room.id), "map"],
+      room: () => ["captured", "kept", ...registeredInboxActRooms().map((room) => room.id), "map", "facts"],
       action: () => [
         "confirm",
         "ignore",
@@ -824,7 +825,9 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
         ...registeredInboxActRooms().flatMap((room) => room.actions),
         "link",
         "links-bulk",
-        "finding"
+        "finding",
+        "done",
+        "redate"
       ],
       type: ["outcome", "project", "action", "fixed_commitment", "deliverable", "someday", "reference"]
     }

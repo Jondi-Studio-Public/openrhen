@@ -25,7 +25,8 @@ export function parseEvidence(raw: string | null | undefined): ClaimParse<string
   if (text === undefined || text === "") return { ok: true, value: undefined };
   if (text.length > AGENT_PROPOSAL_EVIDENCE_MAX)
     return { ok: false, reason: `evidence must be at most ${AGENT_PROPOSAL_EVIDENCE_MAX} characters.` };
-  if (/[\p{Cc}\p{Zl}\p{Zp}]/u.test(text)) return { ok: false, reason: "evidence must not contain control characters." };
+  if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(text))
+    return { ok: false, reason: "evidence must not contain control or invisible formatting characters." };
   return { ok: true, value: text };
 }
 

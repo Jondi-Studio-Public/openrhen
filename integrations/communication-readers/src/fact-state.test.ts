@@ -743,3 +743,94 @@ describe("a status's own end (expiresAt) holds an ask open, bounded", () => {
     expect(one({ facts: [stale()], statuses: [hold("confirmed", "soon")] }).state).toBe("expired");
   });
 });
+
+describe("the person's later-recorded status beats Mark's whatever its valid_from (2b-9, B5)", () => {
+  const recorded = (row: FoldStatus, ingestedAt: string): FoldStatus => ({ ...row, ingestedAt });
+  const f = fact("a", { tsStart: ago(5) });
+
+  it("wins when it was recorded after Mark's even though its valid_from is older", () => {
+    const mark = recorded(status("a", "done", ago(1), "mark"), ago(1));
+    // The owner says "keep it" an hour after Mark closed it, dating it to when the mail arrived (client-supplied).
+    const person = recorded(
+      status("a", "confirmed", ago(4), "person"),
+      new Date(Date.parse(ago(1)) + 3_600_000).toISOString()
+    );
+    const r = one({ facts: [f], statuses: [mark, person] });
+    expect(r).toMatchObject({ state: "open", status: "confirmed", actor: "person" });
+  });
+
+  it("does not change what Mark's later-recorded status does: the latest valid_from still wins", () => {
+    const person = recorded(status("a", "confirmed", ago(4), "person"), ago(4));
+    const mark = recorded(status("a", "done", ago(1), "mark"), ago(1));
+    expect(one({ facts: [f], statuses: [person, mark] })).toMatchObject({ state: "closed", actor: "mark" });
+  });
+
+  it("applies to every Mark row recorded before the person's, so an older Mark hold cannot outlive it either", () => {
+    const hold = { ...recorded(status("a", "confirmed", ago(2), "mark"), ago(2)), expiresAt: ahead(10) };
+    const person = recorded(status("a", "cancelled", ago(4), "person"), ago(1));
+    expect(one({ facts: [f], statuses: [hold, person] })).toMatchObject({ state: "closed", status: "cancelled" });
+  });
+
+  it("falls back to the plain rule when a row has no recording time", () => {
+    const person = status("a", "confirmed", ago(4), "person");
+    const mark = status("a", "done", ago(1), "mark");
+    expect(one({ facts: [f], statuses: [person, mark] }).actor).toBe("mark");
+  });
+
+  it("is a rule about Mark, not about extractors: an extractor row recorded earlier still loses to the latest valid_from", () => {
+    const person = recorded(status("a", "confirmed", ago(4), "person"), ago(1));
+    const extractor = recorded(status("a", "source_gone", ago(2), "extractor"), ago(3));
+    expect(one({ facts: [f], statuses: [person, extractor] }).actor).toBe("extractor");
+  });
+});
+
+describe("which row of one fact wins when message time and SEQUENCE tie (2b-6 readers)", () => {
+  const winner = (rows: FoldFactRow[]) =>
+    foldFactStates({ now: NOW, facts: rows }).find((f) => f.factId === id("a"))!.rowKey;
+  const row = (key: string, over: Partial<FoldFactRow>): FoldFactRow => fact("a", { key, tsStart: ago(1), ...over });
+
+  it("t3 beats t2 and t2 beats t0 whatever the keys are (200 random key pairs, either order)", () => {
+    for (let i = 0; i < 200; i += 1) {
+      const [k1, k2] = [`k-${Math.random().toString(16).slice(2)}`, `k-${Math.random().toString(16).slice(2)}`];
+      const t2 = row(k1, { tier: "t2", extractorVersion: "1" });
+      const t3 = row(k2, { tier: "t3", extractorVersion: "1" });
+      expect(winner([t2, t3])).toBe(k2);
+      expect(winner([t3, t2])).toBe(k2);
+      const t0 = row(k1, { tier: "t0", extractorVersion: "1" });
+      expect(winner([t0, t2.key === k1 ? { ...t2, key: k2 } : t2])).toBe(k2);
+    }
+  });
+
+  it("the latest message and the ICS SEQUENCE still come first", () => {
+    const later = row("a-later", { tier: "t0", tsStart: ago(0.5) });
+    expect(winner([later, row("z-t3", { tier: "t3" })])).toBe("a-later");
+    const seq = row("a-seq", { tier: "t0", sequence: 3 });
+    expect(winner([seq, row("z-t3", { tier: "t3", sequence: 2 })])).toBe("a-seq");
+  });
+
+  it("a higher extractor version wins within a tier, numerically (10 over 9, 1.2 over 1.1)", () => {
+    const old = row("z-old", { tier: "t3", extractorVersion: "9" });
+    const next = row("a-new", { tier: "t3", extractorVersion: "10" });
+    expect(winner([old, next])).toBe("a-new");
+    expect(
+      winner([row("z", { tier: "t2", extractorVersion: "1.1" }), row("a", { tier: "t2", extractorVersion: "1.2" })])
+    ).toBe("a");
+    expect(winner([row("z", { tier: "t2", extractorVersion: "1" }), row("a", { tier: "t2" })])).toBe("z");
+  });
+
+  it("a tier outranks a version, and rows with neither keep the key order", () => {
+    expect(
+      winner([row("a", { tier: "t3", extractorVersion: "1" }), row("z", { tier: "t2", extractorVersion: "9" })])
+    ).toBe("a");
+    expect(winner([row("a", {}), row("z", {})])).toBe("z");
+  });
+
+  it("skips a row the daily cap held back, shows low_signal as it is, and drops a fact that has only a capped row", () => {
+    const capped = row("z-capped", { tier: "t3", reviewReason: "over_cap" });
+    const kept = row("a-kept", { tier: "t2" });
+    expect(winner([capped, kept])).toBe("a-kept");
+    expect(foldFactStates({ now: NOW, facts: [capped] })).toHaveLength(0);
+    const low = row("a-low", { tier: "t2", reviewReason: "low_signal" });
+    expect(winner([low])).toBe("a-low");
+  });
+});

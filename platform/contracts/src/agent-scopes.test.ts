@@ -449,6 +449,10 @@ describe("basis and evidence values", () => {
     expect(parseEvidence("a\nb").ok).toBe(false);
     expect(parseEvidence("a\u0000b").ok).toBe(false);
   });
+  it("refuses invisible formatting characters (zero-width and bidi controls) but keeps emoji and accents", () => {
+    for (const bad of ["a\u200bb", "a\u202eb", "a\u2066b", "a\ufeffb"]) expect(parseEvidence(bad).ok, bad).toBe(false);
+    expect(parseEvidence("Café 🙂").ok).toBe(true);
+  });
   it("round-trips non-Latin-1 evidence through the header encoding", () => {
     const quote = "Friday’s fine — 金曜日 🙂";
     expect(parseEvidenceHeader(encodeEvidenceHeader(quote))).toEqual({ ok: true, value: quote });

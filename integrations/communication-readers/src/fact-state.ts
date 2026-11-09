@@ -65,6 +65,12 @@ export interface FoldFactRow {
   ingestedAt?: string | null | undefined;
   /** The ICS SEQUENCE of the source message, when known: the tie-break between rows of one message time. */
   sequence?: number | null | undefined;
+  /** How the fact was read: `t3` over `t2` over `t0` when rows of one message and sentence tie on time. */
+  tier?: string | null | undefined;
+  /** The extractor version that wrote the row (`attrs.extractor_version`); the higher wins among rows of one tier. */
+  extractorVersion?: string | null | undefined;
+  /** The stored review reason. A row held back by the daily cap (`over_cap`) is not shown to readers. */
+  reviewReason?: string | null | undefined;
   sourceEventId?: string | null | undefined;
   conversationKey?: string | null | undefined;
   icsUid?: string | null | undefined;
@@ -74,6 +80,10 @@ export interface FoldFactRow {
 }
 export interface FoldStatus extends StatusRow {
   factId: string;
+  /** The agent that wrote the row (`ingested_via`); null for the person. Carried for the act planner, never read by the fold. */
+  by?: string | null | undefined;
+  /** The `attrs.act` Mark's route stamps (`done`, `ignore`, `confirm`, `reopen`, `redate`); never read by the fold. */
+  act?: string | null | undefined;
   /** When the row was recorded (RFC 3339). `validFrom` is clamped to it: a status cannot take effect before it is said. */
   ingestedAt?: string | null | undefined;
 }
@@ -86,6 +96,9 @@ export interface FoldOverride {
   at: string;
   actor: StatusActor;
   key: string;
+  /** As on `FoldStatus`: who wrote it and which act it was; never read by the fold. */
+  by?: string | null | undefined;
+  act?: string | null | undefined;
 }
 export interface FoldMessage {
   at: string;
@@ -122,6 +135,8 @@ export interface FactFold {
   closedAt: string | null;
   /** Who made the winning fact_status (null when there is none). */
   actor: StatusActor | null;
+  /** The agent that wrote the winning fact_status (`ingested_via`); null for the person, an unnamed row or no status. */
+  actorBy: string | null;
   reopened: boolean;
   /** A link arrived that a status from the person or Mark overrode. */
   updateSeen: boolean;
@@ -221,17 +236,54 @@ const clampedTs = (row: FoldFactRow): number => {
   return recorded !== NEG && recorded < sent ? recorded : sent;
 };
 
-/** One row per fact id: the latest source message, then the higher ICS SEQUENCE, then the greater key. */
+const TIER_RANK: Readonly<Record<string, number>> = { t0: 0, t2: 1, t3: 2 };
+const tierRank = (row: FoldFactRow): number => TIER_RANK[row.tier ?? ""] ?? -1;
+
+/** Dotted versions compared part by part, numbers as numbers ("10" above "9"); a missing version is below any. */
+function compareVersions(a: string | null | undefined, b: string | null | undefined): number {
+  if (!a || !b) return (a ? 1 : 0) - (b ? 1 : 0);
+  const [p, q] = [a.split(/[.-]/), b.split(/[.-]/)];
+  for (let i = 0; i < Math.max(p.length, q.length); i += 1) {
+    const [x, y] = [p[i] ?? "0", q[i] ?? "0"];
+    const numeric = /^\d+$/.test(x) && /^\d+$/.test(y);
+    const order = numeric ? Number(x) - Number(y) : x < y ? -1 : x > y ? 1 : 0;
+    if (order !== 0) return order < 0 ? -1 : 1;
+  }
+  return 0;
+}
+
+/**
+ * One row per fact id: the latest source message, then the higher ICS SEQUENCE, then the higher tier (a later model
+ * reading of the same sentence, t3 over t2 over t0), then the higher extractor version, then the greater key.
+ */
 function better(a: FoldFactRow, b: FoldFactRow): boolean {
   const [x, y] = [clampedTs(a), clampedTs(b)];
   if (x !== y) return x > y;
   const [s, t] = [a.sequence ?? NEG, b.sequence ?? NEG];
   if (s !== t) return s > t;
+  const [u, v] = [tierRank(a), tierRank(b)];
+  if (u !== v) return u > v;
+  const versions = compareVersions(a.extractorVersion, b.extractorVersion);
+  if (versions !== 0) return versions > 0;
   return a.key > b.key;
 }
 
+/**
+ * A person's status recorded after Mark's wins whatever its `valid_from`, which on the owner's raw write is the client's
+ * to choose (any past time is valid): Mark's rows recorded before the person's latest are set aside. A row with no
+ * recording time keeps the plain rule (the latest `valid_from`). Mark's rows recorded after the person's compete as before.
+ */
+export function afterPerson<T extends StatusRow & { ingestedAt?: string | null | undefined }>(rows: readonly T[]): T[] {
+  const latestPerson = rows.reduce(
+    (latest, s) => (s.actor === "person" ? Math.max(latest, ms(s.ingestedAt)) : latest),
+    NEG
+  );
+  if (latestPerson === NEG) return [...rows];
+  return rows.filter((s) => s.actor !== "mark" || ms(s.ingestedAt) === NEG || ms(s.ingestedAt) >= latestPerson);
+}
+
 /** The winning override of one field: the person's over Mark's over an extractor's, then the latest, then the greater key. */
-function winningOverride(rows: readonly FoldOverride[], field: string): FoldOverride | undefined {
+export function winningOverride(rows: readonly FoldOverride[], field: string): FoldOverride | undefined {
   let best: FoldOverride | undefined;
   for (const row of rows) {
     if (row.field !== field) continue;
@@ -268,6 +320,8 @@ export function foldFactStates(input: FoldInput): FactFold[] {
   const winners = new Map<string, FoldFactRow>();
   for (const row of input.facts) {
     if (ms(row.tsStart) === NEG) continue;
+    // A row the daily cap held back is not shown to readers; `low_signal` stays, as uncertain.
+    if (row.reviewReason === "over_cap") continue;
     const held = winners.get(row.factId);
     if (held === undefined || better(row, held)) winners.set(row.factId, row);
   }
@@ -307,7 +361,7 @@ export function foldFactStates(input: FoldInput): FactFold[] {
     // A fact message later than the closing status reopens the fact: those closings no longer count.
     const kept = all.filter((s) => !CLOSING.includes(s.status) || ms(s.validFrom) >= rowTs);
     const reopened = kept.length < all.length;
-    return { resolved: resolveFactStatus(kept, { now: input.now }), reopened };
+    return { resolved: resolveFactStatus(afterPerson(kept), { now: input.now }), reopened };
   };
   const voided = (link: Effective): boolean => {
     const { resolved } = statusFold(link.row.factId, link.ts);
@@ -390,6 +444,7 @@ export function foldFactStates(input: FoldInput): FactFold[] {
         closedBy: null,
         closedAt: null,
         actor: null,
+        actorBy: null,
         reopened: false,
         updateSeen: false,
         repeatedAt: null,
@@ -502,6 +557,7 @@ export function foldFactStates(input: FoldInput): FactFold[] {
       closedBy,
       closedAt,
       actor: winner?.actor ?? null,
+      actorBy: (winner as { by?: string | null } | null)?.by ?? null,
       reopened,
       updateSeen,
       repeatedAt: repeatMs === NEG ? null : iso(repeatMs),

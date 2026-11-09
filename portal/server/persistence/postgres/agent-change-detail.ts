@@ -89,6 +89,8 @@ export const VISIBLE_COLUMNS: Readonly<Record<string, ReadonlySet<string>>> = Ob
     deliverables:
       "project_id title details status external_deadline_at internal_deadline_at uncertainty importance consequence completion_threshold approval_note private",
     areas: "name description status review_interval_days private",
+    // A mail mark: the kind and its closed attrs (fact id, status, valid_from, expires_at, act, basis, the owner's words).
+    activity_events: "kind attrs",
     sessions:
       "action_id target_title status planned_started_at planned_end_at planned_minutes result_note override_reason",
     check_in: "slot_at directive_title status deviation_category deviation_note",

@@ -58,6 +58,24 @@ export const AGENT_ENTRIES: readonly FlowEntry[] = [
     health: { kind: "max", table: "agent_sessions", column: "started_at" }
   }),
   flow({
+    id: "fact-marks",
+    name: "Marks on open mail items",
+    role: "pipe",
+    category: "agent",
+    method: "api-pull",
+    trigger: { kind: "on-request", by: "agent" },
+    code: {
+      paths: [
+        "portal/server/persistence/postgres/fact-act-store.ts",
+        "integrations/communication-readers/src/fact-act.ts"
+      ],
+      routes: ["POST /api/facts/[id]"]
+    },
+    from: ["ext:agent", "pg:activity_events[source=derived]"],
+    to: ["pg:writes"],
+    health: { kind: "none", reason: "written only when an agent marks an item" }
+  }),
+  flow({
     id: "agent-wake",
     name: "Agent wake",
     role: "pipe",

@@ -80,6 +80,8 @@ export const CORE_MCP_ROUTE_TABLE: Record<string, () => Promise<RouteModule>> = 
   "/api/data-flow": () => import("@/app/api/data-flow/route"),
   "/api/doctor": () => import("@/app/api/doctor/route"),
   "/api/events": () => import("@/app/api/events/route"),
+  "/api/facts": () => import("@/app/api/facts/route"),
+  "/api/facts/[id]": () => import("@/app/api/facts/[id]/route"),
   "/api/health/database": () => import("@/app/api/health/database/route"),
   "/api/health/engine": () => import("@/app/api/health/engine/route"),
   "/api/imports": () => import("@/app/api/imports/route"),
