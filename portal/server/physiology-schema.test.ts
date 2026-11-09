@@ -70,23 +70,12 @@ describe("the published physiology JSON Schema", () => {
       `${root}platform/contracts/src/activity-physiology.ts`,
       `${root}docs/operations/posting-physiology-data.md`
     ].map((path) => ({ path, text: readFileSync(path, "utf8").replace(legacy, "") }));
-    const vendors = [
-      "apple",
-      "garmin",
-      "fitbit",
-      "whoop",
-      "oura",
-      "polar",
-      "samsung",
-      "google",
-      "huawei",
-      "amazfit",
-      "coros",
-      "withings",
-      "suunto",
-      "xiaomi",
-      "strava"
-    ];
+    // One list: the device makers live in the vendor-term rule's term file, which only ever grows.
+    const terms = JSON.parse(readFileSync(`${root}scripts/repository/rules/vendor-terms.json`, "utf8")) as {
+      terms: { wider: { deviceMakers: string[] } };
+    };
+    const vendors = terms.terms.wider.deviceMakers;
+    expect(vendors).toEqual(expect.arrayContaining(["apple", "garmin", "oura", "strava"]));
     const pattern = new RegExp(`\\b(?:${vendors.join("|")})\\b`, "i");
     for (const { path, text } of texts) expect(text, path).not.toMatch(pattern);
     // Word boundaries: a longer word that merely contains a vendor name is not a hit.

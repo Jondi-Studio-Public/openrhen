@@ -1,0 +1,53 @@
+{
+  "lane": "docs",
+  "terms": {
+    "total": 209,
+    "files": {
+      "README.md": 1,
+      "docs/README.md": 8,
+      "docs/architecture/activity-store.md": 22,
+      "docs/architecture/overview.md": 1,
+      "docs/architecture/writing-a-connection.md": 14,
+      "docs/operations/database-and-backups.md": 3,
+      "docs/operations/importing-your-data.md": 90,
+      "docs/operations/iphone-shortcuts-feed.md": 16,
+      "docs/operations/location-ping.md": 1,
+      "docs/operations/posting-physiology-data.md": 5,
+      "docs/operations/self-hosting.md": 5,
+      "docs/operations/web-push.md": 3,
+      "docs/product/building-the-plan.md": 18,
+      "docs/product/settings-and-connections.md": 17,
+      "docs/product/user-guide.md": 2,
+      "docs/protocol/versions.md": 3
+    }
+  },
+  "agents": {
+    "total": 12,
+    "files": {
+      "README.md": 1,
+      "SECURITY.md": 1,
+      "docs/operations/self-hosting.md": 10
+    }
+  },
+  "owner": {
+    "total": 3,
+    "files": {
+      "docs/architecture/activity-store.md": 1,
+      "docs/architecture/desktop-activity-agent.md": 1,
+      "docs/architecture/overview.md": 1
+    }
+  },
+  "paths": {
+    "total": 1,
+    "files": {
+      "docs/operations/iphone-shortcuts-feed.md": 1
+    }
+  },
+  "defaults": {
+    "total": 3,
+    "files": {
+      "docs/architecture/writing-a-connection.md": 2,
+      "docs/product/settings-and-connections.md": 1
+    }
+  }
+}

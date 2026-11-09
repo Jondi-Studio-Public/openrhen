@@ -1,0 +1,22 @@
+{
+  "lane": "T",
+  "terms": {
+    "total": 7,
+    "files": {
+      "tools/rhen-watch/src/categories.rs": 6,
+      "tools/rhen-watch/src/tests.rs": 1
+    }
+  },
+  "agents": {
+    "total": 3,
+    "files": {
+      "tools/rhen-watch/src/categories.rs": 3
+    }
+  },
+  "owner": {
+    "total": 1,
+    "files": {
+      "tools/rhen-watch/src/categories.rs": 1
+    }
+  }
+}
