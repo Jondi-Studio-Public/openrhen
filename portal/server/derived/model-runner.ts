@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { MODEL_PROVIDERS } from "@openrhen/contracts";
-import { createModelTransport } from "@/integrations/models/model-proxy-client";
+import { createModelTransport, hostedKeySaved } from "@/integrations/models/model-proxy-client";
 import { lockActivityUser, tryLockActivityUser } from "@/server/persistence/postgres/activity-lock";
 import {
   countModelBackfillBefore,
@@ -9,8 +9,11 @@ import {
   readContentGate,
   readContentHashes,
   readLabelledMessageKeys,
+  readLinkPool,
+  readLowSignalMessages,
   readModelRowsByIds,
   readModelRowsByKeys,
+  readSensitiveSenders,
   readThreadContext,
   scanModelBackfill,
   scanModelForward,
@@ -19,11 +22,12 @@ import {
 import { hostedUsageLast24Hours, recordModelCall } from "@/server/persistence/postgres/derived-model-calls-store";
 import { writeDerivedRowsTx, writeShadowRowsTx } from "@/server/persistence/postgres/derived-write-store";
 import { readDerivedSettings } from "@/server/persistence/postgres/derived-settings-store";
-import { NIL_ID, type Mark } from "@/server/persistence/postgres/derived-scan-store";
+import { NIL_ID, readUserTimeZone, type Mark } from "@/server/persistence/postgres/derived-scan-store";
 import { ensureUser } from "@/server/persistence/postgres/ensure-user";
 import {
   ensureExtractorStateTx,
   readExtractorStateTx,
+  readExtractorStates,
   renewExtractorLease,
   saveExtractorProgressTx
 } from "@/server/persistence/postgres/extractor-state-store";
@@ -37,10 +41,13 @@ import {
   type PolicyState
 } from "./call-policy";
 import type { DerivedSettings } from "./derived-settings";
+import { createHostedChecker, createHostedRuleCheck } from "./hosted-checker";
 import { RETRY_CAP, SETTLE_MS, SKIPPED_IDS_KEPT } from "./derived-runner";
 import type {
   ModelContextMessage,
   ModelExtractContext,
+  ModelLane,
+  ModelLookups,
   ModelExtractor,
   ModelExtractResult,
   ModelFailureOutcome,
@@ -120,11 +127,22 @@ const PROBE = [{ role: "user" as const, content: "Reply with the single word OK.
 export const NOTHING_TO_DO =
   'Nothing to do: no message is waiting and nothing failed. New mail is read by the worker\'s next call; to read now, send POST /api/integrations/derived/model-tick {"trigger":"manual"}; to see what each version has read, GET /api/activity-events/summary?report=eval.';
 
-export const DENY_HOSTED: HostedEligibilityChecker = async () => ({
-  eligible: false,
-  reason:
-    'no hosted-eligibility rule is installed in this build (it arrives with the fact extractor, slice 2b-6), so nothing is sent to the hosted model. No call enables it: until slice 2b-6 an extractor must read with the local tier ({tier:"t2"}) only, so change the extractor, not the settings'
-});
+/** Messages offered to the hosted tier again per run, over and above the batch (a hosted call is a few seconds, a local one can be minutes). */
+export const REOFFER_SLOTS = 3;
+/** After a re-offer was refused at the cap, failed or had no hosted model, the lane rests this long. */
+export const REOFFER_PAUSE_MS = 3_600_000;
+/** Messages already re-offered that the cursor remembers, newest kept. */
+export const REOFFER_KEPT = 5_000;
+/**
+ * Hosted sends a shadow (not active) version may make, as a share of the daily caps, TOTAL across all shadow versions:
+ * a shadow version is only allowed to send while the last 24 hours' sends (everyone's) are under this share, so the
+ * active version always keeps at least 80% of the cap. A version that is no longer the active one keeps running for
+ * `SUPERSEDED_DAYS` after a newer version was promoted, then stops.
+ */
+export const SHADOW_HOSTED_SHARE = 0.2;
+export const SUPERSEDED_DAYS = 7;
+/** Stats keys after which the re-offer lane rests (the message was not judged, so it is not marked done). */
+const REOFFER_RESTS = ["t3_cap", "t3_failed", "t3_refused", "t3_unavailable", "t3_bad_output"] as const;
 
 export interface ModelTickOptions {
   now?: () => Date;
@@ -134,8 +152,13 @@ export interface ModelTickOptions {
   batch?: number;
   extractors?: readonly ModelExtractor[];
   transport?: ModelTransport;
-  /** The hosted-eligibility rule. Absent means nothing is ever sent to the hosted tier. */
+  /**
+   * The hosted-eligibility rule. Absent means the real one (`createHostedChecker`): it denies while no hosted key is
+   * saved or a daily cap is 0, so nothing is sent to the hosted tier until a model, a key and caps are all set.
+   */
   isHostedEligible?: HostedEligibilityChecker;
+  /** Whether a hosted key is saved. Absent means ask the secret store (never reads the key out). */
+  hostedKeySaved?: () => Promise<boolean>;
   sleep?: (ms: number) => Promise<void>;
   policyState?: PolicyState;
   newToken?: () => string;
@@ -168,6 +191,10 @@ export interface ModelExtractorResult {
   failed: number;
   skipped: number;
   noContent: number;
+  /** Named counts the extractor reported over the messages kept this run (grounded and rejected quotes, hosted sends and refusals, ...). */
+  stats: Record<string, number>;
+  /** Messages the model was called for this run, with the tokens (in plus out) and seconds they took: the figures `tokens_per_message` and `seconds_per_message` in the eval report's backfill estimate ask for. */
+  usage: { messages: number; tokens: number; seconds: number };
   /** Messages still to read (live mail after the forward mark, history inside the horizon, or labelled messages for a shadow run). */
   behind: number | null;
   more: boolean;
@@ -214,6 +241,10 @@ interface ModelCursor {
   circuit: Circuit | null;
   models: PinnedModels | null;
   shadow: { done: string[]; evalCount: number };
+  /** Messages already offered to the hosted tier again, and when the lane may next try. */
+  reoffer: { done: string[]; pauseUntil?: string };
+  /** Running totals over every message the model was called for, since this version began. */
+  usage: { messages: number; tokens: number; seconds: number };
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -273,6 +304,20 @@ export function readModelCursor(raw: Record<string, unknown>): ModelCursor {
     lease: readLease(raw.lease),
     circuit,
     models: readPinned(raw.models),
+    reoffer: {
+      done:
+        isRecord(raw.reoffer) && Array.isArray(raw.reoffer.done)
+          ? raw.reoffer.done.filter((item): item is string => typeof item === "string")
+          : [],
+      ...(isRecord(raw.reoffer) && typeof raw.reoffer.pauseUntil === "string"
+        ? { pauseUntil: raw.reoffer.pauseUntil }
+        : {})
+    },
+    usage: {
+      messages: isRecord(raw.usage) && Number.isFinite(raw.usage.messages) ? Number(raw.usage.messages) : 0,
+      tokens: isRecord(raw.usage) && Number.isFinite(raw.usage.tokens) ? Number(raw.usage.tokens) : 0,
+      seconds: isRecord(raw.usage) && Number.isFinite(raw.usage.seconds) ? Number(raw.usage.seconds) : 0
+    },
     shadow: {
       done,
       evalCount:
@@ -363,7 +408,7 @@ const clip = (text: string) => text.slice(0, ERROR_MAX_CHARS);
 const minutes = (ms: number) =>
   ms >= 60_000 ? `${Math.round(ms / 60_000)} minute(s)` : `${Math.round(ms / 1000)} second(s)`;
 
-type Lane = "retry" | "forward" | "backfill" | "eval";
+type Lane = ModelLane;
 interface Item {
   message: ModelSourceRow;
   lane: Lane;
@@ -374,14 +419,24 @@ interface Item {
 interface Plan {
   token: string;
   mode: "active" | "shadow";
+  /** The models this run may use: the pins, with the hosted one dropped unless the saved hosted model is still that very model. */
   pinned: PinnedModels;
+  /** The models the version was pinned to, as stored. */
+  rawPinned: PinnedModels;
   items: Item[];
   labelled: Set<string>;
   settingsDiffer: boolean;
 }
 
+/** What reading one message cost: model calls made, tokens used and milliseconds taken. */
+interface ItemUsage {
+  calls: number;
+  tokens: number;
+  ms: number;
+}
+
 type Executed =
-  | { item: Item; kind: "rows"; rows: unknown[] }
+  | { item: Item; kind: "rows"; rows: unknown[]; stats: Record<string, number>; usage: ItemUsage | null }
   | {
       item: Item;
       kind: "failed";
@@ -404,6 +459,8 @@ const empty = (extractor: ModelExtractor, over: Partial<ModelExtractorResult>): 
   failed: 0,
   skipped: 0,
   noContent: 0,
+  stats: {},
+  usage: { messages: 0, tokens: 0, seconds: 0 },
   behind: null,
   more: false,
   ...over
@@ -454,13 +511,19 @@ async function begin(
       backfill = start;
       patch.backfill = backfill;
     }
-    const pinned = cursor.models ?? {
+    const stored = cursor.models ?? {
       t2: settings.t2Model ? { id: settings.t2Model, digest: null } : null,
       t3: settings.t3Model ? { id: settings.t3Model } : null
     };
-    if (cursor.models === null) patch.models = pinned;
+    if (cursor.models === null) patch.models = stored;
+    // Clearing (or changing) the hosted model in the settings stops hosted sends from EVERY held version: a pin keeps
+    // its hosted model only while the saved one is still that model.
+    const pinned: PinnedModels = {
+      t2: stored.t2,
+      t3: stored.t3 && settings.t3Model === stored.t3.id ? stored.t3 : null
+    };
     const settingsDiffer =
-      (settings.t2Model ?? null) !== (pinned.t2?.id ?? null) || (settings.t3Model ?? null) !== (pinned.t3?.id ?? null);
+      (settings.t2Model ?? null) !== (stored.t2?.id ?? null) || (settings.t3Model ?? null) !== (stored.t3?.id ?? null);
 
     const finish = async (result: ModelExtractorResult, lastError?: string | null) => {
       if (Object.keys(patch).length > 0 || lastError !== undefined)
@@ -559,6 +622,29 @@ async function begin(
         "backfill"
       );
 
+    // Messages whose earlier fact was left `low_signal` are offered to the hosted tier again, newest first, a few a run.
+    // They do not count against the batch (a hosted call is quick) and they rest after a refusal at the cap.
+    if (
+      extractor.reoffer &&
+      pinned.t3 &&
+      (cursor.reoffer.pauseUntil === undefined || new Date(cursor.reoffer.pauseUntil).getTime() <= now.getTime())
+    ) {
+      const again = await readLowSignalMessages(tx, userId, input, {
+        extractor: extractor.name,
+        version: extractor.version,
+        source: mode === "active" ? "derived" : "derived-shadow",
+        reviewReason: extractor.reoffer.reviewReason,
+        excludeKeys: cursor.reoffer.done,
+        limit: REOFFER_SLOTS,
+        notBefore: new Date(now.getTime() - settings.backfillDays * 86_400_000)
+      });
+      for (const row of again)
+        if (!seen.has(row.id)) {
+          seen.add(row.id);
+          items.push({ message: row, lane: "reoffer", texts: [row.content ?? ""] });
+        }
+    }
+
     if (items.length === 0) {
       // An expired circuit with nothing to read is over: the next outage starts again at the shortest pause.
       if (cursor.circuit) patch.circuit = null;
@@ -580,7 +666,7 @@ async function begin(
       expiresAt: new Date(now.getTime() + LEASE_MS).toISOString()
     } satisfies Lease;
     await saveExtractorProgressTx(tx, userId, extractor.name, extractor.version, { cursor: patch });
-    return { plan: { token, mode, pinned, items, labelled, settingsDiffer } };
+    return { plan: { token, mode, pinned, rawPinned: stored, items, labelled, settingsDiffer } };
   });
 }
 
@@ -695,30 +781,53 @@ export async function runModelTick(sql: PoolSql, options: ModelTickOptions = {})
       more: false,
       extractors: [],
       summary:
-        "No model extractor is registered in this build, so the model tick has nothing to run. The fact extractor (fact-llm) arrives with slice 2b-6; until then this is a normal no-op and needs no action."
+        "No model extractor is registered in this build, so the model tick has nothing to run. This is a normal no-op and needs no action."
     };
   const userId = await ensureUser(sql);
   const settings = await readDerivedSettings(sql);
   const now = options.now ?? (() => new Date());
+  // Versions of a model extractor are state rows (saving a different model id makes the next one), each run with its own pins.
+  const held = await readExtractorStates(sql, userId);
+  const running: ModelExtractor[] = [...registered];
+  for (const extractor of registered)
+    if (extractor.forVersion)
+      for (const version of held
+        .filter((state) => state.extractor === extractor.name && state.version !== extractor.version)
+        .map((state) => state.version)
+        .sort((a, b) => Number(a) - Number(b) || (a < b ? -1 : 1)))
+        running.push(extractor.forVersion(version));
+  // The active version first, so it gets the cap and the time before any shadow version; a version superseded for more than a week stops.
+  const rank = (e: ModelExtractor) =>
+    held.some((s) => s.extractor === e.name && s.version === e.version && s.active) ? 0 : 1;
+  const live = running.filter((e) => !isRetired(held, e.name, e.version, now())).sort((a, b) => rank(a) - rank(b));
   const policy: PolicyDeps = {
     transport: options.transport ?? createModelTransport({ sql, userId, localAddress: settings.ollamaUrl }),
     settings,
     usage: () => hostedUsageLast24Hours(sql, userId),
     recordCall: (row) => recordModelCall(sql, userId, row),
-    isHostedEligible: options.isHostedEligible ?? DENY_HOSTED,
+    isHostedEligible:
+      options.isHostedEligible ??
+      createHostedChecker({
+        sql,
+        userId,
+        settings,
+        keySaved: options.hostedKeySaved ?? (() => hostedKeySaved(sql, userId)),
+        input: registered[0]!.input
+      }),
     sleep: options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
     state: options.policyState ?? processPolicyState,
     hosted: MODEL_PROVIDERS.hosted
   };
   const results: ModelExtractorResult[] = [];
-  for (const extractor of registered)
+  for (const extractor of live)
     results.push(
       await runExtractor(sql, userId, extractor, settings, policy, {
         now,
         clock: options.clock ?? Date.now,
         budgetMs: options.budgetMs ?? MODEL_BUDGET_MS,
         batch: options.batch ?? MODEL_BATCH,
-        newToken: options.newToken ?? randomUUID
+        newToken: options.newToken ?? randomUUID,
+        contextCheck: options.isHostedEligible ?? createHostedRuleCheck({ sql, userId, input: registered[0]!.input })
       })
     );
   if (results.every((result) => result.status === "busy")) return { status: "busy" };
@@ -730,12 +839,47 @@ export async function runModelTick(sql: PoolSql, options: ModelTickOptions = {})
   };
 }
 
+/**
+ * Whether a version has been superseded for good: it is not the active one, a NEWER version is active, and that version
+ * was promoted more than `SUPERSEDED_DAYS` ago. Until then the old version keeps shadow-reading so the two can be compared
+ * on the same mail after a promotion; after it, it stops (its rows stay).
+ */
+export function isRetired(
+  held: readonly { extractor: string; version: string; active: boolean; cursor: Record<string, unknown> }[],
+  extractor: string,
+  version: string,
+  now: Date
+): boolean {
+  const mine = held.find((s) => s.extractor === extractor && s.version === version);
+  if (!mine || mine.active) return false;
+  const active = held.find((s) => s.extractor === extractor && s.active);
+  if (!active || !(Number(active.version) > Number(version))) return false;
+  const promotions = Array.isArray(active.cursor.promotions) ? active.cursor.promotions : [];
+  const latest = [...promotions]
+    .reverse()
+    .find(
+      (p): p is { version: string; at: string } =>
+        isRecord(p) && p.version === active.version && typeof p.at === "string"
+    );
+  if (!latest) return false;
+  return now.getTime() - new Date(latest.at).getTime() > SUPERSEDED_DAYS * 86_400_000;
+}
+
 function summarise(r: ModelExtractorResult): string {
   const head = `${r.extractor} v${r.version}${r.mode ? ` (${r.mode})` : ""}: ${r.status}.`;
   if (r.status !== "ok") return `${head} ${r.message}`;
   const counts = `read ${r.read}, wrote ${r.written} row(s), discarded ${r.discarded}, failed ${r.failed}, skipped ${r.skipped}, no text ${r.noContent}`;
   const behind = r.behind === null ? "" : `; behind by ${r.behind} message(s)`;
-  return `${head} ${counts}${behind}. ${r.message}`;
+  const named = Object.entries(r.stats)
+    .filter(([, count]) => count > 0)
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([name, count]) => `${name.replace(/_/gu, " ")} ${count}`);
+  const detail = named.length > 0 ? ` Counts: ${named.join(", ")}.` : "";
+  const cost =
+    r.usage.messages > 0
+      ? ` Model use: ${r.usage.messages} message(s), about ${Math.round(r.usage.tokens / r.usage.messages)} tokens and ${(r.usage.seconds / r.usage.messages).toFixed(1)} s each.`
+      : "";
+  return `${head} ${counts}${behind}.${detail}${cost} ${r.message}`;
 }
 
 interface RunDeps {
@@ -744,6 +888,8 @@ interface RunDeps {
   budgetMs: number;
   batch: number;
   newToken: () => string;
+  /** Chooses the thread context a prompt carries when a hosted tier is in play: the rule only, never the hosted tier's settings. */
+  contextCheck: HostedEligibilityChecker;
 }
 
 async function runExtractor(
@@ -792,6 +938,18 @@ async function work(
   startedAt: Date
 ): Promise<{ result: ModelExtractorResult; behind: BehindArgs | null }> {
   const { pinned, items, mode, token } = plan;
+  // A shadow version spends only a small share of the daily cap (counted against everyone's sends), so it can never starve the active one.
+  const basePolicy = policy;
+  policy =
+    mode === "shadow"
+      ? {
+          ...basePolicy,
+          settings: {
+            t3DailyMessageCap: Math.floor(basePolicy.settings.t3DailyMessageCap * SHADOW_HOSTED_SHARE),
+            t3DailyTokenCap: Math.floor(basePolicy.settings.t3DailyTokenCap * SHADOW_HOSTED_SHARE)
+          }
+        }
+      : basePolicy;
   const target = mode === "active" ? "derived" : "derived-shadow";
   const started = deps.clock();
   const timeLeftMs = () => deps.budgetMs - (deps.clock() - started);
@@ -802,6 +960,7 @@ async function work(
   // a pinned value the host could not confirm this run is never copied into a row.
   let digest: string | null = null;
   let probeOk = false;
+  let probeTokens = 0;
 
   // The tiny first call: it warms the local model (a cold load can take minutes and must not count against any
   // message), reads the digest, and tells a dead host from a bad message before any message is handed over.
@@ -814,6 +973,7 @@ async function work(
       maxTokens: 8,
       withDigest: true
     });
+    if (probe.kind !== "refused") probeTokens = probe.tokens;
     if (probe.kind === "failed" && probe.outcome !== "bad_output") outage = probe.message;
     else {
       probeOk = true;
@@ -833,12 +993,25 @@ async function work(
 
   const executed: Executed[] = [];
   let current: Item | null = null;
+  let spent: ItemUsage = { calls: 0, tokens: 0, ms: 0 };
+  // Each lookup is read on first use and kept for the run, so an extractor that never asks costs no query.
+  const once = <T>(read: () => Promise<T>): (() => Promise<T>) => {
+    let held: Promise<T> | null = null;
+    return () => (held ??= read());
+  };
+  const lookups: ModelLookups = {
+    timeZone: once(() => readUserTimeZone(sql, userId)),
+    sensitiveSenders: once(() => readSensitiveSenders(sql, userId, extractor.input)),
+    linkPool: (conversationKey) => readLinkPool(sql, userId, extractor.input, conversationKey)
+  };
   const context: ModelExtractContext = {
     now: startedAt,
     target,
     pinned,
+    lane: "forward",
+    lookups,
     timeLeftMs,
-    call: (args) => {
+    call: async (args) => {
       const model = args.tier === "t2" ? pinned.t2?.id : pinned.t3?.id;
       const key = current?.message.key ?? "unknown";
       if (!model)
@@ -847,7 +1020,11 @@ async function work(
           reason: "not_eligible" as const,
           message: `This version was pinned without a ${args.tier === "t2" ? "local" : "hosted"} model, so it cannot make a ${args.tier} call, and nothing was sent. Save one with PUT /api/derived-settings {"${args.tier === "t2" ? "t2Model" : "t3Model"}":"<model id>"} (Settings > Mail understanding); the next version is pinned to it.`
         });
-      return callModel(policy, { ...args, model, sourceEventKey: key });
+      const result = await callModel(policy, { ...args, model, sourceEventKey: key });
+      spent.calls += 1;
+      // Every attempt counts, a repair retry and a warm-up included (a refusal sent nothing).
+      if (result.kind !== "refused") spent.tokens += result.tokens;
+      return result;
     }
   };
   let budgetStop = false;
@@ -876,6 +1053,9 @@ async function work(
       )
         break;
       current = item;
+      context.lane = item.lane;
+      spent = { calls: 0, tokens: 0, ms: 0 };
+      const began = deps.clock();
       let reply: ModelExtractResult | { kind: "failed"; outcome: "error"; message: string };
       let thread: ModelContextMessage[] = [];
       try {
@@ -885,7 +1065,7 @@ async function work(
         if (pinned.t3) {
           const kept: ModelContextMessage[] = [];
           for (const c of thread) {
-            const verdict = await policy.isHostedEligible({ sourceEventKey: c.key, model: pinned.t3.id });
+            const verdict = await deps.contextCheck({ sourceEventKey: c.key, model: pinned.t3.id });
             if (verdict.eligible) kept.push(c);
           }
           thread = kept;
@@ -898,8 +1078,15 @@ async function work(
           message: error instanceof Error ? error.message : "The extractor failed."
         };
       }
+      spent.ms = Math.max(0, deps.clock() - began);
       if (reply.kind === "rows") {
-        executed.push({ item, kind: "rows", rows: reply.rows });
+        executed.push({
+          item,
+          kind: "rows",
+          rows: reply.rows,
+          stats: reply.stats ?? {},
+          usage: spent.calls > 0 ? spent : null
+        });
         timeouts = 0;
         continue;
       }
@@ -935,7 +1122,8 @@ async function work(
     budgetStop,
     digest,
     learnedDigest,
-    target
+    target,
+    probeTokens
   });
 }
 
@@ -949,6 +1137,8 @@ interface Finish {
   digest: string | null;
   learnedDigest: string | null;
   target: "derived" | "derived-shadow";
+  /** Tokens the opening call (warm-up and digest) used this run; part of the run's cost, not of any one message's. */
+  probeTokens: number;
 }
 
 /** Phase (c). */
@@ -1010,6 +1200,9 @@ async function complete(
     let backfill = cursor.backfill;
     const evalDone = cursor.shadow.done.slice(0, cursor.shadow.evalCount);
     const liveDone = cursor.shadow.done.slice(cursor.shadow.evalCount);
+    const reofferDone = [...cursor.reoffer.done];
+    let reofferRests = false;
+    const usageTotal = { ...cursor.usage };
 
     const skip = (e: Executed, code: string) => {
       delete retries[e.item.message.id];
@@ -1041,6 +1234,12 @@ async function complete(
     };
     const reached = (e: Executed) => {
       delete retries[e.item.message.id];
+      if (e.item.lane === "reoffer") {
+        // Offered again: final unless the hosted tier could not judge it (cap, failure, no key), which rests the lane.
+        if (e.kind === "rows" && REOFFER_RESTS.some((name) => (e.stats[name] ?? 0) > 0)) reofferRests = true;
+        else if (!reofferDone.includes(e.item.message.key)) reofferDone.push(e.item.message.key);
+        return;
+      }
       if (plan.mode !== "shadow") return;
       const key = e.item.message.key;
       if (plan.labelled.has(key)) {
@@ -1064,8 +1263,18 @@ async function complete(
         continue;
       }
       if (e.kind === "failed") {
-        fail(e, e.code, e.message);
+        if (e.item.lane === "reoffer") {
+          // A re-offer is a second look, not a message owed a read: its failure costs no retry budget and rests the lane.
+          problems.push(`${message.key}: ${redactMailText(e.message, e.item.texts)}`);
+          reofferRests = true;
+        } else fail(e, e.code, e.message);
         continue;
+      }
+      for (const [name, count] of Object.entries(e.stats)) result.stats[name] = (result.stats[name] ?? 0) + count;
+      if (e.usage) {
+        result.usage.messages += 1;
+        result.usage.tokens += e.usage.tokens;
+        result.usage.seconds += e.usage.ms / 1000;
       }
       let refused: string | null = null;
       for (const rowIn of e.rows) {
@@ -1087,14 +1296,26 @@ async function complete(
           refused = error instanceof Error ? error.message : "The store refused the row.";
         }
       }
-      if (refused !== null) fail(e, "row_refused", refused);
+      if (refused !== null && e.item.lane === "reoffer") {
+        problems.push(`${message.key}: ${redactMailText(refused, e.item.texts)}`);
+        reofferRests = true;
+      } else if (refused !== null) fail(e, "row_refused", refused);
       else reached(e);
     }
     result.retried = executed.filter((e) => e.item.lane === "retry").length;
 
+    result.usage.tokens += f.probeTokens;
+    usageTotal.messages += result.usage.messages;
+    usageTotal.tokens += result.usage.tokens;
+    usageTotal.seconds += result.usage.seconds;
     // The lanes are processed in order and a stop leaves the rest unread, so each mark is the last message done.
     const patch: Record<string, unknown> = {
       lease: null,
+      usage: usageTotal,
+      reoffer: {
+        done: reofferDone.slice(-REOFFER_KEPT),
+        pauseUntil: reofferRests ? new Date(now.getTime() + REOFFER_PAUSE_MS).toISOString() : null
+      },
       retries,
       skipped,
       skippedIds,
@@ -1107,7 +1328,7 @@ async function complete(
         evalCount: Math.min(evalDone.length, SHADOW_EVAL_KEPT)
       };
     if (f.learnedDigest !== null && plan.pinned.t2 && f.modelChanged === null)
-      patch.models = { ...plan.pinned, t2: { id: plan.pinned.t2.id, digest: f.learnedDigest } };
+      patch.models = { ...plan.rawPinned, t2: { id: plan.pinned.t2.id, digest: f.learnedDigest } };
 
     let status: ModelExtractorStatus = "ok";
     let message = "";
@@ -1144,7 +1365,7 @@ async function complete(
         );
       if (plan.settingsDiffer)
         notes.push(
-          `The saved model settings differ from this version's pinned models; the pin wins. Nothing to call now: no route creates the next version yet (slice 2b-6 adds it). To make the saved settings match the pin again, send PUT /api/derived-settings {"t2Model":"${plan.pinned.t2?.id ?? ""}"} (and "t3Model" the same way).`
+          `The saved model settings differ from this version's pinned models; the pin wins. Saving the settings already made the next version, pinned to them and inactive: read GET /api/activity-events/summary?report=eval, then promote it with promoteExtractorVersion. To make the saved settings match the pin again, send PUT /api/derived-settings {"t2Model":"${plan.pinned.t2?.id ?? ""}"} (and "t3Model" the same way).`
         );
       message = notes.join(" ");
     }
@@ -1154,7 +1375,8 @@ async function complete(
       lastError
     });
 
-    result.more = useful && (f.budgetStop || plan.items.length >= f.deps.batch);
+    result.more =
+      useful && (f.budgetStop || plan.items.filter((item) => item.lane !== "reoffer").length >= f.deps.batch);
     return {
       result: { ...result, status, message: message === "" ? NOTHING_TO_DO : message },
       behind: {
