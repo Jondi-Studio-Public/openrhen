@@ -14,6 +14,7 @@ pub mod model;
 pub mod paths;
 pub mod platform;
 pub mod report;
+pub mod restart;
 pub mod retention;
 pub mod runner;
 pub mod store;
@@ -29,6 +30,8 @@ mod tests_meter;
 mod tests_offset;
 #[cfg(test)]
 mod tests_report;
+#[cfg(test)]
+mod tests_restart;
 #[cfg(test)]
 mod tests_settings;
 #[cfg(test)]
