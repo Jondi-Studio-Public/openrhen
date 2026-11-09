@@ -490,3 +490,124 @@ fn good_settings_load_and_a_missing_directory_of_files_is_defaults() {
     assert_eq!(catalogue.lookup("foo.exe"), Some("notes"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+fn instant(source: &'static str, kind: &str, ts: i64) -> Op {
+    Op::Instant {
+        source,
+        kind: kind.into(),
+        ts,
+        end: None,
+        attrs: Default::default(),
+    }
+}
+
+fn interval(source: &'static str, kind: &str, from: i64, to: i64) -> Vec<Op> {
+    let id = format!("{source}-{kind}-{from}");
+    vec![
+        Op::Open {
+            id: id.clone(),
+            source,
+            kind: kind.into(),
+            ts: at(from),
+            attrs: Default::default(),
+        },
+        Op::Close { id, ts: at(to) },
+    ]
+}
+
+#[test]
+fn zero_length_intervals_are_not_listed_as_events() {
+    let mut s = busy_day();
+    for (src, kind) in [("foreground", "app"), ("idle", "idle"), ("session", "locked")] {
+        s.store.apply("d", &interval(src, kind, 700, 700), at(0)).unwrap();
+    }
+    let t = s.text();
+    for needle in ["foreground/app", "idle/idle", "session/locked"] {
+        assert!(!t.contains(&format!("{needle}: ")), "{needle} is not an instant: {t}");
+    }
+}
+
+#[test]
+fn instant_events_and_clock_jumps_are_counted() {
+    let mut s = busy_day();
+    s.store
+        .apply(
+            "d",
+            &[
+                instant("agent", "clock_jump", at(700)),
+                instant("agent", "clock_jump", at(701)),
+                instant("session", "logon", at(702)),
+                instant("power", "ac", at(703)),
+                instant("session", "logon", at(24 * 60 + 5)),    // another day
+                instant("session", "logoff", at(0)),             // exactly at `from`: counted
+                instant("session", "unlock_probe", at(24 * 60)), // exactly at `to`: not counted
+            ],
+            at(0),
+        )
+        .unwrap();
+    let t = s.text();
+    assert!(t.contains("Clock jumps backwards: 2"), "{t}");
+    assert!(t.contains("Events:"), "{t}");
+    assert!(t.contains("session/logon: 1"), "{t}");
+    assert!(t.contains("power/ac: 1"), "{t}");
+    assert!(t.contains("agent/start: 1"), "{t}");
+    assert!(!t.contains("agent/clock_jump"), "{t}");
+    assert!(t.contains("session/logoff: 1"), "{t}");
+    assert!(!t.contains("unlock_probe"), "{t}");
+}
+
+#[test]
+fn paused_time_is_its_own_line_and_counts_as_known() {
+    let mut s = busy_day();
+    s.store.apply("d", &interval("agent", "paused", 600, 900), at(0)).unwrap();
+    let t = s.text();
+    assert!(t.contains("Paused (from the tray): 5h 00m"), "{t}");
+    // 901 recorded minutes, 90 watched, 300 paused: still under 80% known, but 300 fewer unknown
+    let unknown_min = |t: &str| -> i64 {
+        let tail = &section(t)[section(t).find("(partial: ").expect("partial note") + 10..];
+        tail.split(' ').next().unwrap().parse().unwrap()
+    };
+    let baseline = busy_day().text();
+    assert_eq!(unknown_min(&baseline) - unknown_min(&t), 300, "{baseline}\n{t}");
+}
+
+#[test]
+fn a_day_paused_from_start_to_end_says_so_instead_of_no_input_data() {
+    let mut s = Setup::new();
+    s.store.apply("d", &[agent_start(at(0))], at(0)).unwrap();
+    s.store.apply("d", &interval("agent", "paused", 0, 1440), at(0)).unwrap();
+    let t = s.text();
+    assert!(section(&t).contains("no input data (agent paused for 24h 00m)"), "{t}");
+}
+
+#[test]
+fn time_the_agent_was_off_is_its_own_line() {
+    let mut s = busy_day();
+    let off = Op::Instant {
+        source: "agent",
+        kind: "off".into(),
+        ts: at(600),
+        end: Some(at(900)),
+        attrs: crate::model::attrs([("reason", json!("agent stopped"))]),
+    };
+    s.store.apply("d", &[off], at(0)).unwrap();
+    let t = s.text();
+    assert!(t.contains("Agent off: 5h 00m"), "{t}");
+    assert!(!t.contains("Gaps where nothing is known"), "{t}");
+}
+
+#[test]
+fn a_short_pause_on_a_day_with_no_input_is_an_also_not_the_reason() {
+    let mut s = Setup::new();
+    s.store.apply("d", &[agent_start(at(0))], at(0)).unwrap();
+    s.store.apply("d", &interval("agent", "paused", 60, 120), at(0)).unwrap();
+    let t = s.text();
+    assert!(section(&t).contains("no input data for this day (also paused 1h 00m)"), "{t}");
+    assert!(!section(&t).contains("agent paused for"), "{t}");
+    s.idle_collector = false;
+    let t = s.text();
+    assert!(
+        section(&t).contains("no input data (idle collector off) (also paused 1h 00m)"),
+        "{t}"
+    );
+}

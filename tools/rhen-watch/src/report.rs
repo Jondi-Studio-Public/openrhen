@@ -117,6 +117,16 @@ pub fn build(store: &Store, input: &ReportInput) -> Result<String, String> {
 
 const WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+/// Kinds written as instants. Everything else is an interval, which can also end up with no length.
+fn is_instant_kind(source: &str, kind: &str) -> bool {
+    matches!(
+        (source, kind),
+        (SRC_SESSION, "logon" | "logoff")
+            | (SRC_POWER, "ac" | "battery")
+            | (SRC_AGENT, "start" | "stop" | "degraded" | "dropped" | "clock_jump")
+    )
+}
+
 fn clock(ts: Ms, tz: &TzOffset) -> String {
     fmt_clock(ts, tz.offset_at(ts))
 }
@@ -169,16 +179,28 @@ fn day_section(facts: &DayFacts, rows: &Rows, input: &ReportInput, uncategorised
     );
     match facts.availability {
         Availability::NoInputData => {
-            let why = if !rows.has_buckets_table {
-                "agent older than this report"
+            let paused = paused_ms(rows, input);
+            // Paused explains the day only when it covers about all of the recorded part of it.
+            let first = rows.day_events.iter().map(|e| e.ts_start).filter(|&t| t >= input.from).min();
+            let recorded = first.map_or(0, |f| input.open_until.min(input.to) - f);
+            let all_paused = paused > 0 && paused * 10 >= recorded * 9;
+            let also = if paused > 0 && !all_paused {
+                format!(" (also paused {})", fmt_duration(paused))
+            } else {
+                String::new()
+            };
+            let why = if all_paused {
+                format!("agent paused for {}", fmt_duration(paused))
+            } else if !rows.has_buckets_table {
+                "agent older than this report".to_string()
             } else if !input.idle_collector {
-                "idle collector off"
+                "idle collector off".to_string()
             } else {
                 // The table exists and the collector is on: nothing was tallied that day.
-                let _ = writeln!(out, "  no input data for this day");
+                let _ = writeln!(out, "  no input data for this day{also}");
                 return out;
             };
-            let _ = writeln!(out, "  no input data ({why})");
+            let _ = writeln!(out, "  no input data ({why}){also}");
             return out;
         }
         Availability::EventsPurged => {
@@ -291,6 +313,23 @@ fn day_section(facts: &DayFacts, rows: &Rows, input: &ReportInput, uncategorised
     out
 }
 
+/// Time in the day the agent was paused from the tray.
+fn paused_ms(rows: &Rows, input: &ReportInput) -> Ms {
+    rows.day_events
+        .iter()
+        .filter(|e| e.source == SRC_AGENT && e.kind == "paused")
+        .filter_map(|e| {
+            clip(
+                e.ts_start,
+                e.ts_end.unwrap_or(input.open_until.max(e.ts_start)),
+                input.from,
+                input.to,
+            )
+        })
+        .map(|s| s.1 - s.0)
+        .sum()
+}
+
 pub fn render(rows: &Rows, input: &ReportInput) -> String {
     let events = rows.day_events;
     let metrics = rows.metrics;
@@ -307,10 +346,23 @@ pub fn render(rows: &Rows, input: &ReportInput) -> String {
     let idle_spans = union(events.iter().filter(|e| e.source == SRC_IDLE).filter_map(span).collect());
     let mut apps: BTreeMap<String, AppTotal> = BTreeMap::new();
     let (mut suppressed, mut unreadable, mut locked, mut asleep, mut display_off, mut remote, mut unknown) = (0, 0, 0, 0, 0, 0, 0);
+    let (mut paused, mut off) = (0, 0);
     let mut gaps: Vec<(Span, String)> = Vec::new();
     let mut instants: BTreeMap<String, usize> = BTreeMap::new();
     let mut clock_jumps = 0;
     for e in events {
+        // An instant has no length, so it cannot be clipped: it counts when it falls inside the day.
+        if e.ts_end == Some(e.ts_start) {
+            // Only kinds that are instants by nature: an interval closed at its own start also has no length.
+            if is_instant_kind(&e.source, &e.kind) && (input.from..input.to).contains(&e.ts_start) {
+                if (e.source.as_str(), e.kind.as_str()) == (SRC_AGENT, "clock_jump") {
+                    clock_jumps += 1;
+                } else {
+                    *instants.entry(format!("{}/{}", e.source, e.kind)).or_default() += 1;
+                }
+            }
+            continue;
+        }
         let Some(s) = span(e) else { continue };
         let len = s.1 - s.0;
         match (e.source.as_str(), e.kind.as_str()) {
@@ -333,11 +385,8 @@ pub fn render(rows: &Rows, input: &ReportInput) -> String {
                 unknown += len;
                 gaps.push((s, e.attrs["reason"].as_str().unwrap_or("unknown").to_string()));
             }
-            (SRC_AGENT, "clock_jump") => clock_jumps += 1,
-            (SRC_IDLE, _) => {}
-            (src, kind) if e.ts_end == Some(e.ts_start) => {
-                *instants.entry(format!("{src}/{kind}")).or_default() += 1;
-            }
+            (SRC_AGENT, "paused") => paused += len,
+            (SRC_AGENT, "off") => off += len,
             _ => {}
         }
     }
@@ -393,6 +442,8 @@ pub fn render(rows: &Rows, input: &ReportInput) -> String {
         ("Remote session", remote),
         ("Suppressed (game in front)", suppressed),
         ("Window unreadable", unreadable),
+        ("Paused (from the tray)", paused),
+        ("Agent off", off),
         ("Unknown (agent not running or machine stalled)", unknown),
     ] {
         if ms > 0 {

@@ -141,6 +141,7 @@ export const ACTIVITY_SOURCES: Readonly<Record<string, ActivitySourceEntry>> = {
       "battery",
       "suppressed",
       "unknown",
+      "off",
       "clock_jump",
       "dropped",
       "paused",

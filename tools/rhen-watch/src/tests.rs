@@ -875,3 +875,133 @@ fn agent_running_follows_the_run_lock() {
     assert!(!crate::cli::agent_running(&dir));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+fn kinds_of(r: &Runner<Fake>) -> Vec<(String, Option<i64>, String)> {
+    r.store()
+        .events_between(0, i64::MAX)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.source == SRC_AGENT)
+        .map(|e| (e.kind, e.ts_end, e.attrs["reason"].as_str().unwrap_or("").to_string()))
+        .collect()
+}
+
+#[test]
+fn a_clean_stop_then_restart_is_recorded_as_off_and_reported_as_nothing() {
+    let now = Rc::new(Cell::new(1_000_000_000_000i64));
+    let mut r = fake(&now, Config::default(), Store::in_memory().unwrap());
+    r.start().unwrap();
+    now.set(now.get() + 5000);
+    r.tick().unwrap();
+    now.set(now.get() + 5000);
+    r.stop().unwrap();
+    let stopped_at = now.get();
+    now.set(stopped_at + 3_600_000);
+    let gap = r.store_mut().recover("d", now.get()).unwrap();
+    assert_eq!(gap, None, "a clean stop is not a crash");
+    let off: Vec<_> = kinds_of(&r).into_iter().filter(|k| k.0 == "off" || k.0 == "unknown").collect();
+    assert_eq!(off, vec![("off".to_string(), Some(now.get()), "agent stopped".to_string())]);
+    // The next start clears the marker, so a crash after it is not mistaken for a clean stop.
+    r.start().unwrap();
+    assert_eq!(r.store().meta("clean_stop").unwrap().as_deref(), Some(""));
+}
+
+#[test]
+fn a_crash_is_still_unknown_and_reported() {
+    let now = Rc::new(Cell::new(1_000_000_000_000i64));
+    let mut r = fake(&now, Config::default(), Store::in_memory().unwrap());
+    r.start().unwrap();
+    now.set(now.get() + 5000);
+    r.tick().unwrap();
+    // no stop: the process dies
+    let died = now.get();
+    now.set(died + 3_600_000);
+    let gap = r.store_mut().recover("d", now.get()).unwrap();
+    assert!(gap.is_some());
+    assert!(kinds_of(&r).iter().any(|k| k.0 == "unknown" && k.2 == "agent not running"));
+    // A clean stop, a restart and then a crash is a crash.
+    r.start().unwrap();
+    now.set(now.get() + 5000);
+    r.stop().unwrap();
+    now.set(now.get() + 1000);
+    r.start().unwrap();
+    now.set(now.get() + 5000);
+    r.tick().unwrap();
+    now.set(now.get() + 3_600_000);
+    assert!(r.store_mut().recover("d", now.get()).unwrap().is_some());
+}
+
+#[test]
+fn the_start_row_carries_the_settings_the_run_used() {
+    let now = Rc::new(Cell::new(1_000_000_000_000i64));
+    let cfg =
+        Config::parse("idle_threshold_secs = 300\nextra_games = [\"foo.exe\"]\n[collectors]\npower = false\n[retention]\nevents = 30\n")
+            .unwrap();
+    let mut r = fake(&now, cfg, Store::in_memory().unwrap());
+    r.set_categories("degraded");
+    r.start().unwrap();
+    let rows = r.store().events_between(0, i64::MAX).unwrap();
+    let a = &rows.iter().find(|e| e.kind == "start").unwrap().attrs;
+    assert_eq!(a["idle_threshold_secs"], 300);
+    assert_eq!(
+        a["collectors"],
+        json!({"foreground": true, "idle": true, "session": true, "power": false})
+    );
+    assert_eq!(
+        a["retention"],
+        json!({"events": 30, "metrics": "permanent", "input_buckets": "permanent"})
+    );
+    assert_eq!(a["extra_games_count"], 1);
+    assert!(a.get("extra_games").is_none(), "game names are never recorded: {a}");
+    assert_eq!(a["categories"], "degraded");
+}
+
+#[test]
+fn a_stop_after_a_panic_is_not_a_clean_stop() {
+    let now = Rc::new(Cell::new(1_000_000_000_000i64));
+    let mut r = fake(&now, Config::default(), Store::in_memory().unwrap());
+    r.start().unwrap();
+    now.set(now.get() + 5000);
+    r.tick().unwrap();
+    now.set(now.get() + 5000);
+    r.stop_after_panic().unwrap();
+    now.set(now.get() + 3_600_000);
+    let gap = r.store_mut().recover("d", now.get()).unwrap();
+    assert!(gap.is_some(), "a panic is reported like a crash");
+    assert!(kinds_of(&r).iter().any(|k| k.0 == "unknown"));
+    assert!(!kinds_of(&r).iter().any(|k| k.0 == "off"));
+    assert!(
+        !kinds_of(&r).iter().any(|k| k.0 == "stop"),
+        "a panic leaves no agent/stop next to the unknown gap"
+    );
+}
+
+#[test]
+fn the_clean_stop_marker_survives_reopening_the_file() {
+    let dir = std::env::temp_dir().join(format!("rhen-watch-marker-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("w.db");
+    let now = Rc::new(Cell::new(1_000_000_000_000i64));
+    let mut r = fake(&now, Config::default(), Store::open(&path).unwrap());
+    r.start().unwrap();
+    now.set(now.get() + 5000);
+    r.stop().unwrap();
+    drop(r);
+    now.set(now.get() + 3_600_000);
+    let mut s = Store::open(&path).unwrap();
+    assert_eq!(s.recover("d", now.get()).unwrap(), None, "the marker is read back from the file");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_clean_stop_gap_of_ten_seconds_or_less_writes_no_row() {
+    let now = Rc::new(Cell::new(1_000_000_000_000i64));
+    let mut r = fake(&now, Config::default(), Store::in_memory().unwrap());
+    r.start().unwrap();
+    now.set(now.get() + 5000);
+    r.stop().unwrap();
+    now.set(now.get() + 10_000);
+    assert_eq!(r.store_mut().recover("d", now.get()).unwrap(), None);
+    assert!(!kinds_of(&r).iter().any(|k| k.0 == "off" || k.0 == "unknown"));
+}
