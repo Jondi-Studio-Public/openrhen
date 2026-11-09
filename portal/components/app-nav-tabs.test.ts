@@ -58,6 +58,7 @@ describe("activeTab", () => {
     ["/sleep", "you"],
     ["/connections", "you"],
     ["/doctor", "you"],
+    ["/data", "you"],
     ["/today/", "day"],
     ["/today?date=2026-10-28", "day"]
   ])("lights the place that owns %s", (path, tab) => {
@@ -67,6 +68,11 @@ describe("activeTab", () => {
   it("finds the Data check by its keywords", () => {
     expect(searchDestinations("stale fix").map((item) => item.href)).toContain("/doctor");
     expect(searchDestinations("data check")[0]?.where).toBe("You");
+  });
+
+  it("finds the Data map by what it is for", () => {
+    expect(searchDestinations("data map").map((item) => item.href)).toContain("/data");
+    expect(searchDestinations("unused feeds").map((item) => item.href)).toContain("/data");
   });
 
   it("matches whole path segments only", () => {

@@ -1,23 +1,20 @@
 import { Table, getTableName, is } from "drizzle-orm";
 import * as schema from "@openrhen/database/schema";
-import { buildDataFlowView, dataFlowRegistry, type DataFlowView } from "@openrhen/contracts/data-flow";
+import {
+  buildDataFlowView,
+  dataFlowRegistry,
+  type DataFlowHealth,
+  type DataFlowResponse
+} from "@openrhen/contracts/data-flow";
 import { log } from "@/server/logging";
 import type { Sql } from "@/server/persistence/postgres/sql-pool";
-import { readHealth, type HealthResult } from "./health-reader";
+import { readHealth } from "./health-reader";
+
+export type { DataFlowHealth, DataFlowResponse };
 
 /** The body of `GET /api/data-flow`: the static graph plus what each node is doing now. Read-only. */
 
 const TABLES = Object.values(schema).flatMap((value) => (is(value, Table) ? [getTableName(value)] : []));
-
-export type DataFlowHealth =
-  | (HealthResult & { unavailable?: undefined; counts: Record<string, number> })
-  | { unavailable: true; reason: string; next: string };
-
-export interface DataFlowResponse extends Omit<DataFlowView, "devices"> {
-  generatedAt: string;
-  devices: (DataFlowView["devices"][number] & { lastSeenAt?: string | null; lastSeenFrom?: string | null })[];
-  health: DataFlowHealth;
-}
 
 /** `never` is the count of sources not set up yet (no row, run or token), not a fault. */
 const COUNTED = ["late", "stale", "failing", "never", "probe_unresolved"] as const;

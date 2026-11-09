@@ -84,6 +84,10 @@ Bundled connections:
 
 To add one, see [Writing a connection](../architecture/writing-a-connection.md).
 
+## Data
+
+**Data** (under **You**) is a read-only live map of every data point: where it comes from, where it is stored and what it gives, coloured by live health. Open a node for details. See the [data-flow registry](../architecture/data-flow-registry.md#the-data-page).
+
 ## Reports
 
 **Reports** lists every issue you captured with **Report issue**, outstanding first. Once a problem is dealt with, press **Mark reviewed** and write a line saying what changed. **Reopen** puts it back. Reviewing records a verdict only: the captured evidence is never edited, so a reviewed report still replays exactly as reported.
