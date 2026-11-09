@@ -39,7 +39,16 @@ pub fn cmd_run(args: &[String]) -> Result<(), String> {
         .truncate(false)
         .open(d.join("run.lock"))
         .map_err(|e| e.to_string())?;
-    if lock.try_lock().is_err() {
+    // A `status` or `stop` probe holds the lock for a moment; retry briefly before concluding another agent runs.
+    let mut locked = lock.try_lock().is_ok();
+    for _ in 0..20 {
+        if locked {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+        locked = lock.try_lock().is_ok();
+    }
+    if !locked {
         // Not an error at login: an agent is already recording, which is what was wanted.
         crate::log::info("another rhen-watch is already running (use `rhen-watch stop`)");
         return if stay_on_error {

@@ -24,8 +24,8 @@ use objc2_app_kit::{
     NSWorkspaceSessionDidResignActiveNotification, NSWorkspaceWillPowerOffNotification,
 };
 use objc2_foundation::{
-    NSActivityOptions, NSDictionary, NSDistributedNotificationCenter, NSNotification, NSNumber, NSObjectProtocol, NSProcessInfo, NSString,
-    NSTimer, NSURL, ns_string,
+    NSActivityOptions, NSDictionary, NSDistributedNotificationCenter, NSNotification, NSNumber, NSObjectProtocol, NSProcessInfo, NSRunLoop,
+    NSRunLoopCommonModes, NSString, NSTimer, NSURL, ns_string,
 };
 
 use super::macos_rules::{PowerDedupe, identity, is_agent_path, pid_from_lock, power_source};
@@ -55,11 +55,14 @@ static DATA_DIR: OnceLock<std::path::PathBuf> = OnceLock::new();
 /// The agent thread's result, once it has ended: `Some(Ok)` after a clean stop.
 static AGENT_DONE: Mutex<Option<Result<(), String>>> = Mutex::new(None);
 
-fn send(raw: Raw) {
-    if let Some(tx) = SENDER.get()
-        && tx.try_send(raw).is_err()
-    {
-        DROPPED.fetch_add(1, Ordering::Relaxed);
+/// Hand a signal to the agent loop; `false` (and a count in `DROPPED`) when the loop is behind.
+fn send(raw: Raw) -> bool {
+    match SENDER.get().map(|tx| tx.try_send(raw)) {
+        Some(Ok(())) => true,
+        _ => {
+            DROPPED.fetch_add(1, Ordering::Relaxed);
+            false
+        }
     }
 }
 
@@ -89,7 +92,8 @@ unsafe extern "C" {
     fn CFRelease(cf: CFTypeRef);
     fn CFRunLoopGetMain() -> CFRunLoopRef;
     fn CFRunLoopAddSource(rl: CFRunLoopRef, source: CFRunLoopSourceRef, mode: CFTypeRef);
-    static kCFRunLoopDefaultMode: CFTypeRef;
+    // Common modes include menu tracking, so sleep and power are still handled while the menu is open.
+    static kCFRunLoopCommonModes: CFTypeRef;
 }
 
 #[link(name = "IOKit", kind = "framework")]
@@ -131,8 +135,13 @@ static POWER_DEDUPE: Mutex<PowerDedupe> = Mutex::new(PowerDedupe::new());
 
 extern "C" fn power_source_changed(_ctx: *mut c_void) {
     let now = read_power_source();
-    if let Some(evt) = POWER_DEDUPE.lock().map(|mut d| d.changed(now)).unwrap_or(None) {
-        send(Raw::Power(evt));
+    if let Some(evt) = POWER_DEDUPE.lock().map(|mut d| d.changed(now)).unwrap_or(None)
+        && !send(Raw::Power(evt))
+    {
+        // Not delivered: forget it, so the next reading (wake, or the next change) sends it again.
+        if let Ok(mut d) = POWER_DEDUPE.lock() {
+            *d = PowerDedupe::new();
+        }
     }
 }
 
@@ -275,8 +284,9 @@ impl Sys for MacSys {
 /// Tell the engine the screen is locked or not, only when that changes.
 fn set_locked(locked: bool) {
     let v = i8::from(locked);
-    if LAST_LOCKED.swap(v, Ordering::SeqCst) != v {
-        send(Raw::Session(if locked { SessionEvt::Lock } else { SessionEvt::Unlock }));
+    if LAST_LOCKED.swap(v, Ordering::SeqCst) != v && !send(Raw::Session(if locked { SessionEvt::Lock } else { SessionEvt::Unlock })) {
+        // Not delivered: mark it unknown, so the 5 s check sends it again.
+        LAST_LOCKED.store(-1, Ordering::SeqCst);
     }
 }
 
@@ -425,6 +435,9 @@ define_class!(
         fn toggle(&self, _sender: Option<&AnyObject>) {
             let paused = UI_STATE.load(Ordering::SeqCst) == 1;
             send(Raw::Control(if paused { Control::Resume } else { Control::Pause }));
+            // Lock changes while paused are not recorded, so after a pause or resume the 5 s check tells the
+            // engine the lock state again.
+            LAST_LOCKED.store(-1, Ordering::SeqCst);
         }
 
         #[unsafe(method(openFolder:))]
@@ -637,17 +650,17 @@ pub fn run_app(
     }
     if wanted.power {
         observers.push(observe(&center, unsafe { NSWorkspaceScreensDidSleepNotification }, |_| {
-            send(Raw::Power(PowerEvt::DisplayOff))
+            send(Raw::Power(PowerEvt::DisplayOff));
         }));
         observers.push(observe(&center, unsafe { NSWorkspaceScreensDidWakeNotification }, |_| {
-            send(Raw::Power(PowerEvt::DisplayOn))
+            send(Raw::Power(PowerEvt::DisplayOn));
         }));
         unsafe {
             let source = IOPSNotificationCreateRunLoopSource(power_source_changed, std::ptr::null_mut());
             if source.is_null() {
                 missing.push("power source".to_string());
             } else {
-                CFRunLoopAddSource(CFRunLoopGetMain(), source, kCFRunLoopDefaultMode);
+                CFRunLoopAddSource(CFRunLoopGetMain(), source, kCFRunLoopCommonModes);
             }
             let mut port: IONotificationPortRef = std::ptr::null_mut();
             let mut notifier: IoObject = 0;
@@ -656,7 +669,7 @@ pub fn run_app(
                 missing.push("sleep and wake".to_string());
             } else {
                 ROOT_PORT.store(root, Ordering::SeqCst);
-                CFRunLoopAddSource(CFRunLoopGetMain(), IONotificationPortGetRunLoopSource(port), kCFRunLoopDefaultMode);
+                CFRunLoopAddSource(CFRunLoopGetMain(), IONotificationPortGetRunLoopSource(port), kCFRunLoopCommonModes);
             }
         }
         // The value at start, so a day starts with a known power source.
@@ -719,7 +732,9 @@ pub fn run_app(
             _ => {}
         }
     });
-    let _timer = unsafe { NSTimer::scheduledTimerWithTimeInterval_repeats_block(0.5, true, &timer_block) };
+    // In the common modes, so it keeps running (stop, the 5 s checks) while the menu is open.
+    let timer = unsafe { NSTimer::timerWithTimeInterval_repeats_block(0.5, true, &timer_block) };
+    unsafe { NSRunLoop::mainRunLoop().addTimer_forMode(&timer, NSRunLoopCommonModes) };
     app.run();
     drop(observers);
     Ok(())

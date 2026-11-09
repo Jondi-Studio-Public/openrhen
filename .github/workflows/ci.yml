@@ -393,6 +393,14 @@ jobs:
           cat "$RUNNER_TEMP/after-kill.out"
           grep -q 'without a clean stop' "$RHEN_WATCH_DIR/rhen-watch.log"
           "$bin" wipe --yes
+      # Observation only: the macOS layer must never take focus, show an alert, or make input.
+      - name: No focus or input calls
+        shell: bash
+        run: |
+          if grep -nE 'activateIgnoringOtherApps|activateWithOptions|\.activate\(|NSAlert|CGEventPost|CGEventCreate(Keyboard|Mouse)Event|CGWarpMouse' src/platform/macos*.rs; then
+            echo "::error::the macOS layer must not take focus, show an alert or make input"
+            exit 1
+          fi
       # The agent records locally and must stay that way: no network crate in its dependency tree.
       - name: No network code
         shell: bash
