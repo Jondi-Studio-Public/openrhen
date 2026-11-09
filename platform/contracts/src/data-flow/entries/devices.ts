@@ -26,9 +26,6 @@ export const DEVICE_ENTRIES: readonly FlowEntry[] = [
     category: "device",
     method: "device-agent"
   }),
-  accepted("physiology", "Body signals (heart rate, sleep, readiness)", "physiology", {
-    device: "wearable"
-  }),
   accepted("steam", "Game sessions", "steam", { category: "device", method: "api-pull" }),
   accepted("weather", "Weather observations", "weather", { category: "device", method: "api-pull" }),
   accepted("gmail", "Mail messages", "gmail", { category: "communications", method: "api-pull" }),
