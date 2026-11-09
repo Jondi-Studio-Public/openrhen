@@ -82,6 +82,7 @@ export const CALENDAR_ENTRIES: readonly FlowEntry[] = [
     from: ["ext:travel-time-provider"],
     to: ["pg:journey_samples", "pg:travel_lookup_budget"],
     incidentalWrites: [
+      { table: "integration_sync_runs", reason: "a run row for a failure that would be silent" },
       { table: "action_cadence_completions", reason: "the cadence completion moves with the occurrence" },
       { table: "action_occurrences", reason: "a lookup updates the occurrence's travel time" },
       { table: "action_recurrence_rules", reason: "a lookup updates the rule's travel time" },

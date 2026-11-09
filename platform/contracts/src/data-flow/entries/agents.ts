@@ -133,6 +133,7 @@ export const AGENT_ENTRIES: readonly FlowEntry[] = [
     code: { routes: ["POST /api/plan-map/sweep"], loops: ["plan-map-sweep"] },
     to: ["pg:plan_subjects", "pg:plan_links", "pg:plan_findings", "pg:plan_shadow_log", "pg:plan_map_switches"],
     incidentalWrites: [
+      { table: "integration_sync_runs", reason: "a run row for a failure that would be silent" },
       { table: "action_occurrences", reason: "a proposer rewrites a stale occurrence" },
       { table: "catch_up_runs", reason: "a sweep can open a catch-up" },
       { table: "check_in", reason: "a sweep can queue a check-in" },

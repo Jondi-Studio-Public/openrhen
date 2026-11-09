@@ -18,6 +18,8 @@ export const CORE_DATASET_NOTES: readonly DatasetNote[] = [
   infrastructure("integration_sync_runs", "sync run history"),
   infrastructure("agent_wakes", "queue of wakes to send"),
   infrastructure("activity_source_state", "per-source content gate and retention settings"),
+  infrastructure("consequence_comparisons", "learning data for the consequence model refits"),
+  infrastructure("consequence_groups_issued", "learning data for the consequence model refits"),
   infrastructure("travel_lookup_budget", "daily lookup spend counter"),
   infrastructure("youtube_quota_use", "daily quota counter"),
   infrastructure("plan_shadow_log", "shadow-mode comparison log"),

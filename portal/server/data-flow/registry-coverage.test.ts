@@ -313,6 +313,7 @@ const parserFiles = [
 
 /** Write routes that are not data entry points: sign-in, tokens, the MCP endpoint and connection probes. */
 const INFRA_ROUTES: Record<string, string> = {
+  "POST /api/activity-imports/runs": "records an import run in the run log; the import already has its entry",
   "POST /mcp": "the MCP transport; its tools are listed on the agent entry",
   "POST /oauth/authorize": "remote agent sign-in",
   "POST /oauth/register": "remote agent sign-in",
