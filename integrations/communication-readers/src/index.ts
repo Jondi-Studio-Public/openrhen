@@ -142,3 +142,25 @@ export type {
 } from "./resolve-when.js";
 export { CONTEXT_MESSAGES, localCandidates, localContext, newestContext } from "./context-select.js";
 export type { VettedCandidates, VettedContext } from "./context-select.js";
+export {
+  factIcsDrafts,
+  factIcsHandles,
+  fromAddress,
+  icsAuth,
+  icsCancelFactId,
+  icsEventFactId,
+  icsHeldCancelId,
+  icsLookupId
+} from "./ics-event.js";
+export type {
+  IcsAuth,
+  IcsAuthReason,
+  IcsDraftInput,
+  IcsEventIdInput,
+  IcsFactDraft,
+  IcsHeldRow,
+  IcsResolvedDraft,
+  IcsOutcome,
+  IcsSkip,
+  StoredIcsEvent
+} from "./ics-event.js";

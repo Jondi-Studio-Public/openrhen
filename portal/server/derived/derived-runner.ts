@@ -6,7 +6,10 @@ import {
 } from "@/server/persistence/postgres/activity-retention-store";
 import {
   NIL_ID,
+  readDerivedFactRows,
+  readSourceIdsByKeys,
   readSourceRowsByIds,
+  readUserTimeZone,
   scanBackfill,
   scanForward,
   type Mark,
@@ -16,6 +19,7 @@ import { writeDerivedRowsTx, type DerivedRowInput } from "@/server/persistence/p
 import { ensureUser } from "@/server/persistence/postgres/ensure-user";
 import { ensureExtractorStateTx, saveExtractorProgressTx } from "@/server/persistence/postgres/extractor-state-store";
 import type { PoolSql, TxSql } from "@/server/persistence/postgres/sql-pool";
+import type { ExtractorLookups, RowFromKeys } from "./extractor";
 import { EXTRACTORS, type Extractor } from "./extractor-registry";
 
 /**
@@ -156,6 +160,15 @@ interface BatchOutcome {
   failures: Failure[];
 }
 
+const fromKeysOf = (item: unknown): RowFromKeys | null =>
+  item !== null &&
+  typeof item === "object" &&
+  "event" in item &&
+  "fromKeys" in item &&
+  Array.isArray((item as RowFromKeys).fromKeys)
+    ? (item as RowFromKeys)
+    : null;
+
 /** Extracts and writes one batch. Per-message problems are returned, not thrown; a database error does throw. */
 async function processBatch(
   tx: TxSql,
@@ -168,15 +181,42 @@ async function processBatch(
   const rows: DerivedRowInput[] = [];
   const owner: SourceRow[] = [];
   let unknown = 0;
-  for (const message of messages) {
+  // Each lookup is read on first use. `factRows` also shows the rows this batch has made but not written yet.
+  let zone: Promise<string> | null = null;
+  const lookups: ExtractorLookups = {
+    timeZone: () => (zone ??= readUserTimeZone(tx, userId)),
+    factRows: async (factId) => [
+      ...rows
+        .map((row) => (row.event as { kind?: unknown; start?: string; attrs?: Record<string, unknown> }) ?? {})
+        .filter((event) => event.kind === "fact" && event.attrs?.fact_id === factId)
+        .map((event) => ({ attrs: event.attrs as Record<string, unknown>, start: String(event.start) }))
+        .reverse(),
+      ...(await readDerivedFactRows(tx, userId, factId))
+    ]
+  };
+  const ordered = extractor.oldestFirst
+    ? [...messages].sort((a, b) => a.tsStart.getTime() - b.tsStart.getTime() || (a.id < b.id ? -1 : 1))
+    : messages;
+  for (const message of ordered) {
     try {
       const made = await extractor.extract(
         { id: message.id, key: message.key, tsStart: message.tsStart, attrs: message.attrs },
-        now
+        now,
+        lookups
       );
       if (made.length === 0) unknown += 1;
-      for (const event of made) {
-        rows.push({ event, sourceIds: [message.id] });
+      for (const item of made) {
+        const from = fromKeysOf(item);
+        if (from === null) {
+          rows.push({ event: item, sourceIds: [message.id] });
+          owner.push(message);
+          continue;
+        }
+        // A row for other messages: lineage follows them, and one whose message is gone is not written.
+        const held = await readSourceIdsByKeys(tx, userId, extractor.input, from.fromKeys);
+        const ids = from.fromKeys.map((key) => held.get(key));
+        if (ids.some((id) => id === undefined)) continue;
+        rows.push({ event: from.event, sourceIds: ids as string[] });
         owner.push(message);
       }
     } catch (error) {

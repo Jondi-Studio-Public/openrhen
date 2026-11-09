@@ -16,6 +16,8 @@ export const DERIVED_ENTRIES: readonly FlowEntry[] = [
         "portal/server/derived/derived-runner.ts",
         "portal/server/derived/extractor-registry.ts",
         "portal/server/derived/extractor.ts",
+        "portal/server/derived/fact-ics.ts",
+        "portal/server/persistence/postgres/derived-scan-store.ts",
         "portal/server/persistence/postgres/derived-write-store.ts",
         "portal/server/persistence/postgres/derived-lineage-store.ts",
         "portal/server/persistence/postgres/extractor-state-store.ts"
@@ -23,8 +25,8 @@ export const DERIVED_ENTRIES: readonly FlowEntry[] = [
       routes: ["POST /api/integrations/derived/tick"],
       loops: ["derived-tick"]
     },
-    gives: "message classes and facts for the evaluation report",
-    from: ["pg:activity_events[source=*]"],
+    gives: "message classes, and the events in calendar invites",
+    from: ["pg:activity_events[source=*]", "pg:users"],
     to: ["pg:activity_events[source=derived]", "pg:derived_lineage", "pg:extractor_state"],
     value: { note: "classifies the text of every source" },
     health: { kind: "extractor", name: "msg-class" }

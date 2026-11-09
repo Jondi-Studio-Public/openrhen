@@ -233,12 +233,15 @@ describe("the summary: how far behind the derived layer is", () => {
         VALUES (${userId}, 'gmail', 'message', ${`g-${ingested.getTime()}-${i}`}, '2026-11-01T00:00:00Z', '{"message_id":"<a>"}', ${ingested})`;
   };
 
-  it("counts every mail row as behind before the first run, and lists the extractor as not yet run", async () => {
+  it("counts every mail row as behind before the first run, and lists each extractor as not yet run", async () => {
     await gmail(3, at(-100));
     const summary = await readActivitySummary(sql);
-    expect(summary.derivedBehind).toBe(3);
+    // The sum is over extractors, and both T0 extractors read the same three messages.
+    expect(summary.derivedBehind).toBe(6);
+    const notRun = { version: "1", active: false, behind: 3, skipped: 0, lastOkAt: null, lastError: null };
     expect(summary.extractors).toEqual([
-      { extractor: "msg-class-t0", version: "1", active: false, behind: 3, skipped: 0, lastOkAt: null, lastError: null }
+      { extractor: "msg-class-t0", ...notRun },
+      { extractor: "fact-ics", ...notRun }
     ]);
   });
 
@@ -246,10 +249,10 @@ describe("the summary: how far behind the derived layer is", () => {
     await gmail(5, at(-100));
     await runDerivedTick(sql, { now: () => at(0), backfillBatch: 2 });
     let summary = await readActivitySummary(sql);
-    expect(summary.derivedBehind).toBe(3);
+    expect(summary.derivedBehind).toBe(6);
     await gmail(2, at(50));
     summary = await readActivitySummary(sql);
-    expect(summary.derivedBehind).toBe(5);
+    expect(summary.derivedBehind).toBe(10);
     await runDerivedTick(sql, { now: () => at(1000), backfillBatch: 10 });
     summary = await readActivitySummary(sql);
     expect(summary.derivedBehind).toBe(0);

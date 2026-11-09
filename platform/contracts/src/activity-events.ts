@@ -10,6 +10,7 @@ import { scopeCovers } from "./agent-scopes.js";
 import { withoutDatePatterns } from "./agent-sessions.js";
 import { mergedRecord } from "./extensions.js";
 import type { SourceAvailability } from "./signal-availability.js";
+import { sanitizeMessageCalendarAttrs } from "./message-calendar-attrs.js";
 
 /**
  * The activity store: the ingest contract (schema version 1) every non-plan data source posts through, the source
@@ -193,7 +194,9 @@ export const ACTIVITY_SOURCES: Readonly<Record<string, ActivitySourceEntry>> = {
   steam: { schemaVersion: 1, kinds: ["session"] },
   weather: { schemaVersion: 1, kinds: ["observation"] },
   // attrs: thread_id, gmail_id, from, to[], from_self, direction (in|out), labels[], subject; content is the stripped body (gated).
-  // Discord and notification messages reuse this attrs shape, with thread_id the channel id.
+  // Discord and notification messages reuse this attrs shape, with thread_id the channel id. The source's header and
+  // calendar attrs (auth, ics, jsonld, and the ics event time) are described in message-calendar-attrs.ts, which drops a malformed one and
+  // notes it in attrs.calendar_dropped instead of rejecting the message.
   gmail: { schemaVersion: 1, kinds: ["message"] },
   // Rows read out of other events by a versioned reader. msg_class and fact name their source_event_id; fact_status,
   // override and label name a fact_id. A status change is a later fact_status row (rows are never updated). Per-kind
@@ -661,7 +664,9 @@ export function validateActivityEvent(
     return reject(
       `start (${start}) is more than ${ACTIVITY_FUTURE_SLACK_HOURS} hours in the future. Check the device clock and time zone.`
     );
-  const attrs = rawAttrs as Record<string, unknown>;
+  let attrs = rawAttrs as Record<string, unknown>;
+  // A mail message with a malformed calendar attr is stored without that attr and with a note, never rejected.
+  if (source === "gmail") attrs = sanitizeMessageCalendarAttrs(attrs).attrs;
   const attrsProblem = describeUnstorableAttrs(attrs);
   if (attrsProblem) return reject(attrsProblem);
   if (crossFamily) {

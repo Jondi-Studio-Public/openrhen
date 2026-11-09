@@ -834,3 +834,101 @@ describe("which row of one fact wins when message time and SEQUENCE tie (2b-6 re
     expect(winner([low])).toBe("a-low");
   });
 });
+
+describe("calendar rows from fact-ics (unmatched_update and orphan cancel links)", () => {
+  const event = (name: string, tsStart: string, extra: Partial<FoldFactRow> = {}): FoldFactRow =>
+    fact(name, {
+      factType: "event",
+      tsStart,
+      icsUid: "uid-1",
+      sequence: 0,
+      when: { candidates: [{ start: ahead(5) }], ambiguous: false },
+      ...extra
+    });
+  const icsCancel = (name: string, target: string, tsStart: string, sequence: number): FoldFactRow =>
+    fact(name, {
+      factType: "event",
+      tsStart,
+      icsUid: "uid-1",
+      sequence,
+      links: [{ relation: "cancel", targetFactId: id(target) }]
+    });
+
+  it("an unmatched_update row is never listed, never the winner of its id and never a link target", () => {
+    const held = fact("a", { factType: "event", tsStart: ago(1), reviewReason: "unmatched_update", icsUid: "uid-1" });
+    expect(fold({ facts: [held] }).size).toBe(0);
+    // It shares the id of a real event and is the newer message: the real event still wins.
+    const real = event("a", ago(6));
+    expect(one({ facts: [real, held] })).toMatchObject({ rowKey: real.key, open: true });
+    expect(one({ facts: [held, real] })).toMatchObject({ rowKey: real.key, open: true });
+    // A cancel naming only the held row's id has no target, so it is an orphan, not a cancel of anything.
+    const cancelsHeld = icsCancel("c", "h", ago(0.5), 3);
+    const result = fold({
+      facts: [{ ...held, factId: id("h") }, cancelsHeld, real]
+    });
+    expect(result.has(id("h"))).toBe(false);
+    expect(result.get(id("a"))?.open).toBe(true);
+    expect(result.get(id("c"))).toMatchObject({ isLink: true, state: "link", open: false });
+  });
+
+  it("an ordinary review reason is still a row of the fold", () => {
+    expect(one({ facts: [event("a", ago(6), { reviewReason: "low_signal" })] }).open).toBe(true);
+  });
+
+  it("a cancel link whose target is not in the read set is neither open nor expired-open", () => {
+    const orphan = icsCancel("c", "zz", ago(2), 2);
+    const result = fold({ facts: [orphan] });
+    expect(result.get(id("c"))).toMatchObject({ isLink: true, state: "link", open: false, expiresAt: null });
+    expect(openFacts([...result.values()])).toEqual([]);
+    const later = foldFactStates({ facts: [orphan], now: new Date(NOW.getTime() + 60 * DAY) });
+    expect(later[0]).toMatchObject({ state: "link", open: false });
+  });
+
+  it("a cancel link with a target in the read set still cancels it, in either read order", () => {
+    const rows = [event("a", ago(6)), icsCancel("c", "a", ago(2), 1)];
+    expect(one({ facts: rows })).toMatchObject({ state: "closed", closedBy: "link", status: "cancelled" });
+    expect(one({ facts: [...rows].reverse() }).closedBy).toBe("link");
+  });
+
+  it("the sequence breaks a tie between two rows of one message time", () => {
+    const at = ago(3);
+    const low = event("a", at, {
+      key: "k-low",
+      sequence: 1,
+      when: { candidates: [{ start: ahead(4) }], ambiguous: false }
+    });
+    const high = event("a", at, {
+      key: "k-high",
+      sequence: 2,
+      when: { candidates: [{ start: ahead(7) }], ambiguous: false }
+    });
+    expect(one({ facts: [high, low] }).dueAt).toBe(ahead(7));
+    expect(one({ facts: [low, high] }).dueAt).toBe(ahead(7));
+  });
+
+  it("orders two readings of one calendar event by SEQUENCE when a skewed Date header says otherwise", () => {
+    const invite = event("a", ago(3), { sequence: 1 });
+    // The cancel's message is dated BEFORE the invite's, but its SEQUENCE is greater: it still cancels the event.
+    const skewed = icsCancel("c", "a", ago(4), 2);
+    expect(one({ facts: [invite, skewed] })).toMatchObject({ state: "closed", closedBy: "link", status: "cancelled" });
+    expect(one({ facts: [skewed, invite] }).closedBy).toBe("link");
+    // A lower SEQUENCE dated earlier never cancels a later one, and a tie is not greater.
+    expect(one({ facts: [invite, icsCancel("c", "a", ago(4), 1)] }).open).toBe(true);
+    expect(one({ facts: [event("a", ago(3), { sequence: 2 }), icsCancel("c", "a", ago(4), 1)] }).open).toBe(true);
+  });
+
+  it("an update with an earlier Date header but a greater SEQUENCE is the row of its event", () => {
+    const old = event("a", ago(2), {
+      key: "k-old",
+      sequence: 0,
+      when: { candidates: [{ start: ahead(3) }], ambiguous: false }
+    });
+    const next = event("a", ago(3), {
+      key: "k-new",
+      sequence: 1,
+      when: { candidates: [{ start: ahead(6) }], ambiguous: false }
+    });
+    expect(one({ facts: [old, next] }).dueAt).toBe(ahead(6));
+    expect(one({ facts: [next, old] }).dueAt).toBe(ahead(6));
+  });
+});

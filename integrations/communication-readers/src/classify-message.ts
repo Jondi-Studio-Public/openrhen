@@ -88,7 +88,7 @@ export const JSONLD_EVENT_TYPES: readonly string[] = [
 export const JSONLD_ORDER_TYPES: readonly string[] = ["Order", "Invoice"];
 
 /** `Event`, `schema:Event`, `http://schema.org/Event` and `https://schema.org/Event` are the same type; any other prefix is not schema.org and is left as is. */
-function schemaOrgName(type: string): string {
+export function schemaOrgName(type: string): string {
   return type.replace(/^(?:https?:\/\/schema\.org\/|schema:)/u, "");
 }
 

@@ -126,7 +126,7 @@ function wallAsUtc(tz: string, epochMs: number): number {
 const offsetMinutes = (tz: string, epochMs: number) =>
   Math.round((wallAsUtc(tz, epochMs) - Math.floor(epochMs / 1000) * 1000) / 60000);
 
-function rfc3339(tz: string, epochMs: number): string {
+export function rfc3339(tz: string, epochMs: number): string {
   const offset = offsetMinutes(tz, epochMs);
   const wall = new Date(epochMs + offset * 60000).toISOString().slice(0, 19);
   if (offset === 0) return `${wall}Z`;
@@ -139,7 +139,7 @@ function rfc3339(tz: string, epochMs: number): string {
  * one (the clocks went forward; `gap` is then the instant using the offset in force before the change, which reads as
  * the time pushed forward), otherwise one.
  */
-function instantsAt(tz: string, wallUtc: number): { instants: number[]; gap: boolean } {
+export function instantsAt(tz: string, wallUtc: number): { instants: number[]; gap: boolean } {
   const before = offsetMinutes(tz, wallUtc - 86400000);
   const after = offsetMinutes(tz, wallUtc + 86400000);
   const instants = new Set<number>();
@@ -153,10 +153,28 @@ function instantsAt(tz: string, wallUtc: number): { instants: number[]; gap: boo
 
 let knownZones: ReadonlySet<string> | null = null;
 /** Only IANA names the runtime lists, plus "UTC": no abbreviations ("EST"), offsets ("+05:00") or other spellings ("utc"). */
-function validZone(tz: unknown): tz is string {
+export function validZone(tz: unknown): tz is string {
   if (typeof tz !== "string" || tz.length === 0 || tz.length > 64) return false;
   knownZones ??= new Set([...Intl.supportedValuesOf("timeZone"), "UTC"]);
   return knownZones.has(tz);
+}
+
+/**
+ * An IANA zone name the runtime can compute with, in any spelling the tz database knows: `Asia/Kolkata`, its alias
+ * `Asia/Calcutta`, `America/Indiana/Indianapolis`, `Etc/GMT+11`. Unlike `validZone` (ICU's canonical list only) it
+ * accepts aliases and links; it still refuses abbreviations ("EST"), offsets ("+05:00") and anything without an
+ * `Area/Location` shape other than "UTC", so a zone is never guessed from a display string.
+ */
+export function usableZone(tz: unknown): tz is string {
+  if (typeof tz !== "string" || tz.length === 0 || tz.length > 64) return false;
+  if (validZone(tz)) return true;
+  if (!/^[A-Z][A-Za-z]*(?:\/[A-Za-z0-9_+-]+)+$/u.test(tz)) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ---- reading -------------------------------------------------------------------------------------------------------

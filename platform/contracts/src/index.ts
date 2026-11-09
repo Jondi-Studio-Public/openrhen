@@ -1809,3 +1809,11 @@ export type {
 } from "./planning/stretch.js";
 
 export { ARCHIVE_OR_CANCEL_BRIEF, ARCHIVE_OR_CANCEL_FULL } from "./archive-cancel-text.js";
+
+export {
+  MESSAGE_ICS_STATUSES,
+  MESSAGE_ICS_SUMMARY_MAX_CODE_POINTS,
+  MESSAGE_ICS_TZID_MAX_CHARS,
+  MESSAGE_CALENDAR_DROPPED_KEY,
+  sanitizeMessageCalendarAttrs
+} from "./message-calendar-attrs.js";
