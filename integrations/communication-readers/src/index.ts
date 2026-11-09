@@ -20,6 +20,31 @@ export { NORMALISER_VERSION, factId, normaliseText, readerEventKey, statusEventK
 export type { FactIdInput, ReaderEventKeyInput, StatusEventKeyInput } from "./fact-id.js";
 export { FACT_STATUSES, isOpenStatus, resolveFactStatus } from "./fact-status.js";
 export type { FactStatus, ResolvedStatus, StatusActor, StatusRow } from "./fact-status.js";
+export {
+  AMBIGUOUS_TIME_GRACE_HOURS,
+  ASK_HORIZON_DAYS,
+  EVENT_DEFAULT_DURATION_HOURS,
+  LINK_CHAIN_MAX,
+  NO_TIME_HORIZON_DAYS,
+  REPEAT_LIFE_MAX_DAYS,
+  RESCHEDULE_MAX_DAYS,
+  compareOpenFacts,
+  foldFactStates,
+  openFacts,
+  statusActorOf
+} from "./fact-state.js";
+export type {
+  FactClosedBy,
+  FactFold,
+  FactFoldState,
+  FoldFactRow,
+  FoldInput,
+  FoldLink,
+  FoldMessage,
+  FoldOverride,
+  FoldStatus,
+  FoldWhen
+} from "./fact-state.js";
 export { BACKFILL_LIMITS, estimateBackfill } from "./backfill-estimate.js";
 export type { BackfillEstimate, BackfillInput } from "./backfill-estimate.js";
 export { EVAL_CAVEAT, buildEvalReport } from "./eval-report.js";
