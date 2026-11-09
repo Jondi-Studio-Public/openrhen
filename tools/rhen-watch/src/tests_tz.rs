@@ -41,7 +41,14 @@ fn the_day_dst_starts_is_23_hours() {
 #[test]
 fn ordinary_days_are_24_hours_in_both_regimes() {
     let tz = auckland();
-    for d in [day(2026, 1, 15), day(2026, 7, 15), day(2026, 4, 4), day(2026, 4, 6), day(2026, 9, 26), day(2026, 9, 28)] {
+    for d in [
+        day(2026, 1, 15),
+        day(2026, 7, 15),
+        day(2026, 4, 4),
+        day(2026, 4, 6),
+        day(2026, 9, 26),
+        day(2026, 9, 28),
+    ] {
         let (from, to) = tz.day_window(d);
         assert_eq!(to - from, 24 * H, "day {d}");
         assert_eq!(tz.day_of(from), d);

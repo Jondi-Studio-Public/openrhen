@@ -222,9 +222,10 @@ fn off_collectors_write_nothing() {
 }
 
 #[test]
-fn extra_games_and_categories_come_from_config() {
-    let cfg = Config::parse("extra_games = [\"MyGame.exe\"]\n[categories]\n\"Foo.exe\" = \"editor\"\n").unwrap();
-    let c = Catalogue::new(&cfg.categories, &cfg.extra_games);
+fn extra_games_come_from_config_and_categories_from_the_categories_file() {
+    let cfg = Config::parse("extra_games = [\"MyGame.exe\"]\n").unwrap();
+    let file = crate::categories::CategoryFile::parse("[exe]\n\"Foo.exe\" = \"editor\"\n").unwrap();
+    let c = Catalogue::with_file(&file, &cfg.extra_games);
     assert!(c.is_game("mygame.exe"));
     assert_eq!(c.category("foo.exe"), "editor");
 }

@@ -2,10 +2,11 @@
 
 use std::path::PathBuf;
 
+use crate::categories::{self, CategoryFile};
 use crate::config::{self, Config};
 use crate::model::Ms;
 #[cfg(windows)]
-use crate::{categories, engine, ids, platform, runner};
+use crate::{engine, ids, platform, runner};
 use crate::{paths, report, store};
 
 const HELP: &str = "rhen-watch: local desktop activity recorder (observation only, nothing is sent anywhere)
@@ -15,7 +16,11 @@ USAGE
   rhen-watch stop                    ask a running agent to stop and flush
   rhen-watch report [--day YYYY-MM-DD] [--utc-offset-minutes N]
   rhen-watch status                  paths, size, last heartbeat, row counts
-  rhen-watch config init|path        write the default config / print its path
+  rhen-watch config init|path|show   write the default config / print its path / list every setting
+  rhen-watch config set KEY VALUE    change one setting, keeping the file's comments (e.g. derive.session_gap_minutes 8)
+  rhen-watch categories init [--from-config]|path|list [--uncategorised]|set EXE CATEGORY
+                                     the per-exe category map (categories.toml); --from-config prints the
+                                     [exe] text for an old config.toml [categories] table
   rhen-watch install                 copy to %LOCALAPPDATA%\\Programs\\rhen-watch, start at logon, start now
   rhen-watch uninstall [--purge]     stop, remove start at logon and the program (--purge also deletes your data)
   rhen-watch wipe --yes              delete the database, its sidecar files and the config
@@ -41,7 +46,8 @@ pub fn real_main(args: &[String]) -> Result<(), String> {
         Some("stop") => cmd_stop(),
         Some("report") => cmd_report(&args[1..]),
         Some("status") => cmd_status(),
-        Some("config") => cmd_config(args.get(1).map(String::as_str)),
+        Some("config") => cmd_config(&args[1..]),
+        Some("categories") => cmd_categories(&args[1..]),
         Some("wipe") => cmd_wipe(&args[1..]),
         Some("install") => cmd_install(),
         Some("uninstall") => cmd_uninstall(&args[1..]),
@@ -69,14 +75,17 @@ fn dir() -> Result<PathBuf, String> {
     Ok(d)
 }
 
+/// The config for `run` and `report`: a leftover `[categories]` table stops both.
 fn load_config(dir: &std::path::Path) -> Result<Config, String> {
-    Config::load(&dir.join("config.toml"))
+    let cfg = Config::load(&dir.join("config.toml"))?;
+    cfg.reject_legacy_categories()?;
+    Ok(cfg)
 }
 
-fn cmd_config(sub: Option<&str>) -> Result<(), String> {
+fn cmd_config(args: &[String]) -> Result<(), String> {
     let d = dir()?;
     let path = d.join("config.toml");
-    match sub {
+    match args.first().map(String::as_str) {
         Some("path") => {
             println!("{}", path.display());
             Ok(())
@@ -89,7 +98,89 @@ fn cmd_config(sub: Option<&str>) -> Result<(), String> {
             println!("wrote {}", path.display());
             Ok(())
         }
-        _ => Err("usage: rhen-watch config init|path".into()),
+        Some("show") => {
+            print!("{}", config::show(&Config::load(&path)?));
+            Ok(())
+        }
+        Some("set") => match (args.get(1), args.get(2)) {
+            (Some(key), Some(value)) if args.len() == 3 => {
+                println!("{}", config::set_and_write(&path, key, value)?);
+                Ok(())
+            }
+            _ => Err("usage: rhen-watch config set KEY VALUE (see `rhen-watch config show` for the keys)".into()),
+        },
+        _ => Err("usage: rhen-watch config init|path|show|set".into()),
+    }
+}
+
+fn cmd_categories(args: &[String]) -> Result<(), String> {
+    let d = dir()?;
+    let path = d.join("categories.toml");
+    match args.first().map(String::as_str) {
+        Some("path") => {
+            println!("{}", path.display());
+            Ok(())
+        }
+        Some("init") if args.iter().any(|a| a == "--from-config") => {
+            let text = config::read_text(&d.join("config.toml"), "config.toml")?.unwrap_or_default();
+            // Printed, never written: the user saves it, so neither file is rewritten behind their back.
+            print!("{}", categories::migrate_from_config(&text)?);
+            Ok(())
+        }
+        Some("init") => {
+            if path.exists() {
+                return Err(format!("{} already exists; edit it, or delete it to start again", path.display()));
+            }
+            std::fs::write(&path, categories::init_text()).map_err(|e| e.to_string())?;
+            println!("wrote {}", path.display());
+            Ok(())
+        }
+        Some("set") => match (args.get(1), args.get(2)) {
+            (Some(exe), Some(category)) if args.len() == 3 => {
+                let existing = config::read_text(&path, "categories.toml")?;
+                let (text, warnings) = categories::set_entry(existing.as_deref(), exe, category)?;
+                let tmp = path.with_extension("toml.tmp");
+                std::fs::write(&tmp, &text).map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
+                if let Err(e) = std::fs::rename(&tmp, &path) {
+                    let _ = std::fs::remove_file(&tmp);
+                    return Err(format!("cannot replace {}: {e}", path.display()));
+                }
+                for w in warnings {
+                    crate::log::warn(&w);
+                }
+                println!(
+                    "{} = {category}; takes effect when the agent restarts, and in the next report",
+                    exe.to_ascii_lowercase()
+                );
+                Ok(())
+            }
+            _ => Err("usage: rhen-watch categories set EXE CATEGORY (for example: categories set foo.exe editor)".into()),
+        },
+        Some("list") => {
+            let file = CategoryFile::load(&path)?;
+            let cat = categories::Catalogue::with_file(&file, &[]);
+            if args.iter().any(|a| a == "--uncategorised") {
+                let db = d.join("activity.db");
+                if !db.exists() {
+                    return Err("no database yet; run `rhen-watch run` first".into());
+                }
+                let store = store::Store::open_read_only(&db).map_err(|e| e.to_string())?;
+                let totals = store.app_time_totals().map_err(|e| e.to_string())?;
+                let list = categories::uncategorised(&totals, &cat, 15);
+                if list.is_empty() {
+                    println!("Every app seen so far has a category.");
+                }
+                for (exe, ms) in list {
+                    println!("{exe:<28} {:>8}   {}", report::fmt_duration(ms), categories::paste_line(&exe));
+                }
+            } else {
+                for (exe, category, source) in cat.entries(&file) {
+                    println!("{exe:<28} {category:<10} {:<8} {source}", cat.group_of_category(&category));
+                }
+            }
+            Ok(())
+        }
+        _ => Err("usage: rhen-watch categories init [--from-config]|path|list [--uncategorised]|set EXE CATEGORY".into()),
     }
 }
 
@@ -98,7 +189,14 @@ fn cmd_wipe(args: &[String]) -> Result<(), String> {
         return Err("this deletes everything rhen-watch recorded on this machine; run again with --yes".into());
     }
     let d = paths::data_dir()?;
-    for name in ["activity.db", "activity.db-wal", "activity.db-shm", "config.toml", "run.lock"] {
+    for name in [
+        "activity.db",
+        "activity.db-wal",
+        "activity.db-shm",
+        "config.toml",
+        "categories.toml",
+        "run.lock",
+    ] {
         let p = d.join(name);
         match std::fs::remove_file(&p) {
             Ok(()) => println!("deleted {}", p.display()),
@@ -303,7 +401,14 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
             (to - from) / 1000
         );
     }
-    let catalogue = categories::Catalogue::new(&cfg.categories, &cfg.extra_games);
+    // A bad categories.toml must not stop recording: log it, record one degraded marker, use the defaults.
+    let (category_file, category_error) = categories::load_or_default(&d.join("categories.toml"));
+    let catalogue = categories::Catalogue::with_file(&category_file, &cfg.extra_games);
+    for category in catalogue.groupless() {
+        crate::log::warn(&format!(
+            "category \"{category}\" has no group, so it counts as other (add it under [group] in categories.toml)"
+        ));
+    }
     let settings = engine::Settings {
         idle_threshold_ms: cfg.idle_threshold_secs.unwrap_or(120) * 1000,
         foreground: cfg.collectors.foreground,
@@ -326,6 +431,10 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
     let started = Instant::now();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(), String> {
         run.start()?;
+        if let Some(e) = &category_error {
+            crate::log::warn(&format!("{e}; recording with the built-in categories"));
+            run.degraded(&["categories.toml".to_string()])?;
+        }
         if !missing.is_empty() {
             crate::log::warn(&format!("could not register for: {} (recorded as degraded)", missing.join(", ")));
             run.degraded(&missing)?;

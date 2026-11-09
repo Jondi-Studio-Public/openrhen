@@ -320,6 +320,18 @@ impl Store {
         rows.collect()
     }
 
+    /// (exe, milliseconds in front) over everything stored, for `categories list --uncategorised`.
+    pub fn app_time_totals(&self) -> rusqlite::Result<Vec<(String, i64)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT json_extract(attrs, '$.exe'), SUM(ts_end - ts_start) FROM events
+             WHERE source = 'foreground' AND kind = 'app' GROUP BY 1",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((r.get::<_, Option<String>>(0)?.unwrap_or_default(), r.get::<_, i64>(1)?))
+        })?;
+        rows.collect()
+    }
+
     pub fn count_events(&self) -> rusqlite::Result<i64> {
         self.conn.query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0))
     }
