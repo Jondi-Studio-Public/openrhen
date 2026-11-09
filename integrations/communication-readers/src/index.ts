@@ -27,6 +27,7 @@ export {
   LINK_CHAIN_MAX,
   NO_TIME_HORIZON_DAYS,
   REPEAT_LIFE_MAX_DAYS,
+  STATUS_HOLD_MAX_DAYS,
   RESCHEDULE_MAX_DAYS,
   compareOpenFacts,
   foldFactStates,

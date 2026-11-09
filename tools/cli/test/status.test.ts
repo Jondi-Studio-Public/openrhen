@@ -479,6 +479,46 @@ describe("status attention block", () => {
     expect(JSON.parse(failedOnly.stdout).attention).toEqual({ now: 1, decided: 0, call: "rhen_attention" });
   });
 
+  it("fires on soon mail items alone, adds them as facts only when above zero, and says so in the table", async () => {
+    const factsOnly = await runStatus(["status", "--json"], feed(counts({ factsOpen: 3, factsSoon: 3 })));
+    expect(JSON.parse(factsOnly.stdout).attention).toEqual({ now: 0, decided: 0, facts: 3, call: "rhen_attention" });
+    expect((await runStatus(["status"], feed(counts({ factsOpen: 3, factsSoon: 3 })))).stdout).toContain(
+      "3 open mail items to look at soon"
+    );
+    const mixed = await runStatus(
+      ["status", "--brief", "--json"],
+      feed(counts({ healthBlocking: 1, factsOpen: 5, factsSoon: 2 }))
+    );
+    expect(JSON.parse(mixed.stdout).attention).toEqual({ now: 1, decided: 0, facts: 2, call: "rhen_attention" });
+    const zero = await runStatus(["status", "--json"], feed(counts({ decided: 1, factsOpen: 0 })));
+    expect(JSON.parse(zero.stdout).attention).toEqual({ now: 0, decided: 1, call: "rhen_attention" });
+  });
+
+  it("does not nudge for open mail items that are only fyi, however many", async () => {
+    const run = await runStatus(["status", "--json"], feed(counts({ factsOpen: 40, factsSoon: 0 })));
+    expect(JSON.parse(run.stdout)).not.toHaveProperty("attention");
+    expect(run.stdout).not.toContain("rhen_attention");
+  });
+
+  it("says when the mail could not be read, and fires on it, without adding to now", async () => {
+    const run = await runStatus(["status", "--json"], feed(counts({ factsFailed: 1 })));
+    expect(JSON.parse(run.stdout).attention).toEqual({ now: 0, decided: 0, factsFailed: 1, call: "rhen_attention" });
+    expect((await runStatus(["status"], feed(counts({ factsFailed: 1 })))).stdout).toContain("mail could not be read");
+  });
+
+  it("treats a malformed mail count as an unreadable answer", async () => {
+    for (const over of [
+      { factsSoon: -1 },
+      { factsSoon: "3" },
+      { factsSoon: 1.5 },
+      { factsFailed: 2 },
+      { factsOpen: -1 }
+    ]) {
+      const run = await runStatus(["status", "--json"], feed(counts(over)));
+      expect(JSON.parse(run.stdout), JSON.stringify(over)).not.toHaveProperty("attention");
+    }
+  });
+
   it("is absent when both counts are zero", async () => {
     const quiet = await runStatus(["status", "--json"], feed(counts()));
     expect(JSON.parse(quiet.stdout)).not.toHaveProperty("attention");

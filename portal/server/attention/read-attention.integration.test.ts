@@ -16,6 +16,7 @@ import { readProposalOutcomes, readDecidedCount } from "@/server/agent-proposals
 import { readCatchUpLedger } from "@/server/persistence/postgres/catch-up";
 import { readDoctorReport } from "@/server/persistence/postgres/doctor";
 import { ensureUser } from "@/server/persistence/postgres/ensure-user";
+import { ensureExtractorStateTx } from "@/server/persistence/postgres/extractor-state-store";
 import { readAttentionCounts, resetAttentionCountsMemo } from "./counts";
 import { readAttention, type AttentionResponse } from "./read-attention";
 import { defaultAttentionReaders } from "./readers";
@@ -428,6 +429,71 @@ describe("the counts agree with the feed over a real open check-in", () => {
       answer.counts.now
     );
     expect((await sql`SELECT prompted_at FROM check_in WHERE id=${checkInId}`)[0]!.prompted_at).toBeNull();
+  });
+});
+
+/** An open ask: a gmail message and a fact row read from it (no span, so no quote), the active version's. */
+async function openFact(n: number, daysAgo: number): Promise<void> {
+  await sql.begin((tx) => ensureExtractorStateTx(tx, userId, "fact-llm", "1", new Date()));
+  const at = new Date(Date.now() - daysAgo * 86_400_000);
+  await sql`INSERT INTO activity_events (user_id, source, kind, event_key, ts_start, attrs, ingested_at)
+    VALUES (${userId}, 'gmail', 'message', ${`m-${n}`}, ${at}, ${sql.json({ thread_id: `t-${n}` } as never)}, ${at})`;
+  await sql`INSERT INTO activity_events (user_id, source, kind, event_key, ts_start, attrs, ingested_at)
+    VALUES (${userId}, 'derived', 'fact', ${`f-${n}`}, ${at},
+      ${sql.json({ source_event_id: `m-${n}`, fact_id: String(n).padStart(40, "e"), fact_type: "ask", direction: "in", conversation_key: `gmail:t-${n}`, extractor: "fact-llm", extractor_version: "1" } as never)}, ${at})`;
+}
+
+describe("the counts agree with the feed over real open mail facts", () => {
+  beforeEach(async () => {
+    await sql`DELETE FROM activity_events WHERE user_id = ${userId}`;
+  });
+
+  it("factsOpen is the sum of the fact_open item weights, folds included, and counts.now is unchanged", async () => {
+    await failingSync();
+    const before = await feed();
+    for (let n = 1; n <= 8; n += 1) await openFact(n, 0.2 + n * 0.1);
+    resetAttentionCountsMemo();
+    const counts = await readAttentionCounts(sql, { agent: "scribe", scopes: undefined });
+    const answer = await feed();
+    const facts = answer.items.filter((item) => item.kind === "fact_open");
+    expect(facts.reduce((sum, item) => sum + weight(item), 0)).toBe(8);
+    expect(facts.some((item) => item.folded === 3)).toBe(true);
+    expect(counts.factsOpen).toBe(8);
+    expect(counts.healthBlocking + counts.sourcesFailed + counts.checkInOpen + counts.catchUpDue).toBe(
+      answer.counts.now
+    );
+    expect(answer.counts.now).toBe(before.counts.now);
+    expect(answer.counts.soon + answer.counts.fyi).toBe(before.counts.soon + before.counts.fyi + 8);
+  });
+
+  it("a token without read:plan and the owner view see no facts, in the feed or the counts", async () => {
+    await openFact(1, 0.5);
+    resetAttentionCountsMemo();
+    expect((await readAttentionCounts(sql, { agent: "scribe", scopes: ["read:proposals"] })).factsOpen).toBe(0);
+    expect((await readAttentionCounts(sql, { agent: null, scopes: undefined })).factsOpen).toBe(0);
+    expect((await feed({ scopes: ["read:proposals"] })).items.some((item) => item.kind === "fact_open")).toBe(false);
+    expect((await feed({ agent: null })).items.some((item) => item.kind === "fact_open")).toBe(false);
+  });
+
+  it("a failed facts read is factsFailed in the counts and one soon item in the feed, and counts.now does not move", async () => {
+    resetAttentionCountsMemo();
+    const readers = {
+      ...defaultAttentionReaders(sql),
+      facts: async () => {
+        throw new Error(`${SENTINEL} facts`);
+      }
+    };
+    const counts = await readAttentionCounts(sql, { agent: "scribe", scopes: undefined }, readers);
+    const result = await readAttention(sql, { agent: "scribe", scopes: undefined }, readers);
+    if (!("answer" in result)) throw new Error("expected an answer");
+    expect(counts).toMatchObject({ sourcesFailed: 0, factsFailed: 1, factsOpen: 0 });
+    expect(result.answer.items.find((item) => item.id === "source_unavailable:facts")?.urgency).toBe("soon");
+    expect(result.answer.complete).toBe(false);
+    expect(counts.healthBlocking + counts.sourcesFailed + counts.checkInOpen + counts.catchUpDue).toBe(
+      result.answer.counts.now
+    );
+    expect(result.answer.empty).toBeUndefined();
+    expect(JSON.stringify(result.answer)).not.toContain(SENTINEL);
   });
 });
 

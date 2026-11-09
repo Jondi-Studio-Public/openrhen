@@ -1,5 +1,6 @@
 import {
   foldFactStates,
+  resolveEvidence,
   openFacts,
   statusActorOf,
   type FactFold,
@@ -69,6 +70,11 @@ export interface OpenFactsOptions {
   limit?: number | undefined;
   /** Fact rows read, 1 to 20000; default 5000. More in the horizon sets `truncated`. */
   maxRows?: number | undefined;
+  /**
+   * Facts to leave out before `limit` and `total` are applied (the plan-hold filter), so a fact the caller will not list
+   * cannot take one of the `limit` places from one it will.
+   */
+  exclude?: ((fold: FactFold) => boolean) | undefined;
 }
 
 export interface OpenFactsRead {
@@ -162,7 +168,7 @@ export async function readOpenFacts(sql: PoolSql, options: OpenFactsOptions = {}
   try {
     return await sql.begin("isolation level repeatable read read only", async (tx) => {
       await tx.unsafe(`SET LOCAL statement_timeout = '${OPEN_FACTS_STATEMENT_TIMEOUT}'`);
-      return readInTransaction(tx, userId, { now, days, limit, maxRows });
+      return readInTransaction(tx, userId, { now, days, limit, maxRows, exclude: options.exclude });
     });
   } catch (error) {
     // 57014 is Postgres cancelling a statement that ran past its statement timeout.
@@ -174,7 +180,13 @@ export async function readOpenFacts(sql: PoolSql, options: OpenFactsOptions = {}
 async function readInTransaction(
   sql: Sql,
   userId: string,
-  options: { now: Date; days: number; limit: number; maxRows: number }
+  options: {
+    now: Date;
+    days: number;
+    limit: number;
+    maxRows: number;
+    exclude: ((fold: FactFold) => boolean) | undefined;
+  }
 ): Promise<OpenFactsRead> {
   const { now, days, limit, maxRows } = options;
   const from = new Date(now.getTime() - days * DAY_MS);
@@ -245,7 +257,10 @@ async function readInTransaction(
         validFrom,
         actor,
         key: item.event_key,
-        ingestedAt: item.at.toISOString()
+        ingestedAt: item.at.toISOString(),
+        // A status can carry the fact's own end (a reschedule, or a hold that keeps an ask open past 14 days). The
+        // fold reads only a valid RFC 3339 time and ignores anything else.
+        expiresAt: string(attrs.expires_at)
       });
       scanned.statuses += 1;
     } else if (typeof attrs.field === "string" && "new_value" in attrs) {
@@ -292,6 +307,84 @@ async function readInTransaction(
     }
   }
 
-  const open = openFacts(foldFactStates({ facts, statuses, overrides, conversations, now }));
+  const all = openFacts(foldFactStates({ facts, statuses, overrides, conversations, now }));
+  const open = options.exclude === undefined ? all : all.filter((fold) => !options.exclude!(fold));
   return { facts: open.slice(0, limit), total: open.length, horizon, truncated, scanned, problems };
+}
+
+/** What `readFactEvidence` resolves for one fact row. */
+export interface FactEvidence {
+  /** The fact row's id and event key. */
+  id: string;
+  key: string;
+  /** Null when the fact has no span (read from a structured invite): there is nothing to resolve. */
+  state: "ok" | "source_removed" | "source_changed" | null;
+  /** Third-party mail text; present only when `state` is `ok`. Untrusted. */
+  text?: string;
+  tier: string | null;
+  reviewReason: string | null;
+  /** The authenticated sender (direction in) or the recipients as typed (out). Outside text. */
+  who: string[];
+}
+
+interface SpanAttrs {
+  start: number;
+  end: number;
+  hash: string;
+}
+
+function spanOf(value: unknown): SpanAttrs | null {
+  const span = record(value);
+  return Number.isInteger(span.start) && Number.isInteger(span.end) && typeof span.hash === "string"
+    ? { start: span.start as number, end: span.end as number, hash: span.hash }
+    : null;
+}
+
+/**
+ * Resolves the spans of fact rows to their mail text at read, through lineage to the message the fact was read from
+ * (`attrs.source_event_id`): `source_removed` when the message or its text is gone, `source_changed` when the text no
+ * longer hashes as it did. Rows are named by id (the activity read) or by event key (the attention feed, source
+ * `derived` only). Reads message text, so callers keep the set small.
+ */
+export async function readFactEvidence(
+  sql: Sql,
+  userId: string,
+  by: { ids: string[] } | { keys: string[] }
+): Promise<FactEvidence[]> {
+  const named = "ids" in by ? by.ids : by.keys;
+  if (named.length === 0) return [];
+  const rows = await sql<
+    { id: string; key: string; attrs: unknown; source_key: string | null; content: string | null }[]
+  >`
+    SELECT f.id, f.event_key AS key, f.attrs, s.event_key AS source_key, s.content
+    FROM activity_events f
+    LEFT JOIN derived_lineage l ON l.derived_id = f.id
+    LEFT JOIN activity_events s ON s.id = l.source_id
+    WHERE f.user_id = ${userId} AND f.kind = 'fact' AND f.source IN ('derived', 'derived-shadow')
+      AND ${
+        "ids" in by
+          ? sql`f.id IN (SELECT value::uuid FROM jsonb_array_elements_text(${sql.json(named)}))`
+          : sql`f.source = 'derived' AND f.event_key IN (SELECT jsonb_array_elements_text(${sql.json(named)}))`
+      }`;
+  const byFact = new Map<string, FactEvidence>();
+  for (const row of rows) {
+    const attrs = record(row.attrs);
+    const span = spanOf(attrs.span);
+    const wanted = string(attrs.source_event_id);
+    const onSource = row.source_key !== null && row.source_key === wanted;
+    const resolved = span === null ? null : resolveEvidence(onSource ? row.content : null, span);
+    const next: FactEvidence = {
+      id: row.id,
+      key: row.key,
+      state: resolved === null ? null : resolved.state,
+      ...(resolved?.state === "ok" ? { text: resolved.text } : {}),
+      tier: string(attrs.tier),
+      reviewReason: string(attrs.review_reason),
+      who: Array.isArray(attrs.who) ? attrs.who.filter((w): w is string => typeof w === "string") : []
+    };
+    // Several lineage rows (a fact read from several messages): the one on the named message wins.
+    const held = byFact.get(row.id);
+    if (held === undefined || (onSource && held.state !== "ok")) byFact.set(row.id, next);
+  }
+  return [...byFact.values()];
 }
