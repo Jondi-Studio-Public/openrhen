@@ -1020,4 +1020,10 @@ describe("mcp: tool count pin", () => {
     const result = parsed[0]?.result as { tools: unknown[] };
     expect(result.tools).toHaveLength(EXPECTED_CORE_TOOL_COUNT + EXTENSION_TOOL_COUNT);
   });
+
+  it("never serves a manifest's commandFile, which is repository evidence, not part of a tool", async () => {
+    const { parsed } = await send([req(1, "tools/list")]);
+    const result = parsed[0]?.result as { tools: Record<string, unknown>[] };
+    for (const tool of result.tools) expect(Object.keys(tool)).not.toContain("commandFile");
+  });
 });

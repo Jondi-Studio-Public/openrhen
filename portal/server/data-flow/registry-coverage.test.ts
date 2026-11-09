@@ -393,8 +393,9 @@ const evidence = {
     return pageCache.get(pageFile)!;
   },
   toolText(tool: string) {
-    const command = MCP_CORE_TOOL_MANIFEST.find((candidate) => candidate.name === tool)?.command;
-    const file = command ? `tools/cli/src/commands/${command}.ts` : "";
+    // The extended manifest, so a tool an extension adds is evidence for the readers that claim it.
+    const entry = MCP_TOOL_MANIFEST.find((candidate) => candidate.name === tool);
+    const file = entry ? (entry.commandFile ?? `tools/cli/src/commands/${entry.command}.ts`) : "";
     return file && existsSync(join(root, file)) ? read(file) : "";
   }
 };

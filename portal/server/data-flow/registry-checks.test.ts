@@ -507,6 +507,17 @@ describe("coverage rules (A2)", () => {
     ]);
   });
 
+  it("V3: a tool an extension adds is backed by the evidence its provider returns for it", () => {
+    const reader = src("r", { role: "reader", to: ["surface:tool/rhen_added"], code: { routes: ["GET /api/added"] } });
+    // The provider decides what a tool's text is; an extension tool's command file is read like a core tool's.
+    const known = (tool: string) => (tool === "rhen_added" ? 'client.get("/api/added")' : "");
+    const ev = { pageClosure: () => ({ files: [], text: "" }), toolText: known };
+    expect(checkV3([reader], ev)).toEqual([]);
+    expect(checkV3([{ ...reader, to: ["surface:tool/rhen_unknown"] }], ev)).toEqual([
+      "r: surface:tool/rhen_unknown is not backed by the tool's command (no route of the reader appears)"
+    ]);
+  });
+
   it("planned entries fail once the thing they land as exists", () => {
     const env = { activitySources: new Set(["alpha"]), tables: new Set(["t"]), routes: new Set(["GET /api/x"]) };
     const at = (landsAs: FlowEntry["planned"]) => [entry({ id: "p", planned: landsAs })];
