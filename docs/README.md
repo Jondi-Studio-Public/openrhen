@@ -20,6 +20,7 @@ Start with the guide that matches what you want to do. Open only what you need.
 | Run it safely beyond one machine | [Locking down the API](operations/locking-down.md) |
 | Back up, restore, upgrade | [Database and backups](operations/database-and-backups.md) |
 | Get leave-by reminders on a phone | [Web push](operations/web-push.md), [Location ping](operations/location-ping.md) |
+| Put OpenRhen on a phone (iOS) | [iOS app](../mobile/ios/README.md) |
 | Record what your iPhone does | [iPhone Shortcuts feed](operations/iphone-shortcuts-feed.md) |
 | Post wearable or health-app data from your own collector | [Posting physiology data](operations/posting-physiology-data.md) |
 | Contribute | [CONTRIBUTING](../CONTRIBUTING.md), [GOVERNANCE](../GOVERNANCE.md) |

@@ -30,7 +30,7 @@ import { edgeExtensions } from "./edge-extensions.mjs";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 /** Files no test suite reads: the root Markdown, docs/, and the agent folders. */
-export const IGNORED = [/^[^/]+\.md$/, /^docs\//, /^\.agents\//, /^\.claude\//, /^\.codex\//];
+export const IGNORED = [/^[^/]+\.md$/, /^docs\//, /^\.agents\//, /^\.claude\//, /^\.codex\//, /^mobile\//];
 
 /**
  * Dependencies no package.json declares. The portal's PostgreSQL integration suites drive the real

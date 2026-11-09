@@ -40,10 +40,20 @@ test("the fixture baseline is clean", () => {
 test("a self-hosted label fails, in a list or a matrix", () => {
   failsWith(ok.replace("ubuntu-latest", "[self-hosted, linux, linux-ci]"), /self-hosted/);
   failsWith(ok.replace("ubuntu-latest", "mac-ci"), /self-hosted/);
-  failsWith(ok.replace("ubuntu-latest", "macos-latest"), /runs-on macos-latest/);
+  failsWith(ok.replace("ubuntu-latest", "macos-14-large"), /runs-on macos-14-large/);
   failsWith(
-    wrap("    runs-on: ${{ matrix.runner }}\n    strategy:\n      matrix:\n        runner: macos-latest\n"),
+    wrap("    runs-on: ${{ matrix.runner }}\n    strategy:\n      matrix:\n        runner: macos-14-large\n"),
     /matrix runner/
+  );
+});
+
+test("the GitHub-hosted macOS runner is allowed, in a job or a matrix", () => {
+  assert.deepEqual(policyViolations(ok.replace("ubuntu-latest", "macos-latest")), []);
+  assert.deepEqual(
+    policyViolations(
+      wrap("    runs-on: ${{ matrix.runner }}\n    strategy:\n      matrix:\n        runner: macos-latest\n")
+    ),
+    []
   );
 });
 

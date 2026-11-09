@@ -358,9 +358,27 @@ jobs:
             exit 1
           fi
 
+  ios:
+    name: iOS app
+    # The Swift app in mobile/ios, built unsigned on GitHub's hosted macOS runner (free for a public repository).
+    # It runs on every pull request so `ci-ok` never waits on a skipped job; it is small.
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Host policy checks, XcodeGen, an unsigned Xcode build and the package checks, in one script you can also run on a Mac.
+      - run: mobile/ios/ci-build.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: OpenRhen-unsigned-ipa
+          path: mobile/ios/OpenRhen-unsigned.ipa
+          retention-days: 14
+
   ci-ok:
     name: ci-ok
-    needs: [rhen-watch, check, typecheck, unit, benchmark, integration, build, smoke, selfhost-smoke, hygiene, reuse, addon-conformance]
+    needs: [ios, rhen-watch, check, typecheck, unit, benchmark, integration, build, smoke, selfhost-smoke, hygiene, reuse, addon-conformance]
     # Runs even when a job above failed or was cancelled, so the required check is red, never missing.
     if: always()
     runs-on: ubuntu-latest
