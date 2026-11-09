@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { describeDerivedProblem } from "./activity-derived.js";
 import { withoutDatePatterns } from "./agent-sessions.js";
+import { mergedRecord } from "./extensions.js";
+import type { SourceAvailability } from "./signal-availability.js";
 
 /**
  * The activity store: the ingest contract (schema version 1) every non-plan data source posts through, the source
@@ -31,6 +33,10 @@ export interface ActivitySourceEntry {
   /** Bumped when the meaning of a source's kinds or attrs changes, so the predictor can tell old rows from new. */
   schemaVersion: number;
   kinds: readonly string[];
+  /** The one family the source posts (a name and version, e.g. `name@1`); absent for legacy sources. */
+  family?: `${string}@${number}`;
+  /** How the source reaches us and what it supplies; absent for legacy sources and for projections such as `derived`. */
+  availability?: SourceAvailability;
 }
 
 /** Every source the store accepts, with its kinds. `correction` is also accepted for every source. */
@@ -109,17 +115,66 @@ export const ACTIVITY_SOURCES: Readonly<Record<string, ActivitySourceEntry>> = {
 
 export const ACTIVITY_SOURCE_NAMES: readonly string[] = Object.keys(ACTIVITY_SOURCES);
 
+const FAMILY_REF = /^[a-z0-9][a-z0-9-]*@[1-9][0-9]*$/;
+/** Families an extension source may name. Slice 1.3 replaces this with the family registry. */
+export const KNOWN_ACTIVITY_FAMILIES: ReadonlySet<string> = new Set<string>();
+
+/** What is wrong with the sources one extension registers, or undefined when they are fine. */
+export function describeExtensionSourceProblem(
+  extensionId: string,
+  sources: Readonly<Record<string, ActivitySourceEntry>>,
+  families: ReadonlySet<string> = KNOWN_ACTIVITY_FAMILIES
+): string | undefined {
+  for (const [name, entry] of Object.entries(sources)) {
+    if (Object.hasOwn(ACTIVITY_SOURCES, name))
+      return `Extension "${extensionId}" source "${name}" shadows a core source.`;
+    if (!name.startsWith(`${extensionId}-`) || !SOURCE_NAME.test(name))
+      return `Extension "${extensionId}" source "${name}" must match ${SOURCE_NAME} and start with "${extensionId}-".`;
+    if (!entry.family || !FAMILY_REF.test(entry.family) || !families.has(entry.family))
+      return `Extension "${extensionId}" source "${name}" must name an existing family${entry.family ? `, not "${entry.family}"` : ""}.`;
+  }
+  return undefined;
+}
+
+const checkedExtensionSources = new WeakSet<object>();
+
+/** Core sources and every extension's, merged. Throws if an extension source is invalid or shadows a core one. */
+function mergedActivitySources(): Readonly<Record<string, ActivitySourceEntry>> {
+  const extra = mergedRecord((extension) => {
+    const sources = extension.activitySources;
+    if (!sources) return undefined;
+    if (!checkedExtensionSources.has(sources)) {
+      const problem = describeExtensionSourceProblem(extension.id, sources);
+      if (problem) throw new Error(problem);
+      checkedExtensionSources.add(sources);
+    }
+    return sources;
+  });
+  return Object.keys(extra).length === 0 ? ACTIVITY_SOURCES : { ...extra, ...ACTIVITY_SOURCES };
+}
+
+/** The entry for a source, core or extension; undefined when unknown. */
+export function activitySourceEntry(source: string): ActivitySourceEntry | undefined {
+  const merged = mergedActivitySources();
+  return Object.hasOwn(merged, source) ? merged[source] : undefined;
+}
+
+/** Every known source name, core first. */
+export function activitySourceNames(): readonly string[] {
+  return Object.keys(mergedActivitySources());
+}
+
 export function isKnownActivitySource(source: string): boolean {
-  return Object.hasOwn(ACTIVITY_SOURCES, source);
+  return Object.hasOwn(mergedActivitySources(), source);
 }
 
 /** Sources that hold one kind of output only and so take no `correction` row. */
 const NO_CORRECTIONS: readonly string[] = ["derived-shadow"];
 
 export function activityKindsOf(source: string): readonly string[] {
-  if (!isKnownActivitySource(source)) return [];
-  const kinds = ACTIVITY_SOURCES[source]!.kinds;
-  return NO_CORRECTIONS.includes(source) ? [...kinds] : [...kinds, ACTIVITY_CORRECTION_KIND];
+  const entry = activitySourceEntry(source);
+  if (!entry) return [];
+  return NO_CORRECTIONS.includes(source) ? [...entry.kinds] : [...entry.kinds, ACTIVITY_CORRECTION_KIND];
 }
 
 const SOURCE_NAME = /^[a-z0-9][a-z0-9-]{0,39}$/;

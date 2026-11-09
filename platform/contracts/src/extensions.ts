@@ -1,3 +1,4 @@
+import type { ActivitySourceEntry } from "./activity-events.js";
 import type { McpToolManifestEntry } from "./mcp-manifest.js";
 
 /**
@@ -70,6 +71,12 @@ export interface ContractsExtension {
   id: string;
   /** Source ids that share the id column with connection ids and so are reserved, each with its display label. */
   sourceIds?: Record<string, string>;
+  /**
+   * Activity sources the extension adds, by name. Each name starts with the extension id plus `-`, matches the core
+   * source-name rule, names an existing family, and must not shadow a core source; the merged readers
+   * (`isKnownActivitySource`, `activityKindsOf`) throw on a source that breaks this.
+   */
+  activitySources?: Record<string, ActivitySourceEntry>;
   /** What each extra `untrustedOutput` value is called in the fence. */
   untrustedLabels?: Record<string, string>;
   /** Extra read scopes. */
