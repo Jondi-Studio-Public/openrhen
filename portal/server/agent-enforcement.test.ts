@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { renderCommandsForMcp, type AgentBasis } from "@openrhen/contracts";
+import { isKnownScope, renderCommandsForMcp, withheldActivitySources, type AgentBasis } from "@openrhen/contracts";
 import {
   decideWrite,
   enforceAgentRequest,
@@ -877,6 +877,27 @@ describe("activity store", () => {
     const refused = await call("POST", "/api/activity-events", principal(["read:plan", "read:activity-event"]), events);
     expect(refused?.status).toBe(403);
     expect(await refused?.json()).toMatchObject({ missingScopes: ["write:activity-event"] });
+  });
+
+  it("lets a token holding only read:activity-event through the read gate: health rows are withheld by the route, not refused here", async () => {
+    expect(await call("GET", "/api/activity-events", principal(["read:activity-event"]))).toBeNull();
+    expect(
+      await call("GET", "/api/activity-events", principal(["read:activity-event", "read:activity-health"]))
+    ).toBeNull();
+    // read:activity-health alone opens no read: the event scope is still the gate.
+    const refused = await call("GET", "/api/activity-events", principal(["read:activity-health"]));
+    expect(refused?.status).toBe(403);
+    expect(await refused?.json()).toMatchObject({ missingScopes: ["read:activity-event"] });
+  });
+
+  it("knows read:activity-health as a scope an agent token may hold, and withholds health sources without it", () => {
+    expect(isKnownScope("read:activity-health")).toBe(true);
+    expect(withheldActivitySources(["read:plan", "read:activity-event"])).toEqual([
+      "apple-health",
+      "iphone-health",
+      "physiology"
+    ]);
+    expect(withheldActivitySources(["read:activity-event", "read:activity-health"])).toEqual([]);
   });
 
   it("lets only the derived scope post fact rows, and keeps fact_status and override with the event scope", async () => {

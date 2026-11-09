@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   ACTIVITY_ATTRS_MAX_BYTES,
   ACTIVITY_CONTENT_MAX_BYTES,
+  ACTIVITY_HEALTH_SCOPE,
   ACTIVITY_SOURCES,
+  activityEventsJsonSchema,
+  activityHealthSources,
+  withheldActivitySources,
   activityEnvelopeSchema,
   activityKindsOf,
   activityShorthandSchema,
@@ -46,8 +50,37 @@ describe("the source registry", () => {
     });
     expect(ACTIVITY_SOURCES["iphone-health"]).toEqual({
       schemaVersion: 1,
-      kinds: ["steps_day", "sleep", "workout", "heart_rate_day", "energy_day"]
+      kinds: ["steps_day", "sleep", "workout", "heart_rate_day", "energy_day"],
+      class: "health"
     });
+    expect(ACTIVITY_SOURCES["apple-health"]).toEqual({
+      schemaVersion: 1,
+      kinds: ["sleep", "workout", "steps"],
+      class: "health"
+    });
+  });
+
+  it("registers the generic physiology source as health class, and no other vendor-named source gains a class", () => {
+    expect(ACTIVITY_SOURCES.physiology).toMatchObject({ schemaVersion: 1, class: "health" });
+    expect(ACTIVITY_SOURCES.physiology!.kinds).toContain("heart_rate_dense");
+    expect(activityKindsOf("physiology")).toContain("correction");
+    expect(activityHealthSources()).toEqual(["apple-health", "iphone-health", "physiology"]);
+    const classed = Object.entries(ACTIVITY_SOURCES).filter(([, entry]) => entry.class !== undefined);
+    expect(classed.map(([name]) => name).sort()).toEqual(["apple-health", "iphone-health", "physiology"]);
+  });
+
+  it("withholds the health sources from a token without read:activity-health, and from nobody else", () => {
+    expect(withheldActivitySources(undefined)).toEqual([]);
+    expect(withheldActivitySources(["read:activity-event"])).toEqual(["apple-health", "iphone-health", "physiology"]);
+    expect(withheldActivitySources([])).toEqual(["apple-health", "iphone-health", "physiology"]);
+    expect(withheldActivitySources(["read:activity-event", ACTIVITY_HEALTH_SCOPE])).toEqual([]);
+  });
+
+  it("publishes each source's class in x-sources", () => {
+    const sources = activityEventsJsonSchema()["x-sources"] as Record<string, { class?: string }>;
+    expect(sources.physiology!.class).toBe("health");
+    expect(sources["apple-health"]!.class).toBe("health");
+    expect(sources.fit).not.toHaveProperty("class");
   });
 
   it("registers gmail messages and the derived facts, at schema version 1", () => {

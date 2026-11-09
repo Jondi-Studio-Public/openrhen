@@ -103,6 +103,14 @@ describe("other bad parameters redirect with an error", () => {
     expect(response.status).toBe(302);
     expect(location(response).searchParams.get("error")).toBe("invalid_scope");
   });
+  it("answers invalid_scope when a client asks for read:activity-health by name", async () => {
+    const response = await handleAuthorizeRequest(
+      get({ scope: "read:activity-event read:activity-health" }),
+      makeDeps().deps
+    );
+    expect(location(response).searchParams.get("error")).toBe("invalid_scope");
+    expect(location(response).searchParams.get("error_description")).toContain("read:activity-health");
+  });
   it("refuses a resource other than this server's /mcp and a response_type other than code", async () => {
     const wrongResource = await handleAuthorizeRequest(get({ resource: "https://other.example/mcp" }), makeDeps().deps);
     expect(location(wrongResource).searchParams.get("error")).toBe("invalid_target");
