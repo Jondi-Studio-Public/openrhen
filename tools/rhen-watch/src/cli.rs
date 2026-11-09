@@ -287,6 +287,7 @@ const NOT_STARTING_FILE: &str = "not-starting.txt";
 /// Present after a requested stop; the keep-alive leaves the agent stopped while it exists. Removed by the next
 /// real start. Listed in `handover::OWNED`.
 const STOPPED_FILE: &str = "stopped-by-user.txt";
+const STOPPED_TEXT: &str = "stopped on request; the keep-alive leaves it alone until the next logon or install\n";
 
 /// Why `install` could not register the restart task (absent when it did). Listed in `handover::OWNED`.
 const REASON_FILE: &str = "restart-reason.txt";
@@ -438,7 +439,10 @@ fn cmd_stop() -> Result<(), String> {
         println!("stop requested; the agent flushes and exits within a few seconds");
         Ok(())
     } else {
-        Err("no running agent found in this logon session".into())
+        // Nothing to signal, but the user's intent stands: a crashed agent must not come back at the next
+        // keep-alive tick.
+        let _ = std::fs::write(dir()?.join(STOPPED_FILE), STOPPED_TEXT);
+        Err("no running agent found in this logon session (the keep-alive will leave it stopped)".into())
     }
 }
 
@@ -465,15 +469,9 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
     if keepalive && !keepalive_wanted(&d) {
         return Ok(());
     }
-    if let Err(e) = win::restrict_dir(&d) {
-        crate::log::warn(&format!("could not restrict the data directory to your user: {e}"));
-    }
-    if d.to_string_lossy().starts_with("\\\\") {
-        crate::log::warn("the data directory is on a network share; SQLite write-ahead logging is unsafe there");
-    }
 
     // One agent per data directory. The OS drops the lock if the process dies. It comes first so a second copy
-    // (the every-minute keep-alive, or a double start) leaves no trace in the data folder.
+    // (the every-minute keep-alive, or a double start) does no work and leaves no trace in the data folder.
     let lock = OpenOptions::new()
         .create(true)
         .write(true)
@@ -490,6 +488,17 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
         }
         // A real I/O error is a failure: it must not look like "already running" and vanish silently.
         Err(std::fs::TryLockError::Error(e)) => return Err(format!("cannot take the run lock: {e}")),
+    }
+    // The keep-alive checked the marker before it had the lock. A `stop` in between ends the agent and frees the
+    // lock, so look again now that the lock is ours.
+    if keepalive && !keepalive_wanted(&d) {
+        return Ok(());
+    }
+    if let Err(e) = win::restrict_dir(&d) {
+        crate::log::warn(&format!("could not restrict the data directory to your user: {e}"));
+    }
+    if d.to_string_lossy().starts_with("\\\\") {
+        crate::log::warn("the data directory is on a network share; SQLite write-ahead logging is unsafe there");
     }
 
     // A leftover [categories] table in config.toml stops the agent; a bad categories.toml does not.
@@ -806,10 +815,12 @@ fn cmd_install() -> Result<(), String> {
 #[cfg(windows)]
 fn cmd_uninstall(args: &[String]) -> Result<(), String> {
     let dest = install_dir()?;
+    // Remove the tasks first, or the keep-alive could restart an agent that had crashed earlier, between the stop
+    // and the delete.
+    platform::windows::delete_task()?;
     stop_and_wait()?;
     let gui = dest.join("rhen-watchw.exe");
     wait_released(&[gui])?;
-    platform::windows::delete_task()?;
     platform::windows::clear_autostart()?;
     let mut leftovers = Vec::new();
     for n in ["rhen-watch.exe", "rhen-watchw.exe"] {

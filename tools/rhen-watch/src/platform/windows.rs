@@ -332,7 +332,12 @@ unsafe fn show_menu(hwnd: HWND) {
                 // setup on this thread, unlike ShellExecute.
                 if let Some(dir) = DATA_DIR.get() {
                     let path = String::from_utf16_lossy(&dir[..dir.len().saturating_sub(1)]);
-                    let _ = std::process::Command::new("explorer.exe").arg(path).spawn();
+                    let _ = std::process::Command::new("explorer.exe")
+                        .arg(path)
+                        .stdin(std::process::Stdio::null())
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .spawn();
                 }
             }
             TrayAction::Quit => STOP.store(true, Ordering::SeqCst),
