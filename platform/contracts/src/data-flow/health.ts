@@ -1,3 +1,4 @@
+import { COVERAGE_DEFAULT_WARN_HOURS, COVERAGE_STALE_FACTOR, type NodeCoverage } from "./coverage.js";
 import type { FlowEntry } from "./types.js";
 
 /** Pure freshness rules for the health reader (design 4.3): no database, no clock of its own. */
@@ -13,8 +14,11 @@ export interface ThresholdInUse {
   warnHours: number;
   /** Null when the source states only a warning (phone pings). */
   errorHours: number | null;
-  /** `learned` (arrivals over 30 days), `connection`, `overlay` (an extension's own number) or `default`. */
-  from: "learned" | "connection" | "overlay" | "default";
+  /**
+   * `owner` (the owner's own setting, a source that reports coverage), `collector` (the cadence the collector declares),
+   * `learned` (arrivals over 30 days), `connection`, `overlay` (an extension's own number) or `default`.
+   */
+  from: "owner" | "collector" | "learned" | "connection" | "overlay" | "default";
   /** Days of arrivals a learned threshold rests on. The reader only reports it. Nothing in this reader limits a threshold under 30 days to the degrading tier; the doctor source checks (a later change) are where that rule belongs. */
   days?: number;
 }
@@ -34,14 +38,51 @@ export function learnThreshold(
   return { warnHours: clamp(1.5 * p95), errorHours: clamp(3 * p95), days };
 }
 
+/** What a source that reports coverage brings to its threshold. Present only for such a source. */
+export interface CoverageThresholdContext {
+  /** The owner's `staleAfterMinutes` for the source; absent or null means none is set (the setting arrives in a later change). */
+  ownerStaleAfterMinutes?: number | null;
+  /** The cadence the collector declared in its registry entry's availability. */
+  collector?: { expectedEveryMinutes?: number; silentAfterMinutes?: number } | null;
+}
+
 export interface ThresholdContext {
   /** `doctorSyncCadence()` as provider to late-after milliseconds. */
   cadenceLateAfterMs?: Readonly<Record<string, number>>;
   learned?: { warnHours: number; errorHours: number; days: number } | null;
+  coverage?: CoverageThresholdContext;
 }
 
-/** The first rule that applies wins: the entry's own freshness, the connection, learned, then cold start. */
+/** T for a source that states how far behind it may be: late at T, stale at 2T. */
+const behind = (minutes: number, from: "owner" | "collector"): ThresholdInUse => ({
+  warnHours: minutes / 60,
+  errorHours: (COVERAGE_STALE_FACTOR * minutes) / 60,
+  from
+});
+
+/** T from the owner's setting, else from the collector's declared cadence; null when neither is stated. */
+function statedCoverageThreshold(coverage: CoverageThresholdContext): ThresholdInUse | null {
+  const owner = coverage.ownerStaleAfterMinutes;
+  if (typeof owner === "number" && owner > 0) return behind(owner, "owner");
+  const declared = coverage.collector;
+  if (declared?.silentAfterMinutes !== undefined && declared.silentAfterMinutes > 0)
+    return behind(declared.silentAfterMinutes, "collector");
+  if (declared?.expectedEveryMinutes !== undefined && declared.expectedEveryMinutes > 0)
+    return behind(3 * declared.expectedEveryMinutes, "collector");
+  return null;
+}
+
+/**
+ * The first rule that applies wins. A source that reports coverage is judged by how far it has read, so the owner's
+ * number and then the collector's declared cadence come first; after that, for every source, the entry's own freshness,
+ * the connection, learned, then cold start. A coverage source with none of those is read late at 12 h behind, stale at 24 h.
+ */
 export function thresholdFor(entry: FlowEntry, context: ThresholdContext): ThresholdInUse | null {
+  const coverage = context.coverage;
+  if (coverage) {
+    const stated = statedCoverageThreshold(coverage);
+    if (stated) return stated;
+  }
   const own = entry.freshness;
   if (own !== undefined && own !== "from-connection") {
     return {
@@ -59,10 +100,16 @@ export function thresholdFor(entry: FlowEntry, context: ThresholdContext): Thres
   }
   const pushLike = entry.activitySource !== undefined && entry.method === "push";
   const deviceLike = entry.device !== undefined || entry.health.kind === "json-stamp";
-  if (!pushLike && !deviceLike && !entry.coldStart) return null;
-  if (context.learned && (pushLike || deviceLike)) return { ...context.learned, from: "learned" };
-  return entry.coldStart
-    ? { warnHours: entry.coldStart.warnAfterHours, errorHours: entry.coldStart.errorAfterHours, from: "default" }
+  if (!pushLike && !deviceLike && !entry.coldStart && !coverage) return null;
+  if (context.learned && (pushLike || deviceLike || coverage)) return { ...context.learned, from: "learned" };
+  if (entry.coldStart)
+    return { warnHours: entry.coldStart.warnAfterHours, errorHours: entry.coldStart.errorAfterHours, from: "default" };
+  return coverage
+    ? {
+        warnHours: COVERAGE_DEFAULT_WARN_HOURS,
+        errorHours: COVERAGE_STALE_FACTOR * COVERAGE_DEFAULT_WARN_HOURS,
+        from: "default"
+      }
     : null;
 }
 
@@ -111,6 +158,8 @@ export interface NodeHealth {
   kindsSeen?: string[];
   /** Push sources with a learned rhythm: the kinds that went quiet while the source as a whole is still arriving. */
   lateKinds?: LateKind[];
+  /** A source that reports coverage: how far it has been read, per scope, and its newest heartbeat. `lastSuccessAt` is `coverage.coveredTo`. */
+  coverage?: NodeCoverage;
   /** The source's own agent token exists and is live, used or not; with `never` this is silence, not a source never set up. */
   credentialPresent?: boolean;
   threshold: ThresholdInUse | null;

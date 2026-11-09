@@ -131,6 +131,39 @@ describe("rhen sources", () => {
     expect(detail).toContain("token exists: yes");
   });
 
+  it("shows where a source that reports coverage is read up to, per scope, with its heartbeat and where the threshold came from", async () => {
+    const covered = {
+      ...body,
+      health: {
+        ...body.health,
+        nodes: {
+          ...body.health.nodes,
+          alpha: node("alpha", {
+            freshness: "late",
+            threshold: { warnHours: 12, errorHours: 24, from: "collector" },
+            coverage: {
+              coveredTo: "2026-10-17T20:00:00.000Z",
+              holes14d: 1,
+              heartbeat: { at: "2026-10-18T11:00:00.000Z", status: "ok" },
+              scopes: [
+                { scope: "work", coveredTo: "2026-10-17T20:00:00.000Z", holes14d: 1 },
+                { scope: "old", coveredTo: "2026-08-01T00:00:00.000Z", holes14d: 0, retired: true }
+              ]
+            },
+            note: "alive (heartbeat ok at 2026-10-18T11:00:00.000Z) but not reading: covered up to 2026-10-17T20:00:00.000Z"
+          })
+        }
+      }
+    };
+    const { text } = await run({}, ["alpha"], vi.fn().mockResolvedValue(covered));
+    expect(text).toContain("covered up to: 2026-10-17T20:00:00.000Z");
+    expect(text).toContain("scope work: up to 2026-10-17T20:00:00.000Z, 1 hole in the last 14 days");
+    expect(text).toContain("scope old: up to 2026-08-01T00:00:00.000Z (retired: no longer reported)");
+    expect(text).toContain("heartbeat: ok at 2026-10-18T11:00:00.000Z");
+    expect(text).toContain("(collector)");
+    expect(text).toContain("not reading");
+  });
+
   it("--unused lists the sources nothing uses, the ones nothing sends, tables and dead tables", async () => {
     const { text } = await run({ unused: true });
     expect(text).toMatch(/collected, unused[\s\S]*beta/);

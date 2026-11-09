@@ -4,6 +4,7 @@
  * (`resolveFreshness`, the catch-up and finding counts) and adds the checks nothing else makes. It
  * changes no row; every `fix` names a command that already exists.
  */
+import type { ProcessingReport } from "../data-flow/coverage.js";
 import { cadenceItems, type DoctorCadenceSlice } from "./doctor-cadence.js";
 import { duplicateItems, type DoctorDuplicatesSlice } from "./doctor-duplicates.js";
 import { closedStampItems, type DoctorClosedSlice } from "./doctor-closed.js";
@@ -12,8 +13,10 @@ import { prerequisiteItems, type DoctorPrerequisitesSlice } from "./doctor-prere
 import { publishingItems, type DoctorPublishingSlice } from "./doctor-publishing.js";
 import {
   DOCTOR_SOURCE_CHECKS,
+  planInputs,
   sourceItems,
   type DoctorSourceCounts,
+  type PlanInputs,
   type DoctorSourcesSlice
 } from "./doctor-sources.js";
 import type { Freshness } from "./freshness.js";
@@ -154,6 +157,10 @@ export interface DoctorReport {
   notChecked: DoctorNotChecked[];
   /** The data-source counts the Data check and Connections headers show; absent when the source checks were not given. */
   sources?: DoctorSourceCounts;
+  /** Whether every source that can change the plan is read up to date, and the sentence to show when not. Absent with `sources`. */
+  planInputs?: PlanInputs;
+  /** Messages collected against messages that reached an end state, per message source; absent when none reports. */
+  processing?: ProcessingReport[];
 }
 
 export interface DoctorProject {
@@ -694,6 +701,8 @@ export function runDoctor(snapshot: DoctorSnapshot): DoctorReport {
 
   const notChecked: DoctorNotChecked[] = [...DOCTOR_UNBUILT_CHECKS];
   let sources: DoctorSourceCounts | undefined;
+  let inputs: PlanInputs | undefined;
+  let processing: ProcessingReport[] | undefined;
   if (snapshot.sources) {
     if (snapshot.sources.unavailable !== undefined) {
       for (const check of DOCTOR_SOURCE_CHECKS)
@@ -705,6 +714,8 @@ export function runDoctor(snapshot: DoctorSnapshot): DoctorReport {
     } else {
       const found = sourceItems(snapshot.sources, now);
       sources = found.counts;
+      inputs = planInputs(snapshot.sources);
+      if ((snapshot.sources.processing ?? []).length > 0) processing = snapshot.sources.processing;
       items.push(...found.items);
       // A silent phone is one device item; the separate location-ping item would say the same thing twice.
       if (found.devicePing)
@@ -728,7 +739,9 @@ export function runDoctor(snapshot: DoctorSnapshot): DoctorReport {
     byArea,
     items,
     notChecked,
-    ...(sources ? { sources } : {})
+    ...(sources ? { sources } : {}),
+    ...(inputs ? { planInputs: inputs } : {}),
+    ...(processing ? { processing } : {})
   };
 }
 

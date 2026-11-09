@@ -275,3 +275,38 @@ describe("message@1 plain-text fields and bounds", () => {
     expect(early.ok && late.ok && early.event.attrs?.fp).toBe(late.ok && late.event.attrs?.fp);
   });
 });
+
+describe("length caps and unfolded headers", () => {
+  const send = (attrs: Record<string, unknown>) =>
+    describeMessageProblem({
+      kind: "message",
+      id: "mid:abc@x.example",
+      tsStart: new Date("2026-11-08T10:00:00Z"),
+      tsEnd: null,
+      content: null,
+      attrs: { from: "a@x.example", message_id: "abc@x.example", ...attrs }
+    });
+  it("counts code points, not UTF-16 units: a 200-emoji subject is accepted and 201 is refused", () => {
+    expect("😀".repeat(200)).toHaveLength(400);
+    expect(send({ subject: "😀".repeat(200) }).ok).toBe(true);
+    const over = send({ subject: "😀".repeat(201) });
+    expect(over.ok).toBe(false);
+    expect(over.ok ? "" : over.reason).toContain("1 to 200 characters");
+  });
+  it("counts code points in a recipient and a channel too", () => {
+    expect(send({ to: ["😀".repeat(200)] }).ok).toBe(true);
+    expect(send({ to: ["😀".repeat(201)] }).ok).toBe(false);
+    expect(send({ channel: "😀".repeat(128) }).ok).toBe(true);
+    expect(send({ channel: "😀".repeat(129) }).ok).toBe(false);
+  });
+  it("tells the sender to unfold a subject that arrives on several lines", () => {
+    const folded = send({ subject: "Quarterly review\r\n of the plan" });
+    expect(folded.ok).toBe(false);
+    expect(folded.ok ? "" : folded.reason).toContain("unfold the header");
+    const other = send({ channel: "a\nb" });
+    expect(other.ok ? "" : other.reason).toContain("Join its lines into one line");
+    // A control character that is not a line break keeps the general wording.
+    const tab = send({ subject: "a\tb" });
+    expect(tab.ok ? "" : tab.reason).toContain("not allowed");
+  });
+});

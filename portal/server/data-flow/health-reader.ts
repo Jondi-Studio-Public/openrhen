@@ -1,6 +1,19 @@
-import { doctorSyncCadence } from "@openrhen/contracts";
+import {
+  ACTIVITY_COVERAGE_KIND,
+  ACTIVITY_HEARTBEAT_KIND,
+  activitySourceEntry,
+  coverageScopeRequiredFor,
+  doctorSyncCadence
+} from "@openrhen/contracts";
 import {
   classifyFreshness,
+  coverageNote,
+  mergeScopes,
+  scopeCoverage,
+  type CoverageWindow,
+  type HeartbeatRead,
+  type NodeCoverage,
+  type ScopeCoverage,
   learnThreshold,
   thresholdFor,
   type DataFlowHealthRead,
@@ -30,6 +43,8 @@ const PROBE_TIMEOUT_MS = 8_000;
 const PROBE_DEADLINE_MS = 15_000;
 /** How much arrival history is read to tell how long a source has been sending; thresholds still learn from 30 days. */
 const HISTORY_DAYS = 45;
+/** A coverage claim older than this cannot be live (the contract refuses live windows that start earlier). */
+const COVERAGE_DAYS = 400;
 const LEARN_DAYS = 30;
 /** A kind that has been quiet for longer than this many times its warning is retired, not late. */
 const KIND_RETIRED_FACTOR = 2;
@@ -66,6 +81,8 @@ interface Raw {
   kindArrivals?: Map<string, { hours: number[]; last: Date }>;
   /** The source's own token exists and is live. */
   credentialPresent?: boolean;
+  /** A source that reports coverage: how far it has been read. `lastSuccessAt` is then its `coveredTo`. */
+  coverage?: NodeCoverage;
   note?: string | undefined;
   /** A lag probe found the downstream stage trailing: late even when its own clock is recent. */
   forceLate?: boolean;
@@ -235,7 +252,20 @@ interface ActivityRead {
   historyDays: Map<string, number>;
   kindHours: Map<string, Map<string, number[]>>;
   imported: Map<string, Date>;
+  coverage: Map<string, CoverageRaw>;
 }
+
+/** What the coverage and heartbeat rows of one source say, before thresholds are applied. */
+interface CoverageRaw {
+  scopes: ScopeCoverage[];
+  /** When coverage rows were posted over the last 30 days: a collector's own rhythm, which a threshold can learn from. */
+  postedAt: number[];
+  historyDays?: number;
+  heartbeat: HeartbeatRead | null;
+}
+
+/** Heartbeat and coverage rows say a collector is alive and how far it has read; they are not arrivals of its data. */
+const NOT_ARRIVALS = [ACTIVITY_HEARTBEAT_KIND, ACTIVITY_COVERAGE_KIND];
 
 async function readActivity(
   context: Context,
@@ -248,7 +278,8 @@ async function readActivity(
     arrivals: new Map(),
     historyDays: new Map(),
     kindHours: new Map(),
-    imported: new Map()
+    imported: new Map(),
+    coverage: new Map()
   };
   if (sources.length === 0 || !context.userId) return read;
   const list = context.sql([...sources]);
@@ -264,13 +295,15 @@ async function readActivity(
       FROM (VALUES ${values}) AS v(s)
       CROSS JOIN LATERAL (
         SELECT ingested_at FROM activity_events
-        WHERE user_id = ${context.userId} AND source = v.s ORDER BY ingested_at DESC LIMIT 1
+        WHERE user_id = ${context.userId} AND source = v.s AND kind NOT IN ${context.sql(NOT_ARRIVALS)}
+        ORDER BY ingested_at DESC LIMIT 1
       ) AS newest`,
     context.sql<{ source: string; kind: string; c24: number; c7: number; last: Date }[]>`
       SELECT source, kind, count(*) FILTER (WHERE ingested_at > ${since24})::int AS c24,
         count(*) FILTER (WHERE ingested_at > ${since7})::int AS c7, max(ingested_at) AS last
       FROM activity_events
       WHERE user_id = ${context.userId} AND source IN ${list} AND ingested_at > ${since30}
+        AND kind NOT IN ${context.sql(NOT_ARRIVALS)}
       GROUP BY source, kind`,
     context.sql<{ source: string; last: Date }[]>`
       SELECT source, max(imported_at) AS last FROM activity_imports
@@ -284,6 +317,7 @@ async function readActivity(
     const buckets = await context.sql<{ source: string; kind: string; hour: Date }[]>`
       SELECT source, kind, date_trunc('hour', ingested_at) AS hour FROM activity_events
       WHERE user_id = ${context.userId} AND source IN ${context.sql(learn)} AND ingested_at > ${sinceHistory}
+        AND kind NOT IN ${context.sql(NOT_ARRIVALS)}
       GROUP BY 1, 2, 3`;
     const span = new Map<string, { first: number; last: number }>();
     for (const row of buckets) {
@@ -298,7 +332,109 @@ async function readActivity(
     }
     for (const [source, { first, last }] of span) read.historyDays.set(source, Math.floor((last - first) / 24));
   }
+  await readCoverage(context, sources, read);
   return read;
+}
+
+/**
+ * Coverage and heartbeat rows of the sources whose registry entry takes them (a message source, or one that declares
+ * availability with no feeds): the high-water mark per scope over 400 days, the windows of the last 45 days for holes and
+ * the collector's posting rhythm, and the newest heartbeat. Three index-backed statements on (user, source, ts_start).
+ */
+async function readCoverage(context: Context, sources: readonly string[], read: ActivityRead): Promise<void> {
+  const capable = sources.filter((source) => coverageScopeRequiredFor(activitySourceEntry(source)));
+  if (capable.length === 0) return;
+  const list = context.sql(capable);
+  const since400 = new Date(context.now.getTime() - COVERAGE_DAYS * 86_400_000);
+  const since45 = new Date(context.now.getTime() - HISTORY_DAYS * 86_400_000);
+  const since30 = new Date(context.now.getTime() - LEARN_DAYS * 86_400_000);
+  const values = capable.map((source) => context.sql`(${source}::text)`).reduce((a, b) => context.sql`${a}, ${b}`);
+  const [high, windows, beats] = await Promise.all([
+    context.sql<{ source: string; scope: string | null; high: Date }[]>`
+      SELECT source, attrs->>'scope' AS scope, max(ts_end) AS high FROM activity_events
+      WHERE user_id = ${context.userId} AND source IN ${list} AND kind = ${ACTIVITY_COVERAGE_KIND}
+        AND ts_start > ${since400} AND ts_end IS NOT NULL
+      GROUP BY 1, 2`,
+    context.sql<{ source: string; scope: string | null; ts_start: Date; ts_end: Date; ingested_at: Date }[]>`
+      SELECT source, attrs->>'scope' AS scope, ts_start, ts_end, ingested_at FROM activity_events
+      WHERE user_id = ${context.userId} AND source IN ${list} AND kind = ${ACTIVITY_COVERAGE_KIND}
+        AND ts_start > ${since45} AND ts_end IS NOT NULL`,
+    context.sql<{ source: string; ts_start: Date; attrs: Record<string, unknown> }[]>`
+      SELECT v.s AS source, hb.ts_start, hb.attrs
+      FROM (VALUES ${values}) AS v(s)
+      CROSS JOIN LATERAL (
+        SELECT ts_start, attrs FROM activity_events
+        WHERE user_id = ${context.userId} AND source = v.s AND kind = ${ACTIVITY_HEARTBEAT_KIND} AND ts_start > ${since45}
+        ORDER BY ts_start DESC LIMIT 1
+      ) AS hb`
+  ]);
+  const now = context.now.getTime();
+  for (const source of capable) {
+    const scopes: ScopeCoverage[] = [];
+    const mine = windows.filter((row) => row.source === source);
+    const posted = mine.filter((row) => row.ingested_at > since30).map((row) => row.ingested_at.getTime());
+    for (const row of high.filter((candidate) => candidate.source === source)) {
+      const spans: CoverageWindow[] = mine
+        .filter((candidate) => candidate.scope === row.scope)
+        .map((candidate) => ({ start: candidate.ts_start.getTime(), end: candidate.ts_end.getTime() }));
+      const scope = scopeCoverage(row.scope, spans, row.high.getTime(), now);
+      if (scope) scopes.push(scope);
+    }
+    const beat = beats.find((row) => row.source === source);
+    const status = beat?.attrs?.status;
+    const error = beat?.attrs?.error;
+    const heartbeat: HeartbeatRead | null =
+      beat && (status === "ok" || status === "error")
+        ? {
+            at: beat.ts_start.toISOString(),
+            status,
+            ...(typeof error === "string" && error.length > 0 ? { error: clip(error) } : {})
+          }
+        : null;
+    if (scopes.length === 0 && heartbeat === null) continue;
+    const times = mine.flatMap((row) => [row.ts_start.getTime(), row.ts_end.getTime()]);
+    read.coverage.set(source, {
+      scopes,
+      postedAt: posted,
+      ...(times.length > 0 ? { historyDays: Math.floor((Math.max(...times) - Math.min(...times)) / 86_400_000) } : {}),
+      heartbeat
+    });
+  }
+}
+
+/**
+ * A source that reports coverage is judged by how far it has been read, not by when its last row arrived: a quiet inbox
+ * with a live collector stays fresh, a stuck collector goes late. The newest heartbeat gives the attempt (an error one
+ * newer than the high-water mark is `failing`). Posting rhythm of the coverage rows is what a threshold learns from.
+ */
+function withCoverage(raw: Raw, found: CoverageRaw | undefined): Raw {
+  if (!found) return raw;
+  const merged = mergeScopes(found.scopes);
+  const coveredTo = merged.coveredTo ? new Date(merged.coveredTo) : null;
+  const heartbeat = found.heartbeat;
+  const beatAt = heartbeat ? new Date(heartbeat.at) : null;
+  const failing = heartbeat?.status === "error" && beatAt !== null && (coveredTo === null || beatAt > coveredTo);
+  const coverage: NodeCoverage = {
+    coveredTo: merged.coveredTo,
+    scopes: merged.scopes,
+    holes14d: merged.scopes.filter((s) => s.retired !== true).reduce((sum, s) => sum + s.holes14d, 0),
+    heartbeat
+  };
+  return {
+    ...raw,
+    coverage,
+    lastSuccessAt: coveredTo,
+    lastAttemptAt: beatAt ?? coveredTo,
+    lastAttemptOk: heartbeat ? heartbeat.status === "ok" : coveredTo ? true : null,
+    lastError: failing
+      ? { at: beatAt, message: clip(heartbeat?.error ?? "the collector reported an error") }
+      : raw.lastAttemptOk === false
+        ? (raw.lastError ?? null)
+        : null,
+    everSeen: true,
+    arrivals: found.postedAt,
+    ...(found.historyDays !== undefined ? { historyDays: found.historyDays } : {})
+  };
 }
 
 function activityRaw(source: string, activity: ActivityRead, runs: Map<string, SyncRun[]>): Raw {
@@ -539,6 +675,13 @@ async function probeAll(context: Context, entries: readonly FlowEntry[]): Promis
     }
   };
 
+  const withCoverageOf = (entry: FlowEntry, outcome: Outcome): Outcome =>
+    "unresolved" in outcome ||
+    entry.activitySource === undefined ||
+    !(entry.health.kind === "activity" || entry.health.kind === "last-used")
+      ? outcome
+      : withCoverage(outcome, activity.coverage.get(entry.activitySource));
+
   const out = new Map<string, Outcome>();
   // One at a time: they share one connection, so running them together only queues them there, and the deadline
   // below can then leave the rest unrun.
@@ -551,7 +694,7 @@ async function probeAll(context: Context, entries: readonly FlowEntry[]): Promis
       continue;
     }
     try {
-      out.set(entry.id, await resolve(entry.health, entry));
+      out.set(entry.id, withCoverageOf(entry, await resolve(entry.health, entry)));
     } catch (error) {
       // The driver's text can carry host and query detail, so it goes to the server log; agents get a fixed reason.
       const code = (error as { code?: unknown } | null)?.code;
@@ -778,9 +921,26 @@ async function computeHealth(
         next: `Find the token's name with \`rhen agent-token list\`, then set tokenName for entry ${entry.id} in an extension's data-flow amend to that exact name. Nothing on the device changes and no token is renamed. A core-only install has no extension to amend, so leave this item: the source is still judged by its rows.`
       });
     }
+    const declared = entry.activitySource ? activitySourceEntry(entry.activitySource)?.availability : undefined;
     const threshold = thresholdFor(entry, {
       cadenceLateAfterMs: cadence,
-      learned: learnedFrom(outcome)
+      learned: learnedFrom(outcome),
+      ...(outcome.coverage
+        ? {
+            coverage: {
+              // The owner's own setting arrives with a later change; until then none is set.
+              ownerStaleAfterMinutes: null,
+              collector: {
+                ...(declared?.expectedEveryMinutes !== undefined
+                  ? { expectedEveryMinutes: declared.expectedEveryMinutes }
+                  : {}),
+                ...(declared?.silentAfterMinutes !== undefined
+                  ? { silentAfterMinutes: declared.silentAfterMinutes }
+                  : {})
+              }
+            }
+          }
+        : {})
     });
     const freshness: FreshnessState =
       probe.kind === "none"
@@ -812,9 +972,15 @@ async function computeHealth(
       ...(outcome.kinds ? { kindsSeen: outcome.kinds } : {}),
       ...(lateKinds.length > 0 ? { lateKinds } : {}),
       ...(outcome.credentialPresent ? { credentialPresent: true } : {}),
+      ...(outcome.coverage ? { coverage: outcome.coverage } : {}),
       threshold,
-      ...(outcome.note ? { note: outcome.note } : {})
+      ...(outcome.note
+        ? { note: outcome.note }
+        : outcome.coverage
+          ? { note: coverageNote(outcome.coverage, finalFreshness) ?? "" }
+          : {})
     };
+    if (nodes[entry.id]!.note === "") delete nodes[entry.id]!.note;
   }
   return { result: { nodes, issues, devices: deviceHealth(entries, nodes) }, transient };
 }

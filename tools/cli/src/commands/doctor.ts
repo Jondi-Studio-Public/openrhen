@@ -1,5 +1,6 @@
 import { DEFAULT_TIMEZONE } from "@openrhen/contracts";
 import { DOCTOR_AREAS, DOCTOR_TIERS, type DoctorItem, type DoctorReport } from "@openrhen/contracts";
+import { processingLine } from "@openrhen/contracts/data-flow";
 import { parsePositiveInt, stringOption, type CommandSpec } from "../command.js";
 import { CliError, EXIT } from "../errors.js";
 import { localiseInstants, renderTable, toJson } from "../output.js";
@@ -10,6 +11,14 @@ function summaryLine(report: DoctorReport): string {
   if (report.healthy) return "Data is healthy: every check that exists found nothing.";
   const { blocking, degrading, tidy } = report.counts;
   return `${report.items.length} to fix: ${blocking} blocking, ${degrading} degrading, ${tidy} tidy.`;
+}
+
+/** What the plan is built from: the sentence when a source that can change it is behind, and messages collected against decided. */
+function inputLines(report: DoctorReport): string[] {
+  return [
+    ...(report.planInputs?.sentence ? [report.planInputs.sentence] : []),
+    ...(report.processing ?? []).flatMap((entry) => processingLine(entry) ?? [])
+  ];
 }
 
 function fixText(item: DoctorItem): string {
@@ -73,7 +82,7 @@ export const doctorCommand: CommandSpec = {
       context.stdout(toJson(localiseInstants({ ...report, items: shown, remaining }, timeZone), true));
       return;
     }
-    const lines = [summaryLine(report)];
+    const lines = [summaryLine(report), ...inputLines(report)];
     if (shown.length > 0) {
       lines.push(
         renderTable(
