@@ -329,9 +329,12 @@ function errorFor(status: number, path: string, payload: unknown, token?: string
           currentVersion?: unknown;
           nextCall?: unknown;
           validValues?: unknown;
+          agentHint?: unknown;
         })
       : {};
   let message = typeof body.error === "string" ? body.error : `HTTP ${status} from ${path}`;
+  // The portal keeps agent-only instructions apart from the owner-readable text; an agent caller gets both.
+  if (typeof body.agentHint === "string" && body.agentHint !== "") message = `${message} ${body.agentHint}`;
   if (token) message = message.split(token).join("[token]");
   if (ownerToken) message = message.split(ownerToken).join("[token]");
   // A lapsed pulse holds every agent call but `reenter`; the body carries the pulse fields and what is missing.

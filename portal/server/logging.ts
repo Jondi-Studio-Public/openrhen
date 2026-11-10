@@ -193,42 +193,51 @@ const STATUS_CALL = {
   note: "shows the current plan and records; then rhen_show or rhen_list reads the ones you referenced"
 };
 
-/** The refusal body for a database error: text with the field and the way on, and the call to send next. */
-function databaseRefusalBody(state: string, error: unknown): { error: string; nextCall: AgentCall } {
+/**
+ * The refusal body for a database error. `error` is plain text the owner can read in the browser; `agentHint`
+ * holds the instructions only an agent needs (which tool to call, to repeat with a NEW command-id). The CLI and
+ * the MCP bridge join the two, so an agent sees the same text as before.
+ */
+function databaseRefusalBody(state: string, error: unknown): { error: string; agentHint: string; nextCall: AgentCall } {
   const fields = failingFields(error);
   const detail = (error as { detail?: unknown }).detail;
-  const named = fields.length === 0 ? "one of the ids or values you sent" : `the field ${fieldList(fields)}`;
-  let message: string;
+  const anonymous = fields.length === 0;
+  const named = anonymous ? "one of the ids or values you sent" : `the field ${fieldList(fields)}`;
+  const referenced = anonymous ? "A record you referenced" : `The record named by ${named}`;
+  let human: string;
+  let hint: string;
   switch (state) {
     case "23503":
-      if (typeof detail === "string" && /is still referenced/i.test(detail))
-        message =
-          `This record is still in use by other records, so it cannot be removed or replaced. ${NOTHING_CHANGED} ` +
-          "Read it with rhen_show and see rhen_guide {} for how to end or move what depends on it; change those first, or leave this one in place; " +
-          RETRY_TAIL;
-      else if (typeof detail === "string" && /is not present/i.test(detail))
-        message = `${named === "one of the ids or values you sent" ? "A record you referenced" : `The record named by ${named}`} no longer exists (it may have just been removed or archived). ${NOTHING_CHANGED} ${READ_TAIL}`;
-      else
-        message =
-          `${named === "one of the ids or values you sent" ? "A record you referenced" : `The record named by ${named}`} either no longer exists or is still in use by other records. ${NOTHING_CHANGED} ` +
-          `${READ_TAIL}`;
+      if (typeof detail === "string" && /is still referenced/i.test(detail)) {
+        human = `This record is still in use by other records, so it cannot be removed or replaced. ${NOTHING_CHANGED}`;
+        hint = `Read it with rhen_show and see rhen_guide {} for how to end or move what depends on it; change those first, or leave this one in place; ${RETRY_TAIL}`;
+      } else if (typeof detail === "string" && /is not present/i.test(detail)) {
+        human = `${referenced} no longer exists (it may have just been removed or archived). ${NOTHING_CHANGED}`;
+        hint = READ_TAIL;
+      } else {
+        human = `${referenced} either no longer exists or is still in use by other records. ${NOTHING_CHANGED}`;
+        hint = READ_TAIL;
+      }
       break;
     case "23505":
-      message =
-        `A record with the same ${fields.length === 0 ? "identifying values" : fieldList(fields)} already exists. ${NOTHING_CHANGED} ` +
+      human = `A record with the same ${anonymous ? "identifying values" : fieldList(fields)} already exists. ${NOTHING_CHANGED}`;
+      hint =
         'Call rhen_status {} first, then find the existing record with rhen_search {"query":"<the name you used>"} and change that record instead of creating another, or choose a different value for that field, ' +
         RETRY_TAIL;
       break;
     case "23514":
-      message = `${named === "one of the ids or values you sent" ? "A value you sent" : `The value of ${named}`} is not allowed. ${NOTHING_CHANGED} Read the tool's accepted values with rhen_guide {}, correct the value, ${RETRY_TAIL}`;
+      human = `${anonymous ? "A value you sent" : `The value of ${named}`} is not allowed. ${NOTHING_CHANGED}`;
+      hint = `Read the tool's accepted values with rhen_guide {}, correct the value, ${RETRY_TAIL}`;
       break;
     case "23502":
-      message = `A required value is missing${fields.length === 0 ? "" : `: ${fieldList(fields)}`}. ${NOTHING_CHANGED} Send ${fields.length === 0 ? "every required field" : "that field"} (rhen_guide {} lists what each save needs), ${RETRY_TAIL}`;
+      human = `A required value is missing${anonymous ? "" : `: ${fieldList(fields)}`}. ${NOTHING_CHANGED}`;
+      hint = `Send ${anonymous ? "every required field" : "that field"} (rhen_guide {} lists what each save needs), ${RETRY_TAIL}`;
       break;
     default:
-      message = `${fields.length === 0 ? "A value you sent" : `The value of ${named}`} is in the wrong format (an id, number or date that does not parse). ${NOTHING_CHANGED} Read the record with rhen_show to copy the exact format, correct the value, ${RETRY_TAIL}`;
+      human = `${anonymous ? "A value you sent" : `The value of ${named}`} is in the wrong format (an id, number or date that does not parse). ${NOTHING_CHANGED}`;
+      hint = `Read the record with rhen_show to copy the exact format, correct the value, ${RETRY_TAIL}`;
   }
-  return { error: message, nextCall: STATUS_CALL };
+  return { error: human, agentHint: hint, nextCall: STATUS_CALL };
 }
 
 /** The SQLSTATE of a database error, or undefined for anything else. */

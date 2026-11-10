@@ -117,6 +117,10 @@ describe("createClient: status mapping", () => {
     expect((await fail(403, { error: "lacks the scope x", missingScopes: ["x"] })).agent).toEqual({ code: "scope" });
     expect((await fail(409, { error: "stale", currentVersion: 4 })).agent).toEqual({ currentVersion: 4 });
     expect((await fail(404, { error: "none" })).agent).toEqual({});
+    // Agent-only instructions travel beside the owner-readable text and are joined back for a CLI/MCP caller.
+    expect((await fail(409, { error: "Already exists.", agentHint: "Call rhen_status {} first." })).message).toBe(
+      "Already exists. Call rhen_status {} first."
+    );
     // A refusal that names the exact next call and the accepted values carries them through; a malformed one is dropped.
     const call = { tool: "rhen_list", arguments: { entity: "projects", limit: 20 } };
     expect((await fail(404, { error: "gone", nextCall: call })).agent).toEqual({ nextCall: call });
