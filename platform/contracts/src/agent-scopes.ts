@@ -135,6 +135,8 @@ const FIXED_TOOL_SCOPES = {
   activity: ["write:activity"],
   deliverable: ["write:deliverable"],
   "check-in": ["write:check-in"],
+  // Tags on an answered check-in's words: the same command route and scope as the answer itself.
+  "check-in-tag": ["write:check-in"],
   disruption: ["write:disruption"],
   routine: ["write:routine"],
   recalculate: ["write:recalculate"],

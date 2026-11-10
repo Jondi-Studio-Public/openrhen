@@ -7,7 +7,6 @@ import { clock, dayClock } from "@/features/now/now-formatting";
 import { dateInput, iso } from "@/features/today/local-datetime";
 import type { RunActivityCommand } from "@/features/now/now-model";
 import { Field } from "@/components/field";
-import { disruptionSourceOptions } from "@/features/disruptions/disruption-draft";
 
 interface TrailRow {
   id: string;
@@ -33,7 +32,6 @@ interface AnswerCheckInsCommand {
   upTo: string;
   tail: {
     status: TailStatus;
-    deviationCategory?: DeviationCategory;
     deviationNote?: string;
   };
 }
@@ -55,7 +53,6 @@ async function sendAnswerCheckIns(command: AnswerCheckInsCommand): Promise<void>
   if (!response.ok || !result.state) throw new Error(result.error ?? "The check-ins were not saved.");
 }
 
-type DeviationCategory = "work" | "family" | "life_admin" | "other";
 type TailStatus = "on_track" | "deviated" | "unknown";
 
 /**
@@ -94,7 +91,6 @@ export function ReconciliationPanel({
   const [phase, setPhase] = useState<"choose" | "tail">("choose");
   const [endedAtInput, setEndedAtInput] = useState("");
   const [deviationOpen, setDeviationOpen] = useState(false);
-  const [category, setCategory] = useState<DeviationCategory | "">("");
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const busy = submitting || saving;
@@ -174,7 +170,7 @@ export function ReconciliationPanel({
     setError("");
   }
 
-  async function finishAndAnswer(tailStatus: TailStatus, deviation?: { category?: DeviationCategory; note?: string }) {
+  async function finishAndAnswer(tailStatus: TailStatus, deviation?: { note?: string }) {
     if (!trail) return;
     const endedAtIso = chosenEndedAt.toISOString();
     setSubmitting(true);
@@ -204,7 +200,6 @@ export function ReconciliationPanel({
         upTo: endedAtIso,
         tail: {
           status: tailStatus,
-          ...(deviation?.category ? { deviationCategory: deviation.category } : {}),
           ...(deviation?.note?.trim() ? { deviationNote: deviation.note.trim() } : {})
         }
       });
@@ -242,7 +237,7 @@ export function ReconciliationPanel({
 
   function submitDeviation(event: FormEvent) {
     event.preventDefault();
-    void finishAndAnswer("deviated", { ...(category ? { category } : {}), note });
+    void finishAndAnswer("deviated", { note });
   }
 
   const verifiedLabel =
@@ -318,22 +313,7 @@ export function ReconciliationPanel({
       )}
       {phase === "tail" && deviationOpen && (
         <form className="editor-grid" onSubmit={submitDeviation}>
-          <Field label="Category" group>
-            <div className="disruption-choices">
-              {disruptionSourceOptions(state.settings).map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={`quiet small${category === option.value ? " selected" : ""}`}
-                  aria-pressed={category === option.value}
-                  onClick={() => setCategory(option.value)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </Field>
-          <Field label="Note (optional)">
+          <Field label="In your words (optional)">
             <input value={note} onChange={(event) => setNote(event.target.value)} />
           </Field>
           <div className="form-actions">

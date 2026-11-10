@@ -675,6 +675,32 @@ export const wakeResultSchema = z.union([
 /** What a check-in answered "deviated" was taken up by instead. */
 export const deviationCategorySchema = z.enum(["work", "family", "life_admin", "other"]);
 
+/** The owner's own words on a check-in answer, whatever the status. */
+export const CHECK_IN_NOTE_MAX_CHARS = 8000;
+/** Open tags on one check-in, and what one `tag_check_in` command may add or remove. */
+export const CHECK_IN_TAGS_MAX = 12;
+export const CHECK_IN_TAG_MAX_CHARS = 40;
+
+/** Where an answer came from. A voluntary check-in is never a reconciliation answer. */
+const CHECK_IN_ANSWER_SOURCES = ["in_app_banner", "sheet", "push_action", "widget", "shortcut", "app"] as const;
+export const CHECK_IN_ANSWER_SOURCE_VALUES = [...CHECK_IN_ANSWER_SOURCES, "session_reconciliation"] as const;
+
+/** `stated`: the owner said it. `inferred`: a reader took it from his words; shown to him and correctable. */
+export const checkInTagMarkSchema = z.enum(["stated", "inferred"]);
+/** An open tag: any short phrase, stored trimmed, lower case and Unicode-composed. No fixed vocabulary. */
+export const checkInTagSchema = z
+  .string()
+  .normalize()
+  .trim()
+  .toLowerCase()
+  .min(1)
+  .max(CHECK_IN_TAG_MAX_CHARS)
+  .refine((tag) => !/[\p{Cc}\p{Cf}]/u.test(tag), "A tag is one line of plain text with no control characters.");
+export const storedCheckInTagSchema = z.object({ tag: checkInTagSchema, mark: checkInTagMarkSchema });
+export type StoredCheckInTag = z.infer<typeof storedCheckInTagSchema>;
+
+const checkInNoteSchema = z.string().trim().max(CHECK_IN_NOTE_MAX_CHARS).optional();
+
 /**
  * Answers one check-in slot. Record-only (Phase A): this never starts, switches, or otherwise touches
  * a session — `deviationTargetId` is a plain label of what was actually happening, not an action.
@@ -685,10 +711,11 @@ const answerCheckInObjectSchema = commandBase.extend({
   checkInId: z.string().uuid(),
   status: z.enum(["on_track", "deviated", "unknown"]),
   deviationCategory: deviationCategorySchema.optional(),
-  deviationNote: z.string().trim().max(1000).optional(),
+  /** His words, on any status. */
+  deviationNote: checkInNoteSchema,
   /** A different planned task named instead of the engine's belief — recorded only, never started. */
   deviationTargetId: z.string().min(1).optional(),
-  answerSource: z.enum(["in_app_banner", "sheet", "session_reconciliation"])
+  answerSource: z.enum(CHECK_IN_ANSWER_SOURCE_VALUES)
 });
 
 /**
@@ -706,7 +733,7 @@ const answerCheckInsObjectSchema = z.object({
   tail: z.object({
     status: z.enum(["on_track", "deviated", "unknown"]),
     deviationCategory: deviationCategorySchema.optional(),
-    deviationNote: z.string().trim().max(1000).optional()
+    deviationNote: checkInNoteSchema
   })
 });
 
@@ -719,14 +746,41 @@ const voluntaryCheckInObjectSchema = commandBase.extend({
   type: z.literal("voluntary_check_in"),
   status: z.enum(["on_track", "deviated", "unknown"]),
   deviationCategory: deviationCategorySchema.optional(),
-  deviationNote: z.string().trim().max(1000).optional(),
+  deviationNote: checkInNoteSchema,
   deviationTargetId: z.string().min(1).optional(),
-  answerSource: z.enum(["in_app_banner", "sheet"])
+  answerSource: z.enum(CHECK_IN_ANSWER_SOURCES)
+});
+
+/**
+ * Adds or removes open tags on an answered check-in. A reader tags the owner's words (`inferred`); he corrects
+ * them (a removed tag, or a `stated` one). It touches only `tags`: never the status, the words or the pulse.
+ */
+const tagCheckInObjectSchema = commandBase.extend({
+  type: z.literal("tag_check_in"),
+  checkInId: z.string().uuid(),
+  add: z
+    .array(z.object({ tag: checkInTagSchema, mark: checkInTagMarkSchema }))
+    .max(CHECK_IN_TAGS_MAX)
+    .optional(),
+  remove: z.array(checkInTagSchema).max(CHECK_IN_TAGS_MAX).optional()
 });
 
 export const checkInCommandSchema = z
-  .discriminatedUnion("type", [answerCheckInObjectSchema, answerCheckInsObjectSchema, voluntaryCheckInObjectSchema])
+  .discriminatedUnion("type", [
+    answerCheckInObjectSchema,
+    answerCheckInsObjectSchema,
+    voluntaryCheckInObjectSchema,
+    tagCheckInObjectSchema
+  ])
   .superRefine((value, context) => {
+    if (value.type === "tag_check_in") {
+      const added = new Set((value.add ?? []).map((entry) => entry.tag));
+      if (added.size === 0 && (value.remove ?? []).length === 0)
+        context.addIssue({ code: "custom", message: "Name a tag to add or remove." });
+      if ((value.remove ?? []).some((tag) => added.has(tag)))
+        context.addIssue({ code: "custom", message: "A tag cannot be added and removed in one command." });
+      return;
+    }
     if (value.type === "answer_check_in" || value.type === "voluntary_check_in") {
       if (value.deviationCategory && value.status !== "deviated")
         context.addIssue({ code: "custom", message: "A deviation category only belongs on a deviated answer." });
@@ -740,6 +794,7 @@ export type CheckInCommand = z.infer<typeof checkInCommandSchema>;
 export type AnswerCheckInCommand = Extract<CheckInCommand, { type: "answer_check_in" }>;
 export type VoluntaryCheckInCommand = Extract<CheckInCommand, { type: "voluntary_check_in" }>;
 export type AnswerCheckInsCommand = Extract<CheckInCommand, { type: "answer_check_ins" }>;
+export type TagCheckInCommand = Extract<CheckInCommand, { type: "tag_check_in" }>;
 
 export type SessionCommand = z.infer<typeof sessionCommandSchema>;
 export type OverrideReason = z.infer<typeof overrideReasonSchema>;

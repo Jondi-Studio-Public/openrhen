@@ -759,8 +759,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -1171,8 +1170,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -1293,8 +1291,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -1502,8 +1499,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -1651,8 +1647,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -1748,8 +1743,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -1795,8 +1789,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -1873,8 +1866,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         }
       },
       additionalProperties: false,
@@ -1974,8 +1966,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2121,8 +2112,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2192,8 +2182,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2235,8 +2224,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2284,8 +2272,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2331,8 +2318,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2430,8 +2416,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2507,8 +2492,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2562,8 +2546,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2628,8 +2611,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2694,8 +2676,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2785,8 +2766,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2815,7 +2795,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
     name: "rhen_check_in",
     command: "check-in",
     description:
-      "Answers the pending check-in from rhen_status; none waiting, records a voluntary one. status is on-track, deviated or unknown. A deviated answer needs a category; category, note and target belong to deviated only and are refused otherwise. If they are doing something other than the plan, follow it at once with rhen_disrupt, or the pulse lapses. target: action worked on (id or exact title); recorded, nothing started. Returns the answer; rhen_undo reverses it. WRITES DATA.",
+      "Answers the pending check-in from rhen_status; none waiting, records a voluntary one. status is on-track, deviated or unknown. note: the owner's words, any status; deviated needs it (or category). category and target belong to deviated only and are refused otherwise. If they are doing something other than the plan, follow it at once with rhen_disrupt, or the pulse lapses. Returns the answer; rhen_undo reverses it. WRITES DATA.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2826,12 +2806,12 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         category: {
           type: "string",
-          description: "Needed with deviated.",
+          description: "Deviated only.",
           enum: ["work", "family", "life_admin", "other"]
         },
         note: {
           type: "string",
-          description: "deviated only: up to 1000 characters."
+          description: "The owner's words, 8000 characters at most."
         },
         target: {
           type: "string",
@@ -2844,8 +2824,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2861,6 +2840,61 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
       },
       additionalProperties: false,
       required: ["status"]
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false
+    },
+    scopes: ["write:check-in", "read:plan"]
+  },
+  {
+    name: "rhen_check_in_tag",
+    command: "check-in-tag",
+    description:
+      'Tags the words of an answered check-in, e.g. "school run" -> family. Open phrases, 12 at most. Changes tags only, never status, words or pulse. mark inferred (default) lets the owner remove it; stated if they named it. Returns the answer; rhen_undo reverses it. WRITES DATA.',
+    inputSchema: {
+      type: "object",
+      properties: {
+        "check-in": {
+          type: "string",
+          description: "The check-in's id."
+        },
+        add: {
+          type: "string",
+          description: "Tags to add, comma-separated, 40 characters each at most."
+        },
+        remove: {
+          type: "string",
+          description: "Tags to remove, comma-separated."
+        },
+        mark: {
+          type: "string",
+          description: "inferred (default) or stated.",
+          enum: ["inferred", "stated"]
+        },
+        "dry-run": {
+          type: "boolean",
+          description: "true: preview only; checks shape, not ids, evidence or scopes."
+        },
+        "command-id": {
+          type: "string",
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
+        },
+        basis: {
+          type: "string",
+          enum: ["stated", "inferred", "observed"],
+          description:
+            "stated (owner's words go in evidence), observed (read from mail, page or file), inferred (your guess; default)."
+        },
+        evidence: {
+          type: "string",
+          maxLength: 300,
+          description: "Owner's words; required with basis stated."
+        }
+      },
+      additionalProperties: false
     },
     annotations: {
       readOnlyHint: false,
@@ -2937,8 +2971,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -2990,8 +3023,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -3034,8 +3066,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -3091,8 +3122,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -3155,8 +3185,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -3246,8 +3275,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -3391,8 +3419,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",
@@ -3571,8 +3598,7 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
         },
         "command-id": {
           type: "string",
-          description:
-            "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout."
+          description: "Optional: omit and the server makes one. Resend the SAME only after a timeout."
         },
         basis: {
           type: "string",

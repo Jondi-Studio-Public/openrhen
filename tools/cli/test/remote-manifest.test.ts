@@ -92,6 +92,7 @@ describe("the remote MCP manifest", () => {
         "span",
         "activity",
         "check-in",
+        "check-in-tag",
         "disruption",
         "routine",
         "recalculate",

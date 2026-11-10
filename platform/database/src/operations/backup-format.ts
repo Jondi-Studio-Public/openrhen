@@ -15,6 +15,8 @@ import { legacyRequiredTables } from "./private/legacy-backups.js";
 const CORE_BACKUP_TABLES = [
   "portal_state",
   "users",
+  // `check_in.tags` (open tags on the owner's words, migration 0153) rides inside this table; a backup written before it
+  // restores with the column's default, an empty list (`check-in-backup.integration.test.ts`). No format bump.
   "check_in",
   "areas",
   "daily_plans",

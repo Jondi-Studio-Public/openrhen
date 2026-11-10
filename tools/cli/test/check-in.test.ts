@@ -64,15 +64,45 @@ describe("check-in", () => {
     expect(result.exitCode).toBe(EXIT.ok);
   });
 
-  it("refuses a deviated answer without --category, and never calls the portal", async () => {
+  it("refuses a deviated answer with neither --note nor --category, and never calls the portal", async () => {
     const result = await run(["deviated"], {
       "/api/check-ins/current": {
         body: { checkIn: { id: "c06b0ed5-f844-4f5b-b0d3-23898a16267b", version: 1, status: "pending" } }
       }
     });
     expect(result.exitCode).toBe(EXIT.usage);
-    expect(result.stderr).toContain("--category");
+    expect(result.stderr).toContain("--note");
     expect(result.calls.some((call) => call.method === "POST")).toBe(false);
+  });
+
+  it("sends a deviated answer with only the owner's words, no category", async () => {
+    const result = await run(["deviated", "--note", "School run, back by nine"], {
+      "/api/check-ins/current": {
+        body: { checkIn: { id: "126b15ba-ff40-4a7f-8f3e-b824506a1fcc", version: 2, status: "pending" } }
+      },
+      "/api/commands/check-in": (call) => {
+        expect(checkInCommandSchema.safeParse(call.body).success).toBe(true);
+        const body = call.body as Record<string, unknown>;
+        expect(body).toMatchObject({ status: "deviated", deviationNote: "School run, back by nine" });
+        expect(body).not.toHaveProperty("deviationCategory");
+        return { body: { state: fixtureRawState() } };
+      }
+    });
+    expect(result.exitCode).toBe(EXIT.ok);
+  });
+
+  it.each(["on-track", "unknown"])("keeps the owner's words on a %s answer", async (word) => {
+    const result = await run([word, "--note", "yes, but slower than planned"], {
+      "/api/check-ins/current": {
+        body: { checkIn: { id: "126b15ba-ff40-4a7f-8f3e-b824506a1fcc", version: 2, status: "pending" } }
+      },
+      "/api/commands/check-in": (call) => {
+        expect(checkInCommandSchema.safeParse(call.body).success).toBe(true);
+        expect((call.body as Record<string, unknown>).deviationNote).toBe("yes, but slower than planned");
+        return { body: { state: fixtureRawState() } };
+      }
+    });
+    expect(result.exitCode).toBe(EXIT.ok);
   });
 
   it("posts deviationCategory, deviationNote, and deviationTargetId for a deviated answer", async () => {
@@ -177,20 +207,23 @@ describe("check-in argument validation", () => {
     expect(result.calls.some((call) => call.url.includes("/api/check-ins/current"))).toBe(false);
   });
 
-  it("reports a missing --category and an over-long --note before the pending lookup", async () => {
+  it("reports missing words and an over-long --note before the pending lookup", async () => {
     const missing = await run(["deviated"], noPending);
     expect(missing.exitCode).toBe(EXIT.usage);
-    expect(missing.stderr).toContain("--category");
-    const long = await run(["deviated", "--category", "work", "--note", "x".repeat(1001)], noPending);
+    expect(missing.stderr).toContain("--note");
+    const long = await run(["deviated", "--note", "x".repeat(8001)], noPending);
     expect(long.exitCode).toBe(EXIT.usage);
-    expect(long.stderr).toContain("--note is limited to 1000 characters");
+    expect(long.stderr).toContain("--note is limited to 8000 characters");
+    const longOnTrack = await run(["on-track", "--note", "x".repeat(8001)], noPending);
+    expect(longOnTrack.exitCode).toBe(EXIT.usage);
+    expect(longOnTrack.stderr).toContain("--note is limited to 8000 characters");
   });
 
-  it("refuses --note, --target and --category on on-track and unknown, naming them", async () => {
+  it("refuses --target and --category on on-track and unknown, naming them", async () => {
     for (const word of ["on-track", "unknown"]) {
-      const result = await run([word, "--note", "hi", "--target", "action-draft"], pending);
+      const result = await run([word, "--target", "action-draft"], pending);
       expect(result.exitCode).toBe(EXIT.usage);
-      expect(result.stderr).toContain("--note, --target only apply to a deviated answer");
+      expect(result.stderr).toContain("--target only applies to a deviated answer");
       expect(result.calls.some((call) => call.method === "POST")).toBe(false);
     }
     const category = await run(["on-track", "--category", "work"], pending);

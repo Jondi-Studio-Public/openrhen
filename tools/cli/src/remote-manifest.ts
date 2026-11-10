@@ -358,6 +358,8 @@ export const REMOTE_TOOLS: RemoteTool[] = [
   { command: "cancel", scopes: ["propose:entity", "read:plan"], omit: ["restore"] },
   { command: "activity", scopes: ["write:activity", "read:plan"] },
   { command: "check-in", scopes: ["write:check-in", "read:plan"] },
+  // Open tags on an answered check-in's words: the answer's other half, so the same scope.
+  { command: "check-in-tag", scopes: ["write:check-in", "read:plan"] },
   { command: "disruption", scopes: ["write:disruption", "write:entity:commitment", "write:activity", "read:plan"] },
   { command: "routine", scopes: ["write:routine", "write:entity:commitment", "read:plan"] },
   { command: "recalculate", scopes: ["write:recalculate"] },

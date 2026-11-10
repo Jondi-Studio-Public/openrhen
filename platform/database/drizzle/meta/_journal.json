@@ -99,6 +99,13 @@
       "when": 1794400000002,
       "tag": "0152_device_sign_in",
       "breakpoints": true
+    },
+    {
+      "idx": 153,
+      "version": "7",
+      "when": 1794400000003,
+      "tag": "0153_words_first_check_ins",
+      "breakpoints": true
     }
   ]
 }

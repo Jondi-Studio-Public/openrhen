@@ -24,6 +24,7 @@ const WRITE_TOOLS = [
   "rhen_cancel",
   "rhen_activity",
   "rhen_check_in",
+  "rhen_check_in_tag",
   "rhen_disruption",
   "rhen_routine",
   "rhen_recalculate",

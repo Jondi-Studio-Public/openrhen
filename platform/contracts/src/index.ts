@@ -104,7 +104,14 @@ export type { SpanEntity, SpanWindow, SpanWire } from "./planning/span.js";
 export {
   activityCommandSchema,
   blockingReasonSchema,
+  CHECK_IN_ANSWER_SOURCE_VALUES,
+  CHECK_IN_NOTE_MAX_CHARS,
+  CHECK_IN_TAG_MAX_CHARS,
+  CHECK_IN_TAGS_MAX,
   checkInCommandSchema,
+  checkInTagMarkSchema,
+  checkInTagSchema,
+  storedCheckInTagSchema,
   confirmProjectWantedCommandSchema,
   deviationCategorySchema,
   endRecurrenceGoalCommandSchema,
@@ -141,6 +148,8 @@ export type {
   SaveCommitmentRecurrenceRuleCommand,
   SaveProjectCommand,
   SessionCommand,
+  StoredCheckInTag,
+  TagCheckInCommand,
   SplitCommitmentSourceCommand,
   WakeCommand,
   WakeResult

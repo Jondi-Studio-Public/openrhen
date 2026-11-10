@@ -122,7 +122,7 @@ export const MCP_SERVER_INSTRUCTIONS =
   "(no arguments first; it reads, you ask, then you answer). Status shows catch-up due: rhen_catch_up, ask, " +
   "then rhen_catch_up_settle. Status shows attention: rhen_attention once (act on nextCall, askOwner and " +
   "the step in why). Status shows stretchOffer: tell the person its text; only on their own answer, " +
-  "rhen_stretch. A check-in is pending: rhen_check_in; deviated and doing something else: " +
+  "rhen_stretch. A check-in is pending: rhen_check_in (the owner's words as note; rhen_check_in_tag adds tags to them); deviated and doing something else: " +
   "rhen_disrupt (a call or visitor: rhen_disruption). The owner woke or arrived: rhen_wake, " +
   "rhen_arrive. Work on an action: rhen_session; on a routine step, sleep or deliverable step: " +
   "rhen_activity. One record: rhen_save or its typed tools (rhen_save_action, _project, " +

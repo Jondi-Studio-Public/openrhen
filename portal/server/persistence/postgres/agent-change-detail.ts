@@ -93,7 +93,7 @@ export const VISIBLE_COLUMNS: Readonly<Record<string, ReadonlySet<string>>> = Ob
     activity_events: "kind attrs",
     sessions:
       "action_id target_title status planned_started_at planned_end_at planned_minutes result_note override_reason",
-    check_in: "slot_at directive_title status deviation_category deviation_note",
+    check_in: "slot_at directive_title status deviation_category deviation_note tags",
     sleep_plans: "planned_start_at planned_wake_at desired_minutes status actual_start_at actual_wake_at",
     routine_steps: "title purpose duration_minutes sequence energy phase status wait_after_minutes",
     spans: "title start_date end_date project_id",

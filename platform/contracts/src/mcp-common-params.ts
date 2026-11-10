@@ -5,7 +5,7 @@
  * Its keys are known, so a generated file can index it by a literal key under `noUncheckedIndexedAccess`.
  */
 export const MCP_COMMON_PARAMS = Object.freeze({
-  "command-id": "Optional: omit and the server makes one (named if in doubt). Resend the SAME only after a timeout.",
+  "command-id": "Optional: omit and the server makes one. Resend the SAME only after a timeout.",
   basis:
     "stated (owner's words go in evidence), observed (read from mail, page or file), inferred (your guess; default).",
   evidence: "Owner's words; required with basis stated.",
