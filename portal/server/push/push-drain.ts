@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { LeaveByPushPayload } from "@openrhen/contracts";
+import { cancelClosedCheckInWaitingPushes, stampCheckInPrompted } from "@openrhen/database";
 import type { PoolSql } from "@/server/persistence/postgres/sql-pool";
 import { fetchVapidPublicKey, sendPushViaProxy } from "./push-proxy-client";
 import {
@@ -81,6 +82,9 @@ export async function runPushDrain(
     UPDATE push_outbox SET status='expired' WHERE user_id=${userId} AND channel='webpush' AND status='pending' AND expires_at < now()
   `;
 
+  // A check-in answered or closed meanwhile is not worth a late prompt (the answer paths cancel too; this catches the rest).
+  await cancelClosedCheckInWaitingPushes(sql, userId);
+
   const vapidPublicKey = await fetchVapidPublicKey();
   const result: DrainResult = { claimed: 0, sent: 0, deferredNoSubscription: 0, expired: expiredResult.count };
   if (!vapidPublicKey) {
@@ -101,12 +105,13 @@ export async function runPushDrain(
       {
         id: string;
         dedupe_key: string;
+        kind: string;
         payload: LeaveByPushPayload;
         expires_at: Date;
         attempts: number;
       }[]
     >`
-      SELECT id, dedupe_key, payload, expires_at, attempts FROM push_outbox
+      SELECT id, dedupe_key, kind, payload, expires_at, attempts FROM push_outbox
       WHERE user_id=${userId} AND channel='webpush' AND status='pending' AND next_attempt_at <= now()
       ORDER BY created_at LIMIT ${CLAIM_BATCH_SIZE} FOR UPDATE SKIP LOCKED
     `;
@@ -186,6 +191,9 @@ export async function runPushDrain(
 
     if (delivered) {
       await sql`UPDATE push_outbox SET status='sent', sent_at=now() WHERE id=${row.id}`;
+      // Sent, not queued, is what makes a check-in prompted: its timeout starts counting from here.
+      if (row.kind === "check_in_waiting" && row.payload.checkInId)
+        await stampCheckInPrompted(sql, userId, row.payload.checkInId);
       result.sent += 1;
     } else if (outOfTime || proxyFailed) {
       // Not a failure of the endpoint: the budget ran out, or the proxy itself was unreachable.

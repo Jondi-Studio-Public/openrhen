@@ -98,9 +98,15 @@ export const AGENT_ENTRIES: readonly FlowEntry[] = [
     category: "derived",
     method: "derived",
     trigger: { kind: "loop", loop: "check-in-scheduler" },
-    code: { paths: ["platform/database/src/planning/check-in-scheduler.ts"], loops: ["check-in-scheduler"] },
+    code: {
+      paths: ["platform/database/src/planning/check-in-scheduler.ts", "platform/database/src/stores/push-outbox.ts"],
+      loops: ["check-in-scheduler"]
+    },
     to: ["pg:check_in"],
-    incidentalWrites: [{ table: "routine_steps", reason: "an answered prompt advances a routine step" }],
+    incidentalWrites: [
+      { table: "routine_steps", reason: "an answered prompt advances a routine step" },
+      { table: "push_outbox", reason: "a prompt queues one check-in push" }
+    ],
     health: { kind: "max", table: "check_in", column: "created_at" }
   }),
   flow({

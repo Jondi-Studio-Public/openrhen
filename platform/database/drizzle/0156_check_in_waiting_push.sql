@@ -1,0 +1,2 @@
+ALTER TABLE "push_outbox" DROP CONSTRAINT "push_outbox_kind_check";--> statement-breakpoint
+ALTER TABLE "push_outbox" ADD CONSTRAINT "push_outbox_kind_check" CHECK ("push_outbox"."kind" IN ('reminder','assumed_origin','earlier','due','test','check_in_waiting'));
