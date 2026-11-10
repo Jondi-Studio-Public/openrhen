@@ -351,5 +351,343 @@ check(SessionCore(store: InMemoryCredentialStore(session: DeviceSession(token: "
 core.onChange = nil
 core.onSignedOut = nil
 
+// MARK: Live the day (slice 2)
+func jsonObject(_ text: String) -> Data { Data(text.utf8) }
+
+func liveDayChecks(fixturesPath: String?, schemaPath: String?) {
+    // Contract: every fixture decodes with the Swift types.
+    guard let fixturesPath, let fixtureFile = FileManager.default.contents(atPath: fixturesPath) else {
+        check(false, "the client view fixtures file is readable (pass its path as the first argument)")
+        return
+    }
+    var decodedViews: [ClientView] = []
+    for (index, data) in (ClientViewCodec.fixtures(named: "ClientView", in: fixtureFile) ?? []).enumerated() {
+        do {
+            let view = try JSONDecoder().decode(ClientView.self, from: data)
+            decodedViews.append(view)
+            check(view.schemaVersion == ClientView.supportedSchemaVersion, "ClientView fixture \(index) has the supported version")
+        } catch {
+            check(false, "ClientView fixture \(index) decodes: \(error)")
+        }
+    }
+    check(decodedViews.count >= 2, "at least two ClientView fixtures were decoded")
+    var shownCount = 0
+    for (index, data) in (ClientViewCodec.fixtures(named: "CheckInShown", in: fixtureFile) ?? []).enumerated() {
+        do { _ = try JSONDecoder().decode(CheckInShown.self, from: data); shownCount += 1 } catch { check(false, "CheckInShown fixture \(index) decodes: \(error)") }
+    }
+    check(shownCount >= 2, "at least two CheckInShown fixtures were decoded")
+    if let schemaPath, let schemaFile = FileManager.default.contents(atPath: schemaPath),
+       let schema = try? JSONSerialization.jsonObject(with: schemaFile) as? [String: Any], let defs = schema["$defs"] as? [String: Any] {
+        for name in defs.keys.sorted() {
+            check(["ClientView", "CheckInShown"].contains(name), "the schema type \(name) has a Swift decoder and fixtures checked here")
+        }
+        let fixtureTypes = (try? JSONSerialization.jsonObject(with: fixtureFile) as? [String: Any])?.keys.sorted() ?? []
+        check(fixtureTypes == defs.keys.sorted(), "fixtures and schema name the same types")
+    } else {
+        check(false, "the client view schema file is readable (pass its path as the second argument)")
+    }
+
+    if let full = decodedViews.first, let bare = decodedViews.dropFirst().first {
+        check(full.now?.directive?.title == "Write section 2" && full.now?.directive?.recommendedMinutes == 45, "directive decoded")
+        check(full.day?.count == 1 && full.day?[0].confidence == "firm" && full.day?[0].targetId == "action-1", "day decoded")
+        check(full.pending?.checkIn?.status == "pending" && full.pending?.checkIn?.version == 1 && full.pending?.checkIn?.promptedAt == nil, "check-in decoded")
+        check(full.pending?.session?.minutesLeft == 40 && full.pending?.session?.isActionSession == true, "session decoded")
+        check(full.pending?.leaveBy?.phase == "remind" && full.pending?.placeSuggestion?.locationName == "Studio", "leave-by and place decoded")
+        check(bare.now == nil && bare.day == nil && bare.validUntil == nil && bare.planCurrent == false && bare.pending?.checkIn == nil, "a pending-only view decodes")
+        // The contract is strict about required fields and lenient about extras.
+        let good = (ClientViewCodec.fixtures(named: "ClientView", in: fixtureFile) ?? [])[0]
+        var tampered = (try? JSONSerialization.jsonObject(with: good) as? [String: Any]) ?? [:]
+        tampered["somethingNew"] = ["a": 1]
+        check((try? JSONSerialization.data(withJSONObject: tampered)).flatMap { ClientViewCodec.decodeView($0) } != nil, "an unknown field is ignored")
+        var wrongVersion = tampered
+        wrongVersion["schemaVersion"] = 2
+        check((try? JSONSerialization.data(withJSONObject: wrongVersion)).flatMap { ClientViewCodec.decodeView($0) } == nil, "another schema version is refused")
+        var noTimezone = tampered
+        noTimezone.removeValue(forKey: "timezone")
+        check((try? JSONSerialization.data(withJSONObject: noTimezone)).flatMap { ClientViewCodec.decodeView($0) } == nil, "a missing required field is refused")
+        var noCheckInId = tampered
+        if var pending = noCheckInId["pending"] as? [String: Any], var checkIn = pending["checkIn"] as? [String: Any] {
+            checkIn.removeValue(forKey: "id"); pending["checkIn"] = checkIn; noCheckInId["pending"] = pending
+        }
+        check((try? JSONSerialization.data(withJSONObject: noCheckInId)).flatMap { ClientViewCodec.decodeView($0) } == nil, "a check-in without an id is refused")
+    }
+
+    let utc = TimeZone(identifier: "UTC")!
+    let sydney = TimeZone(identifier: "Australia/Sydney")!
+    let t = ApiDates.parse("2026-11-10T09:10:00+11:00")!
+    check(TimeText.clock(t, in: sydney) == "09:10" && TimeText.clock(t, in: utc) == "22:10", "clock text follows the zone")
+    check(TimeText.minutes(45) == "45 min" && TimeText.minutes(60) == "1 h" && TimeText.minutes(75) == "1 h 15 min", "duration text")
+
+    // Cache freshness
+    if let view = decodedViews.first {
+        let fetched = ApiDates.parse("2026-11-10T09:05:00+11:00")!
+        let cached = CachedView(view: view, etag: "\"x\"", fetchedAt: fetched)
+        let fresh = ViewFreshness.assess(cached, now: fetched.addingTimeInterval(60), lastRefreshFailed: false)
+        check(!fresh.isStale && fresh.reason == nil && fresh.asOfText == "as of 09:05", "a recent view is current")
+        let old = ViewFreshness.assess(cached, now: fetched.addingTimeInterval(16 * 60), lastRefreshFailed: false)
+        check(old.isStale, "a view over 15 minutes old is stale")
+        let past = ViewFreshness.assess(cached, now: ApiDates.parse("2026-11-10T09:31:00+11:00")!, lastRefreshFailed: false)
+        check(past.isStale && past.reason != nil, "a view past validUntil is stale")
+        let offline = ViewFreshness.assess(cached, now: fetched.addingTimeInterval(60), lastRefreshFailed: true)
+        check(!offline.isStale && offline.reason?.contains("Can't reach your server") == true, "a failed refresh is said in words")
+        let file = PrivateJSONFile<CachedView>(directory: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("openrhen-cache-\(UUID().uuidString)"), name: "view.json")
+        check(file.save(cached) && file.load() == cached, "the cache survives a restart")
+        file.delete()
+        check(file.load() == nil, "a deleted cache reads as nothing")
+
+        // Now and Day sentences
+        let model = ViewPresentation.now(view, at: ApiDates.parse("2026-11-10T09:10:00+11:00")!, fetchedAt: fetched, phoneZone: sydney)
+        check(model.headline == "Write section 2", "the running session is the headline")
+        check(model.timeLine == "35 min left", "a running session counts down to its planned end (got \(model.timeLine ?? "nil"))")
+        check(model.why == "Session running", "session why")
+        check(model.leaveByLine == "Leave by 10:30 for Dentist at 11:00 (allowing 30 min)", "leave-by line (got \(model.leaveByLine ?? "nil"))")
+        check(model.placeLine == "You may be at Studio (seen 09:00).", "place card line")
+        check(model.zoneNote == nil, "no zone note in the plan's own zone")
+        check(ViewPresentation.now(view, at: t, fetchedAt: fetched, phoneZone: utc).zoneNote?.contains("Australia/Sydney") == true, "a travelling phone is told the zone")
+        let rows = ViewPresentation.day(view, at: ApiDates.parse("2026-11-10T09:10:00+11:00")!)
+        check(rows.count == 1 && rows[0].range == "09:00-09:45" && rows[0].isNow && rows[0].changedBy == nil, "day row")
+        let dayJSON = "{\"schemaVersion\":1,\"timezone\":\"UTC\",\"planCurrent\":true,\"validUntil\":null,\"day\":[{\"startsAt\":\"2026-11-10T10:00:00Z\",\"endsAt\":\"2026-11-10T10:30:00Z\",\"kind\":\"action\",\"title\":\"Call\",\"targetId\":null,\"minutes\":30,\"confidence\":\"projected\",\"changedBy\":\"Mark\"}]}"
+        if let dayView = ClientViewCodec.decodeView(jsonObject(dayJSON)) {
+            let row = ViewPresentation.day(dayView, at: t)[0]
+            check(row.changedBy == "Changed by Mark" && row.isProjected && row.detail.contains("projection"), "changed-by and projection shown when the payload has them")
+        } else {
+            check(false, "a day-only view decodes")
+        }
+        let paused = ClientSession(id: "s", status: "paused", title: "T", targetType: nil, targetId: nil, startedAt: "2026-11-10T09:00:00Z", plannedEndAt: "2026-11-10T09:45:00Z", plannedMinutes: 45, elapsedMinutes: 5, minutesLeft: 40)
+        check(ViewPresentation.timeLeft(paused, now: t, fetchedAt: fetched) == "40 min left (paused)", "a paused session is frozen")
+    }
+
+    // Requests
+    let origin = "https://p.example.com"
+    let viewRequest = ClientRequests.view(origin: origin, token: "tok", etag: "\"abc\"")
+    check(viewRequest?.url?.absoluteString == "https://p.example.com/api/client/view?parts=now,day,pending", "view url")
+    check(viewRequest?.value(forHTTPHeaderField: "If-None-Match") == "\"abc\"" && viewRequest?.value(forHTTPHeaderField: "X-OpenRhen-Owner") == "tok", "view revalidates by tag with the owner token")
+    check(ClientRequests.view(origin: origin, token: "tok", etag: nil)?.value(forHTTPHeaderField: "If-None-Match") == nil, "no tag, no header")
+    check(ClientRequests.view(origin: "http://p.example.com", token: "tok", etag: nil) == nil, "the token never goes over http")
+    check(ClientRequests.events(origin: origin, token: "tok")?.value(forHTTPHeaderField: "Accept") == "text/event-stream", "event stream request")
+    check(ClientRequests.shown(origin: origin, token: "tok", checkInId: "6f0c2c1e-3f5b-4f3a-9b0e-2a6d5f0d9a11")?.url?.path == "/api/check-ins/6f0c2c1e-3f5b-4f3a-9b0e-2a6d5f0d9a11/shown", "shown url")
+    check(ClientRequests.shown(origin: origin, token: "tok", checkInId: "../x") == nil, "a check-in id with odd characters is not sent")
+
+    // Fetch results
+    if let view = decodedViews.first {
+        let now0 = Date(timeIntervalSince1970: 2_000_000)
+        let previous = CachedView(view: view, etag: "\"old\"", fetchedAt: now0.addingTimeInterval(-600))
+        let fixtureBody = (ClientViewCodec.fixtures(named: "ClientView", in: fixtureFile) ?? [])[0]
+        if case .updated(let cached) = ViewFetch.interpret(HTTPAnswer(status: 200, body: fixtureBody, retryAfter: nil, etag: "\"new\""), previous: previous, now: now0) {
+            check(cached.etag == "\"new\"" && cached.fetchedAt == now0 && cached.view == view, "a 200 replaces the view and its tag")
+        } else { check(false, "a 200 updates") }
+        if case .unchanged(let cached) = ViewFetch.interpret(HTTPAnswer(status: 304, body: Data(), retryAfter: nil), previous: previous, now: now0) {
+            check(cached.etag == "\"old\"" && cached.fetchedAt == now0 && cached.view == view, "a 304 keeps the view and renews its time")
+        } else { check(false, "a 304 is unchanged") }
+        check(ViewFetch.interpret(nil, previous: previous, now: now0) == .unreachable, "no answer is unreachable")
+        check(ViewFetch.interpret(HTTPAnswer(status: 401, body: Data(), retryAfter: nil), previous: previous, now: now0) == .revoked, "401 is revoked")
+        if case .failed = ViewFetch.interpret(HTTPAnswer(status: 200, body: jsonObject("{\"nope\":1}"), retryAfter: nil), previous: previous, now: now0) {} else { check(false, "an unreadable body fails") }
+        if case .failed(let words) = ViewFetch.interpret(HTTPAnswer(status: 500, body: Data(), retryAfter: nil), previous: previous, now: now0) {
+            check(words.contains("status 500"), "a 500 is said in words")
+        } else { check(false, "a 500 fails") }
+    }
+
+    // Event stream
+    var splitter = LineSplitter()
+    var parser = EventStreamParser()
+    var events: [EventStreamParser.Event] = []
+    let wire = "retry: 3000\n\nevent: hello\ndata: {\"lastSuccessfulAt\":null}\n\n: ping\n\nevent: changed\r\ndata: {\"kind\":\"plan\"}\r\n\r\n"
+    for byte in Array(wire.utf8) {
+        if let line = splitter.feed(byte), let event = parser.feed(line: line) { events.append(event) }
+    }
+    check(events.map { $0.name } == ["hello", "changed"], "the stream's events are read, comments skipped (got \(events.map { $0.name }))")
+    check(events.last?.data == "{\"kind\":\"plan\"}", "event data")
+    check(RefreshPolicy.reconnectDelay(attempt: 1) == 2 && RefreshPolicy.reconnectDelay(attempt: 3) == 8 && RefreshPolicy.reconnectDelay(attempt: 20) == 60, "reconnect backoff is capped")
+
+    // Commands
+    let made = ApiDates.parse("2026-11-10T09:10:00+11:00")!
+    let checkInId = "6f0c2c1e-3f5b-4f3a-9b0e-2a6d5f0d9a11"
+    check(CheckInChoice.yes.status == "on_track" && CheckInChoice.no.status == "deviated" && CheckInChoice.notSure.status == "unknown", "answers map to the owner's own statuses")
+    check(CommandBuilders.cleanWords("   ").words == nil && CommandBuilders.cleanWords(" slower than planned ").words == "slower than planned", "words are trimmed, empty is nothing")
+    check(CommandBuilders.cleanWords(String(repeating: "a", count: 8001)).tooLong && !CommandBuilders.cleanWords(String(repeating: "a", count: 8000)).tooLong, "words over 8000 characters are refused, not cut")
+    let answerYes = CommandBuilders.answerCheckIn(checkInId: checkInId, title: "Write", choice: .no, words: "Walking the dog", expectedVersion: nil, at: made, id: "c1")
+    let answerBody = CommandRequests.body(answerYes, timeZone: sydney)
+    check(answerBody["type"] as? String == "answer_check_in" && answerBody["status"] as? String == "deviated" && answerBody["deviationNote"] as? String == "Walking the dog", "check-in body")
+    check(answerBody["answerSource"] as? String == "app" && answerBody["checkInId"] as? String == checkInId, "check-in source and id")
+    check(answerBody["expectedVersion"] is NSNull, "an offline check-in answer sends expectedVersion null")
+    check(answerBody["occurredAt"] as? String == "2026-11-10T09:10:00.000+11:00", "occurredAt is ISO 8601 with the phone's offset (got \(answerBody["occurredAt"] as? String ?? "nil"))")
+    check(answerBody["deviationCategory"] == nil, "no category is ever sent")
+    let answerRequest = CommandRequests.request(answerYes, origin: origin, token: "tok", timeZone: sydney)
+    check(answerRequest?.url?.path == "/api/commands/check-in" && answerRequest?.httpMethod == "POST" && answerRequest?.value(forHTTPHeaderField: "X-OpenRhen-Owner") == "tok", "check-in request")
+    let sessionStart = CommandBuilders.startSession(actionId: "a1", title: "Write", minutes: 45.4, at: made, id: "c2")
+    check(CommandRequests.body(sessionStart)["plannedMinutes"] as? Int == 45 && CommandRequests.body(sessionStart)["actionId"] as? String == "a1", "start body")
+    check(CommandBuilders.startSession(actionId: "a1", title: "T", minutes: 5000, at: made).fields["plannedMinutes"] == .int(1440), "planned minutes are capped")
+    let pauseKnown = CommandBuilders.sessionCommand(.pause, target: .known(sessionId: "s1", isActionSession: true), title: "Write", seenStatus: "running", at: made, id: "c3")
+    check(pauseKnown.type == "pause" && pauseKnown.kind == .session && CommandRequests.request(pauseKnown, origin: origin, token: "t")?.url?.path == "/api/commands/session", "pause is a session command")
+    let pauseActivity = CommandBuilders.sessionCommand(.pause, target: .known(sessionId: "s1", isActionSession: false), title: "Nap", seenStatus: "running", at: made, id: "c4")
+    check(pauseActivity.type == "pause_activity" && CommandRequests.request(pauseActivity, origin: origin, token: "t")?.url?.path == "/api/commands/activity", "an activity session pauses through the activity route")
+    let stop = CommandBuilders.sessionCommand(.stopWithRemaining(minutes: 20, words: "about 20 left"), target: .known(sessionId: "s1", isActionSession: true), title: "W", seenStatus: "running", at: made, id: "c5")
+    check(stop.fields["outcome"] == .string("progress") && stop.fields["remainingMinutes"] == .int(20) && stop.fields["note"] == .string("about 20 left"), "stop for now sends his words and the minutes he said")
+    let unsure = CommandBuilders.sessionCommand(.stopUnsure(words: "dunno"), target: .known(sessionId: "s1", isActionSession: true), title: "W", seenStatus: "running", at: made, id: "c6")
+    check(unsure.fields["outcome"] == .string("unsure") && unsure.fields["remainingMinutes"] == nil, "words without minutes are sent as unsure, no minutes")
+    let done = CommandBuilders.sessionCommand(.done, target: .known(sessionId: "s1", isActionSession: true), title: "W", seenStatus: "running", at: made, id: "c7")
+    check(done.type == "finish" && done.fields["outcome"] == .string("completed") && done.fields["note"] == nil, "Done is finish completed")
+    check(CommandRequests.request(answerYes, origin: "http://p.example.com", token: "tok") == nil, "no command over http")
+    let roundTrip = try? JSONDecoder().decode(OutboxCommand.self, from: JSONEncoder().encode(answerYes))
+    check(roundTrip == answerYes, "a queued command survives encoding")
+
+    // Reading replies
+    let reply = CommandResults.interpret(answer(200, "{\"state\":{\"activeSession\":{\"id\":\"s9\",\"version\":4,\"status\":\"running\",\"actionId\":\"a1\"}},\"occurredAt\":{\"claimedAt\":\"x\",\"applied\":false,\"appliedAt\":\"y\",\"reason\":\"overlap\",\"message\":\"Recorded at 4:10 pm, when the server received it, because it overlapped.\"}}"))
+    if case .applied(let parsed) = reply {
+        check(parsed.sessionId == "s9" && parsed.sessionVersion == 4 && parsed.report?.applied == false && parsed.report?.message.hasPrefix("Recorded at 4:10 pm") == true, "reply decoded")
+    } else { check(false, "a 200 is applied") }
+    check(CommandResults.interpret(nil) == .retry(afterSeconds: nil), "no answer retries")
+    check(CommandResults.interpret(answer(503, "{\"committed\":true,\"retryable\":true}", retryAfter: 2)) == .retry(afterSeconds: 2), "a 503 retries with the same id")
+    check(CommandResults.interpret(answer(401)) == .revoked, "401 revokes")
+    if case .held(let message) = CommandResults.interpret(answer(409, "{\"error\":\"Session changed.\",\"currentVersion\":5}")) {
+        check(message == "Session changed.", "a 409 is held with the server's words")
+    } else { check(false, "a 409 is held") }
+    if case .held = CommandResults.interpret(answer(400, "{\"error\":\"nope\"}")) {} else { check(false, "a 400 is held") }
+    check(CommandResults.interpret(answer(429, "{}", retryAfter: 9)) == .retry(afterSeconds: 9), "429 retries after the wait")
+
+    // Outbox
+    func cmd(_ id: String, _ key: String, at offset: TimeInterval = 0, type: String = "pause", kind: CommandKind = .session, sessionId: String? = nil, version: Int? = nil) -> OutboxCommand {
+        OutboxCommand(commandId: id, madeAt: made.addingTimeInterval(offset), kind: kind, type: type, label: "Cmd \(id)", entityKey: key,
+                      sessionId: sessionId, fields: [:], expectedVersion: version, seenStatus: nil, attempts: 0, nextAttemptAt: nil, hold: nil)
+    }
+    let clock0 = Date(timeIntervalSince1970: 3_000_000)
+    var box = CommandOutbox()
+    box.enqueue(cmd("a", "session:s1", sessionId: "s1"))
+    box.enqueue(cmd("b", "check-in:c1", type: "answer_check_in", kind: .checkIn))
+    box.enqueue(cmd("c", "session:s1", sessionId: "s1", version: 3))
+    check(box.next(now: clock0) == .send(box.items[0]), "commands go in the order they were made")
+    _ = box.apply(.applied(CommandReply(report: nil, sessionId: "s1", sessionVersion: 7, sessionStatus: "paused")), to: "a", now: clock0)
+    check(box.items.map { $0.commandId } == ["b", "c"] && box.items[1].expectedVersion == 7, "the next command on the entity takes the version the reply returned")
+    check(box.outcomes.last?.kind == .applied, "an applied command is recorded")
+    // A network failure stops everything, in order, with backoff
+    check(box.apply(.retry(afterSeconds: nil), to: "b", now: clock0) == .stop, "a network failure stops the drain")
+    if case .wait(let until) = box.next(now: clock0) { check(until == clock0.addingTimeInterval(5), "first retry waits 5 seconds") } else { check(false, "the head backs off and nothing jumps ahead") }
+    check(box.next(now: clock0.addingTimeInterval(6)) != .nothing, "after the wait it is sent again")
+    check(CommandOutbox.backoff(attempts: 1) == 5 && CommandOutbox.backoff(attempts: 3) == 20 && CommandOutbox.backoff(attempts: 30) == 300, "backoff doubles to a cap")
+    _ = box.apply(.retry(afterSeconds: 60), to: "b", now: clock0)
+    if case .wait(let until) = box.next(now: clock0) { check(until == clock0.addingTimeInterval(60), "Retry-After is honoured") } else { check(false, "wait") }
+    // A refusal holds its entity's later commands; other entities keep going
+    var held = CommandOutbox()
+    held.enqueue(cmd("h1", "session:s1", sessionId: "s1"))
+    held.enqueue(cmd("h2", "session:s1", sessionId: "s1", version: 2))
+    held.enqueue(cmd("h3", "check-in:c9", type: "answer_check_in", kind: .checkIn))
+    check(held.apply(.held(message: "Session changed."), to: "h1", now: clock0) == .continueDraining, "a refusal does not stop other entities")
+    check(held.next(now: clock0) == .send(held.items[2]), "the later command on the same entity waits; another entity goes")
+    check(held.isHeld(entityKey: "session:s1") && held.heldItems.count == 1 && held.outcomes.last?.kind == .held, "the refusal is held and recorded")
+    held.retryHeld(commandId: "h1")
+    check(held.heldItems.isEmpty && held.items[0].expectedVersion == nil, "Try again clears the hold and looks the version up afresh")
+    _ = held.apply(.held(message: "again"), to: "h1", now: clock0)
+    held.drop(commandId: "h1", now: clock0)
+    check(held.items.map { $0.commandId } == ["h3"] && held.outcomes.filter { $0.kind == .dropped }.count == 2, "Drop removes the command and the ones that depended on it, and says so")
+    // A queued start: later commands wait for the session id
+    var chain = CommandOutbox()
+    chain.enqueue(CommandBuilders.startSession(actionId: "a1", title: "Write", minutes: 30, at: made, id: "s-start"))
+    chain.enqueue(CommandBuilders.sessionCommand(.pause, target: .pendingStart(actionId: "a1"), title: "Write", seenStatus: "running", at: made.addingTimeInterval(60), id: "s-pause"))
+    chain.enqueue(CommandBuilders.sessionCommand(.resume, target: .pendingStart(actionId: "a1"), title: "Write", seenStatus: "paused", at: made.addingTimeInterval(120), id: "s-resume"))
+    check(chain.items.allSatisfy { $0.entityKey == "action:a1" } && chain.items[1].sessionId == nil, "commands after a queued start are keyed by its action")
+    _ = chain.apply(.applied(CommandReply(report: nil, sessionId: "S1", sessionVersion: 2, sessionStatus: "running")), to: "s-start", now: clock0)
+    check(chain.items.map { $0.entityKey } == ["session:S1", "session:S1"] && chain.items[0].sessionId == "S1" && chain.items[0].expectedVersion == 2 && chain.items[1].expectedVersion == nil, "the start's reply names the session; only the first later command takes its version")
+    _ = chain.apply(.applied(CommandReply(report: nil, sessionId: "S1", sessionVersion: 3, sessionStatus: "paused")), to: "s-pause", now: clock0)
+    check(chain.items[0].expectedVersion == 3, "each reply feeds the next command, so the app never conflicts with itself")
+    _ = chain.apply(.applied(CommandReply(report: nil, sessionId: nil, sessionVersion: nil, sessionStatus: nil)), to: "s-resume", now: clock0)
+    check(chain.isEmpty, "the chain drains")
+    // Replies in words
+    var words = CommandOutbox()
+    words.enqueue(answerYes)
+    _ = words.apply(.applied(CommandReply(report: OccurredAtReport(claimedAt: "a", applied: false, appliedAt: "b", reason: "overlap", message: "Recorded at 4:10 pm, when the server received it, because it overlapped.", delivered: nil), sessionId: nil, sessionVersion: nil, sessionStatus: nil)), to: "c1", now: clock0)
+    check(words.outcomes.last?.kind == .atReceipt && words.outcomes.last?.message.contains("when the server received it") == true, "the 'applied at receipt time because' sentence is shown")
+    words.enqueue(CommandBuilders.answerCheckIn(checkInId: checkInId, title: "Write", choice: .yes, words: "late", expectedVersion: nil, at: made, id: "c8"))
+    _ = words.apply(.applied(CommandReply(report: OccurredAtReport(claimedAt: "a", applied: false, appliedAt: "b", reason: "the check-in closed", message: "Not delivered: the check-in closed.", delivered: false), sessionId: nil, sessionVersion: nil, sessionStatus: nil)), to: "c8", now: clock0)
+    check(words.outcomes.last?.kind == .notDelivered && words.outcomes.last?.message.hasPrefix("Not delivered: the check-in closed while you were offline.") == true, "a closed check-in reply is shown honestly")
+    // A revoked token ends the queue
+    var revoked = CommandOutbox()
+    revoked.enqueue(cmd("r1", "session:s1", sessionId: "s1"))
+    check(revoked.apply(.revoked, to: "r1", now: clock0) == .signedOut && revoked.isEmpty && revoked.outcomes.isEmpty, "a 401 empties the queue")
+    // Persistence
+    let boxFile = PrivateJSONFile<CommandOutbox>(directory: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("openrhen-box-\(UUID().uuidString)"), name: "commands.json")
+    check(boxFile.save(chain) && boxFile.load() == chain, "the queue survives a restart")
+    held.enqueue(cmd("z", "session:s2"))
+    check(boxFile.save(held) && boxFile.load() == held, "a held queue survives a restart with its outcomes")
+    boxFile.delete()
+    check(held.hasQueuedAnswer(forCheckIn: "c9") && !held.hasQueuedAnswer(forCheckIn: "zzz") && held.oldestMadeAt != nil, "queued answers are found")
+
+    // Version lookup
+    let stateJSON = "{\"state\":{\"activeSession\":{\"id\":\"S1\",\"version\":5,\"status\":\"running\",\"actionId\":\"a1\"},\"actions\":[{\"id\":\"a1\",\"version\":8,\"title\":\"x\"},{\"id\":\"a2\",\"version\":3}],\"occurrences\":[{\"id\":\"o1\",\"version\":2,\"actionId\":\"a2\"}],\"areas\":[]}}"
+    if let probe = StateProbe.decode(jsonObject(stateJSON)) {
+        let ok = cmd("p1", "session:S1", sessionId: "S1")
+        check(VersionResolution.resolve(OutboxCommand(commandId: "p1", madeAt: made, kind: .session, type: "pause", label: "Pause", entityKey: "session:S1", sessionId: "S1", fields: [:], expectedVersion: nil, seenStatus: "running", attempts: 0, nextAttemptAt: nil, hold: nil), probe: probe) == .send(expectedVersion: 5, sessionId: "S1"), "a pause takes the session's version when it is as the person left it")
+        check(ok.needsVersionLookup, "a session command without a version needs a lookup")
+        if case .conflict(let sentence) = VersionResolution.resolve(OutboxCommand(commandId: "p2", madeAt: made, kind: .session, type: "resume", label: "Resume Write", entityKey: "session:S1", sessionId: "S1", fields: [:], expectedVersion: nil, seenStatus: "paused", attempts: 0, nextAttemptAt: nil, hold: nil), probe: probe) {
+            check(sentence.contains("now running") && sentence.contains("paused"), "a changed session is explained, not overwritten")
+        } else { check(false, "a changed session is a conflict") }
+        check(VersionResolution.resolve(OutboxCommand(commandId: "p3", madeAt: made, kind: .session, type: "pause", label: "Pause", entityKey: "session:OTHER", sessionId: "OTHER", fields: [:], expectedVersion: nil, seenStatus: "running", attempts: 0, nextAttemptAt: nil, hold: nil), probe: probe) != .send(expectedVersion: 5, sessionId: "S1"), "another session is not touched")
+        check(VersionResolution.resolve(OutboxCommand(commandId: "p4", madeAt: made, kind: .session, type: "pause", label: "Pause", entityKey: "action:a1", sessionId: nil, fields: [:], expectedVersion: nil, seenStatus: "running", attempts: 0, nextAttemptAt: nil, hold: nil), probe: probe) == .send(expectedVersion: 5, sessionId: "S1"), "a command waiting on its start finds the session")
+        if case .conflict = VersionResolution.resolve(CommandBuilders.startSession(actionId: "a1", title: "T", minutes: 10, at: made), probe: probe) {} else { check(false, "a start while a session is open is a conflict") }
+        let idle = StateProbe.decode(jsonObject("{\"state\":{\"activeSession\":null,\"actions\":[{\"id\":\"a1\",\"version\":8},{\"id\":\"a2\",\"version\":3}],\"occurrences\":[{\"id\":\"o1\",\"version\":2,\"actionId\":\"a2\"}]}}"))
+        check(idle.map { VersionResolution.resolve(CommandBuilders.startSession(actionId: "a1", title: "T", minutes: 10, at: made), probe: $0) } == .send(expectedVersion: 8, sessionId: nil), "a start names the action's version")
+        check(idle.map { VersionResolution.resolve(CommandBuilders.startSession(actionId: "o1", title: "T", minutes: 10, at: made), probe: $0) } == .send(expectedVersion: 3, sessionId: nil), "a start on an occurrence names its action's version")
+        if let idle, case .conflict = VersionResolution.resolve(CommandBuilders.startSession(actionId: "gone", title: "T", minutes: 10, at: made), probe: idle) {} else { check(false, "a start on a task that is gone is a conflict") }
+    } else { check(false, "the state probe decodes") }
+
+    // Session controls
+    if let view = decodedViews.first {
+        var noSession = view
+        noSession = ClientView(schemaVersion: 1, timezone: view.timezone, planCurrent: true, validUntil: nil, now: view.now, day: view.day,
+                               pending: ClientPending(checkIn: nil, session: nil, leaveBy: nil, placeSuggestion: nil))
+        let empty = CommandOutbox()
+        check(SessionControls.make(view: view, outbox: empty).actions == [.pause, .done, .stopForNow], "a running session offers pause, done and stop for now")
+        check(SessionControls.make(view: noSession, outbox: empty).actions == [.start(actionId: "action-1", title: "Write section 2", minutes: 45)], "no session offers to start the directive")
+        var queued = CommandOutbox()
+        queued.enqueue(CommandBuilders.sessionCommand(.pause, target: .known(sessionId: "session-1", isActionSession: true), title: "W", seenStatus: "running", at: made, id: "q1"))
+        let afterPause = SessionControls.make(view: view, outbox: queued)
+        check(afterPause.status == "paused" && afterPause.actions == [.resume, .done, .stopForNow] && afterPause.pendingNote != nil, "a queued pause shows as paused, not sent yet")
+        var startQueued = CommandOutbox()
+        startQueued.enqueue(CommandBuilders.startSession(actionId: "action-1", title: "Write section 2", minutes: 45, at: made, id: "q2"))
+        let afterStart = SessionControls.make(view: noSession, outbox: startQueued)
+        check(afterStart.status == "running" && afterStart.actions == [.pause, .done, .stopForNow] && afterStart.target == .pendingStart(actionId: "action-1"), "a queued start shows as running and can be paused offline")
+        _ = startQueued.apply(.held(message: "Another session is open."), to: "q2", now: clock0)
+        let blocked = SessionControls.make(view: noSession, outbox: startQueued)
+        check(blocked.actions.isEmpty && blocked.blockedNote == "Another session is open.", "a refused command blocks the controls and says why")
+        var finished = CommandOutbox()
+        finished.enqueue(CommandBuilders.sessionCommand(.done, target: .known(sessionId: "session-1", isActionSession: true), title: "W", seenStatus: "running", at: made, id: "q3"))
+        check(SessionControls.make(view: view, outbox: finished).status == nil, "a queued Done ends the session on screen")
+    }
+
+    // Sources words
+    let sNow = Date(timeIntervalSince1970: 5_000_000)
+    check(SourcesWords.lastHeard(nil, now: sNow, zone: utc) == "Not heard from your server yet.", "never heard")
+    check(SourcesWords.lastHeard(sNow.addingTimeInterval(-30), now: sNow, zone: utc) == "Last heard just now.", "heard just now")
+    check(SourcesWords.lastHeard(ApiDates.parse("2026-11-10T09:05:00+11:00"), now: ApiDates.parse("2026-11-10T09:30:00+11:00")!, zone: sydney) == "Last heard at 09:05.", "heard at a time")
+    check(SourcesWords.liveMode(.polling).contains("minute") && SourcesWords.liveMode(.stream).hasPrefix("Live"), "live mode words")
+    var queueBox = CommandOutbox()
+    check(SourcesWords.queue(queueBox, now: sNow) == SourcesWords.QueueSummary(headline: "Nothing is waiting to be sent.", warning: nil), "empty queue")
+    queueBox.enqueue(cmd("w1", "session:s1", at: sNow.timeIntervalSince(made) - 2 * 86_400, sessionId: "s1"))
+    check(SourcesWords.queue(queueBox, now: sNow).warning?.contains("over a day") == true, "a day-old command warns")
+    var weekBox = CommandOutbox()
+    weekBox.enqueue(cmd("w2", "session:s1", at: sNow.timeIntervalSince(made) - 8 * 86_400, sessionId: "s1"))
+    check(SourcesWords.queue(weekBox, now: sNow).warning?.contains("week") == true, "a week-old command warns harder")
+
+    // Words about what is left
+    check(RemainingParser.minutes(from: "about 20 minutes") == 20 && RemainingParser.minutes(from: "20 min") == 20, "minutes read from words")
+    check(RemainingParser.minutes(from: "2 hours and 15 minutes") == 135 && RemainingParser.minutes(from: "1.5 hours") == 90 && RemainingParser.minutes(from: "1h") == 60, "hours read from words")
+    check(RemainingParser.minutes(from: "half an hour") == 30 && RemainingParser.minutes(from: "an hour and a half") == 90 && RemainingParser.minutes(from: "a quarter of an hour") == 15, "spoken amounts")
+    check(RemainingParser.minutes(from: "nothing left") == 0, "nothing left is zero")
+    check(RemainingParser.minutes(from: "20") == nil && RemainingParser.minutes(from: "20", bareNumberIsMinutes: true) == 20, "a bare number is minutes only when minutes were asked for")
+    check(RemainingParser.minutes(from: "quite a lot") == nil && RemainingParser.minutes(from: "") == nil, "no number, no answer")
+    var flow = StopForNowFlow()
+    check(flow.submit("a fair bit") == .askAgain && flow.phase == .askingAgain, "unreadable words are asked about once more")
+    check(flow.submit("still not sure") == .send(.unsure(words: "a fair bit - still not sure")), "still unreadable: his words go as they are, with no minutes")
+    var flow2 = StopForNowFlow()
+    check(flow2.submit("about 25 minutes") == .send(.minutes(25, words: "about 25 minutes")), "readable words go straight through")
+    var flow3 = StopForNowFlow()
+    _ = flow3.submit("some")
+    check(flow3.submit("30") == .send(.minutes(30, words: "some - 30")), "the second ask takes a bare number")
+    var flow4 = StopForNowFlow()
+    _ = flow4.submit("later")
+    check(flow4.sendWordsOnly() == .send(.unsure(words: "later")), "he can send his words as they are")
+}
+liveDayChecks(fixturesPath: CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : nil,
+              schemaPath: CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : nil)
+
 if failures > 0 { print("\(failures) check(s) failed"); exit(1) }
 print("All checks passed")

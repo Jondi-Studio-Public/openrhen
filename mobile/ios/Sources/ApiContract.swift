@@ -80,6 +80,8 @@ struct HTTPAnswer: Equatable {
     let status: Int
     let body: Data
     let retryAfter: Int?
+    /// The `ETag` response header, when there was one.
+    var etag: String? = nil
 }
 
 enum ApiRequests {
@@ -125,7 +127,7 @@ enum ApiRequests {
         ])
     }
 
-    private static func post(origin: String, path: String, token: String?, body: [String: Any]) -> URLRequest? {
+    static func post(origin: String, path: String, token: String?, body: [String: Any]) -> URLRequest? {
         guard let target = endpoint(origin: origin, path: path),
               let data = try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys]) else { return nil }
         var request = URLRequest(url: target, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)

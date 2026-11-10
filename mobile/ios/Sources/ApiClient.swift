@@ -10,7 +10,8 @@ final class ApiClient {
         do {
             let (data, response) = try await session.data(for: request, delegate: RefuseRedirects())
             guard let http = response as? HTTPURLResponse else { return nil }
-            return HTTPAnswer(status: http.statusCode, body: data, retryAfter: Int(http.value(forHTTPHeaderField: "Retry-After") ?? ""))
+            return HTTPAnswer(status: http.statusCode, body: data, retryAfter: Int(http.value(forHTTPHeaderField: "Retry-After") ?? ""),
+                              etag: http.value(forHTTPHeaderField: "ETag"))
         } catch {
             return nil
         }
