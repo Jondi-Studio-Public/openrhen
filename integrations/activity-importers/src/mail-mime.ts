@@ -439,8 +439,11 @@ const BLOCK = new Set([
   "h6"
 ]);
 
-/** A tag longer than this is taken to have a stray quote. */
-const MAX_TAG_CHARS = 4096;
+/** A tag longer than this is taken to have a stray quote (room for an inline image in a src). */
+const MAX_TAG_CHARS = 262_144;
+
+/** Markup inside a quoted value: a closing tag, or an opening tag with an attribute (`<p class=`). */
+const TAG_IN_QUOTE = /<\/[A-Za-z]|<[A-Za-z][^<>"']*\s[A-Za-z_:-]+\s*=/;
 
 export type HtmlNote = "quote" | "unterminated";
 
@@ -485,18 +488,21 @@ export function htmlToText(html: string, note: (reason: HtmlNote) => void = () =
     let stray = false;
     while (end < html.length) {
       const c = html[end]!;
+      // Inside a quote "<" is legal (title="a<b", a wrapped style, a data: image), so quotes alone never make a tag
+      // stray. Outside one, "<" never belongs in a tag; and a tag longer than the bound is not a tag.
+      if (end - lt > MAX_TAG_CHARS || (!quote && c === "<")) {
+        stray = true;
+        break;
+      }
       if (quote) {
         if (c === quote) quote = "";
-        // A real attribute value is short and stays on one line; a newline, a new tag or a very long tag inside a
-        // quote means the quote was stray, whatever a later quote does to the state.
-        else if (c === "\n" || c === "<" || end - lt > MAX_TAG_CHARS) {
-          stray = true;
-          break;
-        }
       } else if (c === '"' || c === "'") quote = c;
       else if (c === ">") break;
       end += 1;
     }
+    // The tag seemed to close normally, but a quoted value that holds a closing tag, or an opening tag with an attribute,
+    // is markup caught inside a stray quote; a legal value such as title="a<b c" or title="x<y>z" holds neither.
+    if (!stray && end < html.length && TAG_IN_QUOTE.test(html.slice(lt + 1, end))) stray = true;
     if (stray || end >= html.length) {
       // A stray quote hid the closing ">": close the tag at the first ">" instead of dropping the rest of the message.
       const plain = html.indexOf(">", lt);

@@ -451,6 +451,68 @@ describe("html with a stray quote", () => {
     expect(events[0]!.content).toContain("link");
   });
 
+  it("keeps the text and warns when a stray quote makes the tag appear to close normally", async () => {
+    const cases: [string, string[]][] = [
+      ['<p class="a>Hello</p><p class="b">World</p>', ["Hello", "World"]],
+      ['<p class="a>Hello</p><p>Use 5" > 4"</p>', ["Hello", "Use 5"]],
+      ['<p class="a>Hello</p><p title="t">T</p><p>5" nail > 6</p>', ["Hello", "T", "nail"]]
+    ];
+    for (const [html, kept] of cases) {
+      const { events, stats } = await run(
+        mbox(basic("sq@x.example", ["Content-Type: text/html; charset=utf-8"], html + "\n"))
+      );
+      for (const word of kept) expect(events[0]!.content, html).toContain(word);
+      expect(stats.warnings["an HTML tag with an unbalanced quote was closed at the next >"], html).toBe(1);
+    }
+  });
+
+  it("keeps the text of a stray quote with no closing quote after the next attribute, and warns for each tag", async () => {
+    const { events, stats } = await run(
+      mbox(
+        basic(
+          "nq@x.example",
+          ["Content-Type: text/html; charset=utf-8"],
+          '<p class="a>Hello</p><p class="b>World</p>\n'
+        )
+      )
+    );
+    expect(events[0]!.content).toBe("Hello\n\nWorld");
+    expect(stats.warnings["an HTML tag with an unbalanced quote was closed at the next >"]).toBe(2);
+  });
+
+  it("known limit: a stray attribute quote followed by a text quote and a raw > loses text with no warning", async () => {
+    const { events, stats } = await run(
+      mbox(basic("kl@x.example", ["Content-Type: text/html; charset=utf-8"], '<p class="a>Hello<br>there 5" ></p>\n'))
+    );
+    expect(events[0]!.content).toBeUndefined();
+    expect(stats.warnings).toEqual({});
+  });
+
+  it("known limit: markup inside a quoted value warns and leaks the closing quote and bracket, with no words lost", async () => {
+    const { events, stats } = await run(
+      mbox(basic("kl2@x.example", ["Content-Type: text/html; charset=utf-8"], '<img alt="<img src=x>" src="a">After\n'))
+    );
+    expect(events[0]!.content).toBe('" src="a">After');
+    expect(stats.warnings["an HTML tag with an unbalanced quote was closed at the next >"]).toBe(1);
+  });
+
+  it("raises no warning for legitimate attributes that merely look odd", async () => {
+    const cases: [string, string][] = [
+      ['<a href="x" title="a<b">link</a> text', "link text"],
+      ['<a title="x<y>z">link</a> text', "link text"],
+      ['<a title="a<b c">link</a> text', "link text"],
+      ['<p style="color:red;\n   margin:0">Para</p><p>Next</p>', "Para\n\nNext"],
+      [`<img src="data:image/png;base64,${"A".repeat(10_000)}"><p>After</p>`, "After"]
+    ];
+    for (const [html, text] of cases) {
+      const { events, stats } = await run(
+        mbox(basic("ok@x.example", ["Content-Type: text/html; charset=utf-8"], html + "\n"))
+      );
+      expect(events[0]!.content, html.slice(0, 40)).toBe(text);
+      expect(stats.warnings, html.slice(0, 40)).toEqual({});
+    }
+  });
+
   it("counts text dropped after a tag or comment that never closes", async () => {
     const { events, stats } = await run(
       mbox(basic("q@x.example", ["Content-Type: text/html; charset=utf-8"], "<p>Kept</p><!-- never closed Lost\n"))
