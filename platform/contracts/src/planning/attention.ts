@@ -28,6 +28,7 @@ export const ATTENTION_KINDS = [
   "check_in_open",
   "catch_up_due",
   "health_blocking",
+  "deadline_at_risk",
   "source_unavailable",
   "health_more",
   "proposal_decided",
@@ -133,6 +134,7 @@ const TOOL = {
   catchUp: "rhen_catch_up",
   catchUpSettle: "rhen_catch_up_settle",
   doctor: "rhen_doctor",
+  forecast: "rhen_forecast",
   proposals: "rhen_proposals",
   propose: "rhen_propose",
   save: "rhen_save",
@@ -726,8 +728,96 @@ export function catchUpDueItem(input: {
   };
 }
 
+/* ------------------------------------------------------------------------------------------------------------ */
+/* Deadlines at risk                                                                                            */
+/* ------------------------------------------------------------------------------------------------------------ */
+
+export const DEADLINE_RISK_VERDICTS = ["behind", "overdue"] as const;
+export type DeadlineRiskVerdict = (typeof DEADLINE_RISK_VERDICTS)[number];
+
+/** The longest suggestion line the feed relays; the engine writes one sentence, so this is a safety cap. */
+const DEADLINE_SUGGESTION_MAX = 400;
+
+/** "1h 30m", "2h" or "45m". */
+const minutesText = (value: number): string => {
+  const total = Math.max(0, Math.round(value));
+  const hours = Math.floor(total / 60);
+  const rest = total % 60;
+  if (hours === 0) return `${rest}m`;
+  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
+};
+
+/** A server-written line made safe to relay: one line, no control or format characters, capped. */
+function serverLine(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const clean = value.replace(LINE_BREAKS, " ").replace(CONTROLS, "").replace(FORMAT_CHARS, "").trim();
+  if (clean === "") return undefined;
+  const characters = Array.from(clean);
+  return characters.length > DEADLINE_SUGGESTION_MAX
+    ? `${characters.slice(0, DEADLINE_SUGGESTION_MAX - 1).join("")}…`
+    : clean;
+}
+
+/**
+ * One project whose deadline outlook verdict is `behind` or `overdue`. The item exists only while that holds: it
+ * needs no acknowledgement because the next read simply no longer lists a recovered project. It is `soon`, never
+ * `now`, so it adds nothing to `counts.now` or to the status block's counts, and it stays out of the agent wake.
+ * The project title is the owner's text and goes into `quoted`; everything else is a template over times, minutes
+ * and the engine's own suggestion sentence.
+ */
+export function deadlineAtRiskItem(input: {
+  projectId: string;
+  verdict: DeadlineRiskVerdict;
+  title?: unknown;
+  deadlineAt?: unknown;
+  slackMinutes?: number | null | undefined;
+  suggestion?: unknown;
+  held: readonly string[] | undefined;
+  generatedAt: string;
+}): AttentionItem | undefined {
+  if (!isAttentionUuid(input.projectId)) return undefined;
+  const dueAt = attentionIso(input.deadlineAt);
+  const overdue = input.verdict === "overdue";
+  const slack =
+    typeof input.slackMinutes === "number" && Number.isFinite(input.slackMinutes) ? input.slackMinutes : null;
+  const state = overdue
+    ? `The deadline${dueAt ? ` of ${minutes(dueAt)}` : ""} has passed and the work is not finished.`
+    : `The work is expected to run${slack !== null && slack < 0 ? ` ${minutesText(-slack)}` : ""} short of fitting before the deadline${dueAt ? ` of ${minutes(dueAt)}` : ""}.`;
+  const suggestion = serverLine(input.suggestion);
+  const quoted = attentionQuoted({ title: input.title });
+  const source: AttentionToolCall | undefined = attentionReadable(TOOL.forecast, input.held)
+    ? { tool: TOOL.forecast, arguments: { project: input.projectId } }
+    : undefined;
+  return {
+    id: `deadline_at_risk:${input.projectId}`,
+    kind: "deadline_at_risk",
+    urgency: "soon",
+    who: "owner",
+    at: input.generatedAt,
+    title: overdue ? "A project is past its deadline" : "A project is behind its deadline",
+    why:
+      `${state} ${suggestion ? `${suggestion} ` : ""}` +
+      `${OWNER_PRESENT_CLAUSE}, and only when they ask about the plan or are reviewing it: tell the owner in one ` +
+      "sentence which project it is and the suggestion, and that Review lists every deadline under Deadlines. Do not " +
+      "reorder Now or change the plan yourself; the suggestion is the owner's to decide. With no one present, do " +
+      "nothing. This item goes away on its own once the project is back on plan.",
+    ...(quoted ? { quoted } : {}),
+    handles: validAttentionHandles([`project:${input.projectId}`]),
+    ...(dueAt ? { dueAt } : {}),
+    ...(source ? { source } : {})
+  };
+}
+
 /** The feed's own sources, named only from this list. */
-export const ATTENTION_SOURCE_NAMES = ["catch-up", "check-in", "doctor", "pulse", "proposals", "facts"] as const;
+export const ATTENTION_SOURCE_NAMES = [
+  "catch-up",
+  "check-in",
+  "doctor",
+  "pulse",
+  "proposals",
+  "facts",
+  "deadlines"
+] as const;
 export type AttentionSourceName = (typeof ATTENTION_SOURCE_NAMES)[number];
 
 /**
@@ -754,8 +844,8 @@ export function sourceUnavailableItem(input: {
   return {
     id: `source_unavailable:${source.replace(/[^a-z-]/g, "")}`,
     kind: "source_unavailable",
-    // The mail facts are an optional source: their failure is shown, but it must not raise counts.now.
-    urgency: input.source === "facts" ? "soon" : "now",
+    // The mail facts and the deadline outlook are optional sources: their failure is shown, but it must not raise counts.now.
+    urgency: input.source === "facts" || input.source === "deadlines" ? "soon" : "now",
     who: "agent",
     at: input.generatedAt,
     title: "A source could not be read",
@@ -1329,6 +1419,8 @@ export function attentionEmptyText(input: {
     proposalsSince?: string | undefined;
     /** True only when the open mail facts were read. */
     facts?: boolean | undefined;
+    /** True only when the plan's deadline outlook was read. */
+    deadlines?: boolean | undefined;
   };
 }): string {
   const parts: string[] = [];
@@ -1338,6 +1430,7 @@ export function attentionEmptyText(input: {
   const since = attentionIso(input.checked.proposalsSince);
   if (since) parts.push(`your proposals since ${since.slice(0, 16)}Z`);
   if (input.checked.facts) parts.push("open mail items");
+  if (input.checked.deadlines) parts.push("project deadlines");
   return (
     `Nothing needs attention as of ${input.generatedAt.slice(11, 16)}. Checked: ${parts.join(", ")}. ` +
     "Answer from the status you read."
@@ -1360,6 +1453,7 @@ export function buildAttentionAnswer(input: {
     doctor: boolean;
     proposalsSince?: string | undefined;
     facts?: boolean | undefined;
+    deadlines?: boolean | undefined;
   };
 }): AttentionAnswer {
   const items = foldAttentionItems(input.items, {

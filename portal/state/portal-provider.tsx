@@ -165,6 +165,8 @@ export interface PortalContextValue {
   continuation: ClientContinuation | null;
   /** The engine's read of the coming week; null for a result stored before engine 1.3. */
   weekOutlook: ClientWeekOutlook | null;
+  /** The engine's deadline verdicts; null for a result stored before they existed, or with no dated project. */
+  deadlineOutlook: ClientDeadlineOutlook | null;
   /**
    * The freshest `lastSuccessfulAt` any status poll has seen, which can be ahead of
    * `state.planning?.lastSuccessfulAt` for as long as this tab has not yet reloaded that run. Null
@@ -518,6 +520,35 @@ export interface ClientWeekOutlookProject {
   requiredPaceMinutesPerWeek: number | null;
   paceShortfallMinutes: number;
   health: ClientForecast["health"];
+}
+export type ClientDeadlineVerdict = "ok" | "tight" | "behind" | "overdue";
+export interface ClientDeadlineProject {
+  projectId: string;
+  title: string | null;
+  outcomeId: string | null;
+  verdict: ClientDeadlineVerdict;
+  deadlineAt: Date | null;
+  /** Expected margin in minutes; negative when the expected work does not fit. */
+  slackMinutes: number | null;
+  pessimisticMarginMinutes: number | null;
+  latestSafeStart: Date | null;
+  earliestFeasibleAt?: Date | null;
+  /** One plain sentence on what could keep the project on plan; absent in plans stored before it existed. */
+  suggestion?: string | null;
+}
+export interface ClientDeadlineOutcome {
+  outcomeId: string;
+  title: string | null;
+  verdict: ClientDeadlineVerdict;
+  deadlineAt: Date | null;
+  slackMinutes: number | null;
+  latestSafeStart: Date | null;
+  projectIds: string[];
+}
+/** The engine's deadline verdicts per project, rolled up to outcomes; rows are sorted overdue first, then by slack. */
+export interface ClientDeadlineOutlook {
+  projects: ClientDeadlineProject[];
+  outcomes: ClientDeadlineOutcome[];
 }
 /** The detailed band read as a week: what is reserved for whom, what is free, who needs more of it. */
 export interface ClientWeekOutlook {
@@ -934,6 +965,10 @@ export function PortalProvider({ children }: { children: React.ReactNode }) {
   );
   const weekOutlook = useMemo(
     () => hydrateJson<ClientWeekOutlook>(state.planning?.result?.weekOutlook),
+    [state.planning?.result]
+  );
+  const deadlineOutlook = useMemo(
+    () => hydrateJson<ClientDeadlineOutlook>(state.planning?.result?.deadlineOutlook),
     [state.planning?.result]
   );
 
@@ -1952,6 +1987,7 @@ export function PortalProvider({ children }: { children: React.ReactNode }) {
       dayPlan,
       continuation,
       weekOutlook,
+      deadlineOutlook,
       replay,
       bannerText,
       knownLatestSuccessfulAt,
@@ -2010,6 +2046,7 @@ export function PortalProvider({ children }: { children: React.ReactNode }) {
       dayPlan,
       continuation,
       weekOutlook,
+      deadlineOutlook,
       replay,
       bannerText,
       knownLatestSuccessfulAt,

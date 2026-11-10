@@ -241,3 +241,23 @@ describe("assessDeadlines rows and roll-up", () => {
     expect(JSON.stringify(assessDeadlines({ ...args, forecasts }))).toBe(JSON.stringify(one));
   });
 });
+
+describe("assessDeadlines suggestion", () => {
+  it("carries a suggestion on a flagged row and none on an ok row", () => {
+    const behind = forecast("b", {
+      health: "behind",
+      expectedMarginMinutes: -60,
+      latestSafeStarts: { x: new Date("2026-09-05T12:20:00.000Z") },
+      interventions: [{ kind: "add_time", actionIds: [], minutes: 60, reason: "r" }]
+    });
+    const result = assessDeadlines({
+      forecasts: [behind, forecast("ok")],
+      projects: [project("b"), project("ok")],
+      outcomes: [outcome()],
+      now,
+      timezone: "UTC"
+    });
+    expect(result.projects.find((row) => row.projectId === "b")?.suggestion).toContain("Start by 12:20");
+    expect(result.projects.find((row) => row.projectId === "ok")?.suggestion).toBeNull();
+  });
+});

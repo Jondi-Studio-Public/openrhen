@@ -1,4 +1,5 @@
 import type { ProjectForecast } from "../model/types.js";
+import { suggestDeadlineAction } from "./deadline-suggestions.js";
 
 /**
  * Deadline outlook: a verdict per project and per outcome, derived only from the forecasts the
@@ -38,6 +39,12 @@ export interface DeadlineProjectRow {
   latestSafeStart: Date | null;
   /** Overdue rows only: when the remaining work would fit; null means nowhere inside the horizon. */
   earliestFeasibleAt?: Date | null;
+  /**
+   * One plain sentence on what could keep the project on plan (`deadline-suggestions.ts`), composed from
+   * the forecast's own interventions and latest safe start. Null when there is nothing to suggest (an
+   * `ok` row). Absent in results stored before it existed.
+   */
+  suggestion?: string | null;
 }
 
 export interface DeadlineOutcomeRow {
@@ -62,6 +69,9 @@ export interface AssessDeadlinesArguments {
   projects: DeadlineProjectInput[];
   outcomes: DeadlineOutcomeInput[];
   now: Date;
+  /** The person's zone and locale, for the times in suggestion sentences. */
+  timezone?: string | undefined;
+  locale?: string | undefined;
 }
 
 const RANK: Record<DeadlineVerdict, number> = { none: -1, ok: 0, tight: 1, behind: 2, overdue: 3 };
@@ -93,6 +103,18 @@ export function assessDeadlines(args: AssessDeadlinesArguments): DeadlineOutlook
       latestSafeStart: earliest(Object.values(forecast.latestSafeStarts))
     };
     if (verdict === "overdue") row.earliestFeasibleAt = forecast.proposal?.earliestFeasibleAt ?? null;
+    row.suggestion = suggestDeadlineAction({
+      verdict,
+      deadlineSource: forecast.deadlineSource,
+      deadlineAt: row.deadlineAt,
+      slackMinutes: row.slackMinutes,
+      latestSafeStart: row.latestSafeStart,
+      earliestFeasibleAt: row.earliestFeasibleAt,
+      interventions: forecast.interventions,
+      now: args.now,
+      timezone: args.timezone,
+      locale: args.locale
+    });
     rows.push(row);
   }
   rows.sort(compareRows);

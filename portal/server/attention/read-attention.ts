@@ -24,6 +24,7 @@ import {
   type AttentionPulse,
   type AttentionReaders
 } from "./readers";
+import { deadlineItems } from "./deadline-items";
 import { clampAttentionSince, SINCE_NOTE, type SinceMoved } from "./since";
 
 /**
@@ -75,13 +76,17 @@ export async function readAttention(
   const pulseP = agent !== null ? readers.pulse(now) : undefined;
   const proposalsP = proposalsReadable ? readers.proposals(userId, agent, request.since) : undefined;
   const factsP = factsReadable ? withFactsTimeout(readers.facts(now, held, { quotes: true })) : undefined;
-  const [doctor, entries, due, pulse, proposals, facts] = await Promise.all([
+  // The deadline outlook is stored on the plan run, so it needs the plan scope, as the mail facts do; the owner view lists it.
+  const deadlinesReadable = agent === null || canReadPlan(held);
+  const deadlinesP = deadlinesReadable ? readers.deadlines(userId) : undefined;
+  const [doctor, entries, due, pulse, proposals, facts, deadlines] = await Promise.all([
     settle(doctorP),
     settle(entriesP),
     settle(dueP),
     settle(pulseP),
     settle(proposalsP),
-    settle(factsP)
+    settle(factsP),
+    settle(deadlinesP)
   ]);
 
   // A lapse between the gate and here: the gate's own view (`lapsed` includes `everConfirmed`) answers its own 428.
@@ -108,6 +113,9 @@ export async function readAttention(
   const proposalsRead = read("proposals", proposals);
   const factItems = read("facts", facts);
   if (factItems) items.push(...factItems);
+  const outlook = read("deadlines", deadlines);
+  const deadlinesRead = deadlines?.status === "fulfilled";
+  if (deadlinesRead) items.push(...deadlineItems(outlook, { held, generatedAt }));
 
   const checkIn = ledgerEntries?.find((entry) => entry.kind === "check_in");
   if (checkIn)
@@ -188,6 +196,7 @@ export async function readAttention(
       ? [{ kinds: ["proposal_decided", "proposals_waiting"], scope: "read:proposals" }]
       : [];
   if (agent !== null && !factsReadable) notIncluded.push({ kinds: ["fact_open"], scope: "read:plan" });
+  if (!deadlinesReadable) notIncluded.push({ kinds: ["deadline_at_risk"], scope: "read:plan" });
   const answer = buildAttentionAnswer({
     generatedAt,
     items,
@@ -202,6 +211,7 @@ export async function readAttention(
       checkIn: sources.some((s) => s.source === "check-in" && s.ok),
       doctor: sources.some((s) => s.source === "doctor" && s.ok),
       facts: sources.some((s) => s.source === "facts" && s.ok),
+      deadlines: sources.some((s) => s.source === "deadlines" && s.ok),
       proposalsSince: proposalsRead?.outcomes.since
     }
   });

@@ -1633,6 +1633,8 @@ export {
   catchUpDueItem,
   checkInOpenItem,
   compareAttentionItems,
+  DEADLINE_RISK_VERDICTS,
+  deadlineAtRiskItem,
   decidedWindowStart,
   DOCTOR_FRESHNESS_FACTS,
   factOpenItem,
@@ -1673,6 +1675,7 @@ export type {
   AttentionSourceName,
   AttentionSourceStatus,
   AttentionToolCall,
+  DeadlineRiskVerdict,
   AttentionUrgency,
   AttentionWho
 } from "./planning/attention.js";
