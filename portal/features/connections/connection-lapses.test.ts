@@ -24,8 +24,12 @@ describe("deriveLapses", () => {
   });
 
   it("names the date of the last good sync when one is recorded", () => {
-    const result = deriveLapses({ [primary.id]: { ...failed(), lastSuccessAt: "2026-10-19T04:00:00.000Z" } });
-    expect(result.lapsed[0]?.label).toBe(`${primary.label} roster hasn't synced since 19 Oct`);
+    const lastSuccessAt = "2026-10-19T04:00:00.000Z";
+    const result = deriveLapses({ [primary.id]: { ...failed(), lastSuccessAt } });
+    // The line prints the date in the machine's zone, so name the day the same way: 19 Oct, or 18 Oct west of UTC-4.
+    expect(result.lapsed[0]?.label).toBe(
+      `${primary.label} roster hasn't synced since ${new Date(lastSuccessAt).getDate()} Oct`
+    );
   });
 
   it("does not flag working, switched-off, unread or never-run connections", () => {
