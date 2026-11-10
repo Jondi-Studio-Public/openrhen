@@ -52,7 +52,7 @@ const CHECK_IN_TEXT = [
   "Step 1: call rhen_status. Do this only now; it does not mark the check-in as shown. Its pending check-in says what the plan expects. If none is pending, stop.",
   'Step 2: ask the owner, for example "Still on <the title from quoted>?".',
   'Step 3: record their words with rhen_check_in {"status": "on-track" or "deviated" or "unknown", "basis": "stated", "evidence": "<their own words, one line, at most 300 characters>", "command-id": "<a new uuid>"}.',
-  'If they are doing something else, use status "deviated" with "category" (work, family, life_admin or other), then call rhen_disrupt with no options and follow what it asks for (doing, until, location, contexts, exclusive).',
+  'Add their words to any answer as "note" (kept as written, up to 8000 characters). If they are doing something else, use status "deviated" with their words as "note" (no category is asked), then call rhen_disrupt with no options and follow what it asks for (doing, until, location, contexts, exclusive).',
   "After a timeout resend the SAME command-id; never resend after an error under another id.",
   "If any call is refused with reentry_required, do the re-entry steps: call rhen_reenter with no arguments and follow it. If a call is refused for scope, tell the owner their answer and stop."
 ].join("\n");

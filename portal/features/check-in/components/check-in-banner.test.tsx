@@ -233,7 +233,20 @@ describe("CheckInBanner reason for leaving the plan", () => {
     openSheet();
     const box = screen.getByLabelText(/What pulled you off\?/);
     expect(box.tagName).toBe("TEXTAREA");
-    expect(screen.getByText("Note (optional)")).toBeTruthy();
+    expect(screen.getByText("In your words (optional)")).toBeTruthy();
+  });
+
+  it("asks for words and a named task, never a category, and sends no deviationCategory", async () => {
+    const fetcher = stubFetch(["ok"]);
+    openSheet();
+    expect(screen.queryByText("Category")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Life admin" })).toBeNull();
+    fireEvent.change(screen.getByLabelText(/In your words/), { target: { value: "School run" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await vi.waitFor(() => expect(dismissPendingCheckIn).toHaveBeenCalledTimes(1));
+    const answer = bodyOf(fetcher, "/api/commands/check-in");
+    expect(answer).toMatchObject({ status: "deviated", deviationNote: "School run", answerSource: "sheet" });
+    expect(answer).not.toHaveProperty("deviationCategory");
   });
 
   it("saves the typed reason through its own route before closing, and keeps it out of the answer and the note", async () => {

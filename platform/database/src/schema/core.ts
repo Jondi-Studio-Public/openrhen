@@ -1348,6 +1348,10 @@ export const checkIns = pgTable(
     /** A different planned task the user names instead — recorded only, never started or switched to. */
     deviationTargetId: text("deviation_target_id"),
     answerSource: text("answer_source"),
+    /** Open tags on his words, `[{tag, mark: 'stated'|'inferred'}]`; a reader adds them, `tag_check_in` changes them. */
+    tags: jsonb("tags")
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     /** The agent that answered, by its self-declared name; null for a person or an answer before this column. */
     answeredBy: text("answered_by"),
     ...timestamps
@@ -1360,8 +1364,9 @@ export const checkIns = pgTable(
     ),
     check(
       "check_in_answer_source_check",
-      sql`${table.answerSource} IS NULL OR ${table.answerSource} IN ('in_app_banner','sheet','push_action','session_reconciliation')`
+      sql`${table.answerSource} IS NULL OR ${table.answerSource} IN ('in_app_banner','sheet','push_action','widget','shortcut','app','session_reconciliation')`
     ),
+    check("check_in_tags_check", sql`jsonb_typeof(${table.tags}) = 'array'`),
     index("check_in_user_slot_idx").on(table.userId, table.slotAt),
     // Enforced in code too (the scheduler supersedes before inserting), but a partial unique index is
     // what actually makes "never two pending" hold under a race rather than just under normal timing.

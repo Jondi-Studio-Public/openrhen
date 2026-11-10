@@ -17,6 +17,7 @@ import { catchUpSettleCommand } from "./commands/catch-up-settle.js";
 import { changesCommand } from "./commands/changes.js";
 import { changesetCommand } from "./commands/changeset.js";
 import { checkInCommand } from "./commands/check-in.js";
+import { checkInTagCommand } from "./commands/check-in-tag.js";
 import { deliverableCommand } from "./commands/deliverable.js";
 import { disruptionCommand } from "./commands/disruption.js";
 import { routineCommand } from "./commands/routine.js";
@@ -96,6 +97,7 @@ const coreCommands: CommandSpec[] = [
   activityCommand,
   deliverableCommand,
   checkInCommand,
+  checkInTagCommand,
   disruptionCommand,
   routineCommand,
   recalculateCommand,

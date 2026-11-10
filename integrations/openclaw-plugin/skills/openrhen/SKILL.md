@@ -7,7 +7,7 @@ metadata: {"openclaw":{"emoji":"🧭"}}
 # Driving OpenRhen
 
 **Start here.** At the start of a session call `rhen_skill` (flavour `openclaw`) for the current rules; the
-server's text wins over this file. This file was written for contract version 11. If `rhen_skill` reports a
+server's text wins over this file. This file was written for contract version 12. If `rhen_skill` reports a
 newer contract version, tell the owner the plugin needs repacking (the rest of this file is the fallback).
 
 OpenRhen is the owner's planning system. It holds their areas, outcomes, projects and actions, the time already
@@ -143,7 +143,7 @@ Read `openrhen-writing` before your first create or update in a conversation.
 | `stretchOffer` is present | tell the person its `text`; only on their own answer `rhen_stretch` `accept` or `decline` with `action`, `basis` `stated` and their words as `evidence` (`decline_all` for none tonight) | never raise declared energy to get around the cut |
 | They start something | `rhen_session` `start`, or `alternative` with `reason` | `openrhen-sessions` |
 | They stop | `rhen_session` `finish` with `outcome` (`completed`, `progress` or `unsure`) and `remaining` | ask how much is left |
-| Pending check-in | `rhen_check_in` `status` `on-track`, `deviated` or `unknown`; `deviated` needs `category` (`work`, `family`, `life_admin` or `other`) | then `rhen_disrupt` with all five fields |
+| Pending check-in | `rhen_check_in` `status` `on-track`, `deviated` or `unknown`, with their own words as `note` (any status; `deviated` needs it; no category is asked) | then `rhen_disrupt` with all five fields |
 | They woke / slept | `rhen_wake`; a whole night is `rhen_save` `sleep-log-entry` | `openrhen-sleep`; ask the times |
 | Passing thought | `rhen_capture` | |
 | A concrete record | `rhen_search` with `like`, then a typed save with `basis` | |

@@ -62,7 +62,7 @@ Otherwise expand **Why nothing fits** to see the calculation evidence: too littl
 - Right after you say you are awake, Now leads with the wake routine's current step.
 - When preparation for the next commitment no longer fits, a banner says **Behind prep pace** (or **Prep is tight**). A step that must start by a certain time gets its own warning.
 - A flexible preparation step that is ready appears under **Can do now**.
-- Now periodically asks **Still on ...?** (roughly every 15 to 20 minutes, never during sleep). **On track** and **Something else** answer it. A missed slot is asked once in the past tense. After about half an hour of silence the plan counts you away and **Welcome back** helps you record what happened.
+- Now periodically asks **Still on ...?** (roughly every 15 to 20 minutes, never during sleep). **On track** and **Something else** answer it; **Something else** asks for your words, not a category. A missed slot is asked once in the past tense. After about half an hour of silence the plan counts you away and **Welcome back** helps you record what happened.
 - While a confirmed commitment (or its setup, travel or transition) holds the clock, Now shows that block instead of a recommendation. Start only records that the time really went there.
 
 ### When something comes up

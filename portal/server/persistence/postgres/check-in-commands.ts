@@ -1,7 +1,7 @@
 import { readCurrentBelief } from "@openrhen/database";
 import type postgres from "postgres";
 import { requestAgent } from "@/server/agent-actor";
-import type { CheckInCommand } from "@openrhen/contracts";
+import { CHECK_IN_TAGS_MAX, type CheckInCommand, type StoredCheckInTag } from "@openrhen/contracts";
 import type { PortalState } from "@/state/portal-state";
 import { claimCommandReceipt, commandRequestHash, hasCommandReceipt } from "./command-receipt";
 import { alreadyClosed, InvalidCommandError, notFound, versionConflict } from "./command-errors";
@@ -14,6 +14,7 @@ import { WriteSnapshot } from "./write-snapshot";
 type AnswerCheckInCommand = Extract<CheckInCommand, { type: "answer_check_in" }>;
 type AnswerCheckInsCommand = Extract<CheckInCommand, { type: "answer_check_ins" }>;
 type VoluntaryCheckInCommand = Extract<CheckInCommand, { type: "voluntary_check_in" }>;
+type TagCheckInCommand = Extract<CheckInCommand, { type: "tag_check_in" }>;
 
 /**
  * Answers one check-in, or a whole reconciliation trail in one transaction. Record-only: this writes
@@ -41,6 +42,8 @@ export async function runCheckInCommand(sql: PoolSql, command: CheckInCommand): 
       await answerCheckIn(tx, userId, command, snap);
     } else if (command.type === "voluntary_check_in") {
       await recordVoluntaryCheckIn(tx, userId, command, snap);
+    } else if (command.type === "tag_check_in") {
+      await tagCheckIn(tx, userId, command, snap);
     } else {
       await answerCheckInsBatch(tx, userId, command, snap);
     }
@@ -110,6 +113,48 @@ async function answerCheckIn(
 }
 
 /**
+ * Adds or removes open tags on an answered check-in. Touches `tags` and the row's version only: the status, the
+ * words, `answered_at` and `answer_source` stay as the owner left them, and nothing here reads as contact to the pulse.
+ * A `stated` mark replaces an `inferred` one for the same tag; an `inferred` mark never replaces a `stated` one.
+ */
+async function tagCheckIn(
+  tx: TxSql,
+  userId: string,
+  command: TagCheckInCommand,
+  snap: WriteSnapshot | null
+): Promise<void> {
+  const rows = await tx<
+    { version: number; answered_at: Date | null; tags: StoredCheckInTag[] }[]
+  >`SELECT version,answered_at,tags FROM check_in WHERE id=${command.checkInId} AND user_id=${userId} FOR UPDATE`;
+  const row = rows[0];
+  if (!row) throw notFound("check-in", command.checkInId);
+  if (command.expectedVersion !== null && command.expectedVersion !== row.version)
+    throw versionConflict("check-in", command.checkInId, command.expectedVersion, row.version);
+  if (row.answered_at === null)
+    throw new InvalidCommandError("Tags go on the owner's words, so a check-in takes them only once it is answered.", {
+      nextCall: { tool: "rhen_status", arguments: {}, note: "shows the check-in that is pending now, if any" }
+    });
+  const removed = new Set(command.remove ?? []);
+  const next = row.tags.filter((entry) => !removed.has(entry.tag));
+  for (const added of command.add ?? []) {
+    const at = next.findIndex((entry) => entry.tag === added.tag);
+    if (at === -1) next.push({ tag: added.tag, mark: added.mark });
+    else if (added.mark === "stated") next[at] = { tag: added.tag, mark: "stated" };
+  }
+  if (next.length > CHECK_IN_TAGS_MAX)
+    throw new InvalidCommandError(
+      `A check-in holds at most ${CHECK_IN_TAGS_MAX} tags; this would leave ${next.length}. Remove some first.`
+    );
+  if (JSON.stringify(next) === JSON.stringify(row.tags)) return;
+  const at = new Date();
+  await snap?.before("check_in", [command.checkInId]);
+  await tx`
+    UPDATE check_in SET tags=${tx.json(next as never)}, version=version+1, updated_at=${at}
+    WHERE id=${command.checkInId}
+  `;
+}
+
+/**
  * Answers a whole reconciliation trail at once, split at `upTo`: a slot at or before it becomes
  * `on_track`; a slot after it takes the tail's one answer (`deviated` with category/note, or
  * `unknown` with `answered_at` stamped — an actual "not sure", distinct from the timeout that wrote
@@ -145,7 +190,7 @@ async function answerCheckInsBatch(
         status=${status},
         answered_at=${at},
         deviation_category=${deviated ? (command.tail.deviationCategory ?? null) : null},
-        deviation_note=${deviated ? (command.tail.deviationNote ?? null) : null},
+        deviation_note=${isInTrunk ? null : (command.tail.deviationNote ?? null)},
         answer_source='session_reconciliation',
         answered_by=${requestAgent()},
         version=version+1,

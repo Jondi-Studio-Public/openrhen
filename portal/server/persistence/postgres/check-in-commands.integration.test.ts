@@ -632,3 +632,190 @@ describe("voluntary check-in", () => {
     expect(await rows()).toHaveLength(3);
   });
 });
+
+describe("words-first check-ins (migration 0153)", () => {
+  type TagCommand = Extract<CheckInCommand, { type: "tag_check_in" }>;
+  const tagCommand = (overrides: Partial<TagCommand> & Pick<TagCommand, "checkInId">): TagCommand => ({
+    commandId: crypto.randomUUID(),
+    type: "tag_check_in",
+    expectedVersion: null,
+    ...overrides
+  });
+  const stored = (id: string) =>
+    sql<
+      {
+        status: string;
+        deviation_note: string | null;
+        deviation_category: string | null;
+        answer_source: string | null;
+        answered_at: Date | null;
+        tags: { tag: string; mark: string }[];
+        version: number;
+      }[]
+    >`SELECT status, deviation_note, deviation_category, answer_source, answered_at, tags, version FROM check_in WHERE id=${id}`;
+
+  it("keeps long words on an on-track answer and defaults tags to an empty list", async () => {
+    const row = await insertCheckIn({});
+    const words = "slower than planned, ".repeat(380).trim();
+    expect(words.length).toBeGreaterThan(1000);
+    await runCheckInCommand(
+      sql,
+      answerCommand({ checkInId: row.id, expectedVersion: row.version, deviationNote: words, answerSource: "app" })
+    );
+    expect((await stored(row.id))[0]).toMatchObject({
+      status: "on_track",
+      deviation_note: words,
+      deviation_category: null,
+      answer_source: "app",
+      tags: []
+    });
+  });
+
+  it.each(["push_action", "widget", "shortcut", "app"] as const)("stores answerSource %s", async (answerSource) => {
+    const row = await insertCheckIn({});
+    await runCheckInCommand(sql, answerCommand({ checkInId: row.id, expectedVersion: row.version, answerSource }));
+    expect((await stored(row.id))[0]!.answer_source).toBe(answerSource);
+  });
+
+  it("refuses an answerSource the database does not know", async () => {
+    const row = await insertCheckIn({});
+    await expect(sql`UPDATE check_in SET answer_source='telepathy' WHERE id=${row.id}`).rejects.toThrow(
+      /check_in_answer_source_check/
+    );
+  });
+
+  it("stores words on a reconciliation tail of any status, none on the on-track trunk", async () => {
+    const trunk = await insertCheckIn({ status: "unknown", minutesAgo: 120 });
+    const tail = await insertCheckIn({ status: "unknown", minutesAgo: 60 });
+    await runCheckInCommand(
+      sql,
+      batchAnswerCommand({
+        checkInIds: [trunk.id, tail.id],
+        upTo: new Date(Date.now() - 90 * 60_000).toISOString(),
+        tail: { status: "unknown", deviationNote: "not sure what I did" }
+      })
+    );
+    expect((await stored(trunk.id))[0]).toMatchObject({ status: "on_track", deviation_note: null });
+    expect((await stored(tail.id))[0]).toMatchObject({ status: "unknown", deviation_note: "not sure what I did" });
+  });
+
+  it("records words on a voluntary check-in of any status", async () => {
+    const now = new Date();
+    await sql`
+      INSERT INTO planning_runs (user_id,request_id,input_version,contract_version,engine_version,calculated_at,valid_until,result)
+      VALUES (${userId},${crypto.randomUUID()},'v1','1','v1',${now},${new Date(now.getTime() + 3_600_000)},
+        ${sql.json({ currentDirective: { kind: "action", targetId: crypto.randomUUID(), title: "Write" } } as never)})`;
+    await runCheckInCommand(sql, {
+      commandId: crypto.randomUUID(),
+      type: "voluntary_check_in",
+      expectedVersion: null,
+      status: "on_track",
+      deviationNote: "yes, but slowly",
+      answerSource: "widget"
+    });
+    const rows = await sql<{ deviation_note: string; answer_source: string }[]>`
+      SELECT deviation_note, answer_source FROM check_in WHERE user_id=${userId}`;
+    expect(rows[0]).toEqual({ deviation_note: "yes, but slowly", answer_source: "widget" });
+  });
+
+  describe("tag_check_in", () => {
+    async function answered() {
+      const row = await insertCheckIn({});
+      await runCheckInCommand(
+        sql,
+        answerCommand({
+          checkInId: row.id,
+          expectedVersion: row.version,
+          status: "deviated",
+          deviationNote: "school run"
+        })
+      );
+      return { id: row.id, version: row.version + 1 };
+    }
+
+    it("adds and removes tags without touching status, words, source or answered_at", async () => {
+      const row = await answered();
+      const before = (await stored(row.id))[0]!;
+      await runCheckInCommand(
+        sql,
+        tagCommand({
+          checkInId: row.id,
+          expectedVersion: row.version,
+          add: [
+            { tag: "family", mark: "inferred" },
+            { tag: "school run", mark: "stated" }
+          ]
+        })
+      );
+      const tagged = (await stored(row.id))[0]!;
+      expect(tagged.tags).toEqual([
+        { tag: "family", mark: "inferred" },
+        { tag: "school run", mark: "stated" }
+      ]);
+      expect(tagged).toMatchObject({
+        status: before.status,
+        deviation_note: before.deviation_note,
+        answer_source: before.answer_source
+      });
+      expect(tagged.answered_at).toEqual(before.answered_at);
+      expect(tagged.version).toBe(before.version + 1);
+
+      await runCheckInCommand(sql, tagCommand({ checkInId: row.id, remove: ["family"] }));
+      expect((await stored(row.id))[0]!.tags).toEqual([{ tag: "school run", mark: "stated" }]);
+    });
+
+    it("lets stated replace inferred but never the reverse", async () => {
+      const row = await answered();
+      await runCheckInCommand(sql, tagCommand({ checkInId: row.id, add: [{ tag: "family", mark: "inferred" }] }));
+      await runCheckInCommand(sql, tagCommand({ checkInId: row.id, add: [{ tag: "family", mark: "stated" }] }));
+      expect((await stored(row.id))[0]!.tags).toEqual([{ tag: "family", mark: "stated" }]);
+      await runCheckInCommand(sql, tagCommand({ checkInId: row.id, add: [{ tag: "family", mark: "inferred" }] }));
+      expect((await stored(row.id))[0]!.tags).toEqual([{ tag: "family", mark: "stated" }]);
+    });
+
+    it("leaves the version alone when nothing changes, and replays a repeated commandId", async () => {
+      const row = await answered();
+      const command = tagCommand({ checkInId: row.id, add: [{ tag: "family", mark: "inferred" }] });
+      await runCheckInCommand(sql, command);
+      const version = (await stored(row.id))[0]!.version;
+      await runCheckInCommand(sql, command);
+      await runCheckInCommand(sql, tagCommand({ checkInId: row.id, add: [{ tag: "family", mark: "inferred" }] }));
+      expect((await stored(row.id))[0]!.version).toBe(version);
+    });
+
+    it("refuses a check-in that has not been answered, a missing one and a stale version", async () => {
+      const open = await insertCheckIn({ status: "unknown", minutesAgo: 30 });
+      await expect(
+        runCheckInCommand(sql, tagCommand({ checkInId: open.id, add: [{ tag: "x", mark: "inferred" }] }))
+      ).rejects.toBeInstanceOf(InvalidCommandError);
+      await expect(
+        runCheckInCommand(sql, tagCommand({ checkInId: crypto.randomUUID(), add: [{ tag: "x", mark: "inferred" }] }))
+      ).rejects.toThrow(/no longer exists/);
+      const row = await answered();
+      await expect(
+        runCheckInCommand(
+          sql,
+          tagCommand({ checkInId: row.id, expectedVersion: row.version + 5, add: [{ tag: "x", mark: "inferred" }] })
+        )
+      ).rejects.toBeInstanceOf(CommandConflictError);
+    });
+
+    it("refuses more than twelve tags on one check-in", async () => {
+      const row = await answered();
+      const tags = Array.from({ length: 12 }, (_, i) => ({ tag: `t${i}`, mark: "inferred" as const }));
+      await runCheckInCommand(sql, tagCommand({ checkInId: row.id, add: tags }));
+      await expect(
+        runCheckInCommand(sql, tagCommand({ checkInId: row.id, add: [{ tag: "t12", mark: "inferred" }] }))
+      ).rejects.toBeInstanceOf(InvalidCommandError);
+    });
+
+    it("does not change what the current-check-in reader shows for an open slot", async () => {
+      const row = await answered();
+      await runCheckInCommand(sql, tagCommand({ checkInId: row.id, add: [{ tag: "family", mark: "inferred" }] }));
+      expect(await readCurrentCheckIn(sql, userId)).toBeNull();
+      const pending = await insertCheckIn({ minutesAgo: -1 });
+      expect((await readCurrentCheckIn(sql, userId))?.id).toBe(pending.id);
+      expect((await readCurrentCheckIn(sql, userId))?.tags).toEqual([]);
+    });
+  });
+});

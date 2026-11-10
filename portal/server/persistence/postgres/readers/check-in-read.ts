@@ -1,3 +1,4 @@
+import type { StoredCheckInTag } from "@openrhen/contracts";
 import { checkIns, sessions, sleepPlans } from "@openrhen/database";
 import type { Row } from "../db-row";
 import type { Sql } from "../sql-pool";
@@ -26,7 +27,10 @@ export interface StoredCheckIn {
   deviationCategory: "work" | "family" | "life_admin" | "other" | null;
   deviationNote: string | null;
   deviationTargetId: string | null;
-  answerSource: "in_app_banner" | "sheet" | "push_action" | null;
+  answerSource:
+    "in_app_banner" | "sheet" | "push_action" | "widget" | "shortcut" | "app" | "session_reconciliation" | null;
+  /** Open tags on his words; `inferred` ones were put there by a reader and he can remove them. */
+  tags: StoredCheckInTag[];
 }
 
 type CheckInRow = Row<
@@ -45,7 +49,9 @@ type CheckInRow = Row<
   | "deviation_note"
   | "deviation_target_id"
   | "answer_source"
+  | "tags"
 > & {
+  tags: StoredCheckIn["tags"];
   directive_kind: CheckInDirectiveKind;
   status: StoredCheckIn["status"];
   deviation_category: StoredCheckIn["deviationCategory"];
@@ -67,7 +73,8 @@ function mapCheckInRow(row: CheckInRow): StoredCheckIn {
     deviationCategory: row.deviation_category,
     deviationNote: row.deviation_note,
     deviationTargetId: row.deviation_target_id,
-    answerSource: row.answer_source
+    answerSource: row.answer_source,
+    tags: row.tags
   };
 }
 
@@ -98,7 +105,7 @@ export async function readCurrentCheckIn(
   options: { stamp?: boolean } = {}
 ): Promise<StoredCheckIn | null> {
   const rows = await sql<CheckInRow[]>`
-    SELECT id,version,slot_at,prompted_at,answered_at,directive_kind,directive_target_id,directive_phase,directive_title,status,deviation_category,deviation_note,deviation_target_id,answer_source
+    SELECT id,version,slot_at,prompted_at,answered_at,directive_kind,directive_target_id,directive_phase,directive_title,status,deviation_category,deviation_note,deviation_target_id,answer_source,tags
     FROM check_in WHERE user_id=${userId} ORDER BY slot_at DESC LIMIT 1
   `;
   const latest = rows[0];
@@ -108,7 +115,7 @@ export async function readCurrentCheckIn(
   if (options.stamp !== false && latest.status === "pending" && !latest.prompted_at) {
     const stamped = await sql<CheckInRow[]>`
       UPDATE check_in SET prompted_at=CURRENT_TIMESTAMP WHERE id=${latest.id} AND prompted_at IS NULL
-      RETURNING id,version,slot_at,prompted_at,answered_at,directive_kind,directive_target_id,directive_phase,directive_title,status,deviation_category,deviation_note,deviation_target_id,answer_source
+      RETURNING id,version,slot_at,prompted_at,answered_at,directive_kind,directive_target_id,directive_phase,directive_title,status,deviation_category,deviation_note,deviation_target_id,answer_source,tags
     `;
     if (stamped[0]) return mapCheckInRow(stamped[0]);
   }
