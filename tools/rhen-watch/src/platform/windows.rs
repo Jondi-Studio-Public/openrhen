@@ -393,8 +393,8 @@ static SHOWN_STATE: AtomicU32 = AtomicU32::new(0);
 static DATA_DIR: OnceLock<Vec<u16>> = OnceLock::new();
 /// The hidden window's title for this data directory, so the settings window finds this agent and no other.
 static AGENT_TITLE: OnceLock<Vec<u16>> = OnceLock::new();
-/// The last runner state written to `state.txt` (u32::MAX: none yet).
-static WRITTEN_STATE: AtomicU32 = AtomicU32::new(u32::MAX);
+/// What `state.txt` holds; a failed write is retried by the next `set_state` call (about once a second).
+static STATE_SYNC: std::sync::Mutex<app_model::StateSync> = std::sync::Mutex::new(app_model::StateSync::new());
 
 pub fn set_data_dir(dir: &std::path::Path) {
     let _ = DATA_DIR.set(wide(&dir.to_string_lossy()));
@@ -416,12 +416,12 @@ pub fn set_state(state: &str) {
         "degraded" => 2,
         _ => 0,
     };
-    // Leave the state where the settings window reads it. Only on change (the first call writes), best effort.
-    if WRITTEN_STATE.swap(code, Ordering::SeqCst) != code
-        && let Some(dir) = DATA_DIR.get()
+    // Leave the state where the settings window reads it. Only on change; a refused write is tried again next call.
+    if let Some(dir) = DATA_DIR.get()
+        && let Ok(mut sync) = STATE_SYNC.lock()
     {
         let dir = std::path::PathBuf::from(String::from_utf16_lossy(&dir[..dir.len().saturating_sub(1)]));
-        let _ = crate::config::write_atomic(&dir.join(app_model::STATE_FILE), &app_model::state_file_text(state));
+        let _ = sync.sync(state, |text| crate::config::write_atomic(&dir.join(app_model::STATE_FILE), text));
     }
     if UI_STATE.swap(code, Ordering::SeqCst) != code {
         let hwnd = TRAY_HWND.load(Ordering::SeqCst);
