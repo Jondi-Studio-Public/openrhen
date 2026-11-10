@@ -34,10 +34,34 @@ export interface Stats {
   verbs: Record<string, number>;
   /** The input ended inside a structure (a cut-off download). Events read before that are still emitted. */
   truncated: boolean;
+  /** Things that were handled with a fallback and counted, by plain-English reason (the row is still emitted). */
+  warnings: Record<string, number>;
+  /** Plain tallies that are neither skips nor warnings (attachments ignored, duplicates dropped), by plain-English label. */
+  counts: Record<string, number>;
 }
 
 export function newStats(): Stats {
-  return { read: 0, emitted: 0, skipped: 0, ignored: 0, reasons: {}, verbs: {}, truncated: false };
+  return {
+    read: 0,
+    emitted: 0,
+    skipped: 0,
+    ignored: 0,
+    reasons: {},
+    verbs: {},
+    truncated: false,
+    warnings: {},
+    counts: {}
+  };
+}
+
+/** Counts a fallback taken for a row that is still emitted. */
+export function warn(stats: Stats, reason: string): void {
+  stats.warnings[reason] = (stats.warnings[reason] ?? 0) + 1;
+}
+
+/** Adds to a plain tally. */
+export function count(stats: Stats, label: string, by = 1): void {
+  stats.counts[label] = (stats.counts[label] ?? 0) + by;
 }
 
 export const MAX_VERBS = 200;
@@ -62,9 +86,10 @@ export function mergeStats(into: Stats, from: Stats): void {
   into.skipped += from.skipped;
   into.ignored += from.ignored;
   into.truncated ||= from.truncated;
-  for (const [verb, count] of Object.entries(from.verbs)) into.verbs[verb] = (into.verbs[verb] ?? 0) + count;
-  for (const [reason, count] of Object.entries(from.reasons))
-    into.reasons[reason] = (into.reasons[reason] ?? 0) + count;
+  for (const [verb, n] of Object.entries(from.verbs)) into.verbs[verb] = (into.verbs[verb] ?? 0) + n;
+  for (const [reason, n] of Object.entries(from.reasons)) into.reasons[reason] = (into.reasons[reason] ?? 0) + n;
+  for (const [reason, n] of Object.entries(from.warnings)) into.warnings[reason] = (into.warnings[reason] ?? 0) + n;
+  for (const [label, n] of Object.entries(from.counts)) into.counts[label] = (into.counts[label] ?? 0) + n;
 }
 
 /** Thrown for a file that cannot be read at all (not a zip, unsupported compression), as opposed to a bad row. */

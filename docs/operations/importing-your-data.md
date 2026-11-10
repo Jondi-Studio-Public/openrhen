@@ -1,6 +1,6 @@
 # Importing your data
 
-You need this when you want to load a data export (Google Takeout, Spotify, Discord, Apple Health) into the [activity store](../architecture/activity-store.md) so a later predictor can read your history from one place.
+You need this when you want to load a data export (Google Takeout, Spotify, Discord, Apple Health, standard mail files) into the [activity store](../architecture/activity-store.md) so a later predictor can read your history from one place.
 
 `rhen import <source> <path>` reads the export on your own computer, parses it there, and sends only the parsed events to the portal, in batches. The file itself is never uploaded, so a multi-gigabyte Takeout or Apple Health export is fine. Nothing is unzipped to disk. The same event is never stored twice: importing a newer export of the same account adds only what is new.
 
@@ -123,6 +123,22 @@ rhen import apple-health "C:\Users\you\Documents\data-exports\export.zip"
 
 The importer streams `apple_health_export/export.xml` without loading it. It stores **hourly step counts** (one row per hour per source device), **sleep** (one row per stage) and **workouts**. Heart rate and every other record type are ignored. An iPhone and an Apple Watch each keep their own rows; the two are not merged, so add nothing up across devices without choosing one. Each row records the offset it was written with, so the local hour is not lost.
 
+### Mail files (`.mbox`, `.eml`)
+
+```powershell
+rhen import mail "C:\Users\you\Documents\mail\archive.mbox" --source my-mail-import --dry-run
+rhen import mail "C:\Users\you\Documents\mail" --source my-mail-import
+```
+
+This reads standard mail files: mbox (mboxrd and mboxo: `From ` separator lines, `>From ` unescaped) and single `.eml` messages (RFC 5322 and MIME). The path may be one file, a folder or a zip; every `.mbox`, `.mbx` and `.eml` inside is read, in path order, as one import. It is built from the standards and tested on synthetic files only; no real mailbox export has been used to check it, so read the warnings it prints.
+
+- **You name the source** with `--source`. It must be a `message@1` source an extension has registered ([Posting messages](posting-messages.md) section 1); core registers none. Each message is posted as a `message@1` event with the file's text kept (an import is your consent, whatever the source's content gate says), keyed `mid:<Message-ID>` when the id has the RFC shape and otherwise by the `fp:` rule. Running it again posts the same keys, so held messages are `already held`.
+- **Text:** `text/plain` is preferred, otherwise `text/html` is reduced to text. Quoted-printable and base64 are decoded and RFC 2047 headers read in their charsets. Attachments are counted (`attachments ignored`) and never read. Text over 64 KB is cut and counted as a warning.
+- **Attrs:** sender (the address), `to` (To and Cc, at most 20), subject, `thread_id` (the first id in `References`, else `In-Reply-To`, else the message's own id), `channel` (the file name without its extension) and, with `--self a@x,b@y`, `from_self` and `direction`. The sent time is the `Date` header. A missing, unparseable or absurd (before 1990 or in the future) `Date` is counted as a warning and replaced by the `From ` line's date or the oldest `Received` date, marked approximate; with none of them the message is skipped and counted.
+- **One message in several files** is posted once: the first copy of a `Message-ID` wins and the rest are counted (`duplicate Message-ID in this import`).
+- **It stops on anything it does not recognise**, with the file, the message number and the byte where the message starts: a file that is not mbox, garbage where a header should be, a multipart with no closing boundary, an unknown transfer encoding or charset, a text part holding NUL bytes, an empty file, or a message over the per-message cap (128 MiB; `--max-message-mib <n>` raises it to at most 512). Nothing is truncated or skipped silently. Events sent before the stop stay under the import's id, and running the command again after the fix is safe.
+- **Memory:** the file is streamed and one message is held at a time; the only state that grows with the file is a short digest per `Message-ID` for the duplicate check.
+
 ## What the command prints
 
 For each source it reads, one block:
@@ -135,6 +151,7 @@ spotify (my_spotify_data.zip): read 41210 rows; sent 41198: added 41198, already
 - **read** are rows of the kinds that source handles; **skipped** are rows that were malformed or unrecognised (each reason is listed); **ignored** are valid rows that are not wanted, such as heart-rate records.
 - **added** and **already held** come from the portal; held rows are never changed.
 - **rejected** are events the portal refused. Each reason is spelled out with the event number it first happened at, for example a time more than 24 hours in the future. One bad event rejects itself, not the batch.
+- **warning** lines count fallbacks taken for rows that were still sent (mail: a missing `Date`, a `Message-ID` that is not RFC-shaped); a run with any is `needs_review`. Plain tallies such as `attachments ignored` follow them.
 - **content dropped** appears when a source's content gate is off.
 - A file that ends in the middle of a record is reported as cut off; what was read before the break is still imported, and downloading the export again fixes it.
 

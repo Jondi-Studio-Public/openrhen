@@ -59,6 +59,20 @@ export const FILE_ENTRIES: readonly FlowEntry[] = [
   exportSource("spotify-export", "Spotify streaming history", "spotify", "spotify"),
   exportSource("timeline-export", "Location timeline export", "timeline", "timeline"),
   flow({
+    id: "mail-file-export",
+    name: "Mail file import",
+    role: "source",
+    category: "files",
+    method: "file-import",
+    trigger: { kind: "manual-run", where: "cli" },
+    via: ["activity-ingest"],
+    code: {
+      paths: ["integrations/activity-importers/src/parsers/mail.ts", "integrations/activity-importers/src/mail-mime.ts"]
+    },
+    from: ["local:mail-file-export"],
+    health: { kind: "none", reason: "the caller names the source, so health is per source" }
+  }),
+  flow({
     id: "youtube-watch-history",
     name: "Watch history import",
     role: "source",
