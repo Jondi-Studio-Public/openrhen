@@ -52,7 +52,7 @@ Jobs are idempotent by input version, so duplicate triggers collapse. At most on
 
 ## Worker loops
 
-The worker runs independent loops, so a slow one delays only itself: planning jobs, pruning old evidence, the check-in scheduler, leave-by notifications, and each connection's own sync schedule.
+The worker runs independent loops, so a slow one delays only itself: planning jobs, a watchdog that restarts a plan refresh chain that died silently (no active job and no run for 70 minutes, engine not reported down; at most one restart per user per 70 minutes, and it needs the portal), pruning old evidence, the check-in scheduler, leave-by notifications, and each connection's own sync schedule.
 
 ## Persistence
 

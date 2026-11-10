@@ -135,6 +135,7 @@ export const CORE_MCP_ROUTE_TABLE: Record<string, () => Promise<RouteModule>> = 
   "/api/plan-map/switches": () => import("@/app/api/plan-map/switches/route"),
   "/api/plan/search": () => import("@/app/api/plan/search/route"),
   "/api/planning/changes": () => import("@/app/api/planning/changes/route"),
+  "/api/planning/recheck": () => import("@/app/api/planning/recheck/route"),
   "/api/planning/status": () => import("@/app/api/planning/status/route"),
   "/api/pulse/config": () => import("@/app/api/pulse/config/route"),
   "/api/pulse/preview": () => import("@/app/api/pulse/preview/route"),

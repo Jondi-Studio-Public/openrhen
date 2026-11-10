@@ -1,6 +1,7 @@
 export { createDatabase } from "./client.js";
 export * from "./schema.js";
 export * from "./planning/plan-forecast-runtime.js";
+export * from "./planning/plan-recheck-watchdog.js";
 export * from "./planning/completion-ratios.js";
 export * from "./planning/plan-retention.js";
 export * from "./planning/journey-summary.js";

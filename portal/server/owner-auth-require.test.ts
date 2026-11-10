@@ -75,10 +75,11 @@ describe("owner auth require: worker routes", () => {
     "/api/integrations/work-label/tick",
     "/api/integrations/pulse/tick",
     "/api/integrations/push/drain",
-    "/api/plan-map/sweep"
+    "/api/plan-map/sweep",
+    "/api/planning/recheck"
   ];
   it("finds every core worker route in the route files", () =>
-    expect(workerRoutes.filter((route) => core.includes(route.template)).length).toBe(11));
+    expect(workerRoutes.filter((route) => core.includes(route.template)).length).toBe(12));
 
   for (const route of workerRoutes) {
     it(`${route.method} ${route.template} refuses anonymous callers and accepts a worker token`, async () => {
