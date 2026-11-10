@@ -1025,6 +1025,12 @@ describe("activity store", () => {
     expect(remove?.status).toBe(403);
   });
 
+  it("lets a read:plan token list answered check-ins and refuses one without it", async () => {
+    expect(await call("GET", "/api/check-ins/answered", principal(["read:plan"]))).toBeNull();
+    const refused = await call("GET", "/api/check-ins/answered", principal(["read:changes", "write:check-in"]));
+    expect(refused?.status).toBe(403);
+  });
+
   it("keeps the client view and the shown report for the owner's own clients, whatever scopes a token holds", async () => {
     const everything = principal(["read:plan", "read:changes", "write:check-in", "write:entity:action"]);
     const read = await call("GET", "/api/client/view", everything);

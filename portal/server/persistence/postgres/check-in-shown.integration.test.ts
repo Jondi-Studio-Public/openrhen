@@ -6,7 +6,7 @@ import postgres from "postgres";
 import { resolve } from "node:path";
 import { integrationDatabaseName } from "@openrhen/database";
 import { ensureUser } from "./ensure-user";
-import { markCheckInShown, readCurrentCheckIn } from "./readers/check-in-read";
+import { markCheckInShown, readAnsweredCheckIns, readCurrentCheckIn } from "./readers/check-in-read";
 
 config({ path: resolve(process.cwd(), "../.env"), quiet: true });
 
@@ -104,6 +104,47 @@ describe("markCheckInShown", () => {
     expect(await markCheckInShown(sql, userId, "11111111-1111-4111-8111-111111111111")).toBeNull();
     expect(await markCheckInShown(sql, other!.id, id)).toBeNull();
     expect(await promptedAt(id)).toBeNull();
+    await sql`DELETE FROM users WHERE id=${other!.id}`;
+  });
+});
+
+describe("readAnsweredCheckIns", () => {
+  const answer = (status: string, at: string, note: string | null, source: string | null) => sql<{ id: string }[]>`
+    INSERT INTO check_in (user_id,slot_at,directive_kind,directive_title,status,answered_at,deviation_note,answer_source,tags)
+    VALUES (${userId}, ${at}, 'action', 'Write section 2', ${status}, ${at}, ${note}, ${source},
+      ${sql.json([{ tag: "tired", mark: "stated" }])})
+    RETURNING id`;
+
+  it("lists answered rows newest first with id, words, tags and source, and leaves out unanswered and superseded", async () => {
+    const [older] = await answer("on_track", "2026-11-09T01:00:00Z", null, "sheet");
+    const [newer] = await answer("deviated", "2026-11-09T02:00:00Z", "a loud neighbour", "app");
+    await insertCheckIn("pending");
+    await insertCheckIn("unknown");
+    await sql`INSERT INTO check_in (user_id,slot_at,directive_kind,directive_title,status,answered_at)
+      VALUES (${userId}, now(), 'action', 'x', 'superseded', now())`;
+    const rows = await readAnsweredCheckIns(sql, userId);
+    expect(rows.map((r) => r.id)).toEqual([newer!.id, older!.id]);
+    expect(rows[0]).toMatchObject({
+      status: "deviated",
+      deviationNote: "a loud neighbour",
+      answerSource: "app",
+      answeredAt: "2026-11-09T02:00:00.000Z",
+      tags: [{ tag: "tired", mark: "stated" }]
+    });
+  });
+
+  it("pages with since, before and limit, and never returns another user's rows", async () => {
+    await answer("on_track", "2026-11-09T01:00:00Z", null, "sheet");
+    const [mid] = await answer("on_track", "2026-11-09T02:00:00Z", null, "sheet");
+    await answer("on_track", "2026-11-09T03:00:00Z", null, "sheet");
+    expect(await readAnsweredCheckIns(sql, userId, { limit: 2 })).toHaveLength(2);
+    const page = await readAnsweredCheckIns(sql, userId, {
+      since: new Date("2026-11-09T02:00:00Z"),
+      before: new Date("2026-11-09T03:00:00Z")
+    });
+    expect(page.map((r) => r.id)).toEqual([mid!.id]);
+    const [other] = await sql<{ id: string }[]>`INSERT INTO users (display_name) VALUES ('Someone else') RETURNING id`;
+    expect(await readAnsweredCheckIns(sql, other!.id)).toEqual([]);
     await sql`DELETE FROM users WHERE id=${other!.id}`;
   });
 });

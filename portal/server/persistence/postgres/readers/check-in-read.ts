@@ -122,6 +122,69 @@ export async function readCurrentCheckIn(
   return mapCheckInRow(latest);
 }
 
+export interface AnsweredCheckIn {
+  id: string;
+  status: "on_track" | "deviated" | "unknown";
+  /** The owner's own words, when he gave any. */
+  deviationNote: string | null;
+  tags: StoredCheckInTag[];
+  answeredAt: string;
+  answerSource: StoredCheckIn["answerSource"];
+  slotAt: string;
+  directiveTitle: string;
+}
+
+export const ANSWERED_CHECK_INS_DEFAULT_LIMIT = 20;
+export const ANSWERED_CHECK_INS_MAX_LIMIT = 100;
+
+/**
+ * Answered check-ins, newest answer first, voluntary ones included (they have a row and an id like any other).
+ * `since` keeps answers at or after that instant; `before` keeps answers strictly earlier, so a reader pages back by
+ * passing the last `answeredAt` it saw. A timed-out slot nobody answered (`answered_at` null) and a superseded one
+ * are not answers and never appear.
+ */
+export async function readAnsweredCheckIns(
+  sql: Sql,
+  userId: string,
+  options: { since?: Date; before?: Date; limit?: number } = {}
+): Promise<AnsweredCheckIn[]> {
+  const limit = Math.min(
+    Math.max(Math.trunc(options.limit ?? ANSWERED_CHECK_INS_DEFAULT_LIMIT), 1),
+    ANSWERED_CHECK_INS_MAX_LIMIT
+  );
+  const since = options.since ?? null;
+  const before = options.before ?? null;
+  const rows = await sql<
+    {
+      id: string;
+      status: AnsweredCheckIn["status"];
+      deviation_note: string | null;
+      tags: StoredCheckInTag[];
+      answered_at: Date;
+      answer_source: AnsweredCheckIn["answerSource"];
+      slot_at: Date;
+      directive_title: string;
+    }[]
+  >`
+    SELECT id,status,deviation_note,tags,answered_at,answer_source,slot_at,directive_title
+    FROM check_in
+    WHERE user_id=${userId} AND answered_at IS NOT NULL AND status IN ('on_track','deviated','unknown')
+      AND (${since}::timestamptz IS NULL OR answered_at >= ${since}::timestamptz)
+      AND (${before}::timestamptz IS NULL OR answered_at < ${before}::timestamptz)
+    ORDER BY answered_at DESC, id DESC LIMIT ${limit}
+  `;
+  return rows.map((row) => ({
+    id: row.id,
+    status: row.status,
+    deviationNote: row.deviation_note,
+    tags: row.tags,
+    answeredAt: row.answered_at.toISOString(),
+    answerSource: row.answer_source,
+    slotAt: row.slot_at.toISOString(),
+    directiveTitle: row.directive_title
+  }));
+}
+
 export interface CheckInShownResult {
   id: string;
   status: StoredCheckIn["status"];

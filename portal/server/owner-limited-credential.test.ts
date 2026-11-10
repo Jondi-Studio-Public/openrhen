@@ -117,6 +117,7 @@ describe("the owner-admin class", () => {
       ["PUT", "/api/derived-settings"],
       ["POST", "/api/owner/web-session"],
       ["GET", "/api/client/view"],
+      ["GET", "/api/check-ins/answered"],
       ["POST", "/api/check-ins/[id]/shown"],
       ["POST", "/api/owner/signout"],
       ["POST", "/api/location/ping"],
