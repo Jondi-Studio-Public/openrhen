@@ -1025,6 +1025,14 @@ describe("activity store", () => {
     expect(remove?.status).toBe(403);
   });
 
+  it("keeps the client view and the shown report for the owner's own clients, whatever scopes a token holds", async () => {
+    const everything = principal(["read:plan", "read:changes", "write:check-in", "write:entity:action"]);
+    const read = await call("GET", "/api/client/view", everything);
+    expect(read?.status).toBe(403);
+    const shown = await call("POST", "/api/check-ins/[id]/shown", everything);
+    expect(shown?.status).toBe(403);
+  });
+
   it("answers an oversize activity body with the handler's 413, valid JSON or not, and does not parse it", async () => {
     const big = (text: string) =>
       enforceAgentRequest(

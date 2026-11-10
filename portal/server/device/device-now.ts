@@ -524,7 +524,7 @@ export function deviceShownTarget(state: PortalState, now: Date): ShownTarget {
  * only delays hiding an already-departed leg's banner by at most a poll; it never causes a duplicate
  * send, since the outbox scheduler is the one thing that actually decides that with the full trail.
  */
-function leaveByLegsNow(state: PortalState, now: Date): LeaveByLeg[] {
+export function leaveByLegsNow(state: PortalState, now: Date): LeaveByLeg[] {
   const timelines = state.planning?.result?.derivedState?.commitmentTimelines ?? [];
   if (!timelines.length) return [];
   const commitments: LeaveByCommitment[] = state.commitments.map((commitment) => ({

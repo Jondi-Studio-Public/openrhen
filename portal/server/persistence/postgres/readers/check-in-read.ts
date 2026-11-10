@@ -115,6 +115,42 @@ export async function readCurrentCheckIn(
   return mapCheckInRow(latest);
 }
 
+export interface CheckInShownResult {
+  id: string;
+  status: StoredCheckIn["status"];
+  promptedAt: string | null;
+  /** True on the call that recorded the time; false when it was already recorded or the row is no longer pending. */
+  stamped: boolean;
+}
+
+/**
+ * A surface reports it actually showed this check-in (a sheet opened, a notification was posted): stamps
+ * `prompted_at` once, which is where the scheduler's timeout counts from. Idempotent: a repeat, or a row that has been
+ * answered or has timed out, changes nothing and returns what is stored. Only the first call on a still-pending row
+ * writes, so a late report can never move the timeout. `null` when the id is not this user's check-in.
+ */
+export async function markCheckInShown(sql: Sql, userId: string, id: string): Promise<CheckInShownResult | null> {
+  const stamped = await sql<{ id: string; status: StoredCheckIn["status"]; prompted_at: Date }[]>`
+    UPDATE check_in SET prompted_at=CURRENT_TIMESTAMP
+    WHERE id=${id} AND user_id=${userId} AND status='pending' AND prompted_at IS NULL
+    RETURNING id,status,prompted_at
+  `;
+  if (stamped[0])
+    return {
+      id: stamped[0].id,
+      status: stamped[0].status,
+      promptedAt: stamped[0].prompted_at.toISOString(),
+      stamped: true
+    };
+  const rows = await sql<{ id: string; status: StoredCheckIn["status"]; prompted_at: Date | null }[]>`
+    SELECT id,status,prompted_at FROM check_in WHERE id=${id} AND user_id=${userId}
+  `;
+  const row = rows[0];
+  return row
+    ? { id: row.id, status: row.status, promptedAt: row.prompted_at?.toISOString() ?? null, stamped: false }
+    : null;
+}
+
 export interface CheckInSummary {
   answered: number;
   onTrack: number;
