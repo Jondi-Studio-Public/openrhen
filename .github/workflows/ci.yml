@@ -444,12 +444,44 @@ jobs:
               if ($proc -and $proc.ProcessName -eq 'rhen-watchw') { return [pscustomobject]@{ Hwnd = $h; Pid = [int]$owner } }
             }
           }
+          # The recording agent's process: not the settings window, which is the same exe (started below as $app).
+          function Get-AgentProc { Get-Process rhen-watchw -ErrorAction SilentlyContinue | Where-Object { $_.Path -and ([IO.Path]::GetFileName($_.Path) -eq 'rhen-watchw.exe') -and (-not $app -or $_.Id -ne $app.Id) } | Select-Object -First 1 }
+          # Its pid: from its window when it has one we can see, else from the process (never depend on the window).
+          function Get-AgentPid { $w = Get-AgentWindow; if ($w) { return $w.Pid }; $p = Get-AgentProc; if ($p) { return $p.Id }; return $null }
+          function Show-WindowDiagnostics {
+            Write-Host "--- no agent window found. pwsh pid $PID is in session $((Get-Process -Id $PID).SessionId) ---"
+            Get-Process rhen-watchw -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "rhen-watchw pid $($_.Id) session $($_.SessionId) path $($_.Path)" }
+            $h = [IntPtr]::Zero
+            $any = $false
+            while ($true) {
+              $h = [Rw.Win]::FindWindowExW([IntPtr]::Zero, $h, 'rhen-watch-hidden', $null)
+              if ($h -eq [IntPtr]::Zero) { break }
+              $any = $true
+              [uint32]$owner = 0
+              [void][Rw.Win]::GetWindowThreadProcessId($h, [ref]$owner)
+              $proc = Get-Process -Id $owner -ErrorAction SilentlyContinue
+              Write-Host "window rhen-watch-hidden $h owned by pid $owner ($($proc.ProcessName)), session $($proc.SessionId)"
+            }
+            if (-not $any) { Write-Host 'no window of class rhen-watch-hidden is visible from this session' }
+          }
+          # Returns $true when the message was posted, $false when the agent runs in another session (its window cannot
+          # be reached from this shell; TESTING.md section 3a covers pause by hand). Any other failure throws.
           function Send-Control([int]$verb) {
             $w = $null
             foreach ($i in 1..20) { $w = Get-AgentWindow; if ($w) { break }; Start-Sleep -Milliseconds 250 }
-            if (-not $w) { throw 'the agent window was not found' }
+            if (-not $w) {
+              Show-WindowDiagnostics
+              $agent = Get-AgentProc
+              if (-not $agent) { throw 'the agent window was not found and no agent process is running' }
+              if ($agent.SessionId -ne (Get-Process -Id $PID).SessionId) {
+                Write-Host "::warning::the agent runs in session $($agent.SessionId), this shell in $((Get-Process -Id $PID).SessionId); skipping the pause-by-message check (TESTING.md section 3a)"
+                return $false
+              }
+              throw 'the agent window was not found although the agent runs in this shell''s session'
+            }
             $m = [Rw.Win]::RegisterWindowMessageW('rhen-watch.control')
             if (-not [Rw.Win]::PostMessageW($w.Hwnd, $m, [UIntPtr][uint32]$verb, [IntPtr]::Zero)) { throw 'could not post the control message' }
+            return $true
           }
           function Wait-State([string]$want) {
             $until = (Get-Date).AddSeconds(15)
@@ -459,8 +491,11 @@ jobs:
             }
             throw "state.txt did not become '$want'"
           }
-          Send-Control 1; Wait-State 'paused'
-          Send-Control 2; Wait-State 'recording'
+          if (Send-Control 1) {
+            Wait-State 'paused'
+            if (-not (Send-Control 2)) { throw 'the agent window vanished between pause and resume' }
+            Wait-State 'recording'
+          }
 
           # 2d. Open the settings window for real. Without an interactive desktop it may not appear: then say so and
           # carry on (TESTING.md section 3a covers it by hand). If it appears, the next install must close it.
@@ -477,14 +512,15 @@ jobs:
           }
 
           # 3. Install again while the agent runs: it must stop the old copy, replace the files and start a new one.
-          $oldPid = (Get-AgentWindow).Pid
+          $oldPid = Get-AgentPid
           Rw $built @('install') | Out-Null
           if ((Test-OnUserPath) -ne 1) { throw 'a second install changed how often the folder is on the user PATH' }
           # An open settings window is closed by the install before it replaces the files.
           if ($shown -and -not $app.WaitForExit(10000)) { throw 'install did not close the open settings window' }
           Wait-Agent $true 10
           $newPid = $null
-          foreach ($i in 1..40) { $a = Get-AgentWindow; if ($a) { $newPid = $a.Pid; break }; Start-Sleep -Milliseconds 250 }
+          foreach ($i in 1..40) { $newPid = Get-AgentPid; if ($newPid) { break }; Start-Sleep -Milliseconds 250 }
+          if (-not $oldPid -or -not $newPid) { throw 'could not find the agent process before or after the second install' }
           if ($newPid -eq $oldPid) { throw 'the running copy was not replaced' }
           if ((Get-FileHash "$dest\rhen-watchw.exe").Hash -ne (Get-FileHash (Join-Path (Split-Path $built) 'rhen-watchw.exe')).Hash) { throw 'rhen-watchw.exe was not replaced' }
           if (Get-ChildItem $dest -Filter '*.new') { throw 'a staged .new file was left behind' }
