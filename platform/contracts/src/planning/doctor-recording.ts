@@ -6,10 +6,17 @@
 import type { DoctorItem } from "./doctor.js";
 
 const HOUR_MS = 3_600_000;
+const DAY_MS = 24 * HOUR_MS;
 /** A backup run is nightly; no success for this long means a night was missed. */
 export const DOCTOR_BACKUP_STALE_HOURS = 36;
 /** A phone that has pinged before and has been silent this long has probably lost its automation. */
 export const DOCTOR_PING_SILENT_HOURS = 48;
+/** An agent token is raised this long before it expires. */
+export const DOCTOR_TOKEN_EXPIRING_DAYS = 7;
+/** A token not used for this long is treated as abandoned and never raised, expired or not. */
+export const DOCTOR_TOKEN_IN_USE_DAYS = 30;
+/** Agent time that was reported before and stops for this long means the reporting plugin has probably stopped. */
+export const DOCTOR_AGENT_TIME_SILENT_DAYS = 7;
 
 export interface DoctorRecordingSlice {
   /** The latest recorded backup run, or null when none was ever recorded (backups never armed or never ran). */
@@ -29,6 +36,10 @@ export interface DoctorRecordingSlice {
     /** Server receipt time of the latest phone ping; null when it never pinged. */
     lastPingAt: string | null;
   };
+  /** Live (not revoked) database agent tokens: name, expiry and last use only, never a hash. */
+  agentTokens?: { name: string; expiresAt: string; lastUsedAt: string | null }[];
+  /** The newest agent time an agent reported (`agent_sessions` with source `reported`); null when none ever was. */
+  agentTime?: { lastReportedAt: string | null };
   /** Agent wakes (`agent_wakes`) that went `dead` in the last 24 h: not delivered, or expired unsent. */
   deadAgentWakes: {
     count: number;
@@ -136,6 +147,50 @@ export function recordingItems(slice: DoctorRecordingSlice, nowMs: number): Doct
       handles: [],
       since: new Date(ping).toISOString(),
       fix: { who: "person", question: "Check the Shortcuts location automation on the phone is still running." }
+    });
+  for (const token of slice.agentTokens ?? []) {
+    const expires = ms(token.expiresAt);
+    if (expires === undefined || expires - nowMs > DOCTOR_TOKEN_EXPIRING_DAYS * DAY_MS) continue;
+    // Only a token something still uses matters; an unrevoked token nobody has used for a month is abandoned, and
+    // raising it would leave a blocking item nobody can clear without revoking it.
+    const used = ms(token.lastUsedAt);
+    if (used === undefined || nowMs - used > DOCTOR_TOKEN_IN_USE_DAYS * DAY_MS) continue;
+    const expired = expires <= nowMs;
+    items.push({
+      id: `agent_token_expiring:${token.name}`,
+      check: "agent_token_expiring",
+      tier: expired ? "blocking" : "degrading",
+      area: "integrations",
+      title: expired
+        ? `The agent token "${token.name}" expired ${age(expires, nowMs)} ago`
+        : `The agent token "${token.name}" expires in ${age(nowMs, expires)}`,
+      why: expired
+        ? "Every call from this agent or feed now gets a 401, so what it sends is lost."
+        : "When it expires every call from this agent or feed gets a 401 and what it sends is lost.",
+      handles: [`agent_token:${token.name}`],
+      dueAt: new Date(expires).toISOString(),
+      fix: {
+        who: "person",
+        question: `Mint a new token for "${token.name}" (rhen agent-token create), put it where the agent or feed keeps it, then revoke the old one.`
+      }
+    });
+  }
+  const reported = ms(slice.agentTime?.lastReportedAt ?? null);
+  if (reported !== undefined && nowMs - reported > DOCTOR_AGENT_TIME_SILENT_DAYS * DAY_MS)
+    items.push({
+      id: "agent_time_silent",
+      check: "agent_time_silent",
+      tier: "degrading",
+      area: "integrations",
+      title: `No agent time has been reported for ${age(reported, nowMs)}`,
+      why: "Agent time is no longer reaching the plan, so the hours the agent worked go uncounted.",
+      handles: [],
+      since: new Date(reported).toISOString(),
+      fix: {
+        who: "person",
+        question:
+          "Check the agent's token has not expired or been revoked and that its reporting plugin is still running."
+      }
     });
   if (deadAgentWakes.count > 0)
     items.push({

@@ -93,6 +93,8 @@ export const DOCTOR_CHECKS = [
   "backup_unverified",
   "backup_stale",
   "location_ping_silent",
+  "agent_token_expiring",
+  "agent_time_silent",
   "agent_wake_dead",
   "closed_stamp_stray",
   "closed_stamp_missing",
