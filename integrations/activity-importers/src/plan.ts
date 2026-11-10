@@ -7,6 +7,12 @@ import { parseFitMetrics } from "./parsers/fit.js";
 import { parseGoogleActivity } from "./parsers/google-activity.js";
 import { chatSpaceId, parseChatOwner, parseGoogleChatMessages } from "./parsers/google-chat.js";
 import { isPhotoSidecarName, parseGooglePhotosSidecar } from "./parsers/google-photos.js";
+import {
+  MAIL_DEFAULT_MAX_MESSAGE_BYTES,
+  MAIL_HARD_MAX_MESSAGE_BYTES,
+  parseMailFile,
+  type MailKeying
+} from "./parsers/mail.js";
 import { parseMapsPlaces } from "./parsers/maps.js";
 import { parseSpotifyHistory } from "./parsers/spotify.js";
 import { parseTimeline } from "./parsers/timeline.js";
@@ -30,7 +36,8 @@ export const IMPORT_SOURCES = [
   "youtube",
   "spotify",
   "discord",
-  "apple-health"
+  "apple-health",
+  "mail"
 ] as const;
 export type ImportSourceName = (typeof IMPORT_SOURCES)[number];
 
@@ -45,6 +52,8 @@ export interface EventJob {
   /** The files it reads, for messages. */
   files: string[];
   stats: Stats;
+  /** The caller names this job's source, so the same file under another name is another import and has another hash. */
+  hashPerSource?: boolean;
   events(): AsyncGenerator<ActivityEventDraft>;
 }
 
@@ -305,6 +314,49 @@ function youtubeJob(archive: Archive): YoutubeJob | null {
   };
 }
 
+export interface MailPlanOptions {
+  /** The source every message is posted to; the caller registers it and names it. */
+  source: string;
+  keying: MailKeying;
+  maxMessageBytes?: number;
+  selfAddresses?: string[];
+  now?: Date;
+}
+
+const MAIL_FILE = /\.(mbox|mbx|eml)$/i;
+
+function mailJob(archive: Archive, options: MailPlanOptions): EventJob | null {
+  const files = pick(archive, (_p, lower) => MAIL_FILE.test(lower));
+  if (files.length === 0) return null;
+  const max = options.maxMessageBytes ?? MAIL_DEFAULT_MAX_MESSAGE_BYTES;
+  if (!Number.isInteger(max) || max < 1024 || max > MAIL_HARD_MAX_MESSAGE_BYTES)
+    throw new ImportReadError(
+      `The per-message cap must be between 1 KiB and ${MAIL_HARD_MAX_MESSAGE_BYTES / 1048576} MiB. Use --max-message-mib <n>.`
+    );
+  const job = eventJob(options.source, files, async function* (stats) {
+    const seen = new Set<string>();
+    for (const file of files)
+      yield* inFile(
+        file,
+        parseMailFile(
+          archive.open(file),
+          { name: file },
+          {
+            source: options.source,
+            keying: options.keying,
+            maxMessageBytes: max,
+            seen,
+            ...(options.selfAddresses ? { selfAddresses: options.selfAddresses } : {}),
+            ...(options.now ? { now: options.now } : {})
+          },
+          stats
+        )
+      );
+  });
+  job.hashPerSource = true;
+  return job;
+}
+
 const EXPECTED: Record<Exclude<ImportSourceName, "takeout">, string> = {
   chrome: "Chrome/BrowserHistory.json",
   "google-activity": "My Activity/<product>/MyActivity.json",
@@ -317,10 +369,14 @@ const EXPECTED: Record<Exclude<ImportSourceName, "takeout">, string> = {
   youtube: "YouTube and YouTube Music/history/watch-history.json",
   spotify: "Streaming_History_Audio_*.json",
   discord: "messages/c<channel id>/messages.csv (or messages.json)",
-  "apple-health": "apple_health_export/export.xml"
+  "apple-health": "apple_health_export/export.xml",
+  mail: "a .mbox or .eml file (or a folder or zip holding them)"
 };
 
-const BUILDERS: Record<Exclude<ImportSourceName, "takeout" | "youtube">, (archive: Archive) => EventJob | null> = {
+const BUILDERS: Record<
+  Exclude<ImportSourceName, "takeout" | "youtube" | "mail">,
+  (archive: Archive) => EventJob | null
+> = {
   chrome: chromeJob,
   "google-activity": googleActivityJob,
   maps: mapsJob,
@@ -335,7 +391,11 @@ const BUILDERS: Record<Exclude<ImportSourceName, "takeout" | "youtube">, (archiv
 };
 
 /** Finds the work for `source` in the file or folder at `path`. Throws `ImportReadError` when nothing there is for it. */
-export async function planImport(source: ImportSourceName, path: string): Promise<ImportPlan> {
+export async function planImport(
+  source: ImportSourceName,
+  path: string,
+  extras: { mail?: MailPlanOptions } = {}
+): Promise<ImportPlan> {
   const archive = await openArchive(path);
   const jobs: ImportJob[] = [];
   const notes: string[] = [];
@@ -361,6 +421,14 @@ export async function planImport(source: ImportSourceName, path: string): Promis
     const youtube = youtubeJob(archive);
     if (youtube) jobs.push(youtube);
     else notes.push(`No ${EXPECTED.youtube} found in ${path}; skipped.`);
+  } else if (source === "mail") {
+    const options = extras.mail;
+    if (!options || !/^\S{1,64}$/.test(options.source))
+      throw new ImportReadError(
+        "A mail import needs the source to post to: rhen import mail <path> --source <name>, where <name> is a message@1 source registered by an extension (see docs/operations/posting-messages.md)."
+      );
+    const job = mailJob(archive, options);
+    if (job) jobs.push(job);
   } else if (source === "youtube") {
     const job = youtubeJob(archive);
     if (job) jobs.push(job);
@@ -373,6 +441,10 @@ export async function planImport(source: ImportSourceName, path: string): Promis
       source === "takeout"
         ? `Nothing this importer reads was found in ${path}. Expected a Takeout with Chrome, My Activity, Maps, Fit, Timeline, Google Chat, Access Log Activity, Google Photos or YouTube history. Export those products from takeout.google.com in JSON format.`
         : `No ${EXPECTED[source]} found in ${path}. Check that you chose the right source and the right export.`
+    );
+  if (source === "mail")
+    notes.push(
+      "mail: read by the standard mbox and .eml rules only and not checked against any real mailbox export. Anything not recognised stops the import with an error; read the warnings below."
     );
   for (const job of jobs)
     if (job.kind === "events" && UNVERIFIED_SOURCES.has(job.source))
@@ -392,7 +464,7 @@ export async function planImport(source: ImportSourceName, path: string): Promis
       const container = await hash(job.files);
       // A bare file is recorded under its own hash. A container (zip or folder) can feed several sources, and one
       // hash can name only one import, so each source's import is recorded under a hash of the container and the source.
-      return archive.kind === "file" ? container : sourceSha256(container, job.source);
+      return archive.kind === "file" && !job.hashPerSource ? container : sourceSha256(container, job.source);
     }
   };
 }
