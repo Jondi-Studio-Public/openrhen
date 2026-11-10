@@ -10,8 +10,9 @@ pub const ID_SETTINGS: usize = 5;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TrayAction {
     TogglePause,
-    /// Open the data folder in Explorer. It holds `config.toml` and `categories.toml`, so it is also the
-    /// settings. A user-clicked action that touches no other app.
+    /// Open the settings window (`rhen-watchw.exe app`), or bring the open one to the front.
+    OpenApp,
+    /// Open the data folder in Explorer. A user-clicked action that touches no other app.
     OpenDataFolder,
     Quit,
     None,
@@ -20,13 +21,20 @@ pub enum TrayAction {
 pub fn action_for(id: usize) -> TrayAction {
     match id {
         ID_TOGGLE => TrayAction::TogglePause,
-        ID_FOLDER | ID_SETTINGS => TrayAction::OpenDataFolder,
+        ID_SETTINGS => TrayAction::OpenApp,
+        ID_FOLDER => TrayAction::OpenDataFolder,
         ID_QUIT => TrayAction::Quit,
         _ => TrayAction::None,
     }
 }
 
-/// Which built-in icon the tray shows.
+/// Offsets from `WM_APP` of the agent window's own private messages. The settings window's control message is a
+/// registered one (`app_model::CONTROL_MESSAGE_NAME`), which Windows numbers from 0xC000 up, so it cannot be one of
+/// these (tested in `app_model`).
+pub const TRAY_MSG_OFFSET: u32 = 1;
+pub const TRAY_REFRESH_MSG_OFFSET: u32 = 2;
+
+/// Which icon the tray shows (the generated icons in `assets/`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TrayIcon {
     Recording,

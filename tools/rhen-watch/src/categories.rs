@@ -486,8 +486,9 @@ pub const SHELL_PAIRS: &[(&str, &str)] = &[
     ("windows.ui.core.corewindow", "textinputhost.exe"),
 ];
 
-/// Executables that are chrome whatever their window class: the lock screen is part of the lock, not app time.
-pub const SHELL_EXES: &[&str] = &["lockapp.exe"];
+/// Executables that are chrome whatever their window class: the lock screen is part of the lock, not app time, and
+/// rhen-watch's own settings window is not something the user did on the PC.
+pub const SHELL_EXES: &[&str] = &["lockapp.exe", "rhen-watchw.exe", "rhen-watch.exe"];
 
 pub fn is_shell_window(class: &str, exe: Option<&str>) -> bool {
     let class = class.to_ascii_lowercase();

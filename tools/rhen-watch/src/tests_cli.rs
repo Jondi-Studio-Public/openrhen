@@ -199,3 +199,46 @@ fn a_message_box_never_outlives_its_time_limit() {
     assert!(!finished && t.elapsed() < Duration::from_secs(5));
     assert!(cli::wait_at_most(Duration::from_secs(5), || {}));
 }
+
+#[test]
+fn the_no_console_program_with_no_arguments_opens_the_settings_window_and_the_console_one_prints_help() {
+    assert_eq!(cli::effective_args(true, vec![]), ["app"]);
+    assert!(
+        cli::effective_args(false, vec![]).is_empty(),
+        "the console program keeps printing help"
+    );
+    assert_eq!(cli::effective_args(true, vec!["run".into()]), ["run"]);
+    assert_eq!(cli::effective_args(true, vec!["app".into(), "--smoke".into()]), ["app", "--smoke"]);
+}
+
+#[test]
+fn a_settings_window_that_cannot_open_says_so_but_the_ci_smoke_never_shows_a_box() {
+    let app = ["app".to_string()];
+    assert_eq!(
+        cli::error_box_title(&app, false, "boom"),
+        Some("rhen-watch could not open its window")
+    );
+    let smoke = ["app".to_string(), "--smoke".to_string()];
+    assert_eq!(cli::error_box_title(&smoke, false, "boom"), None);
+}
+
+#[test]
+fn the_agent_window_title_and_the_stop_event_share_one_per_directory_hash() {
+    let a = temp("title-a");
+    let b = temp("title-b");
+    let title = crate::paths::agent_window_title(&a);
+    let suffix = crate::paths::stop_event_name(&a).rsplit('-').next().unwrap().to_string();
+    assert_eq!(title, format!("rhen-watch {suffix}"));
+    assert_ne!(title, crate::paths::agent_window_title(&b), "another data folder is another agent");
+    let _ = std::fs::remove_dir_all(&a);
+    let _ = std::fs::remove_dir_all(&b);
+}
+
+#[test]
+fn the_settings_check_is_the_one_run_makes() {
+    let dir = temp("check-settings");
+    assert!(cli::check_settings(&dir).is_ok());
+    std::fs::write(dir.join("config.toml"), LEGACY).unwrap();
+    assert!(cli::check_settings(&dir).unwrap_err().contains("categories.toml"));
+    let _ = std::fs::remove_dir_all(&dir);
+}

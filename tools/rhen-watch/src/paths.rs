@@ -33,13 +33,24 @@ pub fn data_dir() -> Result<PathBuf, String> {
 /// `RHEN_WATCH_DIR` is not stopped by (or stopping) the installed one. The suffix is a hash of the directory's
 /// canonical path (its name as given while the directory does not exist yet), compared without regard to case.
 pub fn stop_event_name(dir: &Path) -> String {
+    format!("Local\\rhen-watch-stop-{:016x}", dir_hash(dir))
+}
+
+/// The hash both per-directory names use (the stop event and the agent's window title).
+pub fn dir_hash(dir: &Path) -> u64 {
     let canonical = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
     // FNV-1a, 64 bit: a fixed algorithm, so every build and both binaries agree on the name.
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in canonical.to_string_lossy().to_ascii_lowercase().bytes() {
         h = (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
     }
-    format!("Local\\rhen-watch-stop-{h:016x}")
+    h
+}
+
+/// The title of the agent's hidden window for this data directory. The settings window finds the agent by it
+/// (together with the window class), so an agent started with another `RHEN_WATCH_DIR` is never the one it talks to.
+pub fn agent_window_title(dir: &Path) -> String {
+    format!("rhen-watch {:016x}", dir_hash(dir))
 }
 
 /// The one stop event name builds before the per-directory one listened on. Only `stop` still tries it, so an

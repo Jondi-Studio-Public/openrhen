@@ -361,8 +361,8 @@ fn tray_command_ids_map_to_actions() {
     assert_eq!(action_for(crate::tray::ID_FOLDER), TrayAction::OpenDataFolder);
     assert_eq!(
         action_for(crate::tray::ID_SETTINGS),
-        TrayAction::OpenDataFolder,
-        "settings live in the data folder"
+        TrayAction::OpenApp,
+        "Open settings opens the settings window"
     );
     assert_eq!(action_for(crate::tray::ID_QUIT), TrayAction::Quit);
     assert_eq!(
