@@ -136,6 +136,8 @@ Start it from the Start menu entry `rhen-watch` (or the tray icon's Open setting
 | Install while open | Leave the window open and run `.\rhen-watch.exe install` again. | The window closes by itself and the install completes. |
 | Uninstall | Run `uninstall`. | The Start menu entry is gone, and so are `rhen-watch.lnk` and `rhen-watch.ico`. |
 
+Pause and resume from the window work because, on a real logon, the scheduled-task agent and your own windows are both on the interactive desktop (WinSta0) of your session. CI cannot show this: the task agent there runs on a window station its shell cannot see, so CI checks the same message path against a second agent it starts itself.
+
 ## 4. Day 1
 
 Use the PC normally. At each step, wait the stated time, then run `& $rw report` and look for the line shown. Times are examples; yours will differ by a minute or so.

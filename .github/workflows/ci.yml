@@ -425,15 +425,18 @@ jobs:
           if ($smoke.ExitCode -ne 0) { throw "rhen-watchw app --smoke failed with exit code $($smoke.ExitCode); see rhen-watch.log" }
 
           # 2c. Pause and resume exactly as the window sends them: the registered message to the agent's hidden window.
-          # Our own agent is found by its window, so another rhen-watchw on the runner (the settings window) is never mistaken for it.
+          # The installed agent was started by Task Scheduler and its window is not visible from this shell (another window
+          # station), so the check runs a SECOND agent started from this shell, with its own data folder, which shares our
+          # window station. The task agent is never touched.
           Add-Type -Namespace Rw -Name Win -MemberDefinition @'
             [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindowExW(IntPtr parent, IntPtr after, string cls, string title);
             [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern uint RegisterWindowMessageW(string m);
             [DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr h, uint m, UIntPtr w, IntPtr l);
             [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
           '@
-          # The agent's window handle and process id, or $null when it has none.
-          function Get-AgentWindow {
+          $tempAgent = $null   # the second agent, excluded from every "the agent" lookup below
+          # The agent window of a process (or of any rhen-watchw that is neither the settings window nor the temporary agent).
+          function Get-AgentWindow([int]$OnlyPid = 0) {
             $h = [IntPtr]::Zero
             while ($true) {
               $h = [Rw.Win]::FindWindowExW([IntPtr]::Zero, $h, 'rhen-watch-hidden', $null)
@@ -441,11 +444,13 @@ jobs:
               [uint32]$owner = 0
               [void][Rw.Win]::GetWindowThreadProcessId($h, [ref]$owner)
               $proc = Get-Process -Id $owner -ErrorAction SilentlyContinue
-              if ($proc -and $proc.ProcessName -eq 'rhen-watchw') { return [pscustomobject]@{ Hwnd = $h; Pid = [int]$owner } }
+              if (-not $proc -or $proc.ProcessName -ne 'rhen-watchw') { continue }
+              if ($OnlyPid -ne 0) { if ($owner -eq $OnlyPid) { return [pscustomobject]@{ Hwnd = $h; Pid = [int]$owner } }; continue }
+              if ((-not $app -or $owner -ne $app.Id) -and (-not $tempAgent -or $owner -ne $tempAgent.Id)) { return [pscustomobject]@{ Hwnd = $h; Pid = [int]$owner } }
             }
           }
-          # The recording agent's process: not the settings window, which is the same exe (started below as $app).
-          function Get-AgentProc { Get-Process rhen-watchw -ErrorAction SilentlyContinue | Where-Object { $_.Path -and ([IO.Path]::GetFileName($_.Path) -eq 'rhen-watchw.exe') -and (-not $app -or $_.Id -ne $app.Id) } | Select-Object -First 1 }
+          # The installed (task) agent's process: not the settings window or the temporary agent, which are the same exe.
+          function Get-AgentProc { Get-Process rhen-watchw -ErrorAction SilentlyContinue | Where-Object { $_.Path -and ([IO.Path]::GetFileName($_.Path) -eq 'rhen-watchw.exe') -and (-not $app -or $_.Id -ne $app.Id) -and (-not $tempAgent -or $_.Id -ne $tempAgent.Id) } | Select-Object -First 1 }
           # Its pid: from its window when it has one we can see, else from the process (never depend on the window).
           function Get-AgentPid { $w = Get-AgentWindow; if ($w) { return $w.Pid }; $p = Get-AgentProc; if ($p) { return $p.Id }; return $null }
           function Show-WindowDiagnostics {
@@ -464,38 +469,45 @@ jobs:
             }
             if (-not $any) { Write-Host 'no window of class rhen-watch-hidden is visible from this session' }
           }
-          # Returns $true when the message was posted, $false when the agent runs in another session (its window cannot
-          # be reached from this shell; TESTING.md section 3a covers pause by hand). Any other failure throws.
-          function Send-Control([int]$verb) {
+          function Send-Control([int]$agentPid, [int]$verb) {
             $w = $null
-            foreach ($i in 1..20) { $w = Get-AgentWindow; if ($w) { break }; Start-Sleep -Milliseconds 250 }
-            if (-not $w) {
-              Show-WindowDiagnostics
-              $agent = Get-AgentProc
-              if (-not $agent) { throw 'the agent window was not found and no agent process is running' }
-              if ($agent.SessionId -ne (Get-Process -Id $PID).SessionId) {
-                Write-Host "::warning::the agent runs in session $($agent.SessionId), this shell in $((Get-Process -Id $PID).SessionId); skipping the pause-by-message check (TESTING.md section 3a)"
-                return $false
-              }
-              throw 'the agent window was not found although the agent runs in this shell''s session'
-            }
+            foreach ($i in 1..60) { $w = Get-AgentWindow $agentPid; if ($w) { break }; Start-Sleep -Milliseconds 250 }
+            if (-not $w) { Show-WindowDiagnostics; throw "the window of agent $agentPid was not found" }
             $m = [Rw.Win]::RegisterWindowMessageW('rhen-watch.control')
             if (-not [Rw.Win]::PostMessageW($w.Hwnd, $m, [UIntPtr][uint32]$verb, [IntPtr]::Zero)) { throw 'could not post the control message' }
-            return $true
           }
-          function Wait-State([string]$want) {
+          function Wait-State([string]$dir, [string]$want) {
             $until = (Get-Date).AddSeconds(15)
             while ((Get-Date) -lt $until) {
-              if ((Get-Content (Join-Path $data 'state.txt') -ErrorAction SilentlyContinue) -eq $want) { return }
+              if ((Get-Content (Join-Path $dir 'state.txt') -ErrorAction SilentlyContinue) -eq $want) { return }
               Start-Sleep -Milliseconds 300
             }
-            throw "state.txt did not become '$want'"
+            throw "state.txt in $dir did not become '$want'"
           }
-          if (Send-Control 1) {
-            Wait-State 'paused'
-            if (-not (Send-Control 2)) { throw 'the agent window vanished between pause and resume' }
-            Wait-State 'recording'
+          $tmpData = Join-Path $env:RUNNER_TEMP ('rw-pause-' + [guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $tmpData | Out-Null
+          $savedDir = $env:RHEN_WATCH_DIR
+          try {
+            $env:RHEN_WATCH_DIR = $tmpData     # inherited by the agent below, and used by the rhen-watch calls in this block
+            $tempAgent = Start-Process "$dest\rhen-watchw.exe" -ArgumentList 'run' -PassThru
+            $until = (Get-Date).AddSeconds(25)
+            while (((Rw "$dest\rhen-watch.exe" @('status')) -notmatch 'agent: running')) {
+              if ($tempAgent.HasExited) { throw "the second agent exited at once (exit code $($tempAgent.ExitCode)); see $tmpData\rhen-watch.log" }
+              if ((Get-Date) -gt $until) { throw 'the second agent did not start recording' }
+              Start-Sleep -Milliseconds 500
+            }
+            Wait-State $tmpData 'recording'
+            Send-Control $tempAgent.Id 1; Wait-State $tmpData 'paused'
+            Send-Control $tempAgent.Id 2; Wait-State $tmpData 'recording'
+            Rw "$dest\rhen-watch.exe" @('stop') | Out-Null
+            if (-not $tempAgent.WaitForExit(20000)) { throw 'the second agent did not stop' }
+          } finally {
+            if ($tempAgent -and -not $tempAgent.HasExited) { Stop-Process -Id $tempAgent.Id -Force -ErrorAction SilentlyContinue }
+            if ($null -eq $savedDir) { Remove-Item Env:\RHEN_WATCH_DIR -ErrorAction SilentlyContinue } else { $env:RHEN_WATCH_DIR = $savedDir }
+            Remove-Item $tmpData -Recurse -Force -ErrorAction SilentlyContinue
+            $global:LASTEXITCODE = 0
           }
+          $tempAgent = $null
 
           # 2d. Open the settings window for real. Without an interactive desktop it may not appear: then say so and
           # carry on (TESTING.md section 3a covers it by hand). If it appears, the next install must close it.
