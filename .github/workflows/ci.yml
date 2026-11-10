@@ -611,15 +611,23 @@ jobs:
           # Installing again replaces the app in place and starts it again.
           "$bin" install
           running || { echo "::error::not running after a second install"; exit 1; }
-          # The command is on PATH: linked in ~/.local/bin, which a new login shell finds by name, and a second
-          # install does not add the PATH line twice.
+          # The command is on PATH. The runner's PATH may already hold ~/.local/bin, so install twice more with a
+          # bare PATH: the first writes the PATH block, the second must not write it again. Then a new login shell
+          # with a bare PATH finds rhen-watch by name.
           link="$HOME/.local/bin/rhen-watch"
+          bare=/usr/bin:/bin:/usr/sbin:/sbin
+          env PATH="$bare" "$bin" install
+          env PATH="$bare" "$bin" install
           [ "$(readlink "$link")" = "$bin" ] || { echo "::error::$link does not point at the app"; exit 1; }
-          out=$("${SHELL:-/bin/zsh}" -lc 'rhen-watch status') && [[ "$out" == *'agent: running'* ]] \
-            || { echo "::error::a new login shell cannot run rhen-watch by name"; exit 1; }
+          blocks=0
           for f in "$HOME/.zprofile" "$HOME/.bash_profile"; do
-            [ "$(grep -cs '>>> rhen-watch' "$f" || true)" -le 1 ] || { echo "::error::$f has the PATH line twice"; exit 1; }
+            n=$(grep -cs '>>> rhen-watch' "$f" || true)
+            blocks=$((blocks + ${n:-0}))
           done
+          [ "$blocks" -eq 1 ] || { echo "::error::expected one PATH block, found $blocks"; exit 1; }
+          out=$(env -i HOME="$HOME" PATH="$bare" "${SHELL:-/bin/zsh}" -lc 'rhen-watch status') \
+            && [[ "$out" == *'agent: running'* ]] \
+            || { echo "::error::a new login shell cannot run rhen-watch by name"; exit 1; }
           # A clean stop exits 0, so launchd must not start it again (it would within its 30 s throttle).
           "$bin" stop
           sleep 35
