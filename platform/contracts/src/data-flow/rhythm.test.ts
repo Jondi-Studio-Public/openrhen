@@ -168,6 +168,62 @@ describe("posts that reach the server late", () => {
     const rhythm = learnRhythm({ posts: [...backfill, ...withLag(live, 0)], now: newest });
     expect(rhythm).toMatchObject({ updates: 30, usualMs: HOUR, limitMs: 3 * HOUR });
   });
+
+  describe("the usual delay is the median of the newest 5 posts, only when 3 of them agree within a day", () => {
+    /** Posts one per day, newest last, each with its own delay (`delays` is oldest first). */
+    const delayed = (delays: readonly number[]): RhythmPost[] =>
+      delays.map((delay, index) => ({ scope: null, end: START + index * DAY, postedAt: START + index * DAY + delay }));
+    const now = START + 40 * DAY;
+
+    it("uses the median when 3 of the newest 5 agree: a steady 3-day lag stays live", () => {
+      const rhythm = learnRhythm({ posts: delayed(Array.from({ length: 12 }, () => 3 * DAY)), now });
+      expect(rhythm.updates).toBe(12);
+    });
+
+    it("uses the newest post's own delay when fewer than 3 agree, so scattered large delays count as backfill", () => {
+      // Newest 5 delays: 0, 5, 10, 15, 20 days. The median (10 d) is shared by one post only, so the newest post's 0 stands.
+      const scattered = [20, 15, 10, 5, 0].map((days) => days * DAY);
+      const rhythm = learnRhythm({ posts: delayed([...Array.from({ length: 7 }, () => 3 * DAY), ...scattered]), now });
+      expect(rhythm.updates).toBe(1);
+    });
+
+    it("counts agreement within a day inclusive: 3 posts within a day of the median are enough", () => {
+      // Newest 5 delays (newest first): 3, 5, 4, 20 and 0.5 days. The median is 4 d and 3, 4 and 5 d are all within a day
+      // of it, so 4 d is the usual delay and an older post with a 5 d delay is live. Were the newest post's 3 d used
+      // instead, that older post and the 5 d one would both be backfill.
+      const mixed = [5, 0.5, 20, 4, 5, 3].map((days) => days * DAY);
+      const rhythm = learnRhythm({ posts: delayed(mixed), now });
+      expect(rhythm.updates).toBe(5);
+    });
+
+    it("works with fewer than 5 posts: the median of what there is, and agreement still needs 3", () => {
+      const three = learnRhythm({ posts: delayed([3 * DAY, 3 * DAY, 3 * DAY]), now });
+      expect(three.updates).toBe(3);
+      // Two posts, delays 0 and 5 days: no usual delay, the newest post's own 5 days stands, and both fit under it.
+      const two = learnRhythm({ posts: delayed([0, 5 * DAY]), now });
+      expect(two.updates).toBe(2);
+      // Newest has delay 0 and the older one 5 days: the older one is a backfill.
+      const backfilled = learnRhythm({ posts: delayed([5 * DAY, 0]), now });
+      expect(backfilled.updates).toBe(1);
+      expect(learnRhythm({ posts: [], now })).toMatchObject({ updates: 0, gaps: 0, limitMs: null });
+    });
+
+    it("keeps every post of a source that falls steadily further behind", () => {
+      // Delay grows 2 days a post, so the newest 5 never agree; the newest post's own (largest) delay stands and
+      // the older, less delayed posts all fit under it.
+      const growing = Array.from({ length: 13 }, (_, index) => index * 2 * DAY);
+      const rhythm = learnRhythm({ posts: delayed(growing), now });
+      expect(rhythm.updates).toBe(13);
+    });
+
+    it("drops a lagging stretch once 3 consecutive fresh posts lead, but not after 2", () => {
+      const lagging = Array.from({ length: 10 }, () => 3 * DAY);
+      const two = learnRhythm({ posts: delayed([...lagging, 0, 0]), now });
+      expect(two.updates).toBe(12);
+      const three = learnRhythm({ posts: delayed([...lagging, 0, 0, 0]), now });
+      expect(three.updates).toBe(3);
+    });
+  });
 });
 
 describe("no cadence known yet", () => {
