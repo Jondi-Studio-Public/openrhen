@@ -134,3 +134,67 @@ pub fn launch_agent_plist(program: &str, data_dir: &str, home: &str) -> String {
 "#
     )
 }
+
+/// Where `install` links the command, so `rhen-watch` works in Terminal without the long path. A per-user
+/// folder: `/usr/local/bin` would need sudo.
+pub const BIN_DIR: &str = ".local/bin";
+
+const PATH_BLOCK_START: &str = "# >>> rhen-watch: add ~/.local/bin to PATH >>>";
+const PATH_BLOCK_END: &str = "# <<< rhen-watch <<<";
+
+/// True when `dir` is one of the `:`-separated entries of `path` (a trailing `/` is ignored).
+pub fn path_has(path: &str, dir: &str) -> bool {
+    let want = dir.trim_end_matches('/');
+    path.split(':').any(|p| !p.is_empty() && p.trim_end_matches('/') == want)
+}
+
+/// The shell start-up file to add the PATH line to, from the login shell in `$SHELL`: zsh (the macOS
+/// default, and the fallback) reads `.zprofile`, bash `.bash_profile`. Other shells get `None` and a hint.
+pub fn profile_for_shell(shell: Option<&str>) -> Option<&'static str> {
+    let name = shell.and_then(|s| s.rsplit('/').next()).unwrap_or("zsh");
+    match name {
+        "" | "zsh" | "sh" => Some(".zprofile"),
+        "bash" => Some(".bash_profile"),
+        _ => None,
+    }
+}
+
+/// `text` with the rhen-watch PATH block appended, or `None` when it is already there.
+pub fn add_path_block(text: &str) -> Option<String> {
+    if text.contains(PATH_BLOCK_START) {
+        return None;
+    }
+    let mut out = text.to_string();
+    if !out.is_empty() && !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push_str(PATH_BLOCK_START);
+    out.push_str("\nexport PATH=\"$HOME/.local/bin:$PATH\"\n");
+    out.push_str(PATH_BLOCK_END);
+    out.push('\n');
+    Some(out)
+}
+
+/// `text` without the rhen-watch PATH block (every copy), or `None` when there is none or it has no end line.
+/// Nothing else changes.
+pub fn remove_path_block(text: &str) -> Option<String> {
+    if !text.contains(PATH_BLOCK_START) {
+        return None;
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut inside = false;
+    for line in text.split_inclusive('\n') {
+        let bare = line.trim_end_matches(['\n', '\r']);
+        if !inside && bare == PATH_BLOCK_START {
+            inside = true;
+        } else if inside {
+            if bare == PATH_BLOCK_END {
+                inside = false;
+            }
+        } else {
+            out.push_str(line);
+        }
+    }
+    // A start line with no end line was edited by hand: leave the file alone rather than cut the rest of it.
+    if inside { None } else { Some(out) }
+}
