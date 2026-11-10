@@ -273,6 +273,20 @@ describe("googleCalendarDiffRecords", () => {
       expect(records[0]!.fields.title!.evidence[0]).toContain("3 occurrences seen");
     });
 
+    it("imports a weekday-set series as a weeks rule that passes validation", () => {
+      const onDay = (day: number) =>
+        weekly("s3", day, { title: "Class", endsAt: `2026-10-${String(day).padStart(2, "0")}T10:00:00.000Z` });
+      const records = diff([6, 8, 13, 15, 20, 22].map(onDay));
+      expect(records).toHaveLength(1);
+      const fields = records[0]!.fields;
+      expect(fields.intervalUnit).toMatchObject({ value: "weeks" });
+      expect(fields.intervalWeeks).toMatchObject({ value: 1 });
+      expect(fields.weekdays).toMatchObject({ value: [2, 4] });
+      expect(fields.intervalDays).toBeUndefined();
+      expect(fields.title!.evidence[0]).toContain("6 occurrences seen, every week on Tue, Thu");
+      expect(validateImportRecords(records).every((record) => record.errors.length === 0)).toBe(true);
+    });
+
     it("falls back to one create per occurrence when the series is irregular", () => {
       const records = diff([weekly("s1", 5), weekly("s1", 12), weekly("s1", 21)]);
       expect(records).toHaveLength(3);
