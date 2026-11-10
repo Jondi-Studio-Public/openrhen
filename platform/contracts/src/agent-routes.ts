@@ -128,6 +128,7 @@ const OWNER_RUNS_ITSELF = new Set([
   "POST /api/place-photos",
   "POST /api/plan-map/propose",
   "POST /api/plan-map/sweep",
+  "POST /api/planning/recheck",
   "POST /api/travel/geocode",
   "POST /api/travel/refresh"
 ]);
@@ -751,6 +752,7 @@ const OWNER_ROUTES: Record<string, string> = {
   "POST /api/integrations/derived/tick": "The derived-rows job",
   "POST /api/integrations/derived/model-tick": "The model-backed derived-rows job",
   "POST /api/integrations/work-label/tick": "The work-label inference job",
+  "POST /api/planning/recheck": "Restarting a dead plan refresh",
   // Whether an area counts as work is the owner's own answer; the chip on the area page writes it. Nothing here is an agent's to set.
   "PUT /api/work-labels/[areaId]": "Saying whether an area counts as work",
   // The owner's own words about why they left the plan. Private text: no agent writes it, reads it, or deletes it.
@@ -1031,7 +1033,8 @@ for (const route of [
   "/api/integrations/work-label/tick",
   "/api/integrations/pulse/tick",
   "/api/integrations/push/drain",
-  "/api/plan-map/sweep"
+  "/api/plan-map/sweep",
+  "/api/planning/recheck"
 ])
   WORKER_ROUTES.add(`POST ${route}`);
 

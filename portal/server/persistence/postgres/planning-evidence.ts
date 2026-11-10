@@ -54,6 +54,17 @@ async function persistPlanningEvidence(
   return { recommendationId: state.currentRecommendationId ?? request.requestId, inputVersion: request.inputVersion };
 }
 
+/**
+ * Queues one recalculation from state read fresh now, with no `write_rows` row: nothing was written, the plan chain
+ * had simply died (the worker's recheck watchdog calls this through the portal, since only the portal reads state).
+ * It is the same enqueue every write makes, so it supersedes any waiting job and never reuses an old payload.
+ */
+export async function enqueueFreshPlanRecheck(sql: PoolSql, userId: string): Promise<void> {
+  await sql.begin(async (tx) => {
+    await persistPlanningEvidence(tx, userId, new Date());
+  });
+}
+
 /** A write to plan input, recorded as one `write_rows` row. See `recordStateChange`. */
 export interface StateChange {
   entityType: string;

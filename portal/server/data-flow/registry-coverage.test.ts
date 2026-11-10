@@ -370,12 +370,15 @@ const INFRA_ROUTES: Record<string, string> = {
   "POST /api/agent-tokens": "agent credential management",
   "PATCH /api/agent-tokens/[id]": "agent credential management",
   "DELETE /api/agent-tokens/[id]": "agent credential management",
-  "POST /api/connections/status": "a connection probe; it records call counts only"
+  "POST /api/connections/status": "a connection probe; it records call counts only",
+  "POST /api/planning/recheck":
+    "queues one recalculation job for a dead plan chain; the plan-recheck-watchdog loop calls it"
 };
 /** Worker loops that are bookkeeping, not data entry points. */
 const INFRA_LOOPS: Record<string, string> = {
   "reclaim-plan-forecast-jobs": "frees the claim on a dead recalculation job",
-  "prune-planning-evidence": "deletes old change-ledger rows"
+  "prune-planning-evidence": "deletes old change-ledger rows",
+  "plan-recheck-watchdog": "queues one recalculation job when the plan chain has died"
 };
 /** GET routes that write, kept by hand and checked both ways (R2). A new one is not caught automatically. */
 const GET_WRITERS: Record<string, string[]> = { "GET /api/device/now": ["offer_log"] };

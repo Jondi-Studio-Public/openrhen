@@ -12,6 +12,7 @@ import {
   runCheckInSchedulerTick,
   runLeaveByTick,
   agentWakeRoutingFromEnv,
+  healStalePlanChain,
   sendNextAgentWake,
   validateAgentWakeUrl
 } from "@openrhen/database";
@@ -266,6 +267,44 @@ const tickWorkLabels = (() => {
   };
 })();
 
+/**
+ * Restarts a plan refresh chain that died silently: a user whose newest run is over 70 minutes old, with no pending,
+ * retrying or running plan job and no engine outage, gets one fresh job. The portal queues it (only it reads the
+ * whole state), so this needs `PORTAL_INTERNAL_URL`; without it nothing happens. Gated like `reclaimPlanForecastJobs`.
+ * The gate and the heal times live in this closure, not at module level.
+ */
+const tickPlanRecheckWatchdog = (() => {
+  let nextAt = 0;
+  /** When this process last healed each user: the watchdog heals one user at most once per 70 minutes. */
+  const lastHealAt = new Map<string, Date>();
+  return async () => {
+    if (!portalInternalUrl || Date.now() < nextAt) return;
+    nextAt = Date.now() + 60_000;
+    try {
+      await healStalePlanChain(sql, new Date(), {
+        lastHealAt,
+        enqueue: async (userId) => {
+          const response = await fetch(`${portalInternalUrl}/api/planning/recheck`, {
+            method: "POST",
+            headers: portalHeaders({ "content-type": "application/json" }),
+            body: JSON.stringify({ userId }),
+            signal: AbortSignal.timeout(60_000)
+          });
+          if (!response.ok) throw new Error(`Portal answered ${response.status}`);
+        },
+        onHeal: (record) =>
+          process.stdout.write(
+            `${JSON.stringify({ level: "warn", message: "Stale plan chain restarted", workerId, ...record })}\n`
+          )
+      });
+    } catch (error) {
+      process.stderr.write(
+        `${JSON.stringify({ level: "error", message: "Plan recheck watchdog failed", workerId, error: error instanceof Error ? error.message : "Unknown error" })}\n`
+      );
+    }
+  };
+})();
+
 // Each step gets its own loop: the integration triggers wait on network calls of up to five
 // minutes, and plan-forecast jobs must never wait behind them. The ticks gate themselves on their own
 // schedules, so looping each one every second only re-checks that gate.
@@ -281,6 +320,7 @@ await runIndependentLoops(
         )
     },
     { name: "reclaim-plan-forecast-jobs", run: reclaimPlanForecastJobs },
+    { name: "plan-recheck-watchdog", run: afterPortalReady(tickPlanRecheckWatchdog) },
     { name: "prune-planning-evidence", run: prunePlanningEvidence },
     { name: "check-in-scheduler", run: tickCheckInScheduler },
     { name: "agent-wake", run: tickAgentWake },
