@@ -433,13 +433,29 @@ jobs:
             [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern uint RegisterWindowMessageW(string m);
             [DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr h, uint m, UIntPtr w, IntPtr l);
             [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+            [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+            [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassNameW(IntPtr h, System.Text.StringBuilder b, int n);
+            [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowTextW(IntPtr h, System.Text.StringBuilder b, int n);
+            public delegate bool EnumProc(IntPtr h, IntPtr l);
+            [DllImport("user32.dll")] public static extern bool EnumThreadWindows(uint tid, EnumProc cb, IntPtr l);
+            // Every top-level window of one thread: class, title, visibility.
+            public static string ThreadWindows(uint tid) {
+              var sb = new System.Text.StringBuilder();
+              EnumThreadWindows(tid, (h, l) => {
+                var c = new System.Text.StringBuilder(256); var t = new System.Text.StringBuilder(256);
+                GetClassNameW(h, c, 256); GetWindowTextW(h, t, 256);
+                sb.AppendLine("    window " + h + " class '" + c + "' title '" + t + "' visible " + IsWindowVisible(h));
+                return true;
+              }, IntPtr.Zero);
+              return sb.ToString();
+            }
           '@
           $tempAgent = $null   # the second agent, excluded from every "the agent" lookup below
           # The agent window of a process (or of any rhen-watchw that is neither the settings window nor the temporary agent).
           function Get-AgentWindow([int]$OnlyPid = 0) {
             $h = [IntPtr]::Zero
             while ($true) {
-              $h = [Rw.Win]::FindWindowExW([IntPtr]::Zero, $h, 'rhen-watch-hidden', $null)
+              $h = [Rw.Win]::FindWindowExW([IntPtr]::Zero, $h, 'rhen-watch-hidden', [NullString]::Value)
               if ($h -eq [IntPtr]::Zero) { return $null }
               [uint32]$owner = 0
               [void][Rw.Win]::GetWindowThreadProcessId($h, [ref]$owner)
@@ -453,13 +469,27 @@ jobs:
           function Get-AgentProc { Get-Process rhen-watchw -ErrorAction SilentlyContinue | Where-Object { $_.Path -and ([IO.Path]::GetFileName($_.Path) -eq 'rhen-watchw.exe') -and (-not $app -or $_.Id -ne $app.Id) -and (-not $tempAgent -or $_.Id -ne $tempAgent.Id) } | Select-Object -First 1 }
           # Its pid: from its window when it has one we can see, else from the process (never depend on the window).
           function Get-AgentPid { $w = Get-AgentWindow; if ($w) { return $w.Pid }; $p = Get-AgentProc; if ($p) { return $p.Id }; return $null }
-          function Show-WindowDiagnostics {
+          function Show-WindowDiagnostics([int]$AgentPid = 0) {
+            # Is the lookup itself sound? A window that certainly exists must be found by the same call.
+            foreach ($known in 'Shell_TrayWnd', 'ConsoleWindowClass', 'CASCADIA_HOSTING_WINDOW_CLASS') {
+              $kh = [Rw.Win]::FindWindowExW([IntPtr]::Zero, [IntPtr]::Zero, $known, [NullString]::Value)
+              Write-Host "sanity: FindWindowExW('$known') = $kh"
+            }
+            if ($AgentPid -ne 0) {
+              $ap = Get-Process -Id $AgentPid -ErrorAction SilentlyContinue
+              Write-Host "agent pid $AgentPid exited: $(-not $ap)"
+              if ($ap) { foreach ($t in $ap.Threads) { Write-Host "  thread $($t.Id):"; Write-Host ([Rw.Win]::ThreadWindows([uint32]$t.Id)) -NoNewline } }
+              if ($tmpData) {
+                Write-Host "--- tail of $tmpData\rhen-watch.log ---"
+                Get-Content (Join-Path $tmpData 'rhen-watch.log') -Tail 30 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
+              }
+            }
             Write-Host "--- no agent window found. pwsh pid $PID is in session $((Get-Process -Id $PID).SessionId) ---"
             Get-Process rhen-watchw -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "rhen-watchw pid $($_.Id) session $($_.SessionId) path $($_.Path)" }
             $h = [IntPtr]::Zero
             $any = $false
             while ($true) {
-              $h = [Rw.Win]::FindWindowExW([IntPtr]::Zero, $h, 'rhen-watch-hidden', $null)
+              $h = [Rw.Win]::FindWindowExW([IntPtr]::Zero, $h, 'rhen-watch-hidden', [NullString]::Value)
               if ($h -eq [IntPtr]::Zero) { break }
               $any = $true
               [uint32]$owner = 0
@@ -472,7 +502,7 @@ jobs:
           function Send-Control([int]$agentPid, [int]$verb) {
             $w = $null
             foreach ($i in 1..60) { $w = Get-AgentWindow $agentPid; if ($w) { break }; Start-Sleep -Milliseconds 250 }
-            if (-not $w) { Show-WindowDiagnostics; throw "the window of agent $agentPid was not found" }
+            if (-not $w) { Show-WindowDiagnostics $agentPid; throw "the window of agent $agentPid was not found" }
             $m = [Rw.Win]::RegisterWindowMessageW('rhen-watch.control')
             if (-not [Rw.Win]::PostMessageW($w.Hwnd, $m, [UIntPtr][uint32]$verb, [IntPtr]::Zero)) { throw 'could not post the control message' }
           }
@@ -515,7 +545,7 @@ jobs:
           $shown = $false
           foreach ($i in 1..40) {
             if ($app.HasExited) { break }
-            if ([Rw.Win]::FindWindowExW([IntPtr]::Zero, [IntPtr]::Zero, 'rhen-watch-app', $null) -ne [IntPtr]::Zero) { $shown = $true; break }
+            if ([Rw.Win]::FindWindowExW([IntPtr]::Zero, [IntPtr]::Zero, 'rhen-watch-app', [NullString]::Value) -ne [IntPtr]::Zero) { $shown = $true; break }
             Start-Sleep -Milliseconds 250
           }
           if (-not $shown) {
