@@ -418,7 +418,8 @@ describe("a series already linked to a rule", () => {
       const out = pass({
         series: [feedSeries("w")],
         ownedLinkStems: new Set(["w"]),
-        ownedLatestStart: new Map([["w", "2026-10-26T22:00:00.000Z"]])
+        ownedLatestStart: new Map([["w", "2026-10-26T22:00:00.000Z"]]),
+        now: new Date("2026-11-04T00:00:00Z")
       });
       expect(out.records[0]!.fields.startDate!.value).toBe("2026-11-10");
     });
@@ -500,7 +501,11 @@ describe("generations, revival and kept ends", () => {
   });
 
   it("proposes the next generation for a rule the feed ended, from its first real instance, with the feed's own bound", () => {
-    const out = pass({ series: [feedSeries("w", { endDate: "2026-12-29" })], ruleLinks: [ended(1, "feed")] });
+    const out = pass({
+      series: [feedSeries("w", { endDate: "2026-12-29" })],
+      ruleLinks: [ended(1, "feed")],
+      now: new Date("2026-11-04T00:00:00Z")
+    });
     expect(out.records).toHaveLength(1);
     expect(out.records[0]).toMatchObject({
       operation: "create",
