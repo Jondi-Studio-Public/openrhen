@@ -30,6 +30,7 @@ const baseContext = {
   capacityEnvelopes: [{ adjustedCapacityMinutes: 600 }],
   forecasts: [],
   weekOutlook: null,
+  deadlineOutlook: null,
   saveActionCommand: vi.fn(),
   saveEntityCommand: vi.fn(),
   saveProjectCommand: vi.fn((_command: unknown) => Promise.resolve()),
@@ -82,6 +83,53 @@ describe("Review page composition", () => {
     expect(screen.queryByText("Recurring series ready")).toBeNull();
     expect(screen.getByText(/0 selected this week · 0 selected this month/)).toBeTruthy();
     expect(screen.getByRole("link", { name: "Choose focus" }).getAttribute("href")).toBe("/review/focus");
+  });
+
+  it("says there are no deadlines to read when the stored plan has none, and offers the empty view", () => {
+    context = { ...baseContext, state: buildState() };
+    render(<ReviewPage />);
+    const card = screen.getByRole("heading", { name: "Deadlines" }).closest("section")!;
+    expect(within(card).getByText("No project with a deadline is being tracked yet.")).toBeTruthy();
+    fireEvent.click(within(card).getByRole("button", { name: "Open deadlines" }));
+    expect(screen.getAllByText(/No project with a deadline is being tracked/).length).toBeGreaterThan(1);
+  });
+
+  it("summarises the deadline verdicts next to the week and opens the list with the suggestion lines", () => {
+    const deadlineOutlook = {
+      projects: [
+        {
+          projectId: "p-behind",
+          title: "Slipping report",
+          outcomeId: null,
+          verdict: "behind" as const,
+          deadlineAt: new Date("2026-09-04T09:00:00.000Z"),
+          slackMinutes: -60,
+          pessimisticMarginMinutes: -90,
+          latestSafeStart: null,
+          suggestion: "Move your own date to Mon, Sep 7, 9:00 AM, the earliest the remaining work fits."
+        },
+        {
+          projectId: "p-tight",
+          title: "Close call",
+          outcomeId: null,
+          verdict: "tight" as const,
+          deadlineAt: new Date("2026-09-05T09:00:00.000Z"),
+          slackMinutes: 10,
+          pessimisticMarginMinutes: -5,
+          latestSafeStart: null,
+          suggestion: null
+        }
+      ],
+      outcomes: []
+    };
+    context = { ...baseContext, deadlineOutlook, state: buildState() } as unknown as typeof context;
+    render(<ReviewPage />);
+    const card = screen.getByRole("heading", { name: "Deadlines" }).closest("section")!;
+    expect(card.textContent).toContain("2 projects with a deadline. 1 behind or past its deadline. 1 tight.");
+    fireEvent.click(within(card).getByRole("button", { name: "Open deadlines" }));
+    expect(screen.getByText(/Move your own date to Mon, Sep 7/)).toBeTruthy();
+    expect(screen.getByText("Slipping report")).toBeTruthy();
+    expect(screen.getByText("Close call")).toBeTruthy();
   });
 
   it("dropped Plan's duplicated sections: blocked/waiting, uncertain estimates, and missing-next-action lists", () => {

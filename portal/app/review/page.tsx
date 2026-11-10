@@ -19,6 +19,7 @@ import { List, ListRow } from "@/components/ui/list-row";
 import { PageHeader } from "@/components/ui/page-header";
 import { PlaceTabs } from "@/components/place-tabs";
 import { OverdueProposalsPanel } from "@/features/review/components/overdue-proposals-panel";
+import { DeadlinesPanel } from "@/features/review/components/deadlines-panel";
 import { WeekOutlookPanel } from "@/features/review/components/week-outlook-panel";
 import { MonthlyCheckPanel } from "@/features/review/components/monthly-check-panel";
 import { AgentTimeLine } from "@/features/review/components/agent-time-line";
@@ -75,6 +76,7 @@ export default function ReviewPage() {
     capacityEnvelopes,
     forecasts,
     weekOutlook,
+    deadlineOutlook,
     saveActionCommand,
     saveProjectCommand,
     saveEntityCommand,
@@ -94,7 +96,7 @@ export default function ReviewPage() {
   const timezone = state.settings.timezone;
   const [busy, setBusy] = useState<string | null>(null);
   const [problem, setProblem] = useState("");
-  const [sheet, setSheet] = useState<"week" | "month" | null>(null);
+  const [sheet, setSheet] = useState<"week" | "deadlines" | "month" | null>(null);
   // How many stale projects were decided this visit, so a phone can count "3 of 8" as it goes.
   const [decided, setDecided] = useState(0);
   // The last Keep, Pause or Drop, so it can be undone: Drop is one tap, like an Inbox ignore. A Keep remembers the
@@ -197,6 +199,9 @@ export default function ReviewPage() {
   const activeOutcomes = state.outcomes.filter((outcome) => outcome.status === "active").length;
   const week = capacityEnvelopes.find((band) => band.kind === "detailed");
   const shortOnTime = weekOutlook?.underPacedProjectIds.length ?? 0;
+  const deadlineRows = deadlineOutlook?.projects ?? [];
+  const slipped = deadlineRows.filter((row) => row.verdict === "behind" || row.verdict === "overdue").length;
+  const tightRows = deadlineRows.filter((row) => row.verdict === "tight").length;
 
   const areaOf = (projectId: string) => {
     const project = state.projects.find((item) => item.id === projectId);
@@ -979,6 +984,19 @@ export default function ReviewPage() {
             )}
           </Card>
 
+          <Card as="section" padded className={styles.sideCard} aria-labelledby="review-deadlines">
+            <h2 id="review-deadlines" className={styles.sideTitle}>
+              Deadlines
+            </h2>
+            <p className={styles.sideText}>
+              {deadlineRows.length
+                ? `${plural(deadlineRows.length, "project")} with a deadline. ${slipped ? `${slipped} behind or past its deadline.` : "None is behind."}${tightRows ? ` ${tightRows} tight.` : ""}`
+                : "No project with a deadline is being tracked yet."}
+            </p>
+            <button type="button" className={styles.sideLink} onClick={() => setSheet("deadlines")}>
+              Open deadlines
+            </button>
+          </Card>
           <Card as="section" padded className={styles.sideCard} aria-labelledby="review-month">
             <div className={styles.sideHead}>
               <h2 id="review-month" className={styles.sideTitle}>
@@ -1035,6 +1053,9 @@ export default function ReviewPage() {
       />
       <Sheet open={sheet === "week"} onClose={() => setSheet(null)} title="Week ahead">
         <WeekOutlookPanel outlook={weekOutlook} state={state} folded={false} />
+      </Sheet>
+      <Sheet open={sheet === "deadlines"} onClose={() => setSheet(null)} title="Deadlines">
+        <DeadlinesPanel outlook={deadlineOutlook ?? null} state={state} />
       </Sheet>
       <Sheet open={sheet === "month"} onClose={() => setSheet(null)} title={`Monthly check · ${monthName}`}>
         <MonthlyCheckPanel state={state} now={now} folded={false} />

@@ -16,6 +16,7 @@ import {
   buildAttentionAnswer,
   catchUpDueItem,
   checkInOpenItem,
+  deadlineAtRiskItem,
   decidedWindowStart,
   DOCTOR_FRESHNESS_FACTS,
   FEED_OWNS_DOCTOR_CHECKS,
@@ -708,6 +709,8 @@ describe("owner-present clause", () => {
         proposalsWaitingItem({ count: 3, oldestAt: day(-3), generatedAt: NOW }),
         proposalsWaitingItem({ count: 3, oldestAt: day(-13), expiringAt: day(1), generatedAt: NOW })
       );
+      for (const verdict of ["behind", "overdue"] as const)
+        items.push(deadlineAtRiskItem({ projectId: uuid(7), verdict, held, generatedAt: NOW })!);
       for (const source of ATTENTION_SOURCE_NAMES)
         items.push(sourceUnavailableItem({ source, generatedAt: NOW, held }));
       for (const status of ATTENTION_OUTCOME_STATUSES)
@@ -765,6 +768,7 @@ describe("safe pointers", () => {
         checkInOpenItem({ at: day(-1), held, generatedAt: NOW }),
         catchUpDueItem({ at: day(-1), held, generatedAt: NOW }),
         healthMoreItem(1, NOW),
+        deadlineAtRiskItem({ projectId: uuid(7), verdict: "behind", held, generatedAt: NOW })!,
         ...attentionDoctorItems({
           items: [doctorInput("sync_failing"), doctorInput("backup_stale")],
           generatedAt: NOW,
@@ -796,6 +800,7 @@ describe("safe pointers", () => {
       "check_in_open",
       "catch_up_due",
       "health_blocking",
+      "deadline_at_risk",
       "source_unavailable",
       "health_more",
       "proposal_decided",
@@ -1073,5 +1078,89 @@ describe("fact_open: the pointer to the facts room (slice 2b-9)", () => {
     } as never)!;
     expect(item.why).toContain("rhen_inbox with room facts");
     expect(item.why).not.toMatch(/rhen_inbox_act|"action"|\bdone\b.*\bignore\b/);
+  });
+});
+
+describe("deadline_at_risk", () => {
+  const base = { projectId: uuid(11), held: HELD.unscoped, generatedAt: NOW };
+  const suggestion = "Start by 12:20 or this deadline becomes unreachable.";
+
+  it("ranks directly below health_blocking, above the other kinds", () => {
+    const index = (kind: AttentionItem["kind"]) => ATTENTION_KINDS.indexOf(kind);
+    expect(index("deadline_at_risk")).toBe(index("health_blocking") + 1);
+    expect(index("deadline_at_risk")).toBeLessThan(index("source_unavailable"));
+  });
+
+  it("states the project, deadline, slack and suggestion in plain English, with the title only in quoted", () => {
+    const item = deadlineAtRiskItem({
+      ...base,
+      verdict: "behind",
+      title: `${SENTINEL} Tax return`,
+      deadlineAt: "2026-11-10T09:00:00.000Z",
+      slackMinutes: -90,
+      suggestion
+    })!;
+    expect(item.id).toBe(`deadline_at_risk:${uuid(11)}`);
+    expect(item.kind).toBe("deadline_at_risk");
+    expect(item.urgency).toBe("soon");
+    expect(item.who).toBe("owner");
+    expect(item.quoted).toEqual({ title: `${SENTINEL} Tax return` });
+    expect(item.why).not.toContain(SENTINEL);
+    expect(item.why).toContain("1h 30m short");
+    expect(item.why).toContain("2026-11-10T09:00Z");
+    expect(item.why).toContain(suggestion);
+    expect(item.why).toContain(OWNER_PRESENT_CLAUSE);
+    expect(item.why).toMatch(/Do not reorder Now/);
+    expect(item.dueAt).toBe("2026-11-10T09:00:00.000Z");
+    expect(item.handles).toEqual([`project:${uuid(11)}`]);
+    expect(item.source).toEqual({ tool: "rhen_forecast", arguments: { project: uuid(11) } });
+    expect(attentionCallProblem(item.source!, HELD.unscoped)).toBeUndefined();
+  });
+
+  it("words an overdue project as past its deadline", () => {
+    const item = deadlineAtRiskItem({ ...base, verdict: "overdue", deadlineAt: "2026-11-01T09:00:00.000Z" })!;
+    expect(item.title).toBe("A project is past its deadline");
+    expect(item.why).toContain("has passed");
+  });
+
+  it("drops a non-uuid project id, a line break in the suggestion and a source the token cannot read", () => {
+    expect(deadlineAtRiskItem({ ...base, projectId: "nope", verdict: "behind" })).toBeUndefined();
+    const item = deadlineAtRiskItem({ ...base, verdict: "behind", suggestion: "One\nTwo\u202eThree." })!;
+    expect(item.why).toContain("One Two");
+    expect(item.why).not.toMatch(/\u202e/);
+    const blind = deadlineAtRiskItem({ ...base, verdict: "behind", held: [] })!;
+    expect(blind.source).toBeUndefined();
+  });
+
+  it("counts as soon, never now, and folds past five like any condition kind", () => {
+    const items = Array.from({ length: 7 }, (_, n) =>
+      deadlineAtRiskItem({ ...base, projectId: uuid(20 + n), verdict: "behind", deadlineAt: day(n + 1) })!
+    );
+    const folded = foldAttentionItems(items);
+    expect(folded).toHaveLength(6);
+    expect(folded.at(-1)!.folded).toBe(2);
+    expect(attentionCounts(folded)).toEqual({ now: 0, soon: 7, fyi: 0 });
+  });
+
+  it("sorts by deadline, soonest first, and after a blocking health item", () => {
+    const late = deadlineAtRiskItem({ ...base, projectId: uuid(30), verdict: "behind", deadlineAt: day(5) })!;
+    const soon = deadlineAtRiskItem({ ...base, projectId: uuid(31), verdict: "overdue", deadlineAt: day(-1) })!;
+    const health: AttentionItem = { ...soon, id: "health:x", kind: "health_blocking", urgency: "soon" };
+    expect(sortAttentionItems([late, soon, health]).map((item) => item.id)).toEqual(["health:x", soon.id, late.id]);
+  });
+
+  it("names deadlines in the empty text only when they were read", () => {
+    const text = (deadlines: boolean) =>
+      attentionEmptyText({
+        generatedAt: NOW,
+        checked: { catchUp: true, checkIn: true, doctor: true, deadlines }
+      });
+    expect(text(true)).toContain("project deadlines");
+    expect(text(false)).not.toContain("project deadlines");
+  });
+
+  it("makes a failed deadlines read a soon item, so counts.now is unchanged", () => {
+    const item = sourceUnavailableItem({ source: "deadlines", generatedAt: NOW, held: HELD.unscoped });
+    expect(item.urgency).toBe("soon");
   });
 });

@@ -49,6 +49,7 @@ function readers(over: Partial<AttentionReaders> = {}) {
     refusal: vi.fn(),
     proposals: vi.fn(),
     facts: vi.fn(async (): Promise<AttentionItem[]> => []),
+    deadlines: vi.fn(async (): Promise<unknown> => null),
     ...over
   } satisfies AttentionReaders;
 }

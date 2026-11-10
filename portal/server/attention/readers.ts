@@ -9,6 +9,7 @@ import { ensureUser } from "@/server/persistence/postgres/ensure-user";
 import { readPulseReentryView } from "@/server/persistence/postgres/reenter";
 import type { PoolSql } from "@/server/persistence/postgres/sql-pool";
 import { reentryRefusal } from "@/server/pulse/reentry-gate";
+import { readDeadlineOutlook } from "./deadline-items";
 import { readFactItems } from "./fact-items";
 import { FACTS_READ_TIMEOUT_MS, guardedFactsRead, withFactsTimeout } from "./facts-guard";
 
@@ -41,6 +42,8 @@ export interface AttentionReaders {
    * reading the mail text; the items are otherwise the same, so the counts and the feed agree.
    */
   facts(now: Date, held: readonly string[] | undefined, options: { quotes: boolean }): Promise<AttentionItem[]>;
+  /** The latest plan run's stored `deadlineOutlook` (null before one exists), read-only; the feed turns it into items. */
+  deadlines(userId: string): Promise<unknown>;
 }
 
 export { FACTS_READ_TIMEOUT_MS, withFactsTimeout };
@@ -61,6 +64,7 @@ export function defaultAttentionReaders(sql: PoolSql): AttentionReaders {
       return { outcomes, windowStart: start, waiting: await readProposalsWaiting(sql, userId, agent) };
     },
     decided: async (userId, agent) => (await readDecidedCount(sql, userId, agent)).count,
+    deadlines: (userId) => readDeadlineOutlook(sql, userId),
     facts: async (now, held, options) =>
       guardedFactsRead(await ensureUser(sql), now, options.quotes, () =>
         readFactItems(sql, { now, held, quotes: options.quotes })

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AGENT_SCOPE_PRESETS,
+  ATTENTION_KINDS,
   attentionCallProblem,
   factOpenItem,
   FEED_OWNS_DOCTOR_CHECKS,
@@ -138,6 +139,7 @@ function makeReaders(over: Partial<AttentionReaders> = {}) {
     proposals: vi.fn(async () => proposalsRead({ outcomes: [outcome(1), outcome(2, "stale")] })),
     decided: vi.fn(async () => 0),
     facts: vi.fn(async (): Promise<AttentionItem[]> => []),
+    deadlines: vi.fn(async (): Promise<unknown> => null),
     ...over
   } satisfies AttentionReaders;
   return readers;
@@ -227,7 +229,7 @@ describe("readAttention: what it builds", () => {
     );
     expect(answer.items).toEqual([]);
     expect(answer.empty).toMatch(
-      /^Nothing needs attention as of 12:00\. Checked: catch-up, check-in, doctor \(\d+ checks\), your proposals since 2026-10-28T12:00Z, open mail items\./
+      /^Nothing needs attention as of 12:00\. Checked: catch-up, check-in, doctor \(\d+ checks\), your proposals since 2026-10-28T12:00Z, open mail items, project deadlines\./
     );
     expect(answer.counts).toEqual({ now: 0, soon: 0, fyi: 0 });
   });
@@ -303,7 +305,7 @@ describe("readAttention: scopes decide what is read", () => {
     expect(kinds(answer)).not.toContain("proposal_decided");
     expect(kinds(answer)).not.toContain("proposals_waiting");
     expect(answer.notIncluded).toEqual([]);
-    expect(answer.sources.map((s) => s.source)).toEqual(["catch-up", "check-in", "doctor"]);
+    expect(answer.sources.map((s) => s.source)).toEqual(["catch-up", "check-in", "doctor", "deadlines"]);
     expect(answer.cursor).toBeUndefined();
   });
 
@@ -623,5 +625,111 @@ describe("readAttention: open mail facts", () => {
     expect(failed.empty).toBeUndefined();
     const left = await run({ scopes: ["read:proposals"] }, quietReaders({}));
     expect(left.empty).not.toContain("mail");
+  });
+});
+
+describe("readAttention: deadlines at risk", () => {
+  const outlook = {
+    projects: [
+      {
+        projectId: uuid(801),
+        title: `${SENTINEL} Tax return`,
+        verdict: "behind",
+        deadlineAt: "2026-11-10T09:00:00.000Z",
+        slackMinutes: -90,
+        suggestion: "Start by 12:20 PM or this deadline becomes unreachable."
+      },
+      {
+        projectId: uuid(802),
+        title: "Tight one",
+        verdict: "tight",
+        deadlineAt: "2026-11-12T09:00:00.000Z",
+        slackMinutes: 10
+      },
+      { projectId: uuid(803), title: "Fine", verdict: "ok", deadlineAt: null, slackMinutes: 500 },
+      {
+        projectId: uuid(804),
+        title: "Gone by",
+        verdict: "overdue",
+        deadlineAt: "2026-11-01T09:00:00.000Z",
+        slackMinutes: -30,
+        suggestion: null
+      }
+    ]
+  };
+
+  it("lists one soon item per behind or overdue project, never tight or ok, with the title only quoted", async () => {
+    const answer = await run({}, makeReaders({ deadlines: vi.fn(async () => outlook) }));
+    const items = answer.items.filter((item) => item.kind === "deadline_at_risk");
+    expect(items.map((item) => item.id)).toEqual([`deadline_at_risk:${uuid(804)}`, `deadline_at_risk:${uuid(801)}`]);
+    for (const item of items) expect(item.urgency).toBe("soon");
+    const behind = items.find((item) => item.id.endsWith(String(uuid(801))))!;
+    expect(behind.quoted?.title).toContain("Tax return");
+    expect(behind.why).toContain("1h 30m short");
+    expect(behind.why).toContain("Start by 12:20 PM or this deadline becomes unreachable.");
+    expect(behind.why).not.toContain(SENTINEL);
+    expect(answer.sources).toContainEqual({ source: "deadlines", ok: true });
+  });
+
+  it("does not move counts.now, and the item vanishes once the project has recovered", async () => {
+    const base = await run({}, makeReaders());
+    const risk = await run({}, makeReaders({ deadlines: vi.fn(async () => outlook) }));
+    expect(risk.counts.now).toBe(base.counts.now);
+    expect(risk.counts.soon).toBe(base.counts.soon + 2);
+    const recovered = await run(
+      {},
+      makeReaders({ deadlines: vi.fn(async () => ({ projects: [{ ...outlook.projects[0], verdict: "ok" }] })) })
+    );
+    expect(kinds(recovered)).not.toContain("deadline_at_risk");
+  });
+
+  it("lists nothing for a plan stored before the outlook existed", async () => {
+    for (const stored of [null, undefined, {}, "x", { projects: "x" }]) {
+      const answer = await run({}, makeReaders({ deadlines: vi.fn(async () => stored) }));
+      expect(kinds(answer)).not.toContain("deadline_at_risk");
+      expect(answer.sources).toContainEqual({ source: "deadlines", ok: true });
+    }
+  });
+
+  it("ranks the item after blocking health items and before source_unavailable and proposals", async () => {
+    const answer = await run(
+      {},
+      makeReaders({
+        deadlines: vi.fn(async () => outlook),
+        facts: vi.fn(() => Promise.reject(new Error("x"))) as never
+      })
+    );
+    const order = answer.items.map((item) => item.kind);
+    expect(order).toContain("health_blocking");
+    expect(order).toContain("source_unavailable");
+    expect(order).toContain("deadline_at_risk");
+    // urgency orders first, so compare ranks inside one urgency by listing the contract's kind order
+    const rank = (kind: (typeof order)[number]) => ATTENTION_KINDS.indexOf(kind);
+    expect(rank("deadline_at_risk")).toBe(rank("health_blocking") + 1);
+    const soon = answer.items.filter((item) => item.urgency === "soon").map((item) => item.kind);
+    expect(soon.indexOf("deadline_at_risk")).toBeLessThan(soon.indexOf("source_unavailable"));
+    expect(soon.indexOf("deadline_at_risk")).toBeLessThan(soon.indexOf("proposal_decided"));
+  });
+
+  it("is listed in the owner view, and a token without read:plan gets a notIncluded entry instead", async () => {
+    const owner = await run({ agent: null }, makeReaders({ deadlines: vi.fn(async () => outlook) }));
+    expect(kinds(owner)).toContain("deadline_at_risk");
+    const readers = makeReaders({ deadlines: vi.fn(async () => outlook) });
+    const blind = await run({ scopes: ["read:proposals"] }, readers);
+    expect(readers.deadlines).not.toHaveBeenCalled();
+    expect(kinds(blind)).not.toContain("deadline_at_risk");
+    expect(blind.notIncluded).toContainEqual({ kinds: ["deadline_at_risk"], scope: "read:plan" });
+  });
+
+  it("a failed read is one soon unavailable item and an incomplete answer, with nothing from the error", async () => {
+    const answer = await run(
+      {},
+      makeReaders({ deadlines: vi.fn(() => Promise.reject(new Error("DLSENT boom"))) as never })
+    );
+    expect(answer.complete).toBe(false);
+    expect(answer.sources).toContainEqual({ source: "deadlines", ok: false });
+    const lost = answer.items.find((item) => item.id === "source_unavailable:deadlines")!;
+    expect(lost.urgency).toBe("soon");
+    expect(JSON.stringify(answer)).not.toContain("DLSENT");
   });
 });

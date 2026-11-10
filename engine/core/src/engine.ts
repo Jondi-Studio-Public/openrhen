@@ -533,7 +533,9 @@ export function calculatePlanAndForecast(input: PlanForecastRequest): PlanForeca
       status: outcome.status,
       deadlineAt: outcome.deadlineAt ? new Date(outcome.deadlineAt) : null
     })),
-    now
+    now,
+    timezone: request.state.settings.timezone,
+    locale
   });
   const tonight = nights.slice().sort((a, b) => a.plannedStartAt.getTime() - b.plannedStartAt.getTime())[0];
   const stayUpOfferResult = computeStayUpOffer({
