@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { END_STATES } from "../planning/replay/replay-case.js";
 import {
-  COVERAGE_DEFAULT_WARN_HOURS,
   MESSAGE_END_STATES,
   coverageNote,
   countHoles,
@@ -189,8 +188,5 @@ describe("processing end states", () => {
     });
     expect(over.gap).toBe(0);
     expect(processingLine({ ...report, collected: 0 })).toBeNull();
-  });
-  it("keeps 12 h as the default T", () => {
-    expect(COVERAGE_DEFAULT_WARN_HOURS).toBe(12);
   });
 });

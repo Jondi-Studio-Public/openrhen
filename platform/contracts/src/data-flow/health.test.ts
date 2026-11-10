@@ -144,8 +144,8 @@ describe("thresholdFor for a source that reports coverage", () => {
   const mail = entry({ id: "msgs", activitySource: "msgs", method: "api-pull" });
   it("puts the owner's number first, then the collector's declared cadence, with late at T and stale at 2T", () => {
     expect(
-      thresholdFor(mail, { coverage: { ownerStaleAfterMinutes: 240, collector: { silentAfterMinutes: 90 } } })
-    ).toEqual({ warnHours: 4, errorHours: 8, from: "owner" });
+      thresholdFor(mail, { coverage: { ownerExpectedEveryMinutes: 80, collector: { silentAfterMinutes: 90 } } })
+    ).toEqual({ warnHours: 4, errorHours: 8, from: "owner", usualMinutes: 80, expectedEveryMinutes: 80 });
     expect(thresholdFor(mail, { coverage: { collector: { silentAfterMinutes: 90 } } })).toEqual({
       warnHours: 1.5,
       errorHours: 3,
@@ -159,30 +159,23 @@ describe("thresholdFor for a source that reports coverage", () => {
   });
   it("ignores an owner value of null or zero and falls back", () => {
     expect(
-      thresholdFor(mail, { coverage: { ownerStaleAfterMinutes: null, collector: { silentAfterMinutes: 60 } } })
+      thresholdFor(mail, { coverage: { ownerExpectedEveryMinutes: null, collector: { silentAfterMinutes: 60 } } })
     ).toMatchObject({
       from: "collector"
     });
-    expect(thresholdFor(mail, { coverage: { ownerStaleAfterMinutes: 0 } })).toMatchObject({ from: "default" });
+    expect(thresholdFor(mail, { coverage: { ownerExpectedEveryMinutes: 0 } })).toBeNull();
   });
-  it("then uses the entry's own number, a learned rhythm, the entry's cold start, and last 12 h and 24 h", () => {
+  it("then uses the entry's own number; with nothing else there is no number at all", () => {
     expect(
       thresholdFor(entry({ ...mail, freshness: { warnAfterHours: 5, errorAfterHours: 9 } }), { coverage: {} })
     ).toMatchObject({ warnHours: 5, errorHours: 9 });
-    expect(thresholdFor(mail, { coverage: {}, learned: { warnHours: 3, errorHours: 6, days: 12 } })).toEqual({
-      warnHours: 3,
-      errorHours: 6,
-      days: 12,
-      from: "learned"
-    });
+    expect(thresholdFor(mail, { coverage: {} })).toBeNull();
+  });
+  it("no longer uses the old learned arrivals, the entry's cold start or a 12 h / 24 h default for a coverage source", () => {
+    expect(thresholdFor(mail, { coverage: {}, learned: { warnHours: 3, errorHours: 6, days: 12 } })).toBeNull();
     expect(
       thresholdFor(entry({ ...mail, coldStart: { warnAfterHours: 12, errorAfterHours: 48 } }), { coverage: {} })
-    ).toEqual({
-      warnHours: 12,
-      errorHours: 48,
-      from: "default"
-    });
-    expect(thresholdFor(mail, { coverage: {} })).toEqual({ warnHours: 12, errorHours: 24, from: "default" });
+    ).toBeNull();
   });
   it("changes nothing for a source that reports no coverage", () => {
     expect(thresholdFor(mail, {})).toBeNull();

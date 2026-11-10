@@ -258,7 +258,7 @@ describe("backup table count", () => {
   });
 });
 
-describe("backup format 26", () => {
+describe("backup format 27", () => {
   it("pins the format strings: the one written, and the one the reader also accepts", () => {
     expect(BACKUP_FORMAT).toBe("priorities-postgresql-logical-backup");
     expect(ACCEPTED_BACKUP_FORMATS).toContain("openrhen-postgresql-logical-backup");
@@ -299,7 +299,7 @@ describe("backup format 26", () => {
 
   it("rejects a format newer than this build reads", () => {
     expect(() => validateBackup(backupOf(CURRENT_BACKUP_FORMAT_VERSION + 1, BACKUP_TABLES))).toThrow(
-      /^Unsupported backup formatVersion 27$/
+      /^Unsupported backup formatVersion 28$/
     );
   });
 });
@@ -317,15 +317,15 @@ describe("older backup formats", () => {
     return import("./backup-format.js");
   };
 
-  it("refuses an older format, saying this build restores format 26 only, when no reader recognises it", async () => {
+  it("refuses an older format, saying this build restores format 27 only, when no reader recognises it", async () => {
     const { validateBackup: validate, BACKUP_TABLES: tables } = await withSeam(() => undefined);
-    for (const version of [1, 5, 19, 20, 21, 22, 23, 24, 25]) {
+    for (const version of [1, 5, 19, 20, 21, 22, 23, 24, 25, 26]) {
       expect(() => validate(backupOf(version, tables))).toThrow(
-        `Unsupported backup formatVersion ${version}: this build restores format 26 backups only`
+        `Unsupported backup formatVersion ${version}: this build restores format 27 backups only`
       );
     }
     expect(() => validate(backupOf(0, tables))).toThrow(/^Unsupported backup formatVersion 0$/);
-    expect(() => validate(backupOf(26, tables))).not.toThrow();
+    expect(() => validate(backupOf(27, tables))).not.toThrow();
   });
 
   it("tells the owner how to carry an unreadable older backup forward", async () => {
@@ -380,6 +380,15 @@ describe("older backup formats", () => {
     expect(index("consequence_groups_issued")).toBeLessThan(index("consequence_comparisons"));
     expect(index("users")).toBeLessThan(index("derived_settings"));
     expect(index("users")).toBeLessThan(index("derived_model_calls"));
+  });
+
+  it("restores a format 26 backup, which has every table but not the owner's expected rhythm column", async () => {
+    const { validateBackup: validate, BACKUP_TABLES: tables, tablesAbsentFrom } = await import("./backup-format.js");
+    const { legacyRequiredTables } = await import("./private/legacy-backups.js");
+    const format26 = legacyRequiredTables(26);
+    expect(format26).toBeDefined();
+    expect([...tables].sort()).toEqual([...format26!].sort());
+    expect(tablesAbsentFrom(validate(backupOf(26, format26!)))).toEqual([]);
   });
 
   it("restores a format 25 backup, which has the comparison tables but not the settings or the model-call audit", async () => {
@@ -447,7 +456,7 @@ describe("older backup formats", () => {
     expect(() => validate(backupOf(20, tables))).not.toThrow();
     expect(() => validate(backupOf(20, format20!.slice(1)))).toThrow(/missing table/);
     expect(() => validate(backupOf(19, format20!))).toThrow(
-      "Unsupported backup formatVersion 19: this build restores format 26 backups and format 25 ones only"
+      "Unsupported backup formatVersion 19: this build restores format 27 backups and format 26 ones only"
     );
   });
 
@@ -459,8 +468,8 @@ describe("older backup formats", () => {
     });
     expect(() => validate(backupOf(7, ["portal_state", "users"]))).not.toThrow();
     expect(() => validate(backupOf(7, ["portal_state"]))).toThrow("Backup is missing table users");
-    expect(() => validate(backupOf(6, ["portal_state", "users"]))).toThrow(/format 26 backups only/);
-    expect(asked).toEqual([7, 7, 6, 25]);
+    expect(() => validate(backupOf(6, ["portal_state", "users"]))).toThrow(/format 27 backups only/);
+    expect(asked).toEqual([7, 7, 6, 26]);
   });
 
   it("does not ask the reader about a current-format backup", async () => {
@@ -469,7 +478,7 @@ describe("older backup formats", () => {
       asked.push(version);
       return undefined;
     });
-    validate(backupOf(26, tables));
+    validate(backupOf(27, tables));
     expect(asked).toEqual([]);
   });
 });

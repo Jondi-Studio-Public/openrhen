@@ -21,6 +21,7 @@ import {
   describeWithheldClasses,
   ACTIVITY_OWNER_ONLY_SOURCES,
   groupWithheldByClass,
+  coverageScopeRequiredFor,
   isKnownActivitySource,
   judgeActivityEvents,
   sanitiseQuoted,
@@ -85,6 +86,7 @@ interface SourceStateRow {
   source: string;
   content_enabled: boolean;
   retention_days: number | null;
+  expected_every_minutes?: number | null;
   cursor?: unknown;
 }
 
@@ -540,7 +542,7 @@ export async function readActivitySummary(sql: Sql, now: Date = new Date()): Pro
     SELECT source, count(*)::int AS n, max(COALESCE(ts_end, ts_start)) AS last_start, max(ingested_at) AS last_ingested
     FROM activity_events WHERE user_id = ${userId} GROUP BY source`;
   const states = await sql<SourceStateRow[]>`
-    SELECT source, content_enabled, retention_days, cursor FROM activity_source_state WHERE user_id = ${userId}`;
+    SELECT source, content_enabled, retention_days, expected_every_minutes, cursor FROM activity_source_state WHERE user_id = ${userId}`;
   const names = new Set<string>([
     ...ACTIVITY_SOURCE_NAMES,
     ...counts.map((row) => row.source),
@@ -557,6 +559,7 @@ export async function readActivitySummary(sql: Sql, now: Date = new Date()): Pro
       lastIngestedAt: count?.last_ingested?.toISOString() ?? null,
       contentEnabled: state?.content_enabled ?? activityContentDefault(),
       retentionDays: state?.retention_days ?? null,
+      expectedEveryMinutes: state?.expected_every_minutes ?? null,
       retentionPurge: state?.retention_days == null ? ("not_set" as const) : ("scheduled" as const),
       // A source with no retention is permanent: a purge record left from an earlier setting would read as a deletion that is no longer scheduled.
       lastPurge: state?.retention_days == null ? null : readLastPurge(state?.cursor)
@@ -640,7 +643,10 @@ function retentionStatus(retentionDays: number | null) {
   return { retentionRuns: retentionDays !== null, note: retentionDays === null ? null : RETENTION_RUNNING_NOTE };
 }
 
-/** Sets a source's content gate and/or retention. A field left out keeps its value; `retentionDays: null` means permanent. */
+/**
+ * Sets a source's content gate, retention and/or expected rhythm. A field left out keeps its value; `retentionDays: null`
+ * means permanent and `expectedEveryMinutes: null` returns the source to learning its own rhythm.
+ */
 export async function setActivitySourceSettings(sql: PoolSql, source: string, settings: ActivitySourceSettings) {
   if (!isKnownActivitySource(source))
     throw new ActivityInputError(
@@ -662,20 +668,30 @@ export async function setActivitySourceSettings(sql: PoolSql, source: string, se
       `Retention is not applied to the drift source: its work labels are your own answers and its flags are the history the detector is judged on. Send {"retentionDays": null} to "drift" to clear any value.`,
       400
     );
+  if (typeof settings.expectedEveryMinutes === "number" && !coverageScopeRequiredFor(activitySourceEntry(source)))
+    throw new ActivityInputError(
+      `Source "${source}" does not report coverage, so an expected rhythm would change nothing: only a source that posts coverage rows is judged late or stale. Next step: the collector for "${source}" must post a coverage row and declare availability (docs/operations/posting-messages.md, section 5), then send this again. Send {"expectedEveryMinutes": null} to clear a value.`,
+      400
+    );
   const userId = await ensureUser(sql);
   return sql.begin(async (tx) => {
     const [current] = await tx<SourceStateRow[]>`
-      SELECT source, content_enabled, retention_days FROM activity_source_state
+      SELECT source, content_enabled, retention_days, expected_every_minutes FROM activity_source_state
       WHERE user_id = ${userId} AND source = ${source} FOR UPDATE`;
     const contentEnabled = settings.contentEnabled ?? current?.content_enabled ?? activityContentDefault();
     const retentionDays =
       settings.retentionDays === undefined ? (current?.retention_days ?? null) : settings.retentionDays;
+    const expectedEveryMinutes =
+      settings.expectedEveryMinutes === undefined
+        ? (current?.expected_every_minutes ?? null)
+        : settings.expectedEveryMinutes;
     await tx`
-      INSERT INTO activity_source_state (user_id, source, content_enabled, retention_days)
-      VALUES (${userId}, ${source}, ${contentEnabled}, ${retentionDays})
+      INSERT INTO activity_source_state (user_id, source, content_enabled, retention_days, expected_every_minutes)
+      VALUES (${userId}, ${source}, ${contentEnabled}, ${retentionDays}, ${expectedEveryMinutes})
       ON CONFLICT (user_id, source) DO UPDATE
-      SET content_enabled = EXCLUDED.content_enabled, retention_days = EXCLUDED.retention_days`;
-    return { source, contentEnabled, retentionDays, ...retentionStatus(retentionDays) };
+      SET content_enabled = EXCLUDED.content_enabled, retention_days = EXCLUDED.retention_days,
+        expected_every_minutes = EXCLUDED.expected_every_minutes`;
+    return { source, contentEnabled, retentionDays, expectedEveryMinutes, ...retentionStatus(retentionDays) };
   });
 }
 

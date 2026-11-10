@@ -170,7 +170,7 @@ describe("device_silent", () => {
       ...feed(id, 100, "phone", 24),
       freshness: "stale" as const,
       engineReads: id === "a",
-      threshold: { warnHours: 24, errorHours: 72, from: "default" }
+      threshold: { warnHours: 24, errorHours: 72, from: "default" as const }
     });
     const { items } = sourceItems(
       slice({ sources: [stale("a"), stale("b")], devices: [device(["a", "b"], 100)] }),
@@ -582,11 +582,183 @@ describe("a source that reports coverage", () => {
   });
 });
 
+describe("a source judged on its own rhythm", () => {
+  const learned = { warnHours: 72, errorHours: 144, from: "learned", gaps: 20, usualMinutes: 1440 } as const;
+  const inbox = (extra: Partial<DoctorSourceInput> = {}) =>
+    source("inbox", {
+      name: "Demo inbox",
+      activitySource: "inbox",
+      changesPlan: true,
+      messageSource: true,
+      freshness: "stale",
+      lastSuccessAt: hoursAgo(150),
+      threshold: learned,
+      coverage: { coveredTo: hoursAgo(150), heartbeat: null, holes14d: 0 },
+      ...extra
+    });
+  const first = (input: DoctorSourceInput) => sourceItems(slice({ sources: [input] }), NOW).items[0]!;
+
+  it("words a real limit against the source's usual rhythm and blocks at stale", () => {
+    const item = first(inbox());
+    expect(item.tier).toBe("blocking");
+    expect(item.title).toBe(
+      "Demo inbox is read up to 2026-11-03 06:00 UTC, 6 days behind its usual rhythm of one update every 1 d"
+    );
+    expect(item.why).toContain("late after 3 d and stale after 6 d");
+    expect(item.why).toContain("learned");
+  });
+
+  it("tells the agent to ask the owner to set how often the source is expected, with the exact call and no number", () => {
+    const { question } = first(inbox()).fix;
+    expect(question).toContain("Ask the owner");
+    expect(question).toContain("PUT /api/activity-sources/inbox");
+    expect(question).toContain('{"expectedEveryMinutes": MINUTES}');
+    expect(question).toContain("`rhen sources inbox`");
+    expect(question).not.toMatch(/expectedEveryMinutes": \d/);
+  });
+
+  it("never blocks on a provisional limit, and says how many more updates make it final", () => {
+    const provisional = inbox({
+      threshold: {
+        warnHours: 72,
+        errorHours: 144,
+        from: "provisional",
+        gaps: 3,
+        usualMinutes: 1440,
+        provisional: { moreUpdates: 3, moreHours: 0 }
+      }
+    });
+    const item = first(provisional);
+    expect(item.tier).toBe("degrading");
+    expect(item.why).toContain("judged on 3 gaps; becomes final after 3 more updates");
+  });
+
+  it("says a provisional limit waits on history when the updates are enough", () => {
+    const item = first(
+      inbox({
+        threshold: {
+          warnHours: 1.5,
+          errorHours: 3,
+          from: "provisional",
+          gaps: 7,
+          usualMinutes: 30,
+          provisional: { moreUpdates: 0, moreHours: 20 }
+        }
+      })
+    );
+    expect(item.why).toContain("judged on 7 gaps; becomes final after 20 h more history");
+  });
+
+  it("raises nothing for a source with no rhythm yet, and keeps it out of what the plan is behind on", () => {
+    const young = inbox({
+      freshness: "n/a",
+      threshold: null,
+      noRhythm: { updates: 2, gaps: 1 },
+      coverage: { coveredTo: hoursAgo(300), heartbeat: null, holes14d: 0 }
+    });
+    expect(sourceItems(slice({ sources: [young] }), NOW).items).toEqual([]);
+    const result = planInputs(slice({ sources: [young] }), NOW);
+    expect(result.complete).toBe(true);
+    expect(result.behind).toEqual([]);
+    expect(result.note).toContain("Demo inbox reports 2 updates and has no rhythm yet");
+    expect(result.note).toContain("nothing is judged late");
+    expect(result.note).toContain("`rhen sources inbox`");
+    expect(result.note).not.toMatch(/\d+ h/);
+  });
+
+  it("does not call the plan complete while a source that can change it is provisional and late: it stays non-blocking and names the exact call", () => {
+    const provisional = inbox({
+      threshold: { ...learned, from: "provisional", gaps: 3, provisional: { moreUpdates: 3, moreHours: 0 } }
+    });
+    expect(first(provisional).tier).toBe("degrading");
+    const result = planInputs(slice({ sources: [provisional] }), NOW);
+    expect(result.complete).toBe(false);
+    expect(result.behind).toMatchObject([{ source: "inbox", state: "stale" }]);
+    expect(result.sentence).toContain("`rhen sources inbox`");
+    expect(result.note).toContain("judged on 3 gaps");
+    expect(result.note).toContain("does not block");
+  });
+
+  it("a provisional source that is fresh keeps the plan complete", () => {
+    const fresh = inbox({
+      freshness: "fresh",
+      lastSuccessAt: hoursAgo(1),
+      threshold: { ...learned, from: "provisional", gaps: 3, provisional: { moreUpdates: 3, moreHours: 0 } }
+    });
+    expect(planInputs(slice({ sources: [fresh] }), NOW).complete).toBe(true);
+  });
+
+  it("keeps blocking an hourly source for days: the abandonment floor is 7 days, not 3 x its stale limit", () => {
+    const hourly = (hours: number) =>
+      inbox({
+        lastSuccessAt: hoursAgo(hours),
+        coverage: { coveredTo: hoursAgo(hours), heartbeat: null, holes14d: 0 },
+        threshold: { warnHours: 3, errorHours: 6, from: "learned", gaps: 40, usualMinutes: 60 }
+      });
+    expect(first(hourly(30)).tier).toBe("blocking");
+    expect(first(hourly(160)).tier).toBe("blocking");
+    const gone = first(hourly(180));
+    expect(gone.tier).toBe("degrading");
+    expect(gone.why).toContain("probably been retired");
+    expect(planInputs(slice({ sources: [hourly(160)] }), NOW).complete).toBe(false);
+    expect(planInputs(slice({ sources: [hourly(180)] }), NOW).complete).toBe(true);
+  });
+
+  it("stops blocking once the source is more than 3 x its stale limit behind, and says it was probably retired", () => {
+    const abandoned = inbox({
+      lastSuccessAt: hoursAgo(440),
+      coverage: { coveredTo: hoursAgo(440), heartbeat: null, holes14d: 0 }
+    });
+    const item = first(abandoned);
+    expect(item.tier).toBe("degrading");
+    expect(item.why).toContain("probably been retired");
+    expect(item.fix.question).toContain(
+      "Ask the owner to remove its token (`rhen agent-token list` shows it) or to make it send once"
+    );
+    const result = planInputs(slice({ sources: [abandoned] }), NOW);
+    expect(result.behind).toEqual([]);
+    expect(result.note).toContain("Demo inbox has probably been retired");
+    expect(first(inbox({ lastSuccessAt: hoursAgo(430) })).tier).toBe("blocking");
+  });
+
+  it("waits to block until 1.5 x the last long gap when the rhythm just changed, and says so", () => {
+    const changed = (hours: number) =>
+      inbox({
+        lastSuccessAt: hoursAgo(hours),
+        coverage: { coveredTo: hoursAgo(hours), heartbeat: null, holes14d: 0 },
+        threshold: { ...learned, rhythmChanged: { lastGapHours: 168 } }
+      });
+    const waiting = first(changed(200));
+    expect(waiting.tier).toBe("degrading");
+    expect(waiting.why).toContain("usual rhythm changed (last gap 7 d), not blocking until confirmed");
+    expect(first(changed(260)).tier).toBe("blocking");
+  });
+
+  it("blocks on an owner or declared limit from day one, and shows both numbers when they differ by more than 3 x", () => {
+    expect(
+      first(
+        inbox({
+          threshold: { warnHours: 72, errorHours: 144, from: "owner", expectedEveryMinutes: 1440, usualMinutes: 1440 }
+        })
+      ).tier
+    ).toBe("blocking");
+    const declared = first(
+      inbox({
+        lastSuccessAt: hoursAgo(30),
+        threshold: { warnHours: 12, errorHours: 24, from: "collector", observedWarnHours: 144 }
+      })
+    );
+    expect(declared.tier).toBe("blocking");
+    expect(declared.why).toContain("Observed slower than declared");
+    expect(declared.why).toContain("6 d");
+  });
+});
+
 describe("planInputs", () => {
   const msg = (id: string, extra: Partial<DoctorSourceInput> = {}) =>
     source(id, { changesPlan: true, name: `Name ${id}`, ...extra });
   it("is complete when every source that can change the plan is fresh, and says nothing", () => {
-    expect(planInputs(slice({ sources: [msg("a")] }))).toEqual({
+    expect(planInputs(slice({ sources: [msg("a")] }), NOW)).toEqual({
       complete: true,
       behind: [],
       sentence: null,
@@ -594,13 +766,18 @@ describe("planInputs", () => {
     });
   });
   it("is complete with no such source, and ignores sources that cannot change the plan or are not set up", () => {
-    expect(planInputs(slice({ sources: [source("a", { freshness: "stale" })] })).complete).toBe(true);
-    expect(planInputs(slice({ sources: [msg("a", { freshness: "never", configured: false })] })).complete).toBe(true);
+    expect(planInputs(slice({ sources: [source("a", { freshness: "stale" })] }), NOW).complete).toBe(true);
+    expect(planInputs(slice({ sources: [msg("a", { freshness: "never", configured: false })] }), NOW).complete).toBe(
+      true
+    );
   });
   it.each(["n/a", "probe_unresolved"] as const)(
     "is incomplete when a source that changes the plan reports nothing that says how far it is read (%s)",
     (freshness) => {
-      const result = planInputs(slice({ sources: [msg("a", { freshness, lastSuccessAt: null, threshold: null })] }));
+      const result = planInputs(
+        slice({ sources: [msg("a", { freshness, lastSuccessAt: null, threshold: null })] }),
+        NOW
+      );
       expect(result.complete).toBe(false);
       expect(result.behind).toEqual([{ source: "a", name: "Name a", coveredTo: null, state: "unchecked" }]);
       expect(result.sentence).toContain("`rhen sources a`");
@@ -609,14 +786,14 @@ describe("planInputs", () => {
     }
   );
   it("says plainly that a message source not marked as changing the plan is not covered", () => {
-    const result = planInputs(slice({ sources: [source("mail", { name: "Mail", messageSource: true })] }));
+    const result = planInputs(slice({ sources: [source("mail", { name: "Mail", messageSource: true })] }), NOW);
     expect(result.complete).toBe(true);
     expect(result.note).toContain("Not covered by this statement: Mail.");
     expect(result.note).toContain("post a coverage row");
-    expect(planInputs(slice({ sources: [msg("a", { messageSource: true })] })).note).toBeNull();
+    expect(planInputs(slice({ sources: [msg("a", { messageSource: true })] }), NOW).note).toBeNull();
   });
   it.each(["late", "stale", "failing", "never"] as const)("is incomplete when a source is %s", (freshness) => {
-    const result = planInputs(slice({ sources: [msg("a", { freshness, lastSuccessAt: hoursAgo(30) })] }));
+    const result = planInputs(slice({ sources: [msg("a", { freshness, lastSuccessAt: hoursAgo(30) })] }), NOW);
     expect(result.complete).toBe(false);
     expect(result.behind).toEqual([{ source: "a", name: "Name a", coveredTo: expect.any(String), state: freshness }]);
   });
@@ -630,7 +807,8 @@ describe("planInputs", () => {
             coverage: { coveredTo: "2026-11-07T03:30:00.000Z", heartbeat: null, holes14d: 0 }
           })
         ]
-      })
+      }),
+      NOW
     );
     expect(result.sentence).toBe(
       "This plan is built from messages read up to 2026-11-07 03:30 UTC (2 sources behind: Name a, Name b). Anything newer is not in it. Run `rhen sources a` for each source that is behind (`rhen sources --problems` lists them)."
@@ -646,7 +824,8 @@ describe("planInputs", () => {
             coverage: { coveredTo: null, heartbeat: null, holes14d: 0 }
           })
         ]
-      })
+      }),
+      NOW
     );
     expect(result.sentence).toContain("built without knowing how far messages from Name a are read");
     expect(result.sentence).toContain("`rhen sources a`");
