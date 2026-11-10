@@ -965,6 +965,10 @@ export const MCP_TOOL_MANIFEST_DATA: McpToolManifestEntry[] = [
               description:
                 'Alternative routes, each a list of condition ids that must all hold: e.g. [["ctx-a"]] or [["ctx-a","ctx-b"],["ctx-c"]]. A route may instead be {id, contextIds}; the bare list needs no id.'
             },
+            requires: {
+              type: "array",
+              items: {}
+            },
             preferences: {
               type: "array",
               items: {

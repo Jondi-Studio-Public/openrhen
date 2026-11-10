@@ -6,10 +6,13 @@ import type {
   ConditionReach,
   CurrentSituation,
   LiveHold,
+  PersonHold,
   RequirementPathway,
   Truth
 } from "./context-model.js";
 import { resolveJourney, resolveMode, type JourneyIndex } from "./journey.js";
+import { presenceHolds } from "./person-presence.js";
+import { parseRequirementKey, type ParsedRequirementKey } from "./requirement-key.js";
 
 /**
  * The single condition matcher. It lives in contracts rather than the engine because the portal is
@@ -31,6 +34,12 @@ export interface ResolvedSituation {
   travelTo?(locationId: string): ConditionReach | undefined;
   /** Hold copy for a `live` condition that is not currently satisfied, or undefined otherwise. */
   commitmentHoldOf?(conditionId: string): LiveHold | undefined;
+  /** How this resolver reads a requirement key: the same parse, with its own definitions deciding a collision. */
+  parseKey?(key: string): ParsedRequirementKey;
+  /** Contact ids the owner waived for this action or step ("do it without them"), while the waiver holds. */
+  waivedFor?(subjectId: string): ReadonlySet<string>;
+  /** Start of the next confirmed in-person commitment with the contact, ISO, when one is known. */
+  nextWithCommitmentOf?(contactId: string): string | undefined;
 }
 
 /**
@@ -47,6 +56,10 @@ export type ResolutionSource =
   | { kind: "reachable-remotely"; truth: Truth }
   | { kind: "composite"; truth: Truth }
   | { kind: "live"; truth: Truth }
+  /** `x@with`: the owner said the person is here today, or a confirmed in-person commitment with them is running. */
+  | { kind: "present"; truth: Truth }
+  /** `x@with` with nothing said: unknown, or no when the owner said they are away. */
+  | { kind: "presence-unknown"; truth: Truth }
   | { kind: "location-unknown"; truth: Truth }
   | { kind: "undefined"; truth: Truth };
 
@@ -71,6 +84,10 @@ export interface CommitmentWindow {
   status?: string | undefined;
   /** Used only for hold copy ("Only during <title>"); resolution itself never reads this. */
   title?: string | undefined;
+  /** The contact this commitment is with. Read only by a `x@with` requirement. */
+  contactId?: string | undefined;
+  /** "remote" is a call: it proves contact, not presence. Absent means in person. Read only by `x@with`. */
+  attendance?: string | undefined;
 }
 
 /**
@@ -130,6 +147,14 @@ function commitmentHoldOf(
   };
 }
 
+/** Confirmed, in-person (or attendance-less) commitments with the contact; a call never counts as presence. */
+function inPersonWith(contactId: string, commitments: CommitmentWindow[]): CommitmentWindow[] {
+  return commitments.filter(
+    (commitment) =>
+      commitment.status === "confirmed" && commitment.contactId === contactId && commitment.attendance !== "remote"
+  );
+}
+
 export function resolveSituation(args: {
   situation: CurrentSituation;
   definitions: ConditionDefinition[];
@@ -157,6 +182,35 @@ export function resolveSituation(args: {
   const locationStale = args.situation.locationId !== null && ageMinutes !== undefined && ageMinutes > staleAfter;
   const locationId = locationStale ? null : args.situation.locationId;
   const location = locationId === null ? undefined : byId.get(locationId);
+
+  const parseKey = (key: string): ParsedRequirementKey => parseRequirementKey(key, (id) => byId.has(id));
+  const timeZone = args.timeZone;
+
+  /** `x@with`: said by the owner and still today, or a confirmed in-person commitment with them running now. */
+  const withTruth = (contactId: string): { truth: Truth; source: string } => {
+    const definition = byId.get(contactId);
+    if (!definition || definition.status === "archived" || definition.kind !== "contact")
+      return { truth: "no", source: "undefined" };
+    const said = args.situation.presence?.[contactId];
+    const saidNow = said !== undefined && presenceHolds(said, args.now, timeZone);
+    if (saidNow && said.state === "away") return { truth: "no", source: "overridden" };
+    if (saidNow && said.state === "here") return { truth: "yes", source: "present" };
+    const nowMs = args.now.getTime();
+    const running = inPersonWith(contactId, args.commitments ?? []).some(
+      (commitment) => new Date(commitment.startsAt).getTime() <= nowMs && nowMs < new Date(commitment.endsAt).getTime()
+    );
+    return running ? { truth: "yes", source: "present" } : { truth: "unknown", source: "presence-unknown" };
+  };
+
+  /** `x@remote`: today's reachable reading, spelled out so a missing channel is a refusal and not a guess. */
+  const remoteTruth = (contactId: string): Truth => {
+    const definition = byId.get(contactId);
+    if (!definition || definition.status === "archived" || definition.kind !== "contact") return "no";
+    const override = args.situation.overrides[contactId];
+    if (override) return override === "available" ? "yes" : "no";
+    if (definition.channels.some((channel) => channel !== "in_person")) return "yes";
+    return definition.channels.length ? "no" : "unknown";
+  };
 
   const memo = new Map<string, Truth>();
   const stack = new Set<string>();
@@ -233,6 +287,18 @@ export function resolveSituation(args: {
 
   const sourceOf = (conditionId: string): ResolutionSource => {
     const truth = resolve(conditionId);
+    const parsed = parseKey(conditionId);
+    if (parsed.tag === "with") {
+      const { source } = withTruth(parsed.id);
+      return { kind: source as "present" | "presence-unknown" | "overridden" | "undefined", truth };
+    }
+    if (parsed.tag === "remote") {
+      const definition = byId.get(parsed.id);
+      if (!definition || definition.status === "archived") return { kind: "undefined", truth };
+      return args.situation.overrides[parsed.id]
+        ? { kind: "overridden", truth }
+        : { kind: "reachable-remotely", truth };
+    }
     const definition = byId.get(conditionId);
     if (!definition || definition.status === "archived") return { kind: "undefined", truth };
     if (args.situation.overrides[conditionId]) return { kind: "overridden", truth };
@@ -247,6 +313,9 @@ export function resolveSituation(args: {
   };
 
   const compute = (conditionId: string): Truth => {
+    const parsed = parseKey(conditionId);
+    if (parsed.tag === "with") return withTruth(parsed.id).truth;
+    if (parsed.tag === "remote") return remoteTruth(parsed.id);
     const definition = byId.get(conditionId);
     // An undefined or archived condition fails closed. Reporting it as unknown would raise a question
     // with no answerable subject; as a miss it at least names what is wrong.
@@ -296,7 +365,23 @@ export function resolveSituation(args: {
       return [...cycles].sort();
     },
     resolve,
-    definitionOf: (conditionId: string) => byId.get(conditionId),
+    // A tagged key names the contact it tags, so a reader looking for the name or kind finds it.
+    definitionOf: (conditionId: string) => byId.get(parseKey(conditionId).id),
+    parseKey,
+    waivedFor: (subjectId: string) => {
+      const waiver = args.situation.waivers?.[subjectId];
+      const nowMs = args.now.getTime();
+      const holds = waiver !== undefined && Date.parse(waiver.setAt) <= nowMs && nowMs < Date.parse(waiver.until);
+      return new Set(holds ? waiver.people : []);
+    },
+    nextWithCommitmentOf: (contactId: string) => {
+      const nowMs = args.now.getTime();
+      const next = inPersonWith(contactId, args.commitments ?? [])
+        .map((commitment) => new Date(commitment.startsAt).getTime())
+        .filter((startMs) => startMs > nowMs)
+        .sort((a, b) => a - b)[0];
+      return next === undefined ? undefined : new Date(next).toISOString();
+    },
     sourceOf,
     travelTo,
     commitmentHoldOf: (conditionId: string) => {
@@ -311,13 +396,26 @@ export function evaluateConditions(args: {
   pathways: RequirementPathway[];
   preferences?: string[];
   resolved: ResolvedSituation;
+  /** The action or step being judged, so the owner's waiver for it ("do it without them") can apply. */
+  subjectId?: string;
 }): ConditionMatch {
   const resolve = args.resolved.resolve;
+  const waived = args.subjectId === undefined ? undefined : args.resolved.waivedFor?.(args.subjectId);
+  // A waiver lifts the person-presence requirement for this work only; every other condition still has to hold.
+  const pathways = waived?.size
+    ? args.pathways.map((pathway) => ({
+        ...pathway,
+        contextIds: pathway.contextIds.filter((key) => {
+          const parsed = args.resolved.parseKey?.(key) ?? parseRequirementKey(key);
+          return !(parsed.tag === "with" && waived.has(parsed.id));
+        })
+      }))
+    : args.pathways;
   const unmetPreferences = (args.preferences ?? []).filter((conditionId) => resolve(conditionId) !== "yes");
   // No stated requirements means no constraint, which is the only case where silence means yes.
-  if (!args.pathways.length) return { status: "yes", missing: [], unknowns: [], unmetPreferences };
+  if (!pathways.length) return { status: "yes", missing: [], unknowns: [], unmetPreferences };
 
-  const evaluated = args.pathways.map((pathway) => ({ pathway, ...evaluateConjunction(pathway.contextIds, resolve) }));
+  const evaluated = pathways.map((pathway) => ({ pathway, ...evaluateConjunction(pathway.contextIds, resolve) }));
   const satisfied = evaluated.find((entry) => entry.status === "yes");
   if (satisfied) {
     return { status: "yes", satisfiedPathwayId: satisfied.pathway.id, missing: [], unknowns: [], unmetPreferences };
@@ -335,7 +433,13 @@ export function evaluateConditions(args: {
   };
   const reach = reachableVia(best, args.resolved);
   const hold = commitmentHoldVia(best, args.resolved);
-  return { ...match, ...(reach ? { reachableVia: reach } : {}), ...(hold ? { commitmentHold: hold } : {}) };
+  const people = personHoldVia(best, args.resolved);
+  return {
+    ...match,
+    ...(reach ? { reachableVia: reach } : {}),
+    ...(hold ? { commitmentHold: hold } : {}),
+    ...(people ? { personHold: people } : {})
+  };
 }
 
 export function evaluateConjunction(contextIds: string[], resolve: (conditionId: string) => Truth): ConjunctionResult {
@@ -416,4 +520,66 @@ function commitmentHoldVia(entry: ConjunctionResult, resolved: ResolvedSituation
   const definition = resolved.definitionOf(entry.missing[0]!);
   if (!definition || definition.kind !== "live") return undefined;
   return resolved.commitmentHoldOf?.(definition.id);
+}
+
+/**
+ * The same "blocked by exactly this" test for people: when every thing in the way of the closest
+ * pathway is a `x@with` requirement, the work is waiting on those people and the hold names them. A place
+ * missing as well means the place is the reason (and the work is not here to wait for anyone), so no hold.
+ * `no` is a person the owner said is away; `unknown` is nobody having said.
+ */
+function personHoldVia(
+  entry: { pathway: RequirementPathway } & ConjunctionResult,
+  resolved: ResolvedSituation
+): PersonHold | undefined {
+  const blockers = new Set([...entry.missing, ...entry.unknowns]);
+  if (!blockers.size) return undefined;
+  const people: PersonHold["people"] = [];
+  for (const key of entry.pathway.contextIds) {
+    if (!blockers.has(key)) continue;
+    const parsed = resolved.parseKey?.(key) ?? parseRequirementKey(key);
+    if (parsed.tag !== "with") return undefined;
+    const name = resolved.definitionOf(parsed.id)?.name;
+    if (!name) return undefined;
+    if (people.some((person) => person.contactId === parsed.id)) continue;
+    people.push({ contactId: parsed.id, name, state: entry.missing.includes(key) ? "no" : "unknown" });
+  }
+  if (!people.length) return undefined;
+  const list = (items: string[]) => new Intl.ListFormat("en", { style: "long", type: "conjunction" }).format(items);
+  const waiting = people.filter((person) => person.state === "unknown").map((person) => person.name);
+  const away = people.filter((person) => person.state === "no").map((person) => person.name);
+  const parts = [
+    ...(waiting.length ? [`Waiting on ${list(waiting)}`] : []),
+    ...(away.length ? [`${list(away)} ${away.length === 1 ? "is" : "are"} away`] : [])
+  ];
+  const availableFrom = people.length === 1 ? resolved.nextWithCommitmentOf?.(people[0]!.contactId) : undefined;
+  return {
+    people,
+    unavailableReason: `${parts.join("; ")}.`,
+    ...(availableFrom ? { availableFrom } : {})
+  };
+}
+
+/**
+ * Whether this work is waiting on people, whatever else is true of it: every alternative route needs someone
+ * (`x@with`) and, judged on those people alone, none of the routes is met. The planner uses it to leave the work
+ * out of the plan, because planning it into a window on a guess about who will be there is the thing a
+ * requirement on a person exists to stop; the place is judged separately (it can be travelled to, a person cannot
+ * be summoned). A route with no person in it, or a person the owner waived for this work, means it is not waiting.
+ */
+export function personWait(args: {
+  pathways: RequirementPathway[];
+  resolved: ResolvedSituation;
+  subjectId?: string;
+}): PersonHold | undefined {
+  if (!args.pathways.length) return undefined;
+  const isWith = (key: string) => (args.resolved.parseKey?.(key) ?? parseRequirementKey(key)).tag === "with";
+  const peopleOnly = args.pathways.map((pathway) => ({ ...pathway, contextIds: pathway.contextIds.filter(isWith) }));
+  if (peopleOnly.some((pathway) => pathway.contextIds.length === 0)) return undefined;
+  const match = evaluateConditions({
+    pathways: peopleOnly,
+    resolved: args.resolved,
+    ...(args.subjectId === undefined ? {} : { subjectId: args.subjectId })
+  });
+  return match.status === "yes" ? undefined : match.personHold;
 }

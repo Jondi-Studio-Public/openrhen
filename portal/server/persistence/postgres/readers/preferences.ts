@@ -4,6 +4,7 @@ import { parseDeviceLocationState } from "@/server/location/observation-policy";
 import { defaultPlanningSettings, type PortalState } from "@/state/portal-state";
 import type { LeftJoined, Row } from "../db-row";
 import { parseCurrentSituation } from "../current-situation";
+import { withoutConsumedWaivers } from "../waiver-consumption";
 import { numberOr } from "../row-values";
 import type { Sql } from "../sql-pool";
 
@@ -171,7 +172,7 @@ export async function readPreferences(sql: Sql, userId: string): Promise<Prefere
       ? (preferences[0]!.asserted_conditions as string[])
       : ["home"],
     currentEnergy: preferences[0]?.current_energy ?? "medium",
-    currentSituation: parseCurrentSituation(preferences[0]?.current_situation),
+    currentSituation: await withoutConsumedWaivers(sql, parseCurrentSituation(preferences[0]?.current_situation)),
     // Only a "move" suggestion is actionable from the state document — an ambiguous or unmatched
     // reading has no single place to offer, and the read-only exposure was scoped to the one the Now
     // page can actually put a Confirm button on.

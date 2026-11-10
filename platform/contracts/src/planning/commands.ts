@@ -186,6 +186,12 @@ export const saveActionCommandSchema = z.object({
       requirementPathways: z
         .array(z.union([z.array(z.string().trim().min(1)).min(1), requirementPathwaySchema]))
         .optional(),
+      /**
+       * Shorthand for the conditions this needs, all of them: ids as they are, a person as `id@with` or
+       * `id@remote` (`requires.ts`). Checked against the owner's conditions and turned into the one pathway; when
+       * sent it wins over `requirementPathways` and `contexts`. `[]` clears. Never stored as such.
+       */
+      requires: z.array(z.unknown()).optional(),
       preferences: z.array(z.string().trim().min(1)).optional(),
       availableFrom: optionalDateTime,
       deadlineAt: optionalDateTime,

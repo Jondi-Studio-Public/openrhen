@@ -1,3 +1,4 @@
+import { dropWaiverFor } from "./current-situation";
 import { isClosedStatus } from "@openrhen/contracts";
 import { requestAgent } from "@/server/agent-actor";
 import type { SessionCommand } from "@openrhen/contracts";
@@ -490,6 +491,8 @@ export async function applySessionCommand(
         await tx`UPDATE actions SET last_worked_at=CASE WHEN ${terminal}='did_not_start' THEN last_worked_at ELSE ${endTime} END, version=version+1, updated_at=${at} WHERE id=${actionId}`;
       } else
         await tx`UPDATE actions SET status=${actionStatus}, remaining_minutes=${remainingAfter}, remaining_set_at=CASE WHEN ${remainingStated} THEN ${at} ELSE remaining_set_at END, estimate_needs_review=${needsReview}, assumed_fields=CASE WHEN ${remainingStated} THEN array_remove(assumed_fields,'remainingMinutes') ELSE assumed_fields END, last_worked_at=CASE WHEN ${terminal}='did_not_start' THEN last_worked_at ELSE ${endTime} END, completed_at=CASE WHEN ${terminal}='completed' THEN ${endTime} ELSE completed_at END, version=version+1, updated_at=${at} WHERE id=${actionId}`;
+      if (actionStatus === "done" && mode[0]?.scheduling_mode !== "cadence" && mode[0]?.scheduling_mode !== "recurring")
+        await dropWaiverFor(tx, actionId);
     }
   }
   return at;

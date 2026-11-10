@@ -13,6 +13,7 @@ import {
   stringList
 } from "./command-values";
 import { hasCycle } from "./graph-checks";
+import { readRequirementDefinitions, readStoredRoutes, routesFromRequires } from "./requires-write";
 import {
   assertNoPrerequisiteCycle,
   deletePrerequisitesOf,
@@ -51,6 +52,31 @@ export async function writeDeliverableAggregate(
   options: { skipPrerequisites?: boolean } = {}
 ): Promise<void> {
   const existing = await tx<{ id: string; private: boolean }[]>`SELECT id,private FROM deliverables WHERE id=${id}`;
+  // A step's `requires` is resolved before any row is written, so a refusal leaves every stored route alone.
+  const stepRoutes = new Map<string, string[][]>();
+  const stepsWithRequires = (Array.isArray(entity.steps) ? (entity.steps as Record<string, unknown>[]) : []).filter(
+    (step) => Array.isArray(step.requires)
+  );
+  if (stepsWithRequires.length) {
+    const definitions = await readRequirementDefinitions(tx, userId);
+    const stepRowIds = new Map<string, string>();
+    for (const step of stepsWithRequires) {
+      const raw = requiredText(step.id, "Step id");
+      stepRowIds.set(raw, await stableUuid(`deliverable-step:${id}`, raw));
+    }
+    const stored = await readStoredRoutes(tx, [...stepRowIds.values()]);
+    for (const step of stepsWithRequires) {
+      const raw = requiredText(step.id, "Step id");
+      stepRoutes.set(
+        raw,
+        routesFromRequires(step.requires as unknown[], definitions, stored.get(stepRowIds.get(raw)!) ?? [], {
+          id: raw,
+          ...(typeof step.title === "string" ? { title: step.title } : {}),
+          tool: "deliverable"
+        })
+      );
+    }
+  }
   const title = requiredText(entity.title, "Deliverable title");
   const status = optionalText(entity.status) ?? "needs_breakdown";
   const allowedDeliverableStatus: readonly string[] = [
@@ -232,7 +258,9 @@ export async function writeDeliverableAggregate(
     // uses (a step never had a notes column of its own).
     await tx`INSERT INTO actions (id,project_id,deliverable_id,title,notes,completion_condition,status,scheduling_mode,optimistic_minutes,expected_minutes,pessimistic_minutes,remaining_minutes,energy,minimum_session_minutes,maximum_session_minutes,splittable,setup_minutes,required,sort_order,completed_at,reblock_description,reblock_category) VALUES (${stepId},${projectId},${id},${requiredText(step.title, "Step title")},${optionalText(step.details)},${optionalText(step.completionCondition)},${stepStatus},'one_off',${optimistic},${expected},${pessimistic},${remaining},${requiredText(step.energy, "Energy")},${minimum},${maximum},${step.splittable !== false},${nonNegativeInt(step.setupMinutes ?? 0, "Setup time")},${step.required !== false},${order},${optionalDate(step.completedAt, "completedAt")},${reblockDescription},${reblockCategory})
       ON CONFLICT (id) DO UPDATE SET project_id=EXCLUDED.project_id,title=EXCLUDED.title,notes=EXCLUDED.notes,completion_condition=EXCLUDED.completion_condition,status=EXCLUDED.status,optimistic_minutes=EXCLUDED.optimistic_minutes,expected_minutes=EXCLUDED.expected_minutes,pessimistic_minutes=EXCLUDED.pessimistic_minutes,remaining_minutes=EXCLUDED.remaining_minutes,remaining_set_at=CASE WHEN EXCLUDED.remaining_minutes IS DISTINCT FROM actions.remaining_minutes THEN CURRENT_TIMESTAMP ELSE actions.remaining_set_at END,energy=EXCLUDED.energy,minimum_session_minutes=EXCLUDED.minimum_session_minutes,maximum_session_minutes=EXCLUDED.maximum_session_minutes,splittable=EXCLUDED.splittable,setup_minutes=EXCLUDED.setup_minutes,required=EXCLUDED.required,sort_order=EXCLUDED.sort_order,completed_at=EXCLUDED.completed_at,reblock_description=EXCLUDED.reblock_description,reblock_category=EXCLUDED.reblock_category,updated_at=CURRENT_TIMESTAMP`;
-    const pathways = Array.isArray(step.requirementPathways) ? (step.requirementPathways as unknown[]) : [];
+    const pathways =
+      stepRoutes.get(requiredText(step.id, "Step id")) ??
+      (Array.isArray(step.requirementPathways) ? (step.requirementPathways as unknown[]) : []);
     for (const [pathwayOrder, pathway] of pathways.entries()) {
       const contextKeys = stringList(
         Array.isArray(pathway) ? pathway : (pathway as Record<string, unknown>)?.contextIds

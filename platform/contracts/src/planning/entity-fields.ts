@@ -146,6 +146,7 @@ const deliverableStepSchema = z
     completedAt: dateTime.optional(),
     dependencyIds: stringList.optional(),
     requirementPathways: z.array(z.unknown()).optional().describe("string[][] or { id, contextIds }[] routes."),
+    requires: z.array(z.unknown()).optional().describe("Ids all needed; a person as id@with or id@remote."),
     reblockOnComplete: z.object({ description: text, category: text }).passthrough().optional()
   })
   .passthrough();
@@ -558,6 +559,11 @@ const currentAvailabilitySchema = entity({
   energyAsserted: z.boolean().optional().describe("true re-asserts the same energy so it counts as said now."),
   currentSituation: currentSituationSchema
     .partial()
+    // Said as verbs, never as the stored records: presence { id: "here" | "away" | null }, waivers { workId: [ids] | null }.
+    .extend({
+      presence: z.record(z.string(), z.enum(["here", "away"]).nullable()).optional(),
+      waivers: z.record(z.string(), z.array(z.string()).nullable()).optional()
+    })
     .passthrough()
     .optional()
     .describe(

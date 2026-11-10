@@ -17,6 +17,7 @@ import { countCatchUpUnsettled } from "./catch-up";
 import { readCadenceSlice } from "./doctor-cadence";
 import { readDuplicatesSlice } from "./doctor-duplicates";
 import { unregisteredDiffProfiles } from "./imports/calendar-diff";
+import { readPeopleSlice } from "./doctor-people";
 import { readPrerequisitesSlice } from "./doctor-prerequisites";
 import { readPublishingSlice } from "./doctor-publishing";
 import { readRecordingSlice } from "./doctor-recording";
@@ -414,6 +415,7 @@ export async function readDoctorReport(sql: PoolSql, opts: { now?: Date } = {}):
     openFindings,
     proposalsWaiting,
     prerequisites,
+    people,
     publishing,
     cadence,
     duplicates,
@@ -434,6 +436,7 @@ export async function readDoctorReport(sql: PoolSql, opts: { now?: Date } = {}):
     countOpenFindings(sql, userId),
     readProposalsWaiting(sql, userId),
     readPrerequisitesSlice(sql, userId, now),
+    readPeopleSlice(sql, userId, now),
     readPublishingSlice(sql, userId, now),
     readCadenceSlice(sql, userId, now),
     readDuplicatesSlice(sql, userId, now),
@@ -457,6 +460,7 @@ export async function readDoctorReport(sql: PoolSql, opts: { now?: Date } = {}):
     openFindings,
     proposalsWaiting,
     prerequisites,
+    people,
     publishing,
     cadence,
     duplicates,

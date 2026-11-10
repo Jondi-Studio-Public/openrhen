@@ -16,6 +16,7 @@ import type { Sql } from "../sql-pool";
 import { restoreBatch } from "../close-cascade";
 import { closeCommitmentAsSystem, type LockedSystemClose } from "../system-close";
 import { closeFutureOccurrences } from "../recurrence-end";
+import { assertNotRequiredByOpenWork } from "../close-rules";
 import { ImportConflictError } from "./import-conflict-error";
 import { isPrimarySourceCreate } from "./primary-source";
 
@@ -267,6 +268,7 @@ export async function upsertConditionDefinition(
     >`SELECT home_location_id FROM user_preferences WHERE user_id=${userId}`;
     if (home[0]?.home_location_id === id)
       throw new Error("This is your home location. Choose another home in Settings before archiving it.");
+    await assertNotRequiredByOpenWork(sql as never, userId, id, id);
   }
   // The same absent-versus-blank rule as the other upserts, expressed for an upsert-by-conflict: an
   // absent column keeps the row's own value, a carried one takes what the sheet said (or its default).

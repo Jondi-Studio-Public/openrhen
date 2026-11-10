@@ -23,7 +23,7 @@ UPDATE_ENGINE_STATE_READS=1 corepack pnpm --filter @openrhen/engine-core exec vi
 
 ### `state.commitments`
 
-`[].attendance`, `[].endsAt`, `[].freedFrom`, `[].id`, `[].latenessMatters`, `[].location`, `[].locationId`, `[].preferredLocationId`, `[].presence`, `[].recurrenceRuleId`, `[].routinePresetId`, `[].routineSource`, `[].scheduleSource`, `[].setupBeforeMinutes`, `[].startsAt`, `[].status`, `[].title`, `[].trackedEndedAt`, `[].transitionAfterMinutes`, `[].transportMode`
+`[].attendance`, `[].contactId`, `[].endsAt`, `[].freedFrom`, `[].id`, `[].latenessMatters`, `[].location`, `[].locationId`, `[].preferredLocationId`, `[].presence`, `[].recurrenceRuleId`, `[].routinePresetId`, `[].routineSource`, `[].scheduleSource`, `[].setupBeforeMinutes`, `[].startsAt`, `[].status`, `[].title`, `[].trackedEndedAt`, `[].transitionAfterMinutes`, `[].transportMode`
 
 ### `state.conditionDefinitions`
 
@@ -31,7 +31,7 @@ UPDATE_ENGINE_STATE_READS=1 corepack pnpm --filter @openrhen/engine-core exec vi
 
 ### `state.currentSituation`
 
-`carrying`, `energySetAt`, `locationId`, `locationSetAt`, `overrides.campus`, `overrides.home`, `stretch`, `transportModes[]`, `travel`, `travelOff`, `travelRefreshedAt`
+`carrying`, `energySetAt`, `locationId`, `locationSetAt`, `overrides.campus`, `overrides.home`, `stretch`, `transportModes[]`, `travel`, `travelOff`, `travelRefreshedAt`, `waivers`
 
 ### `state.deliverables`
 

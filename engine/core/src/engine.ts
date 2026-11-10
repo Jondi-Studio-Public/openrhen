@@ -28,6 +28,7 @@ import {
   evaluateConditions,
   nextStaleAt,
   openSessionTitle,
+  personWait,
   planRoutineStepReconciliation,
   prerequisiteKey,
   prerequisiteNodes,
@@ -40,6 +41,7 @@ import {
   zonedDateTime,
   type Freshness,
   type JourneyIndex,
+  type ResolvedSituation,
   type UnmetPrerequisite
 } from "@openrhen/contracts";
 import type { StartByWarning } from "@openrhen/contracts";
@@ -317,7 +319,7 @@ export function calculatePlanAndForecast(input: PlanForecastRequest): PlanForeca
   const occurrences = materializedOccurrences.map((occurrence) =>
     covered(occurrence) ? { ...occurrence, routineCovered: true } : occurrence
   );
-  const planning = prepare(derivedState, now, horizonEnd, sleepPlans, occurrences);
+  const planning = prepare(derivedState, now, horizonEnd, sleepPlans, occurrences, protectedNow);
   const commitmentIdsPass2 = new Set(commitmentsPass2.map((item) => item.id));
   const allCommitments = [
     ...allCommitmentsBase,
@@ -1433,8 +1435,17 @@ function prepare(
   now: Date,
   horizonEnd: Date,
   sleepPlans: WireState["sleepPlans"] | SleepPlan[],
-  occurrences: WireState["occurrences"] | ActionOccurrence[]
+  occurrences: WireState["occurrences"] | ActionOccurrence[],
+  commitments: FixedCommitment[] = []
 ) {
+  // Who is with the owner right now, for work that needs a person. Judged against the present only.
+  const resolvedNow = resolveSituation({
+    situation: state.currentSituation ?? currentSituationSchema.parse({}),
+    definitions: state.conditionDefinitions ?? [],
+    now,
+    commitments,
+    timeZone: state.settings.timezone
+  });
   const projects: Project[] = state.projects.map((project) => {
     const outcome = state.outcomes.find((candidate) => candidate.id === project.outcomeId);
     // Learned calibration (logic design §5): the area's own factor, else everyone's.
@@ -1485,7 +1496,7 @@ function prepare(
   );
   const baseActions = state.actions
     .filter((action) => action.schedulingMode !== "recurring" && !deliverableActionIds.has(action.id))
-    .map((action) => hydrateAction(action, statuses, now, cadenceCoveredIds, unmet));
+    .map((action) => hydrateAction(action, statuses, now, cadenceCoveredIds, unmet, resolvedNow));
   const recurringActions = state.actions
     .filter((action) => action.schedulingMode === "recurring" && action.recurrence)
     .flatMap((template): Action[] => {
@@ -1497,7 +1508,7 @@ function prepare(
       const exact = pending
         .filter((occurrence) => new Date(occurrence.windowStartsAt) < exactEnd && !covered(occurrence))
         .map((occurrence): Action => ({
-          ...hydrateAction(template, statuses, now, cadenceCoveredIds, unmet),
+          ...hydrateAction(template, statuses, now, cadenceCoveredIds, unmet, resolvedNow),
           id: occurrence.id,
           title: `${template.title} · ${occurrence.windowName}`,
           remainingMinutes: template.expectedMinutes,
@@ -1562,7 +1573,7 @@ function prepare(
           if (!occurrenceCount) continue;
           const bandMinutes = laterMinutes * occurrenceCount;
           later.push({
-            ...hydrateAction(template, statuses, now, cadenceCoveredIds, unmet),
+            ...hydrateAction(template, statuses, now, cadenceCoveredIds, unmet, resolvedNow),
             id: `${template.id}:${bandConfig.kind}`,
             title: `${template.title} · ${bandConfig.kind}`,
             remainingMinutes: bandMinutes,
@@ -1599,8 +1610,14 @@ function hydrateAction(
   statuses: Map<string, string>,
   now: Date,
   cadenceCoveredIds: ReadonlySet<string>,
-  unmet: ReadonlyMap<string, UnmetPrerequisite[]>
+  unmet: ReadonlyMap<string, UnmetPrerequisite[]>,
+  resolvedNow: ResolvedSituation
 ): Action {
+  const personHold = personWait({
+    pathways: action.requirementPathways,
+    resolved: resolvedNow,
+    subjectId: action.id
+  });
   // Own same-kind edges are judged from `statuses` below; what is left is another kind of prerequisite
   // or one inherited from the project (`planning/prerequisites.ts`).
   const waitingOn = (unmet.get(prerequisiteKey({ kind: "action", id: action.id })) ?? []).filter(
@@ -1661,6 +1678,7 @@ function hydrateAction(
     ...(cadence ? { cadence } : {}),
     ...(availableFrom ? { availableFrom } : {}),
     ...(unavailableReason ? { unavailableReason } : {}),
+    ...(personHold ? { waitingOnPeople: personHold.people.map((person) => person.name) } : {}),
     ...(action.deadlineAt ? { deadlineAt: new Date(action.deadlineAt) } : {}),
     ...(action.latestStartAt ? { latestStartAt: new Date(action.latestStartAt) } : {}),
     ...(action.lastWorkedAt ? { lastWorkedAt: new Date(action.lastWorkedAt) } : {}),
@@ -2140,6 +2158,8 @@ function protectedCommitments(state: WireState, commitmentRepeats: FixedCommitme
         // for whatever wants the preference.
         ...(item.locationId !== undefined && item.attendance !== "remote" ? { locationId: item.locationId } : {}),
         ...(item.attendance !== undefined ? { attendance: item.attendance } : {}),
+        // Read only by a `x@with` requirement: who this commitment is with.
+        ...(item.contactId !== undefined ? { contactId: item.contactId } : {}),
         ...(item.preferredLocationId !== undefined ? { preferredLocationId: item.preferredLocationId } : {}),
         ...(item.presence !== undefined ? { presence: item.presence } : {}),
         ...(item.latenessMatters !== undefined ? { latenessMatters: item.latenessMatters } : {}),

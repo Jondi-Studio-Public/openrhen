@@ -267,7 +267,11 @@ export function planSchedule(args: ScheduleArguments): PlanningResult {
   for (const id of dependencies.order) {
     const action = remainingActionsById.get(id);
     if (!action) continue;
-    const selfStuck = action.status === "blocked" || action.status === "waiting" || Boolean(action.waitingOn?.length);
+    const selfStuck =
+      action.status === "blocked" ||
+      action.status === "waiting" ||
+      Boolean(action.waitingOn?.length) ||
+      Boolean(action.waitingOnPeople?.length);
     heldBack.set(id, selfStuck || (action.dependencyIds ?? []).some(stuckDependency));
   }
   /** Names the nearest real obstacle in a held-back chain, walking toward it one hop at a time. */
@@ -275,6 +279,8 @@ export function planSchedule(args: ScheduleArguments): PlanningResult {
     let cursor = actionId;
     const ownWaiting = remainingActionsById.get(actionId)?.waitingOn;
     if (ownWaiting?.length) return `waiting on: ${ownWaiting.join(", ")}`;
+    const ownPeople = remainingActionsById.get(actionId)?.waitingOnPeople;
+    if (ownPeople?.length) return `waiting on: ${ownPeople.join(", ")}`;
     for (let hop = 0; hop < 32; hop += 1) {
       const cursorAction = remainingActionsById.get(cursor);
       const stuckDependencyId = (cursorAction?.dependencyIds ?? []).find(stuckDependency);
