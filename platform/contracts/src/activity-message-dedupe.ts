@@ -9,7 +9,11 @@
  * is the unique key's job, and a source's own ids are trusted. Pure and vendor-neutral; the store gathers the held
  * rows and applies the verdict. See docs/operations/posting-messages.md and docs/architecture/activity-store.md.
  */
-import { MESSAGE_FINGERPRINT_ATTR, MESSAGE_FINGERPRINT_TIME_TOLERANCE_SECONDS } from "./activity-message.js";
+import {
+  MESSAGE_FINGERPRINT_ATTR,
+  MESSAGE_FINGERPRINT_TIME_TOLERANCE_SECONDS,
+  normaliseMessageId
+} from "./activity-message.js";
 
 /** How a copy was recognised. */
 export type MessageDuplicateBy = "message_id" | "fingerprint";
@@ -40,12 +44,22 @@ export interface MessageCopyProbe {
   attrs: Readonly<Record<string, unknown>>;
 }
 
-/** A row the store already holds. `fp` is its `attrs.fp`, null when it has none. */
+/**
+ * A row the store already holds. `fp` is its `attrs.fp`, null when it has none. The rest is what supersession needs
+ * (`findThinReplacements`); `findMessageDuplicates` ignores it: `id` the row's id, `thin` it holds no text, `viaImport`
+ * it came from an explicit file import, `family` its source is in the `message@1` family, `messageId` its
+ * `attrs.message_id` as the store normalised it (null when it has none).
+ */
 export interface HeldMessageRef {
   source: string;
   key: string;
   tsStart: Date;
   fp: string | null;
+  id?: string;
+  thin?: boolean;
+  viaImport?: boolean;
+  family?: boolean;
+  messageId?: string | null;
 }
 
 const TOLERANCE_MS = MESSAGE_FINGERPRINT_TIME_TOLERANCE_SECONDS * 1000;
@@ -146,4 +160,102 @@ export function findMessageDuplicates(
     else kept.push(event);
   }
   return duplicates;
+}
+
+/** Which side of a supersession an incoming event is: an import row holding text, or a thin row holding none. */
+export type ThinReplacementRole = "superseder" | "thin";
+
+/** An incoming event the supersession check looks at. `superseder`: from an explicit import, with text after the gate. `thin`: a mail-like row outside the family with no text after the gate. */
+export interface ThinReplacementProbe extends MessageCopyProbe {
+  role: ThinReplacementRole;
+}
+
+/** One link to write: the incoming event either replaces a thin held row, or is itself replaced by a held import row. */
+export interface ThinReplacement {
+  /** The incoming event's position in the batch. */
+  index: number;
+  source: string;
+  key: string;
+  role: "replaces" | "replaced_by";
+  /** The held row on the other side of the link; `id` is for the store and is not reported. */
+  other: { source: string; key: string; id: string };
+  by: MessageDuplicateBy;
+}
+
+/**
+ * The message id an event may be matched on across sources, normalised the way the key is (`normaliseMessageId`):
+ * `attrs.message_id` when it has the RFC shape, else the id inside a `mid:` key. Undefined for anything else, so a bare
+ * chat id is never matched across sources. Raw mail ids arrive unnormalised, which is why this normalises.
+ */
+export function matchedMessageId(probe: Pick<MessageCopyProbe, "key" | "attrs">): string | undefined {
+  const raw = probe.attrs.message_id;
+  if (typeof raw === "string") {
+    const id = normaliseMessageId(raw);
+    if (isRfcMessageId(id)) return id;
+  }
+  if (probe.key.startsWith("mid:")) {
+    const id = normaliseMessageId(probe.key.slice(4));
+    if (isRfcMessageId(id)) return id;
+  }
+  return undefined;
+}
+
+function heldMessageId(row: HeldMessageRef): string | undefined {
+  if (typeof row.messageId === "string") {
+    const id = normaliseMessageId(row.messageId);
+    return isRfcMessageId(id) ? id : undefined;
+  }
+  return row.key.startsWith("mid:") && isRfcMessageId(normaliseMessageId(row.key.slice(4)))
+    ? normaliseMessageId(row.key.slice(4))
+    : undefined;
+}
+
+const byAge = (a: HeldMessageRef, b: HeldMessageRef) => a.tsStart.getTime() - b.tsStart.getTime() || order(a, b);
+
+/**
+ * Which held copies an incoming event replaces, or is replaced by (supersession: a text-bearing copy from an explicit
+ * file import stands in for a thin copy that holds no text, in a different source). Per event, in batch order:
+ *
+ * - `superseder` (an import row with text): every held *thin* row of another source with the same message id (RFC shape
+ *   only) or the same `fp` within the time tolerance. If a visible non-thin copy in the family matches, nothing is
+ *   returned: that is `findMessageDuplicates`' case and the import copy is dropped as before. A non-thin row outside the
+ *   family is not compared with anything, so it neither blocks nor is linked.
+ * - `thin` (no text): the oldest held import row with text, of another source, with the same message id. By message id
+ *   only: a thin row outside the family has no `fp`.
+ *
+ * `held` must already exclude rows that are superseded, so a superseded row is never matched and a chain cannot form.
+ * Pure; the store writes the links. Rows of one source are never compared: a source's own ids are trusted.
+ */
+export function findThinReplacements(
+  events: readonly ThinReplacementProbe[],
+  held: readonly HeldMessageRef[]
+): ThinReplacement[] {
+  const out: ThinReplacement[] = [];
+  for (const event of events) {
+    const id = matchedMessageId(event);
+    const fp = probeFingerprint(event);
+    const other = (row: HeldMessageRef) => ({ source: row.source, key: row.key, id: row.id ?? "" });
+    const base = { index: event.index, source: event.source, key: event.key };
+    if (event.role === "thin") {
+      if (id === undefined) continue;
+      const row = held
+        .filter((r) => r.source !== event.source && r.viaImport === true && r.thin !== true && heldMessageId(r) === id)
+        .sort(byAge)[0];
+      if (row) out.push({ ...base, role: "replaced_by", other: other(row), by: "message_id" });
+      continue;
+    }
+    const matches: { row: HeldMessageRef; by: MessageDuplicateBy }[] = [];
+    for (const row of held) {
+      if (row.source === event.source) continue;
+      if (id !== undefined && heldMessageId(row) === id) matches.push({ row, by: "message_id" });
+      else if (fp !== undefined && row.fp === fp && withinTolerance(row.tsStart, event.tsStart))
+        matches.push({ row, by: "fingerprint" });
+    }
+    if (matches.some(({ row }) => row.thin !== true && row.family === true)) continue;
+    matches
+      .filter(({ row }) => row.thin === true)
+      .sort((a, b) => byAge(a.row, b.row))
+      .forEach(({ row, by }) => out.push({ ...base, role: "replaces", other: other(row), by }));
+  }
+  return out;
 }

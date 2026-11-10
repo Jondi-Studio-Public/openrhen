@@ -15,7 +15,10 @@ import {
   activitySourceEntry,
   activitySourceNames,
   findMessageDuplicates,
+  findThinReplacements,
   isMessageCopyCandidate,
+  matchedMessageId,
+  probeFingerprint,
   MESSAGE_FINGERPRINT_TIME_TOLERANCE_SECONDS,
   MESSAGE_KIND,
   describeWithheldClasses,
@@ -32,9 +35,12 @@ import {
   type ActivityHeldEntry,
   type ActivityIngestResult,
   type ActivityRejection,
+  type ActivityReplacement,
   type HeldMessageRef,
   type MessageCopyProbe,
   type MessageDuplicate,
+  type ThinReplacement,
+  type ThinReplacementProbe,
   type ActivitySourceSettings,
   type ActivitySummary,
   type ValidActivityEvent
@@ -234,32 +240,37 @@ async function ingestJudged(
   }
   rejected.sort((x, y) => x.index - y.index);
 
-  // A copy of a message another source already holds is not stored (and not counted as collected): see dropMessageCopies.
-  const duplicates = await dropMessageCopies(tx, userId, valid, indexOfKey);
+  // The content gate, read before the copy check so the check knows which rows will hold no text. An explicit file import
+  // (a batch that names an import) is the owner deliberately loading their own file, so its text is kept whatever the gate
+  // says. The gate governs continuous collectors. A source with no state row takes the server default; a saved row wins in
+  // both directions.
+  const fromImport = importId !== null;
+  const gateSources = [...new Set(valid.map((event) => event.source))];
+  const states =
+    gateSources.length === 0
+      ? []
+      : await tx<SourceStateRow[]>`
+            SELECT source, content_enabled, retention_days FROM activity_source_state
+            WHERE user_id = ${userId} AND source IN ${tx(gateSources)}`;
+  const gate = new Map(states.map((row) => [row.source, row.content_enabled]));
+  const defaultOn = activityContentDefault();
+  const gateOpen = (source: string) => fromImport || (gate.get(source) ?? defaultOn);
+
+  // A copy of a message another source already holds is not stored (and not counted as collected): see planMessageCopies.
+  // A copy that holds the text, or one that holds none, may instead be linked to the other copy (supersession).
+  const { duplicates, planned } = await planMessageCopies(tx, userId, valid, indexOfKey, {
+    fromImport,
+    hasText: (event) => event.content !== null && gateOpen(event.source)
+  });
   if (duplicates.length > 0) {
     const dropped = new Set(duplicates.map((copy) => `${copy.source}\u0000${copy.key}`));
     valid.splice(0, valid.length, ...valid.filter((event) => !dropped.has(`${event.source}\u0000${event.key}`)));
   }
 
-  const sources = [...new Set(valid.map((event) => event.source))];
-  const states =
-    sources.length === 0
-      ? []
-      : await tx<SourceStateRow[]>`
-            SELECT source, content_enabled, retention_days FROM activity_source_state
-            WHERE user_id = ${userId} AND source IN ${tx(sources)}`;
-  const gate = new Map(states.map((row) => [row.source, row.content_enabled]));
-  const defaultOn = activityContentDefault();
-
-  // An explicit file import (a batch that names an import) is the owner deliberately loading their own file, so
-  // its text is kept whatever the gate says. The gate governs continuous collectors. A source with no state row
-  // takes the server default; a saved row wins in both directions.
-  const fromImport = importId !== null;
   let contentDropped = 0;
   const rows = valid.map((event) => {
     let content = event.content;
-    const open = fromImport || (gate.get(event.source) ?? defaultOn);
-    if (content !== null && !open) {
+    if (content !== null && !gateOpen(event.source)) {
       content = null;
       contentDropped += 1;
     }
@@ -294,16 +305,17 @@ async function ingestJudged(
   const stamped = withStamp.filter((row) => "ingested_at" in row);
 
   let added = 0;
-  const stored = new Set<string>();
+  const stored = new Map<string, string>();
   for (const group of [plain, stamped])
     for (let at = 0; at < group.length; at += INSERT_CHUNK) {
-      const inserted = await tx<{ source: string; event_key: string }[]>`
+      const inserted = await tx<{ id: string; source: string; event_key: string }[]>`
         INSERT INTO activity_events ${tx(group.slice(at, at + INSERT_CHUNK))}
         ON CONFLICT (user_id, source, event_key) DO NOTHING
-        RETURNING source, event_key`;
+        RETURNING id, source, event_key`;
       added += inserted.length;
-      for (const row of inserted) stored.add(`${row.source}\u0000${row.event_key}`);
+      for (const row of inserted) stored.set(`${row.source}\u0000${row.event_key}`, row.id);
     }
+  const replaced = await linkStoredCopies(tx, userId, planned, stored);
   const held = await heldPhysiology(
     tx,
     userId,
@@ -320,6 +332,7 @@ async function ingestJudged(
     rejected,
     held,
     duplicates,
+    replaced,
     importId,
     ingestedVia: via
   };
@@ -330,28 +343,95 @@ function messageFamilySources(): string[] {
   return activitySourceNames().filter((name) => activitySourceEntry(name)?.family === ACTIVITY_MESSAGE_FAMILY);
 }
 
+/** Every source that carries messages: the family and the legacy sources whose kinds include `message`. */
+function mailLikeSources(): string[] {
+  return activitySourceNames().filter((name) => activitySourceEntry(name)?.kinds.includes(MESSAGE_KIND) === true);
+}
+
 /**
- * Cross-source dedupe of messages: finds the events of `valid` that are copies of a message another source already
- * holds (or of an earlier event of this batch from another source); `findMessageDuplicates` has the rules. The
- * caller drops them, so a copy is never stored and never counted as collected; it is reported in `duplicates` with the
- * end state `duplicate`. Two rows of one source are never compared (the unique key decides those). The lookup reads
- * held rows of the message family within the 60 second window of each fingerprint (served by
- * `activity_events_user_source_time_idx`), and the rows holding the `mid:` key of an event (served by
- * `activity_events_key_idx`). It runs under the per-person activity lock, which is held to the end of the
- * transaction that inserts the survivors, so two posts of one message from two sources cannot both pass the lookup.
- * Nothing here changes a row or needs a migration.
+ * Whether a held row is hidden behind another copy, as a column. The matching rules never see a superseded row, but the
+ * test is a column read by the caller and not a join condition, so the planner cannot turn it into a hash join over the
+ * whole link table: each answer row costs one lookup on the link table's primary key.
  */
-async function dropMessageCopies(
+const supersededColumn = (sql: Sql) =>
+  sql`EXISTS (SELECT 1 FROM activity_supersessions sx WHERE sx.superseded_id = e.id) AS superseded`;
+
+interface HeldRow {
+  id: string;
+  source: string;
+  event_key: string;
+  ts_start: Date;
+  fp: string | null;
+  mid: string | null;
+  thin: boolean;
+  via_import: boolean;
+  /** Hidden behind another copy: ignored when matching. The lookup by key still counts it as held under its own key. */
+  superseded: boolean;
+}
+
+/**
+ * The message rows of a person that carry one of these normalised message ids, in these sources, and are not hidden behind
+ * another copy. Served by `activity_events_message_id_idx` (a partial expression index on `normalise_message_id`), so a
+ * chunk of ids costs index probes, not a scan of the largest table; the scale test holds that with `EXPLAIN` on a large
+ * table. Returned as a query so the test can explain exactly what runs.
+ */
+export function heldByMessageIds(tx: Sql, userId: string, ids: readonly string[], sources: readonly string[]) {
+  // One index probe per id. The LIMIT keeps the subquery from being flattened into a join the planner may run as a hash
+  // join over the whole table, and bounds a pathological id; no message has fifty copies.
+  return tx<HeldRow[]>`
+    SELECT e.id, e.source, e.event_key, e.ts_start, e.attrs->>'fp' AS fp, q.mid AS mid, e.thin, e.via_import, e.superseded
+    FROM (SELECT value AS mid FROM jsonb_array_elements_text(${tx.json(ids as string[])})) AS q
+    CROSS JOIN LATERAL (
+      SELECT e.id, e.source, e.event_key, e.ts_start, e.attrs, e.content IS NULL AS thin, e.import_id IS NOT NULL AS via_import,
+             ${supersededColumn(tx)}
+      FROM activity_events e
+      WHERE e.user_id = ${userId} AND e.kind = ${MESSAGE_KIND} AND e.attrs ? 'message_id'
+        AND normalise_message_id(e.attrs->>'message_id') = q.mid
+        AND e.source IN ${tx(sources as string[])}
+      LIMIT 50
+    ) e`;
+}
+
+interface CopyContext {
+  /** The batch is an explicit file import: its rows are always open, so they hold their text. */
+  fromImport: boolean;
+  /** Whether the row will hold its text once the content gate has been applied. */
+  hasText: (event: ValidActivityEvent) => boolean;
+}
+
+/**
+ * Looks at the messages of a batch against the messages already held, and answers two things.
+ *
+ * Cross-source dedupe (B2): the events of `valid` that are copies of a message another source already holds (or of an
+ * earlier event of this batch from another source); `findMessageDuplicates` has the rules. The caller drops them, so a copy
+ * is never stored and never counted as collected; each is reported in `duplicates` with the end state `duplicate`.
+ *
+ * Supersession (A3): the links to write. An import row that holds the text (`superseder`) is linked to every thin held
+ * copy (no text) of the same message in another source; a thin row of a legacy mail source (`thin`) is linked to the import
+ * copy that holds the text. `findThinReplacements` has the rules. An import row that has links is not a B2 copy, so it is
+ * kept out of the dedupe pass. The links are written after the rows (`linkStoredCopies`).
+ *
+ * Two rows of one source are never compared (the unique key decides those). The lookups are served by
+ * `activity_events_user_source_time_idx` (the rows within the 60 second window of each fingerprint),
+ * `activity_events_key_idx` (the rows holding the key of an event) and `activity_events_message_id_idx` (the rows holding
+ * the normalised message id of an event; only when a batch has an import row with text or a thin legacy row). All run under
+ * the per-person activity lock, which is held to the end of the transaction that inserts the survivors, so two posts of one
+ * message from two sources cannot both pass the lookup and a delete cannot take a row between the lookup and the link.
+ * A superseded row is ignored by every lookup. Nothing here changes a row.
+ */
+async function planMessageCopies(
   tx: TxSql,
   userId: string,
   valid: readonly ValidActivityEvent[],
-  indexOfKey: ReadonlyMap<string, number>
-): Promise<MessageDuplicate[]> {
+  indexOfKey: ReadonlyMap<string, number>,
+  context: CopyContext
+): Promise<{ duplicates: MessageDuplicate[]; planned: ThinReplacement[] }> {
   const family = messageFamilySources();
-  if (family.length === 0) return [];
+  const mailLike = mailLikeSources();
   const probes: MessageCopyProbe[] = [];
+  const replacementProbes: ThinReplacementProbe[] = [];
   for (const event of valid) {
-    if (event.kind !== MESSAGE_KIND || !family.includes(event.source)) continue;
+    if (event.kind !== MESSAGE_KIND || !mailLike.includes(event.source)) continue;
     const probe = {
       index: indexOfKey.get(`${event.source}\u0000${event.key}`) ?? -1,
       source: event.source,
@@ -359,12 +439,35 @@ async function dropMessageCopies(
       tsStart: event.tsStart,
       attrs: event.attrs
     };
-    if (isMessageCopyCandidate(probe)) probes.push(probe);
+    const inFamily = family.includes(event.source);
+    if (inFamily && isMessageCopyCandidate(probe)) probes.push(probe);
+    const hasText = context.hasText(event);
+    if (
+      context.fromImport &&
+      hasText &&
+      (matchedMessageId(probe) !== undefined || probeFingerprint(probe) !== undefined)
+    )
+      replacementProbes.push({ ...probe, role: "superseder" });
+    else if (!inFamily && !hasText && matchedMessageId(probe) !== undefined)
+      replacementProbes.push({ ...probe, role: "thin" });
   }
-  if (probes.length === 0) return [];
+  if (probes.length === 0 && replacementProbes.length === 0) return { duplicates: [], planned: [] };
   await lockActivityUser(tx, userId);
 
-  const held: HeldMessageRef[] = [];
+  const held = new Map<string, HeldMessageRef>();
+  const remember = (row: HeldRow) => {
+    held.set(row.id, {
+      id: row.id,
+      source: row.source,
+      key: row.event_key,
+      tsStart: row.ts_start,
+      fp: row.fp,
+      thin: row.thin,
+      viaImport: row.via_import,
+      family: family.includes(row.source),
+      messageId: row.mid
+    });
+  };
   const withFp = probes.flatMap((probe) => {
     const fp = probe.attrs.fp;
     return typeof fp === "string" && fp !== "" ? [{ fp, probe }] : [];
@@ -377,33 +480,140 @@ async function dropMessageCopies(
       ts: item.probe.tsStart.toISOString(),
       src: item.probe.source
     }));
-    const rows = await tx<{ source: string; event_key: string; ts_start: Date; fp: string }[]>`
-      SELECT DISTINCT e.source, e.event_key, e.ts_start, e.attrs->>'fp' AS fp
+    const rows = await tx<HeldRow[]>`
+      SELECT DISTINCT e.id, e.source, e.event_key, e.ts_start, e.attrs->>'fp' AS fp,
+             normalise_message_id(e.attrs->>'message_id') AS mid, e.content IS NULL AS thin, e.import_id IS NOT NULL AS via_import,
+             ${supersededColumn(tx)}
       FROM jsonb_to_recordset(${tx.json(probesJson as never)}) AS q(fp text, ts timestamptz, src text)
       JOIN activity_events e
         ON e.user_id = ${userId} AND e.source IN ${tx(family)} AND e.source <> q.src AND e.kind = ${MESSAGE_KIND}
        AND e.ts_start BETWEEN q.ts - make_interval(secs => ${windowSeconds}::float8)
                           AND q.ts + make_interval(secs => ${windowSeconds}::float8)
        AND e.attrs->>'fp' = q.fp`;
-    for (const row of rows) held.push({ source: row.source, key: row.event_key, tsStart: row.ts_start, fp: row.fp });
+    for (const row of rows) if (!row.superseded) remember(row);
   }
   // Every probe key, whatever its form: the rows holding it (any source) give both the cross-source `mid:` matches and
   // which probes are already held under their own (source, key). A probe already held is `alreadyHeld` only; without
   // this, a message held in two sources (legacy data) would report a re-post of the first as a duplicate of the second.
   const ownHeld = new Set<string>();
-  const keys = [...new Set(probes.map((probe) => probe.key))];
+  const keys = [...new Set([...probes, ...replacementProbes].map((probe) => probe.key))];
   for (let at = 0; at < keys.length; at += INSERT_CHUNK) {
-    const rows = await tx<{ source: string; event_key: string; ts_start: Date; fp: string | null }[]>`
-      SELECT source, event_key, ts_start, attrs->>'fp' AS fp FROM activity_events
-      WHERE user_id = ${userId} AND source IN ${tx(family)} AND kind = ${MESSAGE_KIND}
-        AND event_key IN ${tx(keys.slice(at, at + INSERT_CHUNK))}`;
+    const rows = await tx<HeldRow[]>`
+      SELECT e.id, e.source, e.event_key, e.ts_start, e.attrs->>'fp' AS fp,
+             normalise_message_id(e.attrs->>'message_id') AS mid, e.content IS NULL AS thin, e.import_id IS NOT NULL AS via_import,
+             ${supersededColumn(tx)}
+      FROM activity_events e
+      WHERE e.user_id = ${userId} AND e.source IN ${tx(mailLike)} AND e.kind = ${MESSAGE_KIND}
+        AND e.event_key IN ${tx(keys.slice(at, at + INSERT_CHUNK))}`;
     for (const row of rows) {
       ownHeld.add(`${row.source}\u0000${row.event_key}`);
-      held.push({ source: row.source, key: row.event_key, tsStart: row.ts_start, fp: row.fp });
+      // A superseded row is ignored when matching, but it still counts as held under its own key.
+      if (!row.superseded) remember(row);
     }
   }
-  const fresh = probes.filter((probe) => !ownHeld.has(`${probe.source}\u0000${probe.key}`));
-  return findMessageDuplicates(fresh, held);
+  // The rows holding a probe's normalised message id, by the partial expression index. Only a batch that can link asks.
+  const ids = [...new Set(replacementProbes.flatMap((probe) => matchedMessageId(probe) ?? []))];
+  for (let at = 0; at < ids.length; at += INSERT_CHUNK) {
+    const rows = await heldByMessageIds(tx, userId, ids.slice(at, at + INSERT_CHUNK), mailLike);
+    for (const row of rows) if (!row.superseded) remember(row);
+  }
+
+  const heldRows = [...held.values()];
+  const planned = findThinReplacements(
+    replacementProbes.filter((probe) => !ownHeld.has(`${probe.source}\u0000${probe.key}`)),
+    heldRows
+  );
+  // An import row with links is stored, not dropped as a copy of the thin row it replaces.
+  const linked = new Set(
+    planned.filter((link) => link.role === "replaces").map((link) => `${link.source}\u0000${link.key}`)
+  );
+  const fresh = probes.filter((probe) => {
+    const own = `${probe.source}\u0000${probe.key}`;
+    return !ownHeld.has(own) && !linked.has(own);
+  });
+  return {
+    duplicates: findMessageDuplicates(
+      fresh,
+      heldRows.filter((row) => row.family === true)
+    ),
+    planned
+  };
+}
+
+/** A link to write: the thin row, and the import row that holds its text. */
+export interface SupersessionPair {
+  supersededId: string;
+  byId: string;
+}
+
+/**
+ * Writes the links of supersession in the caller's transaction, which holds the per-person activity lock, and answers the
+ * ones made. One `INSERT ... SELECT` from both rows, so what is written is what is read: both rows are the person's
+ * (`user_id` is checked on each, the database cannot check it across rows), they are in different sources, the superseded
+ * row holds no text, the superseder is an import row that holds some and is not itself superseded, and `created_at` is the
+ * later of the two `ingested_at` values. A row has one superseder: the first pair in the list wins and `ON CONFLICT DO
+ * NOTHING` leaves a later one out, as it does for a row already linked.
+ */
+export async function writeSupersessionLinksTx(
+  tx: TxSql,
+  userId: string,
+  pairs: readonly SupersessionPair[]
+): Promise<SupersessionPair[]> {
+  const made: SupersessionPair[] = [];
+  for (let at = 0; at < pairs.length; at += INSERT_CHUNK) {
+    const chunk = pairs.slice(at, at + INSERT_CHUNK).map((pair, n) => ({ sid: pair.supersededId, bid: pair.byId, n }));
+    const rows = await tx<{ superseded_id: string; by_id: string }[]>`
+      INSERT INTO activity_supersessions (user_id, superseded_id, by_id, created_at)
+      SELECT ${userId}::uuid, s.id, b.id, greatest(s.ingested_at, b.ingested_at)
+      FROM jsonb_to_recordset(${tx.json(chunk as never)}) AS q(sid uuid, bid uuid, n int)
+      JOIN activity_events s ON s.id = q.sid AND s.user_id = ${userId}
+      JOIN activity_events b ON b.id = q.bid AND b.user_id = ${userId}
+      WHERE s.id <> b.id AND s.source <> b.source AND s.kind = ${MESSAGE_KIND} AND b.kind = ${MESSAGE_KIND}
+        AND s.content IS NULL AND b.content IS NOT NULL AND b.import_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM activity_supersessions x WHERE x.superseded_id = b.id)
+      ORDER BY q.n
+      ON CONFLICT (superseded_id) DO NOTHING
+      RETURNING superseded_id, by_id`;
+    for (const row of rows) made.push({ supersededId: row.superseded_id, byId: row.by_id });
+  }
+  return made;
+}
+
+/**
+ * Turns the planned links into rows once the batch's events are stored: only an incoming event that was stored now can
+ * be linked (a re-post of a held key is `alreadyHeld` and claims nothing). Answers one entry per link made.
+ */
+async function linkStoredCopies(
+  tx: TxSql,
+  userId: string,
+  planned: readonly ThinReplacement[],
+  stored: ReadonlyMap<string, string>
+): Promise<ActivityReplacement[]> {
+  const candidates = planned.flatMap((link) => {
+    const id = stored.get(`${link.source}\u0000${link.key}`);
+    if (id === undefined) return [];
+    const pair: SupersessionPair =
+      link.role === "replaces" ? { supersededId: link.other.id, byId: id } : { supersededId: id, byId: link.other.id };
+    return [{ link, pair }];
+  });
+  if (candidates.length === 0) return [];
+  const made = await writeSupersessionLinksTx(
+    tx,
+    userId,
+    candidates.map((item) => item.pair)
+  );
+  const madeKeys = new Set(made.map((pair) => `${pair.supersededId}\u0000${pair.byId}`));
+  return candidates
+    .filter((item) => madeKeys.has(`${item.pair.supersededId}\u0000${item.pair.byId}`))
+    .map(({ link }) => ({
+      index: link.index,
+      source: link.source,
+      key: link.key,
+      role: link.role,
+      other: { source: link.other.source, key: link.other.key },
+      by: link.by,
+      kept: "import" as const
+    }));
 }
 
 /**
@@ -818,6 +1028,15 @@ export async function readActivityEvents(sql: Sql, query: ActivityReadQuery): Pr
       ${query.asOf === undefined ? sql`` : sql`AND ingested_at <= ${query.asOf}`}
       ${excluded.length === 0 ? sql`` : sql`AND source NOT IN ${sql(excluded as string[])}`}
       ${query.source === "derived-shadow" ? sql`` : sql`AND source <> 'derived-shadow'`}
+      ${
+        // A copy another copy stands in for is hidden from a read that names no source. A read that names one returns it,
+        // flagged below, so a derived row that cites it can still be inspected. As of a time, a link counts from its created_at.
+        query.source !== undefined
+          ? sql``
+          : sql`AND NOT EXISTS (
+              SELECT 1 FROM activity_supersessions sx WHERE sx.superseded_id = activity_events.id
+              ${query.asOf === undefined ? sql`` : sql`AND sx.created_at <= ${query.asOf}`})`
+      }
       AND source NOT IN ${sql(ACTIVITY_OWNER_ONLY_SOURCES as string[])}
       AND (
         source <> 'derived' OR kind NOT IN ${sql(DERIVED_EXTRACTOR_KINDS as unknown as string[])} OR EXISTS (
@@ -845,6 +1064,21 @@ export async function readActivityEvents(sql: Sql, query: ActivityReadQuery): Pr
     ingestedVia: row.ingested_via,
     ingestedAt: row.ingested_at.toISOString()
   }));
+  if (query.source !== undefined && events.length > 0) {
+    const standIns = await sql<{ superseded_id: string; source: string; event_key: string }[]>`
+      SELECT l.superseded_id, b.source, b.event_key
+      FROM activity_supersessions l
+      JOIN activity_events b ON b.id = l.by_id
+      WHERE l.superseded_id IN ${sql(events.map((event) => event.id))}
+        ${query.asOf === undefined ? sql`` : sql`AND l.created_at <= ${query.asOf}`}`;
+    const bySuperseded = new Map(
+      standIns.map((row) => [row.superseded_id, { source: row.source, key: row.event_key }])
+    );
+    for (const event of events) {
+      const standIn = bySuperseded.get(event.id);
+      if (standIn !== undefined) event.supersededBy = standIn;
+    }
+  }
   if (query.includeEvidence === true) {
     const facts = events.filter((event) => event.kind === "fact" && event.source.startsWith("derived"));
     const resolved = new Map(

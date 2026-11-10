@@ -42,6 +42,7 @@ export const FILE_ENTRIES: readonly FlowEntry[] = [
     incidentalWrites: [
       { table: "integration_sync_runs", reason: "a run row for a failure that would be silent" },
       { table: "activity_source_state", reason: "content gate and retention settings" },
+      { table: "activity_supersessions", reason: "links an import row to the thinner copy of the same message" },
       { table: "derived_lineage", reason: "lineage rows for ingested events" },
       { table: "extractor_state", reason: "extractor cursor for ingested events" }
     ],

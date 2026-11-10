@@ -110,6 +110,20 @@ export async function restoreBackup(
       if (!rows.length) continue;
       await insertRows(transaction, table, rows, true);
     }
+    // Supersession links carry the person's id and point at two events, and the database cannot check across rows that all
+    // three are the same person's. The only writer checks it on insert; a restore is the other way rows come in, so it is
+    // checked here, inside the transaction: a backup with a link across people is refused and nothing is restored.
+    if (present.includes("activity_supersessions")) {
+      const [crossed] = await transaction<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM activity_supersessions l
+        JOIN activity_events s ON s.id = l.superseded_id
+        JOIN activity_events b ON b.id = l.by_id
+        WHERE s.user_id <> l.user_id OR b.user_id <> l.user_id`;
+      if (crossed!.n > 0)
+        throw new Error(
+          `Backup holds ${crossed!.n} supersession links whose events belong to another person; restore refused and nothing was restored. Take a fresh backup on the build that wrote this one.`
+        );
+    }
   });
 
   // A streamed table is not held in memory here: it is counted, and (for a current-format backup) hashed through the

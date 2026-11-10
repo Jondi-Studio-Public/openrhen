@@ -7,7 +7,7 @@ Every version number the app writes, with the file that holds it. The values bel
 | Agent contract | `AGENT_CONTRACT_VERSION` in `platform/contracts/src/agent-contract.ts` | `12` | A served tool added, removed or renamed, or a required argument changed. By hand, in the same change that regenerates the committed snapshot. The maintainer decides. | v0; names and required arguments are snapshot-tested; a renamed tool aliases for one version |
 | Plan contract | `PLAN_FORECAST_CONTRACT_VERSION` in `platform/contracts/src/planning/plan-forecast.ts` | `1` | A breaking change to the engine request or response shape. The service rejects a request carrying another value. | v0; tested in `engine/service/src/server.test.ts` |
 | Engine | `PLAN_FORECAST_ENGINE_VERSION` in `engine/core/src/engine.ts` | `1.8.1` | A change to what the engine calculates. Returned as `engineVersion` on every response. | v0; pinned in `engine/core/test/system/fact-freshness.test.ts` |
-| Backup format number | `CURRENT_BACKUP_FORMAT_VERSION` in `platform/database/src/operations/backup-format.ts` | `27` | A change to what a backup file contains. One constant; older numbers stay readable. | v0; tested in `backup-format.test.ts` |
+| Backup format number | `CURRENT_BACKUP_FORMAT_VERSION` in `platform/database/src/operations/backup-format.ts` | `28` | A change to what a backup file contains. One constant; older numbers stay readable. | v0; tested in `backup-format.test.ts` |
 | Backup format string | `ACCEPTED_BACKUP_FORMATS` in `platform/database/src/operations/backup-format.ts` | `openrhen-postgresql-logical-backup` | Adding a name before any writer produces it. | v0; the reader accepts every listed name |
 | Backup format string written | `BACKUP_FORMAT` in `platform/database/src/operations/backup-format.ts` | `priorities-postgresql-logical-backup` | Never lightly: backups carry it. | v0; pinned in `backup-format.test.ts` |
 | Agent session schema | `AGENT_SESSION_SCHEMA_VERSION` in `platform/contracts/src/agent-sessions.ts` | `1` | A breaking change to the stored agent-session record. | unstable: no test pins the number |
@@ -22,6 +22,7 @@ A backup carries a format number and a format string. The writer currently write
 These exist but no test reads them, so this page cannot be kept in step by a test. Treat them as `unstable`.
 
 - `settings.version`, a row version used to detect concurrent edits, not a schema version.
+- The activity ingest response gains `replaced` (copies linked to a fuller copy, see Supersession in the activity store), and a read that names a source gains `supersededBy` on a row another copy stands in for. Additive; `duplicates` and `alreadyHeld` keep their meaning, and `added + alreadyHeld + rejected` still equals the events sent. Backup format 28 adds the table `activity_supersessions`.
 - The activity read response: `withheldClasses` (a count per source class) sits beside `withheld`, and `withheldNote` names the missing scope per class. Additive; `withheld` keeps its shape.
 - Stored key shapes. Imported records are keyed `<provider>:shift:` style, a provider id then a kind then an id. A new add-on picks its own provider id; changing a key shape orphans the records already stored under it.
 
