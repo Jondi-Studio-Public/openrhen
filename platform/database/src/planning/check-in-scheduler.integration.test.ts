@@ -726,3 +726,88 @@ describe("runCheckInSchedulerTick — agent wake when a check-in times out", () 
     expect((await wakes()).map((w) => w.target_id)).toEqual([first, second]);
   });
 });
+
+describe("check-in waiting push (native app C6)", () => {
+  async function outbox() {
+    return sql<
+      {
+        id: string;
+        kind: string;
+        status: string;
+        dedupe_key: string;
+        payload: Record<string, unknown>;
+        expires_at: Date;
+      }[]
+    >`
+      SELECT id, kind, status, dedupe_key, payload, expires_at FROM push_outbox WHERE user_id=${userId} ORDER BY created_at`;
+  }
+
+  async function askableAction() {
+    const actionId = await addAction(await createProject(), "active");
+    await storePlanningRun({ currentDirective: { kind: "action", targetId: actionId, title: "Write chapter" } });
+  }
+
+  it("accepts the new kind and still refuses an unknown one (migration 0156)", async () => {
+    const insert = (kind: string) => sql`
+      INSERT INTO push_outbox (user_id,dedupe_key,kind,payload,status,expires_at)
+      VALUES (${userId},${`k:${kind}`},${kind},${sql.json({} as never)},'pending',${new Date(now.getTime() + 60_000)})`;
+    await expect(insert("check_in_waiting")).resolves.toBeDefined();
+    await expect(insert("plan_changed")).rejects.toThrow(/push_outbox_kind_check/);
+  });
+
+  it("queues one push with the check-in id and its timeout when it prompts", async () => {
+    await askableAction();
+    await runCheckInSchedulerTick(sql, userId, now);
+    const [checkIn] = await sql<{ id: string }[]>`SELECT id FROM check_in WHERE user_id=${userId} AND status='pending'`;
+    const rows = await outbox();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      kind: "check_in_waiting",
+      status: "pending",
+      dedupe_key: `check-in:${checkIn!.id}`,
+      payload: { checkInId: checkIn!.id, url: "/now", tag: `check-in:${checkIn!.id}` }
+    });
+    expect(rows[0]!.expires_at.getTime()).toBe(now.getTime() + 10 * 60_000);
+    // Queueing is not prompting.
+    const stamped = await sql`SELECT prompted_at FROM check_in WHERE id=${checkIn!.id}`;
+    expect(stamped[0]!.prompted_at).toBeNull();
+  });
+
+  it("dedupes per check-in: repeating the tick while it waits adds nothing", async () => {
+    await askableAction();
+    await runCheckInSchedulerTick(sql, userId, now);
+    await runCheckInSchedulerTick(sql, userId, new Date(now.getTime() + 60_000));
+    expect(await outbox()).toHaveLength(1);
+  });
+
+  it("queues nothing while asleep", async () => {
+    await storePlanningRun({ currentDirective: { kind: "sleep", title: "Sleep" } });
+    await runCheckInSchedulerTick(sql, userId, now);
+    expect(await outbox()).toEqual([]);
+  });
+
+  it("queues nothing when nothing is askable (free)", async () => {
+    await runCheckInSchedulerTick(sql, userId, now);
+    expect(await outbox()).toEqual([]);
+  });
+
+  it("queues nothing under a silent commitment", async () => {
+    const commitmentId = crypto.randomUUID();
+    await sql`
+      INSERT INTO commitments (id,user_id,title,starts_at,ends_at,status,prompt_policy)
+      VALUES (${commitmentId},${userId},'Exam',${new Date(now.getTime() - 10 * 60_000).toISOString()}::timestamptz,${new Date(now.getTime() + 50 * 60_000).toISOString()}::timestamptz,'confirmed','silent')`;
+    await storePlanningRun({
+      currentDirective: { kind: "none", title: "Exam" },
+      protectedCommitment: { id: commitmentId, title: "Exam", phase: "setup" }
+    });
+    await runCheckInSchedulerTick(sql, userId, now);
+    expect(await outbox()).toEqual([]);
+  });
+
+  it("cancels the waiting push when the check-in times out unanswered", async () => {
+    await askableAction();
+    await runCheckInSchedulerTick(sql, userId, now);
+    await runCheckInSchedulerTick(sql, userId, new Date(now.getTime() + 11 * 60_000));
+    expect((await outbox()).map((row) => row.status)).toEqual(["cancelled"]);
+  });
+});
