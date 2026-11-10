@@ -6,7 +6,13 @@ import postgres from "postgres";
 import { resolve } from "node:path";
 import { integrationDatabaseName } from "@openrhen/database";
 import { ensureUser } from "./ensure-user";
-import { markCheckInShown, readAnsweredCheckIns, readCurrentCheckIn } from "./readers/check-in-read";
+import {
+  decodeAnsweredCursor,
+  markCheckInShown,
+  readAnsweredCheckIns,
+  readCurrentCheckIn,
+  type AnsweredCheckInCursor
+} from "./readers/check-in-read";
 
 config({ path: resolve(process.cwd(), "../.env"), quiet: true });
 
@@ -122,7 +128,8 @@ describe("readAnsweredCheckIns", () => {
     await insertCheckIn("unknown");
     await sql`INSERT INTO check_in (user_id,slot_at,directive_kind,directive_title,status,answered_at)
       VALUES (${userId}, now(), 'action', 'x', 'superseded', now())`;
-    const rows = await readAnsweredCheckIns(sql, userId);
+    const { checkIns: rows, next } = await readAnsweredCheckIns(sql, userId);
+    expect(next).toBeNull();
     expect(rows.map((r) => r.id)).toEqual([newer!.id, older!.id]);
     expect(rows[0]).toMatchObject({
       status: "deviated",
@@ -137,14 +144,63 @@ describe("readAnsweredCheckIns", () => {
     await answer("on_track", "2026-11-09T01:00:00Z", null, "sheet");
     const [mid] = await answer("on_track", "2026-11-09T02:00:00Z", null, "sheet");
     await answer("on_track", "2026-11-09T03:00:00Z", null, "sheet");
-    expect(await readAnsweredCheckIns(sql, userId, { limit: 2 })).toHaveLength(2);
-    const page = await readAnsweredCheckIns(sql, userId, {
+    expect((await readAnsweredCheckIns(sql, userId, { limit: 2 })).checkIns).toHaveLength(2);
+    const { checkIns: page } = await readAnsweredCheckIns(sql, userId, {
       since: new Date("2026-11-09T02:00:00Z"),
       before: new Date("2026-11-09T03:00:00Z")
     });
     expect(page.map((r) => r.id)).toEqual([mid!.id]);
     const [other] = await sql<{ id: string }[]>`INSERT INTO users (display_name) VALUES ('Someone else') RETURNING id`;
-    expect(await readAnsweredCheckIns(sql, other!.id)).toEqual([]);
+    expect(await readAnsweredCheckIns(sql, other!.id)).toEqual({ checkIns: [], next: null });
     await sql`DELETE FROM users WHERE id=${other!.id}`;
+  });
+
+  /** An answered row at an exact instant (microseconds allowed); ::text first so postgres.js keeps them. */
+  const at = async (instant: string, extra: { note?: string; tags?: { tag: string; mark: string }[] } = {}) => {
+    const rows = await sql<{ id: string }[]>`
+      INSERT INTO check_in (user_id,slot_at,directive_kind,directive_title,status,answered_at,deviation_note,tags)
+      VALUES (${userId}, ${instant}::text::timestamptz, 'action', 'Write section 2', 'on_track',
+        ${instant}::text::timestamptz, ${extra.note ?? null}, ${JSON.stringify(extra.tags ?? [])}::text::jsonb)
+      RETURNING id`;
+    return rows[0]!.id;
+  };
+
+  it("pages by cursor without skipping or repeating rows that share or nearly share an instant", async () => {
+    const ids = [
+      await at("2026-11-01T01:00:00.000100Z"),
+      await at("2026-11-01T01:00:00.000200Z"),
+      await at("2026-11-01T01:00:00.000200Z"),
+      await at("2026-11-01T03:00:00Z"),
+      await at("2026-11-01T04:00:00Z")
+    ];
+    const tied = [ids[1]!, ids[2]!].sort().reverse();
+    const expected = [ids[4]!, ids[3]!, ...tied, ids[0]!];
+    for (const limit of [1, 2, 3]) {
+      const seen: string[] = [];
+      let cursor: AnsweredCheckInCursor | undefined;
+      do {
+        const result = await readAnsweredCheckIns(sql, userId, { limit, ...(cursor ? { cursor } : {}) });
+        seen.push(...result.checkIns.map((row) => row.id));
+        cursor = (result.next ? decodeAnsweredCursor(result.next) : null) ?? undefined;
+      } while (cursor);
+      expect(seen).toEqual(expected);
+    }
+    const first = await readAnsweredCheckIns(sql, userId, { limit: 5 });
+    expect(first.next).toBeNull();
+    const encoded = (await readAnsweredCheckIns(sql, userId, { limit: 4 })).next;
+    expect(decodeAnsweredCursor(encoded!)?.answeredAt).toBe("2026-11-01T01:00:00.000200Z");
+  });
+
+  it("untagged keeps rows with no tags, with-words rows with non-blank words, and they combine", async () => {
+    const plain = await at("2026-11-01T01:00:00Z");
+    const words = await at("2026-11-01T02:00:00Z", { note: "school run" });
+    await at("2026-11-01T03:00:00Z", { note: "   " });
+    const tagged = await at("2026-11-01T04:00:00Z", { note: "gym", tags: [{ tag: "health", mark: "inferred" }] });
+    const ids = async (options: { untagged?: boolean; withWords?: boolean }) =>
+      (await readAnsweredCheckIns(sql, userId, options)).checkIns.map((row) => row.id);
+    expect(await ids({ withWords: true })).toEqual([tagged, words]);
+    expect(await ids({ untagged: true })).not.toContain(tagged);
+    expect(await ids({ untagged: true })).toContain(plain);
+    expect(await ids({ untagged: true, withWords: true })).toEqual([words]);
   });
 });
