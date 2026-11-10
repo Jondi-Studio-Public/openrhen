@@ -18,6 +18,7 @@ import { changesCommand } from "./commands/changes.js";
 import { changesetCommand } from "./commands/changeset.js";
 import { checkInCommand } from "./commands/check-in.js";
 import { checkInTagCommand } from "./commands/check-in-tag.js";
+import { checkInsCommand } from "./commands/check-ins.js";
 import { deliverableCommand } from "./commands/deliverable.js";
 import { disruptionCommand } from "./commands/disruption.js";
 import { routineCommand } from "./commands/routine.js";
@@ -98,6 +99,7 @@ const coreCommands: CommandSpec[] = [
   deliverableCommand,
   checkInCommand,
   checkInTagCommand,
+  checkInsCommand,
   disruptionCommand,
   routineCommand,
   recalculateCommand,

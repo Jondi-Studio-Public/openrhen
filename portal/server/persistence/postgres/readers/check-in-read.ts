@@ -137,23 +137,65 @@ export interface AnsweredCheckIn {
 export const ANSWERED_CHECK_INS_DEFAULT_LIMIT = 20;
 export const ANSWERED_CHECK_INS_MAX_LIMIT = 100;
 
+/** Where the next page of `readAnsweredCheckIns` starts: the last row's answer time (to the microsecond) and id. */
+export interface AnsweredCheckInCursor {
+  answeredAt: string;
+  id: string;
+}
+
+const CURSOR_AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function encodeAnsweredCursor(cursor: AnsweredCheckInCursor): string {
+  return Buffer.from(`${cursor.answeredAt}|${cursor.id}`, "utf8").toString("base64url");
+}
+
+/** The cursor a previous page returned as `next`, or null when the text is not one. */
+export function decodeAnsweredCursor(raw: string): AnsweredCheckInCursor | null {
+  if (!/^[A-Za-z0-9_-]+$/.test(raw)) return null;
+  const [answeredAt, id, extra] = Buffer.from(raw, "base64url").toString("utf8").split("|");
+  if (extra !== undefined || !answeredAt || !id || !CURSOR_AT.test(answeredAt) || !UUID.test(id)) return null;
+  return { answeredAt, id };
+}
+
+export interface AnsweredCheckIns {
+  checkIns: AnsweredCheckIn[];
+  /** Pass back as `cursor` for the following page; null when this was the last. */
+  next: string | null;
+}
+
 /**
  * Answered check-ins, newest answer first, voluntary ones included (they have a row and an id like any other).
- * `since` keeps answers at or after that instant; `before` keeps answers strictly earlier, so a reader pages back by
- * passing the last `answeredAt` it saw. A timed-out slot nobody answered (`answered_at` null) and a superseded one
- * are not answers and never appear.
+ * `since` keeps answers at or after that instant; `before` keeps answers strictly earlier. `before` is a timestamp
+ * only, so paging with it can skip rows that share the last instant; `cursor` (the `next` of the previous page) is
+ * keyset on (answered_at, id) at microsecond precision and neither skips nor repeats. `cursor` and `before` do not
+ * combine. `untagged` keeps rows with no tag, `withWords` rows with non-blank words. A timed-out slot nobody
+ * answered (`answered_at` null) and a superseded one are not answers and never appear.
  */
 export async function readAnsweredCheckIns(
   sql: Sql,
   userId: string,
-  options: { since?: Date; before?: Date; limit?: number } = {}
-): Promise<AnsweredCheckIn[]> {
+  options: {
+    since?: Date;
+    before?: Date;
+    limit?: number;
+    cursor?: AnsweredCheckInCursor;
+    untagged?: boolean;
+    withWords?: boolean;
+  } = {}
+): Promise<AnsweredCheckIns> {
   const limit = Math.min(
     Math.max(Math.trunc(options.limit ?? ANSWERED_CHECK_INS_DEFAULT_LIMIT), 1),
     ANSWERED_CHECK_INS_MAX_LIMIT
   );
   const since = options.since ?? null;
   const before = options.before ?? null;
+  // ::text first: postgres.js sends a bare ::timestamptz parameter through a JS Date and cuts it to milliseconds.
+  const cursor = options.cursor
+    ? sql`AND (answered_at, id) < (${options.cursor.answeredAt}::text::timestamptz, ${options.cursor.id}::uuid)`
+    : sql``;
+  const untagged = options.untagged ? sql`AND tags = '[]'::jsonb` : sql``;
+  const withWords = options.withWords ? sql`AND btrim(coalesce(deviation_note, '')) <> ''` : sql``;
   const rows = await sql<
     {
       id: string;
@@ -164,25 +206,33 @@ export async function readAnsweredCheckIns(
       answer_source: AnsweredCheckIn["answerSource"];
       slot_at: Date;
       directive_title: string;
+      cursor_at: string;
     }[]
   >`
-    SELECT id,status,deviation_note,tags,answered_at,answer_source,slot_at,directive_title
+    SELECT id,status,deviation_note,tags,answered_at,answer_source,slot_at,directive_title,
+      to_char(answered_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_at
     FROM check_in
     WHERE user_id=${userId} AND answered_at IS NOT NULL AND status IN ('on_track','deviated','unknown')
       AND (${since}::timestamptz IS NULL OR answered_at >= ${since}::timestamptz)
       AND (${before}::timestamptz IS NULL OR answered_at < ${before}::timestamptz)
-    ORDER BY answered_at DESC, id DESC LIMIT ${limit}
+      ${cursor} ${untagged} ${withWords}
+    ORDER BY answered_at DESC, id DESC LIMIT ${limit + 1}
   `;
-  return rows.map((row) => ({
-    id: row.id,
-    status: row.status,
-    deviationNote: row.deviation_note,
-    tags: row.tags,
-    answeredAt: row.answered_at.toISOString(),
-    answerSource: row.answer_source,
-    slotAt: row.slot_at.toISOString(),
-    directiveTitle: row.directive_title
-  }));
+  const page = rows.slice(0, limit);
+  const last = page[page.length - 1];
+  return {
+    checkIns: page.map((row) => ({
+      id: row.id,
+      status: row.status,
+      deviationNote: row.deviation_note,
+      tags: row.tags,
+      answeredAt: row.answered_at.toISOString(),
+      answerSource: row.answer_source,
+      slotAt: row.slot_at.toISOString(),
+      directiveTitle: row.directive_title
+    })),
+    next: rows.length > limit && last ? encodeAnsweredCursor({ answeredAt: last.cursor_at, id: last.id }) : null
+  };
 }
 
 export interface CheckInShownResult {
