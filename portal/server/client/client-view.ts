@@ -46,7 +46,7 @@ function planCurrent(state: PortalState, now: Date): boolean {
 function buildNow(state: PortalState, now: Date, current: boolean): NonNullable<ClientView["now"]> {
   const planning = state.planning;
   const locationNameById = new Map(state.conditionDefinitions.map((context) => [context.id, context.name]));
-  return buildNowAnswer(
+  const answer = buildNowAnswer(
     {
       state,
       currentDirective: planning?.result?.currentDirective,
@@ -59,6 +59,19 @@ function buildNow(state: PortalState, now: Date, current: boolean): NonNullable<
     },
     locationNameById
   ) as NonNullable<ClientView["now"]>;
+  const expectedVersion = startVersion(state, answer.directive);
+  return expectedVersion === undefined ? answer : { ...answer, directive: { ...answer.directive!, expectedVersion } };
+}
+
+/**
+ * The version the `start` command checks for an action directive: the action's own, or the series template's when the
+ * directive names one of its occurrences (the same lookup the web's Start does). Absent for every other kind and for
+ * a target the state does not hold, so a client then re-reads rather than guessing.
+ */
+function startVersion(state: PortalState, directive: { kind: string; targetId?: string | undefined } | null) {
+  if (directive?.kind !== "action" || directive.targetId === undefined) return undefined;
+  const occurrence = state.occurrences.find((item) => item.id === directive.targetId);
+  return state.actions.find((action) => action.id === (occurrence?.actionId ?? directive.targetId))?.version;
 }
 
 function buildSession(state: PortalState, now: Date): ClientPending["session"] {
@@ -76,6 +89,7 @@ function buildSession(state: PortalState, now: Date): ClientPending["session"] {
       : Math.round((new Date(session.plannedEndAt).getTime() - now.getTime()) / 60_000);
   return {
     id: session.id,
+    ...(session.version !== undefined ? { version: session.version } : {}),
     status: session.status,
     title: session.targetTitle ?? actionTitle ?? session.actionId,
     ...(session.targetType !== undefined ? { targetType: session.targetType } : {}),

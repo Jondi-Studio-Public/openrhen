@@ -92,7 +92,8 @@ describe("buildClientView", () => {
           plannedEndAt: iso(35),
           plannedMinutes: 45,
           remainingBeforeMinutes: 90,
-          activeElapsedSeconds: 600
+          activeElapsedSeconds: 600,
+          version: 4
         },
         actions: [{ id: "a1", title: "Write section 2" }],
         pendingLocationSuggestion: { locationId: "studio", locationName: "Studio", observedAt: iso(-2) }
@@ -104,7 +105,7 @@ describe("buildClientView", () => {
     expect(CLIENT_VIEW_TYPES.ClientView.safeParse(view).success).toBe(true);
     expect(view.pending).toMatchObject({
       checkIn: { id: "6f0c2c1e-3f5b-4f3a-9b0e-2a6d5f0d9a11", status: "pending", promptedAt: null },
-      session: { id: "s1", title: "Write section 2", elapsedMinutes: 10, minutesLeft: 35 },
+      session: { id: "s1", version: 4, title: "Write section 2", elapsedMinutes: 10, minutesLeft: 35 },
       leaveBy: { commitmentId: "c1", phase: "remind", leaveBy: iso(60) },
       placeSuggestion: { locationId: "studio" }
     });
@@ -158,5 +159,61 @@ describe("the ETag", () => {
     expect(clientViewETagMatches("*", tag)).toBe(true);
     expect(clientViewETagMatches('"other"', tag)).toBe(false);
     expect(clientViewETagMatches(null, tag)).toBe(false);
+  });
+
+  describe("the versions a client's commands check", () => {
+    const planned = (directive: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
+      state({
+        planning: {
+          status: "current",
+          validUntil: iso(30),
+          lastSuccessfulAt: iso(-1),
+          result: { currentDirective: directive }
+        },
+        ...extra
+      });
+    const action = { kind: "action", targetId: "a1", title: "Write section 2", recommendedMinutes: 45 };
+
+    it("names the action's version on an action directive, for the start command", () => {
+      const view = buildClientView(
+        planned(action, { actions: [{ id: "a1", title: "x", version: 7 }] }),
+        NOW,
+        ["now"],
+        null
+      );
+      expect(view.now?.directive).toMatchObject({ kind: "action", targetId: "a1", expectedVersion: 7 });
+      expect(CLIENT_VIEW_TYPES.ClientView.safeParse(view).success).toBe(true);
+    });
+
+    it("uses the series template's version when the directive names an occurrence", () => {
+      const view = buildClientView(
+        planned(
+          { ...action, targetId: "occ1" },
+          {
+            occurrences: [{ id: "occ1", actionId: "tpl" }],
+            actions: [
+              { id: "tpl", title: "x", version: 9 },
+              { id: "occ1", title: "x", version: 1 }
+            ]
+          }
+        ),
+        NOW,
+        ["now"],
+        null
+      );
+      expect(view.now?.directive).toMatchObject({ expectedVersion: 9 });
+    });
+
+    it("leaves it out for any other kind and for an action the state does not hold", () => {
+      const other = buildClientView(
+        planned({ kind: "rest", title: "Rest", recommendedMinutes: 10 }),
+        NOW,
+        ["now"],
+        null
+      );
+      expect(other.now?.directive).not.toHaveProperty("expectedVersion");
+      const missing = buildClientView(planned(action), NOW, ["now"], null);
+      expect(missing.now?.directive).not.toHaveProperty("expectedVersion");
+    });
   });
 });

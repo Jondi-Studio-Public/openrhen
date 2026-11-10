@@ -11,6 +11,7 @@
           "title": "Write section 2",
           "recommendedMinutes": 45,
           "targetId": "action-1",
+          "expectedVersion": 3,
           "reason": "Due Friday",
           "projectId": "project-1",
           "projectTitle": "Report"
@@ -49,6 +50,7 @@
         },
         "session": {
           "id": "session-1",
+          "version": 2,
           "status": "running",
           "title": "Write section 2",
           "targetType": "action",
