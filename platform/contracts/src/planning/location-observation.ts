@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEVICE_INSTALL_ID_PATTERN } from "../owner-credentials.js";
 import { geographicPointSchema } from "../integrations/travel.js";
 
 /**
@@ -53,3 +54,13 @@ export const pendingLocationSuggestionSchema = z.object({
   observedAt: z.string().datetime({ offset: true })
 });
 export type PendingLocationSuggestion = z.infer<typeof pendingLocationSuggestionSchema>;
+
+/**
+ * What `POST /api/location/ping` takes: a reading, and optionally the install id of the phone that sent it, so that
+ * sustained presence is read per phone. A phone signed in with an owner token needs no `device` (the token names it);
+ * if it sends one it must match.
+ */
+export const phoneLocationPingSchema = locationObservationSchema.extend({
+  device: z.string().regex(DEVICE_INSTALL_ID_PATTERN).optional()
+});
+export type PhoneLocationPing = z.infer<typeof phoneLocationPingSchema>;

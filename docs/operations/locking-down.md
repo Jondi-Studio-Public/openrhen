@@ -26,6 +26,10 @@ Use your portal's address in place of `localhost:8787`.
 5. **Deploy with `off`, then flip.** Start the stack with the new secrets while still `off`, confirm it works, then set `OPENRHEN_OWNER_AUTH=require` and run `docker compose up -d`.
 6. **Sign in.** Every browser now shows a Sign in page. Paste your recovery token (or another owner token you created with `rhen owner-token create --label laptop`) once; that browser keeps a cookie. Do the same on each device. Keep owner tokens out of any place an agent or automation runs.
 
+### Adding a phone
+
+Once you are signed in on a desk browser, open Settings > Sign-in and devices and choose **Add a phone**. The page shows a QR with the portal's address printed under it; the app scans it, asks "Connect to *host*?", and receives its own owner token. Set `PORTAL_PUBLIC_URL` to the https address the phone will use (or type that address on the page for one QR); an http, localhost or bare IP address cannot be used by a phone, and the page says so instead of showing a QR. A phone's token is **limited**: it cannot add phones, issue tokens, change saved keys or set up connections, so a stolen unlocked phone cannot enrol another device. Revoke a phone from the same page; its web view and push registration end with it. **Enter a code** adds a phone that has no signed-in screen to scan from: type the code the phone shows. Under `off` or `shadow` the limit protects nothing, because no credential is checked. See [Auth per seam](../protocol/auth.md#adding-a-phone-device-sign-in).
+
 ## Rollback
 
 Set `OPENRHEN_OWNER_AUTH=off` and redeploy. If you are locked out of every browser, the Sign in page also accepts the recovery token.

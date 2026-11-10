@@ -93,6 +93,8 @@ const OWNER_WHERE: Record<string, string> = {
   "DELETE /api/owner/credentials/[id]": SETTINGS_ADD_ONS,
   "POST /api/owner/signout": SETTINGS_ADD_ONS,
   "POST /api/owner/enroll": "on the Sign in page",
+  "POST /api/owner/devices/pairings": "on the Devices page (Add a phone)",
+  "POST /api/owner/devices/code/approve": "on the Devices page (Enter a code)",
   "PUT /api/plan-map/switches": SETTINGS_ADD_ONS,
   "POST /api/connections/status": ON_CONNECTIONS,
   "PUT /api/connections/[connectionId]/calendars": ON_CONNECTIONS,
@@ -719,6 +721,14 @@ const OWNER_ROUTES: Record<string, string> = {
   "POST /api/owner/signout": "Signing out",
   "POST /api/owner/credentials": "Issuing an owner token",
   "DELETE /api/owner/credentials/[id]": "Revoking an owner credential",
+  // Device sign-in (a phone paired by QR or by a code). Starting and approving need the signed-in owner; redeeming and
+  // the two code calls check their own one-time secret (see `OWNER_AUTH_EXEMPT`).
+  "POST /api/owner/devices/pairings": "Starting a device pairing",
+  "POST /api/owner/devices/redeem": "Redeeming a device pairing",
+  "POST /api/owner/devices/code": "Asking for a device code",
+  "POST /api/owner/devices/code/token": "Collecting a device code's token",
+  "POST /api/owner/devices/code/approve": "Approving a device code",
+  "POST /api/owner/web-session": "Opening a web-view session for a signed-in device",
   "DELETE /api/agent-tokens/[id]": "Revoking an agent token",
   "PATCH /api/agent-tokens/[id]": "Changing what an agent token may write directly",
   "POST /api/connections/status": "Recording a connection check",
@@ -879,6 +889,7 @@ const OWNER_READS = new Set([
   "/api/closed",
   "/api/closed/summary",
   "/api/owner/credentials",
+  "/api/owner/credential-events",
   "/api/owner/session",
   "/api/connections/status",
   "/api/connections/[connectionId]/calendars",
@@ -894,6 +905,71 @@ const OWNER_READS = new Set([
 ]);
 
 /**
+ * The `owner-admin` class: routes a **limited** owner credential (a paired phone's token, and the web-view session
+ * that descends from it) is refused. They add credentials, hand out secrets or settle who may reach the data:
+ * enrolling a browser, minting or revoking credentials and agent tokens, pairing a device and approving its code,
+ * consent for a remote agent, saved passwords and keys, connection setup, and purging a source. Any other classified
+ * route is open to a limited credential, planning writes included (the web view's planning screens must work), and a
+ * route no table classifies is refused to it by default. Every entry says why. It matters only under owner auth
+ * `require`: under `off` and `shadow` no credential is checked at all.
+ *
+ * Decided on purpose, not by omission: `PUT /api/state` (the portal saves the whole plan through it),
+ * `POST /api/agent-proposals/[id]/resolve` (a planning decision), the derived-settings routes and the
+ * activity-import undo are open to a limited credential; the purge of every event of a source is not. Core has no
+ * restore or export route (those run from the command line); an add-on that adds one registers it here.
+ */
+const OWNER_ADMIN_ROUTES: Record<string, string> = {
+  ...mergedRecord((extension) => extension.routes?.ownerAdminRoutes),
+  "POST /api/owner/enroll": "enrolling a browser",
+  "POST /api/owner/credentials": "minting an owner token",
+  "DELETE /api/owner/credentials/[id]": "revoking a credential (a limited one may revoke only itself)",
+  "POST /api/agent-tokens": "minting an agent token",
+  "DELETE /api/agent-tokens/[id]": "revoking an agent token",
+  "PATCH /api/agent-tokens/[id]": "widening what an agent token may write",
+  "POST /oauth/authorize": "consent for a remote agent",
+  "POST /api/owner/devices/pairings": "pairing another device",
+  "POST /api/owner/devices/code/approve": "approving another device's code",
+  "PUT /api/settings/secrets/[name]": "saving a password or key",
+  "DELETE /api/settings/secrets/[name]": "removing a password or key",
+  "POST /api/connections/status": "connection setup",
+  "PUT /api/connections/[connectionId]/calendars": "connection setup",
+  "POST /api/connections/[connectionId]/write-proof": "connection setup",
+  "POST /api/connections/[connectionId]/publish": "connection setup",
+  "POST /api/connections/[connectionId]/publish/remove": "connection setup",
+  "POST /api/connections/[connectionId]/import/preview": "connection setup",
+  "DELETE /api/activity-sources/[source]/events": "purging every event of a source"
+};
+
+/** Owner-admin routes a limited credential may still call for itself; the handler checks it is its own. */
+const OWNER_ADMIN_SELF_SERVE = new Set(["DELETE /api/owner/credentials/[id]"]);
+
+export type LimitedCredentialDecision =
+  { allowed: true; selfOnly?: true } | { allowed: false; reason: "owner-admin" | "unclassified" };
+
+/**
+ * Whether a limited owner credential may call this route. `selfOnly` means the route is `owner-admin` but offers the
+ * credential's own case (revoking itself); the handler must check the id. A route in no table is refused.
+ */
+export function limitedCredentialDecision(method: string, route: string): LimitedCredentialDecision {
+  const verb = method.toUpperCase();
+  if (verb === "OPTIONS") return { allowed: true };
+  const key = `${verb} ${route}`;
+  if (OWNER_ADMIN_ROUTES[key] !== undefined)
+    return OWNER_ADMIN_SELF_SERVE.has(key)
+      ? { allowed: true, selfOnly: true }
+      : { allowed: false, reason: "owner-admin" };
+  const classified = READ_METHODS.has(verb)
+    ? OWNER_READS.has(route) || READ_RULES[route] !== undefined
+    : WRITE_RULES[key] !== undefined || OWNER_ROUTES[key] !== undefined || SELF_AUTHENTICATED[key] !== undefined;
+  return classified ? { allowed: true } : { allowed: false, reason: "unclassified" };
+}
+
+/** Every `METHOD route` in the `owner-admin` class, for the tests that keep it honest. */
+export function ownerAdminRoutes(): string[] {
+  return Object.keys(OWNER_ADMIN_ROUTES);
+}
+
+/**
  * Routes a drop-in (a push transport, a connection) owns. The drop-in registers them when it loads, so this file
  * names none of them and the classification tests in the portal still see them. Each field is the registered
  * form of the table of the same name above.
@@ -907,6 +983,8 @@ export interface AgentRouteExtension {
   ownerReads?: readonly string[];
   /** `METHOD route` to why it needs no owner credential (`OWNER_AUTH_EXEMPT`). */
   ownerAuthExempt?: Record<string, string>;
+  /** `METHOD route` to why a limited device credential is refused it (`OWNER_ADMIN_ROUTES`). */
+  ownerAdminRoutes?: Record<string, string>;
 }
 
 /** Adds a drop-in's routes to the tables. Returns a function that takes them out again (tests). */
@@ -915,17 +993,20 @@ export function registerAgentRoutes(extension: AgentRouteExtension): () => void 
     ownerRoutes: Object.keys(extension.ownerRoutes ?? {}),
     ownerRunsItself: [...(extension.ownerRunsItself ?? [])],
     ownerReads: [...(extension.ownerReads ?? [])],
-    ownerAuthExempt: Object.keys(extension.ownerAuthExempt ?? {})
+    ownerAuthExempt: Object.keys(extension.ownerAuthExempt ?? {}),
+    ownerAdminRoutes: Object.keys(extension.ownerAdminRoutes ?? {})
   };
   Object.assign(OWNER_ROUTES, extension.ownerRoutes);
   for (const key of added.ownerRunsItself) OWNER_RUNS_ITSELF.add(key);
   for (const route of added.ownerReads) OWNER_READS.add(route);
   Object.assign(OWNER_AUTH_EXEMPT, extension.ownerAuthExempt);
+  Object.assign(OWNER_ADMIN_ROUTES, extension.ownerAdminRoutes);
   return () => {
     for (const key of added.ownerRoutes) delete OWNER_ROUTES[key];
     for (const key of added.ownerRunsItself) OWNER_RUNS_ITSELF.delete(key);
     for (const route of added.ownerReads) OWNER_READS.delete(route);
     for (const key of added.ownerAuthExempt) delete OWNER_AUTH_EXEMPT[key];
+    for (const key of added.ownerAdminRoutes) delete OWNER_ADMIN_ROUTES[key];
   };
 }
 
@@ -1006,6 +1087,9 @@ export function classifiedRoutes(): string[] {
  */
 const OWNER_AUTH_EXEMPT: Record<string, string> = {
   "POST /api/owner/enroll": "checks its own secret",
+  "POST /api/owner/devices/redeem": "checks its own one-time pairing secret",
+  "POST /api/owner/devices/code": "starts a code that only a signed-in owner can approve",
+  "POST /api/owner/devices/code/token": "checks its own device code",
   "GET /api/owner/session": "says whether the caller is signed in",
   "POST /api/location/ping": "its own bearer token",
   "POST /mcp": "checks its own audience-bound access token",

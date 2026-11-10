@@ -11,6 +11,8 @@ export const CORE_DATASET_NOTES: readonly DatasetNote[] = [
   infrastructure("agent_tokens", "agent credentials"),
   infrastructure("agent_access_tokens", "remote agent access credentials"),
   infrastructure("owner_credentials", "owner sign-in credentials"),
+  infrastructure("owner_device_pairings", "device pairing grants"),
+  infrastructure("owner_credential_events", "device sign-in history"),
   infrastructure("oauth_clients", "remote agent sign-in registrations"),
   infrastructure("oauth_authorization_codes", "remote agent sign-in codes"),
   infrastructure("oauth_refresh_tokens", "remote agent sign-in tokens"),

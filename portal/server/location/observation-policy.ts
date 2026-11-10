@@ -1,3 +1,4 @@
+import { DEVICE_INSTALL_ID_PATTERN } from "@openrhen/contracts";
 import type { LocationMatch, NearbyLocation } from "./nearest-location";
 
 /**
@@ -77,6 +78,12 @@ export type ObservationSource = "phone" | "browser";
  * this database.
  */
 export interface DeviceObservationRecord {
+  /**
+   * The install id of the phone that sent it, when it named one (its owner token's device, or the ping's `device`).
+   * Presence is read per device, so two phones cannot break each other's run. Absent for the browser and for a ping
+   * that came in on the shared location token without a device.
+   */
+  device?: string;
   /** The device's clock at the moment of the fix. Orders the trail; never measures presence. */
   observedAt: string;
   /** The server's clock when it arrived. Sustained presence is measured on this, not on `observedAt`. */
@@ -157,6 +164,7 @@ function parseObservation(value: unknown): DeviceObservationRecord | null {
   const match = raw.match as Record<string, unknown> | undefined;
   if (!match || typeof match !== "object") return null;
   const base = {
+    ...(typeof raw.device === "string" && DEVICE_INSTALL_ID_PATTERN.test(raw.device) ? { device: raw.device } : {}),
     observedAt: raw.observedAt,
     recordedAt: raw.recordedAt,
     source,
@@ -216,8 +224,10 @@ export function observationRecord(args: {
   accuracyMeters: number;
   observedAt: string;
   recordedAt: string;
+  device?: string;
 }): DeviceObservationRecord {
   const base = {
+    ...(args.device ? { device: args.device } : {}),
     observedAt: args.observedAt,
     recordedAt: args.recordedAt,
     source: args.source,
@@ -241,17 +251,37 @@ export function observationRecord(args: {
 }
 
 /**
- * Appends a reading and trims to the cap. Sorted by the device's clock rather than by arrival, so a
- * ping queued through a signal blackspot lands in the run it actually belongs to instead of looking
- * like a fresh arrival at the moment the phone got signal back.
+ * Appends a reading and trims to the cap, per device: each phone keeps its own {@link DEVICE_LOCATION_HISTORY_LIMIT}
+ * readings, and the browser and a ping with no device share one more, so a busy phone cannot push another's run out.
+ * Sorted by the device's clock rather than by arrival, so a ping queued through a signal blackspot lands in the run it
+ * actually belongs to instead of looking like a fresh arrival at the moment the phone got signal back.
  */
 export function appendObservation(
   state: DeviceLocationState,
   record: DeviceObservationRecord
 ): DeviceObservationRecord[] {
-  return [...state.observations, record]
-    .sort((left, right) => Date.parse(left.observedAt) - Date.parse(right.observedAt))
-    .slice(-DEVICE_LOCATION_HISTORY_LIMIT);
+  const sorted = [...state.observations, record].sort(
+    (left, right) => Date.parse(left.observedAt) - Date.parse(right.observedAt)
+  );
+  const kept = new Map<string, number>();
+  const keep = sorted.map(() => false);
+  for (let index = sorted.length - 1; index >= 0; index -= 1) {
+    const key = sorted[index]!.device ?? "";
+    const count = kept.get(key) ?? 0;
+    if (count < DEVICE_LOCATION_HISTORY_LIMIT) {
+      keep[index] = true;
+      kept.set(key, count + 1);
+    }
+  }
+  return sorted.filter((_, index) => keep[index]);
+}
+
+/** The readings one phone sent (`device` undefined: the browser's and the device-less pings'), for the presence rule. */
+export function observationsOfDevice(
+  observations: readonly DeviceObservationRecord[],
+  device: string | undefined
+): DeviceObservationRecord[] {
+  return observations.filter((entry) => entry.device === device);
 }
 
 export interface SustainedRun {

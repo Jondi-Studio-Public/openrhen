@@ -14,6 +14,7 @@ import {
   decidePhonePing,
   nextSuggestion,
   observationRecord,
+  observationsOfDevice,
   parseDeviceLocationState,
   readingFreshness,
   StaleLocationReadingError,
@@ -65,8 +66,11 @@ function assertReadingFresh(observedAt: string, now: Date): void {
 export class LocationObservationStore {
   constructor(private readonly sql: PoolSql) {}
 
-  /** A reading from the phone, which may move the assertion once presence is sustained. */
-  async recordPhonePing(observation: LocationObservation, now = new Date()): Promise<PingResult> {
+  /**
+   * A reading from the phone, which may move the assertion once presence is sustained. `device` is the phone's install
+   * id when it named one; sustained presence is then read over that phone's readings only.
+   */
+  async recordPhonePing(observation: LocationObservation, now = new Date(), device?: string): Promise<PingResult> {
     assertReadingFresh(observation.observedAt, now);
     const userId = await ensureUser(this.sql);
     let result: PingResult = { decision: "suggested", locationId: null, locationName: null, suggestion: null };
@@ -78,12 +82,14 @@ export class LocationObservationStore {
         source: "phone",
         accuracyMeters: observation.accuracyMeters,
         observedAt: observation.observedAt,
-        recordedAt: now.toISOString()
+        recordedAt: now.toISOString(),
+        ...(device ? { device } : {})
       });
       const observations = appendObservation(context.device, record);
+      const ofThisPhone = observationsOfDevice(observations, device);
       const outcome = decidePhonePing({
         match,
-        observations,
+        observations: ofThisPhone,
         currentLocationId: context.situation.locationId,
         observedAt: observation.observedAt,
         now,
@@ -95,7 +101,7 @@ export class LocationObservationStore {
       // own "asserted" decision is exactly the sustained-run case (`decidePhonePing` above).
       const ownTripArrivedAt =
         outcome.decision === "asserted" && outcome.assertLocationId
-          ? new Date(sustainedRun(observations)?.startedAt ?? now.toISOString())
+          ? new Date(sustainedRun(ofThisPhone)?.startedAt ?? now.toISOString())
           : now;
       await write(
         tx,

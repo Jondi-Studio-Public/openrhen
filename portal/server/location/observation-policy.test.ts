@@ -8,6 +8,7 @@ import {
   emptyDeviceLocationState,
   nextSuggestion,
   observationRecord,
+  observationsOfDevice,
   parseDeviceLocationState,
   readingFreshness,
   sustainedLocationId,
@@ -368,5 +369,58 @@ describe("nextSuggestion", () => {
     expect(nextSuggestion(standing, "clear")).toBeNull();
     const replacement = { ...standing, observedAt: at(2) };
     expect(nextSuggestion(standing, replacement)).toBe(replacement);
+  });
+});
+
+describe("presence per device", () => {
+  const PHONE_A = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa";
+  const PHONE_B = "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb";
+  const fixOf = (device: string | undefined, locationId: string | null, minutes: number) => ({
+    ...fix(locationId, minutes),
+    ...(device ? { device } : {})
+  });
+
+  it("keeps the device on a reading and through a stored round trip, and drops a malformed id", () => {
+    const record = observationRecord({
+      match: matched("home"),
+      source: "phone",
+      accuracyMeters: 12,
+      observedAt: at(0),
+      recordedAt: at(0),
+      device: PHONE_A
+    });
+    expect(record.device).toBe(PHONE_A);
+    const state = parseDeviceLocationState({ observations: [record, { ...record, device: "NOT VALID" }] });
+    expect(state.observations.map((entry) => entry.device)).toEqual([PHONE_A, undefined]);
+  });
+
+  it("does not let one phone's readings break or complete another's run", () => {
+    // Phone A is at home for ten minutes; phone B reports somewhere else in between.
+    const trail = [
+      fixOf(PHONE_A, "home", 0),
+      fixOf(PHONE_B, "work", 3),
+      fixOf(PHONE_A, "home", 5),
+      fixOf(PHONE_B, "work", 8),
+      fixOf(PHONE_A, "home", 10)
+    ];
+    expect(sustainedLocationId(trail)).toBeNull();
+    expect(sustainedLocationId(observationsOfDevice(trail, PHONE_A))).toBe("home");
+    expect(sustainedLocationId(observationsOfDevice(trail, PHONE_B))).toBeNull();
+    // A ping with no device reads only the device-less readings, as it always did.
+    expect(observationsOfDevice(trail, undefined)).toEqual([]);
+  });
+
+  it("two phones that agree still need their own ten minutes each", () => {
+    const trail = [fixOf(PHONE_A, "home", 0), fixOf(PHONE_B, "home", 6), fixOf(PHONE_B, "home", 11)];
+    expect(sustainedLocationId(observationsOfDevice(trail, PHONE_A))).toBeNull();
+    expect(sustainedLocationId(observationsOfDevice(trail, PHONE_B))).toBeNull();
+  });
+
+  it("caps the history per device, so a busy phone cannot push another's run out", () => {
+    let observations: DeviceObservationRecord[] = [fixOf(PHONE_B, "home", 0)];
+    for (let index = 1; index <= DEVICE_LOCATION_HISTORY_LIMIT + 5; index += 1)
+      observations = appendObservation({ observations, suggestion: null }, fixOf(PHONE_A, "home", index));
+    expect(observationsOfDevice(observations, PHONE_A)).toHaveLength(DEVICE_LOCATION_HISTORY_LIMIT);
+    expect(observationsOfDevice(observations, PHONE_B)).toHaveLength(1);
   });
 });
