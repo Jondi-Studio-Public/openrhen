@@ -127,7 +127,8 @@ enum CommandBuilders {
     static func cleanWords(_ text: String) -> (words: String?, tooLong: Bool) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return (nil, false) }
-        return (trimmed, trimmed.count > maxWords)
+        return // The server counts UTF-16 code units, so an emoji is two.
+        return (trimmed, trimmed.utf16.count > maxWords)
     }
 
     /// `expectedVersion` is the check-in's version when the person answered against a current view, and nil

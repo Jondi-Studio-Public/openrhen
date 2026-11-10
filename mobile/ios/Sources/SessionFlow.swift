@@ -77,8 +77,6 @@ enum RemainingParser {
     static func minutes(from text: String, bareNumberIsMinutes: Bool = false) -> Int? {
         let lower = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         if lower.isEmpty { return nil }
-        let nothing = ["nothing", "none", "nothing left", "none left", "all done", "finished", "zero"]
-        if nothing.contains(where: { lower == $0 || lower.hasPrefix($0 + " ") || lower.hasSuffix(" " + $0) }) { return 0 }
         var total = 0.0
         var found = false
         if lower.contains("quarter of an hour") || lower.contains("quarter hour") { total += 15; found = true }
@@ -109,6 +107,9 @@ enum RemainingParser {
         }
         if found { return Int((total + extra).rounded()) }
         if bareNumberIsMinutes, let value = Int(lower) { return value }
+        // Only when the whole text says it: "nothing", not "I did nothing" or "finished the intro".
+        let nothing = ["nothing", "none", "nothing left", "none left", "all done", "finished", "zero"]
+        if nothing.contains(lower) { return 0 }
         return nil
     }
 }
