@@ -55,13 +55,13 @@ async function insertRun(owner: string, calculatedAt: Date, superseded = false) 
 }
 
 /** Inserts a job straight into a status, in enqueue order, so a test can set up a dead chain. */
-async function insertJob(owner: string, status: string, cause: string, errorCode?: string) {
+async function insertJob(owner: string, status: string, cause: string, errorCode?: string, failedAt: Date = now) {
   await sql`
     INSERT INTO jobs (type,payload,idempotency_key,status,available_at,last_error_code,failed_at)
     VALUES (
       ${PLAN_FORECAST_JOB_TYPE},
       ${sql.json({ userId: owner, cause, request: { inputVersion: crypto.randomUUID() } } as never)},
-      ${`watchdog-fixture-${crypto.randomUUID()}`},${status},${now},${errorCode ?? null},${status === "failed" ? now : null}
+      ${`watchdog-fixture-${crypto.randomUUID()}`},${status},${now},${errorCode ?? null},${status === "failed" ? failedAt : null}
     )
   `;
 }
@@ -161,6 +161,12 @@ describe("healStalePlanChain", () => {
     await insertJob(userId, "failed", "validity_boundary", "plan_forecast_unavailable");
     expect(await healStalePlanChain(sql, now, options())).toEqual([]);
     expect(enqueued).toEqual([]);
+  });
+
+  it("heals when the engine-unavailable failure is older than 70 minutes", async () => {
+    await insertRun(userId, minutesAgo(300));
+    await insertJob(userId, "failed", "validity_boundary", "plan_forecast_unavailable", minutesAgo(200));
+    expect(await healStalePlanChain(sql, now, options())).toEqual([userId]);
   });
 
   it("still heals when an earlier job was unavailable but the latest failed otherwise", async () => {

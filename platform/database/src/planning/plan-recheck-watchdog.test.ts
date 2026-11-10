@@ -7,7 +7,7 @@ const dead: PlanRecheckFacts = {
   now,
   newestRunAt: minutesAgo(120),
   hasActiveJob: false,
-  lastJobEngineUnavailable: false
+  lastJobEngineUnavailableAt: null
 };
 
 describe("decidePlanRecheck", () => {
@@ -23,11 +23,19 @@ describe("decidePlanRecheck", () => {
   it("does nothing while a job is active, however old the run", () =>
     expect(decidePlanRecheck({ ...dead, hasActiveJob: true })).toEqual({ heal: false, reason: "active_job" }));
 
-  it("does nothing while the engine is reported unavailable", () =>
-    expect(decidePlanRecheck({ ...dead, lastJobEngineUnavailable: true })).toEqual({
+  it("does nothing while the engine was reported unavailable within the last 70 minutes", () =>
+    expect(decidePlanRecheck({ ...dead, lastJobEngineUnavailableAt: minutesAgo(5) })).toEqual({
       heal: false,
       reason: "engine_unavailable"
     }));
+
+  it("heals when the unavailable failure is older than 70 minutes: nothing retries it, so the chain is dead", () => {
+    expect(decidePlanRecheck({ ...dead, lastJobEngineUnavailableAt: minutesAgo(70) })).toEqual({
+      heal: false,
+      reason: "engine_unavailable"
+    });
+    expect(decidePlanRecheck({ ...dead, lastJobEngineUnavailableAt: minutesAgo(71) })).toEqual({ heal: true });
+  });
 
   it("heals a user at most once per 70 minutes", () => {
     expect(decidePlanRecheck({ ...dead, lastHealAt: minutesAgo(5) })).toEqual({

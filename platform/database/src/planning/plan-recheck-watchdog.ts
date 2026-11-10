@@ -13,8 +13,12 @@ export interface PlanRecheckFacts {
   newestRunAt: Date;
   /** A plan_forecast job is pending, retrying or running for the user. */
   hasActiveJob: boolean;
-  /** The user's most recent plan job failed with `plan_forecast_unavailable` (the engine is down). */
-  lastJobEngineUnavailable: boolean;
+  /**
+   * When the user's most recent plan job failed with `plan_forecast_unavailable` (the engine was down), else null.
+   * Nothing retries that failure, so it only holds the watchdog back while it is recent: an old one with the engine
+   * back is a dead chain.
+   */
+  lastJobEngineUnavailableAt: Date | null;
   /** When this process last healed the user, if it has. */
   lastHealAt?: Date | undefined;
 }
@@ -30,7 +34,11 @@ export function decidePlanRecheck(facts: PlanRecheckFacts): PlanRecheckDecision 
   if (facts.hasActiveJob) return { heal: false, reason: "active_job" };
   if (facts.now.getTime() - facts.newestRunAt.getTime() <= PLAN_RECHECK_THRESHOLD_MS)
     return { heal: false, reason: "recent_run" };
-  if (facts.lastJobEngineUnavailable) return { heal: false, reason: "engine_unavailable" };
+  if (
+    facts.lastJobEngineUnavailableAt &&
+    facts.now.getTime() - facts.lastJobEngineUnavailableAt.getTime() <= PLAN_RECHECK_THRESHOLD_MS
+  )
+    return { heal: false, reason: "engine_unavailable" };
   if (facts.lastHealAt && facts.now.getTime() - facts.lastHealAt.getTime() <= PLAN_RECHECK_THRESHOLD_MS)
     return { heal: false, reason: "recently_healed" };
   return { heal: true };
@@ -61,6 +69,7 @@ interface UserFacts {
   has_active_job: boolean;
   last_error_code: string | null;
   last_status: string | null;
+  last_failed_at: Date | null;
 }
 
 /**
@@ -82,10 +91,11 @@ export async function healStalePlanChain(
           AND j.status IN ('pending','retrying','running')
       ) AS has_active_job,
       last_job.status AS last_status,
-      last_job.last_error_code AS last_error_code
+      last_job.last_error_code AS last_error_code,
+      last_job.failed_at AS last_failed_at
     FROM (SELECT user_id, MAX(calculated_at) AS newest_run_at FROM planning_runs GROUP BY user_id) r
     LEFT JOIN LATERAL (
-      SELECT j.status, j.last_error_code FROM jobs j
+      SELECT j.status, j.last_error_code, j.failed_at FROM jobs j
       WHERE j.type=${PLAN_FORECAST_JOB_TYPE} AND j.payload->>'userId'=r.user_id::text
       ORDER BY j.seq DESC LIMIT 1
     ) last_job ON true
@@ -97,7 +107,8 @@ export async function healStalePlanChain(
       now,
       newestRunAt: row.newest_run_at,
       hasActiveJob: row.has_active_job,
-      lastJobEngineUnavailable: row.last_status === "failed" && row.last_error_code === "plan_forecast_unavailable",
+      lastJobEngineUnavailableAt:
+        row.last_status === "failed" && row.last_error_code === "plan_forecast_unavailable" ? row.last_failed_at : null,
       lastHealAt: options.lastHealAt.get(row.user_id)
     });
     if (!decision.heal) continue;
