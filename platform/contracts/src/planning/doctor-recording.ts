@@ -6,10 +6,17 @@
 import type { DoctorItem } from "./doctor.js";
 
 const HOUR_MS = 3_600_000;
+const DAY_MS = 24 * HOUR_MS;
 /** A backup run is nightly; no success for this long means a night was missed. */
 export const DOCTOR_BACKUP_STALE_HOURS = 36;
 /** A phone that has pinged before and has been silent this long has probably lost its automation. */
 export const DOCTOR_PING_SILENT_HOURS = 48;
+/** A ping token set longer than this ago that has never been used is a setup that did not finish. */
+export const DOCTOR_PING_NEVER_HOURS = 24;
+/** An agent token is raised this long before it expires. */
+export const DOCTOR_TOKEN_EXPIRING_DAYS = 7;
+/** Agent time that was reported before and stops for this long means the reporting plugin has probably stopped. */
+export const DOCTOR_AGENT_TIME_SILENT_DAYS = 7;
 
 export interface DoctorRecordingSlice {
   /** The latest recorded backup run, or null when none was ever recorded (backups never armed or never ran). */
@@ -28,7 +35,13 @@ export interface DoctorRecordingSlice {
     configured: boolean;
     /** Server receipt time of the latest phone ping; null when it never pinged. */
     lastPingAt: string | null;
+    /** When the portal first saw the token configured (ISO), or null when not yet recorded. */
+    configuredSince?: string | null;
   };
+  /** Live (not revoked) database agent tokens: name and expiry only, never a hash. */
+  agentTokens?: { name: string; expiresAt: string }[];
+  /** The newest agent time an agent reported (`agent_sessions` with source `reported`); null when none ever was. */
+  agentTime?: { lastReportedAt: string | null };
   /** Agent wakes (`agent_wakes`) that went `dead` in the last 24 h: not delivered, or expired unsent. */
   deadAgentWakes: {
     count: number;
@@ -136,6 +149,68 @@ export function recordingItems(slice: DoctorRecordingSlice, nowMs: number): Doct
       handles: [],
       since: new Date(ping).toISOString(),
       fix: { who: "person", question: "Check the Shortcuts location automation on the phone is still running." }
+    });
+  const since = ms(phonePing.configuredSince ?? null);
+  if (
+    phonePing.configured &&
+    ping === undefined &&
+    since !== undefined &&
+    nowMs - since > DOCTOR_PING_NEVER_HOURS * HOUR_MS
+  )
+    items.push({
+      id: "location_ping_never",
+      check: "location_ping_never",
+      tier: "degrading",
+      area: "integrations",
+      title: "The phone's location ping is set up but has never arrived",
+      why: "Place changes will not be reported until the first ping lands, so travel is planned from the place you last said.",
+      handles: [],
+      since: new Date(since).toISOString(),
+      fix: {
+        who: "person",
+        question:
+          "Check the Shortcuts location automation on the phone sends to the portal with the same token as LOCATION_PING_TOKEN."
+      }
+    });
+  for (const token of slice.agentTokens ?? []) {
+    const expires = ms(token.expiresAt);
+    if (expires === undefined || expires - nowMs > DOCTOR_TOKEN_EXPIRING_DAYS * DAY_MS) continue;
+    const expired = expires <= nowMs;
+    items.push({
+      id: `agent_token_expiring:${token.name}`,
+      check: "agent_token_expiring",
+      tier: expired ? "blocking" : "degrading",
+      area: "integrations",
+      title: expired
+        ? `The agent token "${token.name}" expired ${age(expires, nowMs)} ago`
+        : `The agent token "${token.name}" expires in ${age(nowMs, expires)}`,
+      why: expired
+        ? "Every call from this agent or feed now gets a 401, so what it sends is lost."
+        : "When it expires every call from this agent or feed gets a 401 and what it sends is lost.",
+      handles: [`agent_token:${token.name}`],
+      dueAt: new Date(expires).toISOString(),
+      fix: {
+        who: "person",
+        question: `Mint a new token for "${token.name}" (rhen agent-token create), put it where the agent or feed keeps it, then revoke the old one.`
+      }
+    });
+  }
+  const reported = ms(slice.agentTime?.lastReportedAt ?? null);
+  if (reported !== undefined && nowMs - reported > DOCTOR_AGENT_TIME_SILENT_DAYS * DAY_MS)
+    items.push({
+      id: "agent_time_silent",
+      check: "agent_time_silent",
+      tier: "degrading",
+      area: "integrations",
+      title: `No agent time has been reported for ${age(reported, nowMs)}`,
+      why: "Agent time is no longer reaching the plan, so the hours the agent worked go uncounted.",
+      handles: [],
+      since: new Date(reported).toISOString(),
+      fix: {
+        who: "person",
+        question:
+          "Check the agent's token has not expired or been revoked and that its reporting plugin is still running."
+      }
     });
   if (deadAgentWakes.count > 0)
     items.push({

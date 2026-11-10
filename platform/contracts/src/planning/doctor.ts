@@ -93,6 +93,9 @@ export const DOCTOR_CHECKS = [
   "backup_unverified",
   "backup_stale",
   "location_ping_silent",
+  "location_ping_never",
+  "agent_token_expiring",
+  "agent_time_silent",
   "agent_wake_dead",
   "closed_stamp_stray",
   "closed_stamp_missing",
@@ -269,7 +272,7 @@ export function emptyDoctorSlices(
     duplicates: { actions: [], proposals: [], openDuplicateFindingItemIds: [], deadLinkEnds: [] },
     recording: {
       backup: { status: "synced", lastRunAt: now, lastSuccessAt: now },
-      phonePing: { configured: false, lastPingAt: null },
+      phonePing: { configured: false, lastPingAt: null, configuredSince: null },
       deadAgentWakes: { count: 0, lastError: null }
     },
     closed: { tables: [] }

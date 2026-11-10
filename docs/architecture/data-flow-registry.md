@@ -80,6 +80,18 @@ The closure walker (`enumerate.ts`) follows relative imports, the portal's `@/` 
 | `sources_collecting_unused` | one summary of rows that arrived this week into a continuous source whose reach is empty; file imports never count | tidy |
 | `import_needs_review` | the newest `import:<source>` run in the last 30 days finished `needs_review` ("Archive import skipped 212 rows") | tidy |
 
+### Doctor recording checks
+
+`platform/contracts/src/planning/doctor-recording.ts` judges the facts other modules leave behind; `portal/server/persistence/postgres/doctor-recording.ts` reads them. The reader stamps `pingTokenSeenAt` into `user_preferences.device_location_state` the first time it sees `LOCATION_PING_TOKEN` configured (the only doctor read that writes; it dates a token that lives in the environment and keeps the first stamp).
+
+| Check | Raised when | Tier |
+|---|---|---|
+| `location_ping_never` | the ping token is configured, no ping has ever arrived, and the token was first seen more than 24 h ago | degrading |
+| `agent_token_expiring` | a live (not revoked) agent token expires within 7 days, or already has; one item per token, id `agent_token_expiring:<name>`; fix is to mint a new token and revoke the old | degrading while it still works, blocking once expired |
+| `agent_time_silent` | agent time has been reported before (`agent_sessions` source `reported`) and none has for 7 days; never raised before the first report | degrading |
+
+A silent feed (`source_late`), a silent handheld (`device_silent`, from the `device:handheld` poll rows) and travel lookup failures (`job:travel-lookup` runs) are judged by the source checks above.
+
 If the probes cannot be read, doctor lists the source checks under `notChecked` and answers the rest, with a fixed reason (the real error goes to the server log). Doctor shares the health reader's 60 s cache with `/api/data-flow`, so a fix can take up to a minute to show. The report also carries `sources` (late, device silent, collected-unused and accepted-nothing-sends counts, and the one-line `line`), which the Data check and Connections headers show with a link to `/data`. `DoctorFix.next` holds the exact next step in words for an agent fix. Each check also has a fixed `attention.ts` template.
 
 Known limits:

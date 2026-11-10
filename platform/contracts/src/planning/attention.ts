@@ -459,6 +459,18 @@ export const ATTENTION_DOCTOR_TEMPLATES: Record<DoctorCheck, AttentionDoctorTemp
     title: "Place changes are not being reported",
     why: "Travel and what can be done here are planned from an old place."
   },
+  location_ping_never: {
+    title: "The phone's location ping has never arrived",
+    why: "Place changes are not being reported, so travel is planned from the place you last said."
+  },
+  agent_token_expiring: {
+    title: "An agent token is expiring or has expired",
+    why: "Calls from that agent or feed get a 401 once it expires, so what it sends is lost."
+  },
+  agent_time_silent: {
+    title: "Agent time has stopped arriving",
+    why: "The agent's reported hours no longer reach the plan."
+  },
   agent_wake_dead: {
     title: "The agent was not woken",
     why: "A wake sent to the owner's agent failed or expired, so a question or lapse may have gone unseen."

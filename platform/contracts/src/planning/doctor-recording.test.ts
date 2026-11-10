@@ -6,8 +6,10 @@ const hoursAgo = (h: number) => new Date(NOW - h * 3_600_000).toISOString();
 
 const quiet: DoctorRecordingSlice = {
   backup: { status: "synced", lastRunAt: hoursAgo(5), lastSuccessAt: hoursAgo(5) },
-  phonePing: { configured: true, lastPingAt: hoursAgo(2) },
-  deadAgentWakes: { count: 0, lastError: null }
+  phonePing: { configured: true, lastPingAt: hoursAgo(2), configuredSince: hoursAgo(24 * 30) },
+  deadAgentWakes: { count: 0, lastError: null },
+  agentTokens: [{ name: "claw", expiresAt: hoursAgo(-24 * 60) }],
+  agentTime: { lastReportedAt: hoursAgo(5) }
 };
 
 describe("recordingItems", () => {
@@ -65,10 +67,12 @@ describe("recordingItems", () => {
   });
 
   it("flags a silent phone only when the channel is configured and has pinged before", () => {
-    const silent = { configured: true, lastPingAt: hoursAgo(72) };
+    const silent = { configured: true, lastPingAt: hoursAgo(72), configuredSince: hoursAgo(24 * 30) };
     expect(recordingItems({ ...quiet, phonePing: silent }, NOW).map((i) => i.id)).toEqual(["location_ping_silent"]);
     expect(recordingItems({ ...quiet, phonePing: { ...silent, configured: false } }, NOW)).toEqual([]);
-    expect(recordingItems({ ...quiet, phonePing: { configured: true, lastPingAt: null } }, NOW)).toEqual([]);
+    expect(
+      recordingItems({ ...quiet, phonePing: { configured: true, lastPingAt: null, configuredSince: null } }, NOW)
+    ).toEqual([]);
   });
 
   it("flags dead agent wakes with the latest error and the next call, and is quiet at zero", () => {
@@ -81,5 +85,49 @@ describe("recordingItems", () => {
     expect(recordingItems({ ...quiet, deadAgentWakes: { count: 1, lastError: null } }, NOW)[0]!.title).toBe(
       "1 agent wake was not delivered in the last 24 h"
     );
+  });
+
+  it("flags a configured ping token that has never pinged once it has been set for more than a day (D-D2)", () => {
+    const never = (configuredSince: string | null) => ({ configured: true, lastPingAt: null, configuredSince });
+    const items = recordingItems({ ...quiet, phonePing: never(hoursAgo(48)) }, NOW);
+    expect(items.map((i) => [i.id, i.tier, i.area])).toEqual([["location_ping_never", "degrading", "integrations"]]);
+    expect(recordingItems({ ...quiet, phonePing: never(hoursAgo(5)) }, NOW)).toEqual([]);
+    expect(recordingItems({ ...quiet, phonePing: never(null) }, NOW)).toEqual([]);
+    expect(recordingItems({ ...quiet, phonePing: { ...never(hoursAgo(48)), configured: false } }, NOW)).toEqual([]);
+    expect(recordingItems({ ...quiet, phonePing: { ...never(hoursAgo(48)), lastPingAt: hoursAgo(1) } }, NOW)).toEqual(
+      []
+    );
+  });
+
+  it("flags an agent token that expires within 7 days or has expired (D-D7, D-D16)", () => {
+    const soon = recordingItems({ ...quiet, agentTokens: [{ name: "claw", expiresAt: hoursAgo(-24 * 5) }] }, NOW);
+    expect(soon.map((i) => [i.id, i.tier])).toEqual([["agent_token_expiring:claw", "degrading"]]);
+    expect(soon[0]!.title).toBe('The agent token "claw" expires in 5 days');
+    expect(soon[0]!.dueAt).toBe(hoursAgo(-24 * 5));
+    const gone = recordingItems({ ...quiet, agentTokens: [{ name: "claw", expiresAt: hoursAgo(30) }] }, NOW);
+    expect(gone[0]!.title).toBe('The agent token "claw" expired 30 h ago');
+    expect(gone[0]!.tier).toBe("blocking");
+    expect(recordingItems({ ...quiet, agentTokens: [{ name: "claw", expiresAt: hoursAgo(-24 * 8) }] }, NOW)).toEqual(
+      []
+    );
+  });
+
+  it("flags reported agent time silent for 7 days only once it has been seen (D-D16)", () => {
+    const silent = recordingItems({ ...quiet, agentTime: { lastReportedAt: hoursAgo(24 * 8) } }, NOW);
+    expect(silent.map((i) => [i.id, i.tier])).toEqual([["agent_time_silent", "degrading"]]);
+    expect(recordingItems({ ...quiet, agentTime: { lastReportedAt: hoursAgo(24 * 6) } }, NOW)).toEqual([]);
+    expect(recordingItems({ ...quiet, agentTime: { lastReportedAt: null } }, NOW)).toEqual([]);
+  });
+
+  it("raises both items for an expired token and eight days without agent time", () => {
+    const items = recordingItems(
+      {
+        ...quiet,
+        agentTokens: [{ name: "claw", expiresAt: hoursAgo(24) }],
+        agentTime: { lastReportedAt: hoursAgo(24 * 8) }
+      },
+      NOW
+    );
+    expect(items.map((i) => i.check).sort()).toEqual(["agent_time_silent", "agent_token_expiring"]);
   });
 });
