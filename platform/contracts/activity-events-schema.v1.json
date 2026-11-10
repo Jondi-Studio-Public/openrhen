@@ -295,6 +295,12 @@
         "reason_tag"
       ]
     },
+    "phone": {
+      "schemaVersion": 1,
+      "kinds": [
+        "correction"
+      ]
+    },
     "iphone-shortcuts": {
       "schemaVersion": 1,
       "kinds": [

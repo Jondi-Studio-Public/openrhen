@@ -219,4 +219,4 @@ describe("countCrossings", () => {
 const BOUND = 117;
 
 /** Crossings of the real core registry, health unavailable so nothing is folded (166 nodes, 235 edges; 515 before the two drift entries, 809 with them reading derived settings, 627 without); 583 before the repeated sweeps and swap pass. */
-const REAL_BOUND_MEASURED = 706;
+const REAL_BOUND_MEASURED = 790;
