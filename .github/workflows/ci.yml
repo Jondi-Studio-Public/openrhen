@@ -625,9 +625,11 @@ jobs:
             blocks=$((blocks + ${n:-0}))
           done
           [ "$blocks" -eq 1 ] || { echo "::error::expected one PATH block, found $blocks"; exit 1; }
-          out=$(env -i HOME="$HOME" PATH="$bare" "${SHELL:-/bin/zsh}" -lc 'rhen-watch status') \
-            && [[ "$out" == *'agent: running'* ]] \
-            || { echo "::error::a new login shell cannot run rhen-watch by name"; exit 1; }
+          login() { env -i HOME="$HOME" PATH="$bare" RHEN_WATCH_DIR="$RHEN_WATCH_DIR" "${SHELL:-/bin/zsh}" -lc "$1"; }
+          found=$(login 'command -v rhen-watch') || true
+          [ "$found" = "$link" ] || { echo "::error::a new login shell finds '$found', not $link"; exit 1; }
+          out=$(login 'rhen-watch status') && [[ "$out" == *'agent: running'* ]] \
+            || { echo "::error::rhen-watch status by name from a new login shell failed: $out"; exit 1; }
           # A clean stop exits 0, so launchd must not start it again (it would within its 30 s throttle).
           "$bin" stop
           sleep 35
