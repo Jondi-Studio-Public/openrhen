@@ -401,11 +401,14 @@ describe("the record and last_used_from", () => {
   });
 
   it("stores the address a credential was last used from, beside last_used_at", async () => {
-    const pairing = await startDevicePairing(sql, {}, T0);
+    // touchOwnerCredential reads the real clock, so the credential is made an hour before the real now. The pairing
+    // starts at that same time: a pairing started at the fixed T0 would have expired by the time the suite runs.
+    const made = new Date(Date.now() - 3_600_000);
+    const pairing = await startDevicePairing(sql, {}, made);
     const minted = await redeemDevicePairing(
       sql,
       { secret: pairing.secret, name: "Phone", device: PHONE, address: "198.51.100.7" },
-      new Date(Date.now() - 3_600_000)
+      minutes(1, made)
     );
     await touchOwnerCredential(sql, minted!.summary.id, "token", "203.0.113.50");
     const [row] = await sql<
