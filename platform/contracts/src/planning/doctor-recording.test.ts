@@ -7,7 +7,9 @@ const hoursAgo = (h: number) => new Date(NOW - h * 3_600_000).toISOString();
 const quiet: DoctorRecordingSlice = {
   backup: { status: "synced", lastRunAt: hoursAgo(5), lastSuccessAt: hoursAgo(5) },
   phonePing: { configured: true, lastPingAt: hoursAgo(2) },
-  deadAgentWakes: { count: 0, lastError: null }
+  deadAgentWakes: { count: 0, lastError: null },
+  agentTokens: [{ name: "claw", expiresAt: hoursAgo(-24 * 60), lastUsedAt: hoursAgo(1) }],
+  agentTime: { lastReportedAt: hoursAgo(5) }
 };
 
 describe("recordingItems", () => {
@@ -81,5 +83,59 @@ describe("recordingItems", () => {
     expect(recordingItems({ ...quiet, deadAgentWakes: { count: 1, lastError: null } }, NOW)[0]!.title).toBe(
       "1 agent wake was not delivered in the last 24 h"
     );
+  });
+
+  it("flags an agent token that expires within 7 days or has expired (D-D7, D-D16)", () => {
+    const soon = recordingItems(
+      { ...quiet, agentTokens: [{ name: "claw", expiresAt: hoursAgo(-24 * 5), lastUsedAt: hoursAgo(2) }] },
+      NOW
+    );
+    expect(soon.map((i) => [i.id, i.tier])).toEqual([["agent_token_expiring:claw", "degrading"]]);
+    expect(soon[0]!.title).toBe('The agent token "claw" expires in 5 days');
+    expect(soon[0]!.dueAt).toBe(hoursAgo(-24 * 5));
+    const gone = recordingItems(
+      { ...quiet, agentTokens: [{ name: "claw", expiresAt: hoursAgo(30), lastUsedAt: hoursAgo(31) }] },
+      NOW
+    );
+    expect(gone[0]!.title).toBe('The agent token "claw" expired 30 h ago');
+    expect(gone[0]!.tier).toBe("blocking");
+    expect(
+      recordingItems(
+        { ...quiet, agentTokens: [{ name: "claw", expiresAt: hoursAgo(-24 * 8), lastUsedAt: hoursAgo(2) }] },
+        NOW
+      )
+    ).toEqual([]);
+  });
+
+  it("raises nothing for an abandoned token: never used, or last used over 30 days ago", () => {
+    const expired = hoursAgo(24 * 3);
+    const none = (lastUsedAt: string | null) => ({
+      ...quiet,
+      agentTokens: [{ name: "old", expiresAt: expired, lastUsedAt }]
+    });
+    expect(recordingItems(none(null), NOW)).toEqual([]);
+    expect(recordingItems(none(hoursAgo(24 * 31)), NOW)).toEqual([]);
+    expect(recordingItems(none(hoursAgo(24 * 29)), NOW).map((i) => i.id)).toEqual(["agent_token_expiring:old"]);
+    const unusedSoon = { name: "new", expiresAt: hoursAgo(-24 * 3), lastUsedAt: null };
+    expect(recordingItems({ ...quiet, agentTokens: [unusedSoon] }, NOW)).toEqual([]);
+  });
+
+  it("flags reported agent time silent for 7 days only once it has been seen (D-D16)", () => {
+    const silent = recordingItems({ ...quiet, agentTime: { lastReportedAt: hoursAgo(24 * 8) } }, NOW);
+    expect(silent.map((i) => [i.id, i.tier])).toEqual([["agent_time_silent", "degrading"]]);
+    expect(recordingItems({ ...quiet, agentTime: { lastReportedAt: hoursAgo(24 * 6) } }, NOW)).toEqual([]);
+    expect(recordingItems({ ...quiet, agentTime: { lastReportedAt: null } }, NOW)).toEqual([]);
+  });
+
+  it("raises both items for an expired token and eight days without agent time", () => {
+    const items = recordingItems(
+      {
+        ...quiet,
+        agentTokens: [{ name: "claw", expiresAt: hoursAgo(24), lastUsedAt: hoursAgo(26) }],
+        agentTime: { lastReportedAt: hoursAgo(24 * 8) }
+      },
+      NOW
+    );
+    expect(items.map((i) => i.check).sort()).toEqual(["agent_time_silent", "agent_token_expiring"]);
   });
 });
