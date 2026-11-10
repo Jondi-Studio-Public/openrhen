@@ -2,7 +2,7 @@
 
 **Status: v0.** The agent surface and the engine wire are what an outside tool can build against, and they are called v0: there is no compatibility promise beyond the rules that already exist and are tested (a renamed agent tool keeps its old name for one contract version; stored requests gain fields only with defaults). Everything else here is an add-on interface that is built into the app at build time, not a network protocol. What "stable" will mean is decided when a second implementer exists.
 
-Pages: this one (seams, architecture, verifying an add-on), [Versions](versions.md), [Auth](auth.md), [Proposing changes](changes.md). Behaviour rules for a particular kind of connection live with the connection's own design, not here.
+Pages: this one (seams, architecture, verifying an add-on), [Versions](versions.md), [Auth](auth.md), [Client view](client-view.md), [Proposing changes](changes.md). Behaviour rules for a particular kind of connection live with the connection's own design, not here.
 
 ## Seams
 

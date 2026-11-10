@@ -1,0 +1,798 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openrhen.example/schemas/client-view.v1.json",
+  "title": "OpenRhen client view, version 1",
+  "description": "The types of GET /api/client/view and POST /api/check-ins/{id}/shown, one entry per type under $defs.",
+  "$defs": {
+    "ClientView": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "number",
+          "const": 1
+        },
+        "timezone": {
+          "type": "string"
+        },
+        "planCurrent": {
+          "type": "boolean"
+        },
+        "validUntil": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "now": {
+          "type": "object",
+          "properties": {
+            "directive": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "recommendedMinutes": {
+                      "type": "number"
+                    },
+                    "targetId": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "tier": {
+                      "type": "string"
+                    },
+                    "projectId": {
+                      "type": "string"
+                    },
+                    "projectTitle": {
+                      "type": "string"
+                    },
+                    "toLocationId": {
+                      "type": "string"
+                    },
+                    "toLocationName": {
+                      "type": "string"
+                    },
+                    "mode": {
+                      "type": "string"
+                    },
+                    "leaveBy": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "travelSource": {
+                      "type": "string"
+                    },
+                    "typicalMinutes": {
+                      "type": "number"
+                    },
+                    "originAssumed": {
+                      "type": "boolean"
+                    },
+                    "notBefore": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "then": {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string"
+                        },
+                        "targetId": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "recommendedMinutes": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "targetId",
+                        "title",
+                        "recommendedMinutes"
+                      ],
+                      "additionalProperties": {}
+                    },
+                    "boundaryAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "boundaryKind": {
+                      "type": "string"
+                    },
+                    "boundaryTitle": {
+                      "type": "string"
+                    },
+                    "boundaryEdge": {
+                      "type": "string"
+                    },
+                    "nextFit": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string"
+                            },
+                            "targetId": {
+                              "type": "string"
+                            },
+                            "title": {
+                              "type": "string"
+                            },
+                            "recommendedMinutes": {
+                              "type": "number"
+                            },
+                            "at": {
+                              "type": "string",
+                              "format": "date-time"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "targetId",
+                            "title",
+                            "recommendedMinutes",
+                            "at"
+                          ],
+                          "additionalProperties": {}
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "question": {
+                      "type": "string"
+                    },
+                    "contextIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "candidate": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string"
+                            },
+                            "targetId": {
+                              "type": "string"
+                            },
+                            "title": {
+                              "type": "string"
+                            },
+                            "recommendedMinutes": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "targetId",
+                            "title",
+                            "recommendedMinutes"
+                          ],
+                          "additionalProperties": {}
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "sleep": {
+                      "type": "object",
+                      "properties": {
+                        "startsAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "wakesAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "preferredWakeTime": {
+                          "type": "string"
+                        },
+                        "explanation": {
+                          "type": "string"
+                        },
+                        "replannedFromMissedStart": {
+                          "type": "boolean"
+                        },
+                        "currentStep": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "title": {
+                              "type": "string"
+                            },
+                            "durationMinutes": {
+                              "type": "number"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "title",
+                            "durationMinutes",
+                            "status"
+                          ],
+                          "additionalProperties": {}
+                        },
+                        "wakeConstraint": {
+                          "type": "object",
+                          "properties": {
+                            "commitmentId": {
+                              "type": "string"
+                            },
+                            "title": {
+                              "type": "string"
+                            },
+                            "protectedStartAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            }
+                          },
+                          "required": [
+                            "commitmentId",
+                            "protectedStartAt"
+                          ],
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": [
+                        "startsAt",
+                        "wakesAt",
+                        "preferredWakeTime",
+                        "explanation",
+                        "replannedFromMissedStart"
+                      ],
+                      "additionalProperties": {}
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "title",
+                    "recommendedMinutes"
+                  ],
+                  "additionalProperties": {}
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "anchors": {
+              "type": "object",
+              "properties": {
+                "open": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "engaged": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "open",
+                "engaged"
+              ],
+              "additionalProperties": false
+            },
+            "needs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "fact": {
+                    "type": "string",
+                    "enum": [
+                      "wake",
+                      "session_end",
+                      "energy",
+                      "location",
+                      "date",
+                      "effort"
+                    ]
+                  },
+                  "subjectId": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "question": {
+                    "type": "string"
+                  },
+                  "asOf": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "blocksDirective": {
+                    "type": "boolean"
+                  },
+                  "answer": {
+                    "type": "object",
+                    "properties": {
+                      "tool": {
+                        "type": "string"
+                      },
+                      "action": {
+                        "type": "string"
+                      },
+                      "fields": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "cli": {
+                        "type": "string"
+                      },
+                      "call": {
+                        "type": "object",
+                        "properties": {
+                          "tool": {
+                            "type": "string"
+                          },
+                          "arguments": {
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "additionalProperties": {}
+                          }
+                        },
+                        "required": [
+                          "tool",
+                          "arguments"
+                        ],
+                        "additionalProperties": {}
+                      },
+                      "instructions": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "tool",
+                      "action",
+                      "fields",
+                      "cli",
+                      "call"
+                    ],
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "fact",
+                  "title",
+                  "question",
+                  "blocksDirective",
+                  "answer"
+                ],
+                "additionalProperties": {}
+              }
+            },
+            "stretchOffer": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "text": {
+                      "type": "string"
+                    },
+                    "endsAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "text",
+                    "endsAt"
+                  ],
+                  "additionalProperties": {}
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "stretch": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": {}
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "energyCost": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "text"
+                  ],
+                  "additionalProperties": {}
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "directive",
+            "anchors",
+            "needs",
+            "stretchOffer",
+            "stretch",
+            "energyCost"
+          ],
+          "additionalProperties": {}
+        },
+        "day": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "startsAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "endsAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "targetId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "minutes": {
+                "type": "number"
+              },
+              "confidence": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "startsAt",
+              "endsAt",
+              "kind",
+              "title",
+              "targetId",
+              "minutes",
+              "confidence"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "pending": {
+          "type": "object",
+          "properties": {
+            "checkIn": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "slotAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "promptedAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "directiveKind": {
+                      "type": "string"
+                    },
+                    "directiveTargetId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "directivePhase": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "directiveTitle": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "pending",
+                        "unknown"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "version",
+                    "slotAt",
+                    "promptedAt",
+                    "directiveKind",
+                    "directiveTargetId",
+                    "directivePhase",
+                    "directiveTitle",
+                    "status"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "session": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "running",
+                        "paused",
+                        "feedback"
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "targetType": {
+                      "type": "string"
+                    },
+                    "targetId": {
+                      "type": "string"
+                    },
+                    "startedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "plannedEndAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "plannedMinutes": {
+                      "type": "number"
+                    },
+                    "elapsedMinutes": {
+                      "type": "number"
+                    },
+                    "minutesLeft": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "status",
+                    "title",
+                    "startedAt",
+                    "plannedEndAt",
+                    "plannedMinutes",
+                    "elapsedMinutes",
+                    "minutesLeft"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "leaveBy": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "commitmentId": {
+                      "type": "string"
+                    },
+                    "occurrenceStartsAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "leaveBy": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "remindAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "phase": {
+                      "type": "string",
+                      "enum": [
+                        "remind",
+                        "leave"
+                      ]
+                    },
+                    "typicalMinutes": {
+                      "type": "number"
+                    },
+                    "allowingMinutes": {
+                      "type": "number"
+                    },
+                    "originAssumed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "commitmentId",
+                    "occurrenceStartsAt",
+                    "title",
+                    "leaveBy",
+                    "remindAt",
+                    "phase",
+                    "typicalMinutes",
+                    "allowingMinutes",
+                    "originAssumed"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "placeSuggestion": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "locationId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "locationName": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "observedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "locationId",
+                    "locationName",
+                    "observedAt"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "checkIn",
+            "session",
+            "leaveBy",
+            "placeSuggestion"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "timezone",
+        "planCurrent",
+        "validUntil"
+      ],
+      "additionalProperties": {}
+    },
+    "CheckInShown": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "on_track",
+            "deviated",
+            "unknown",
+            "superseded"
+          ]
+        },
+        "promptedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stamped": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "promptedAt",
+        "stamped"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

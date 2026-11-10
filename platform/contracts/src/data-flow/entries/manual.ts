@@ -72,7 +72,12 @@ export const MANUAL_ENTRIES: readonly FlowEntry[] = [
     method: "manual",
     trigger: { kind: "on-request", by: "owner" },
     code: {
-      routes: ["POST /api/commands/check-in", "POST /api/commands/reenter", "POST /api/commands/pulse-disruption"]
+      routes: [
+        "POST /api/commands/check-in",
+        "POST /api/commands/reenter",
+        "POST /api/commands/pulse-disruption",
+        "POST /api/check-ins/[id]/shown"
+      ]
     },
     from: ["ext:owner"],
     to: pg(["check_in", "user_preferences", "pulse_disruptions"]),
