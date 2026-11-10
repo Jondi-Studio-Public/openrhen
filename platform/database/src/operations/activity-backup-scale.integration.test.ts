@@ -16,6 +16,11 @@ import { verifySection } from "./streamed-sections.js";
  * The streamed activity section at scale. The old single-JSON backup measured about 2.4 GB of process memory for one
  * million synthetic rows and failed outright at two million (V8's string limit); this writes, verifies and restores the
  * same sizes with memory that does not grow with the row count, and the restored table is identical to the source.
+ *
+ * One size is enough: the bound below is 300 MB, and the old backup's measured ~2.4 KB of process memory per row puts
+ * 300,000 rows at about 720 MB, so a regression to buffering the whole table fails here long before it would reach the
+ * 2,000,000 rows that once hit V8's string limit. That second run (about four minutes alone) added no detection power
+ * and made this file most of the integration job's wall time.
  */
 config({ path: resolve(process.cwd(), "../../.env"), quiet: true });
 
@@ -146,12 +151,4 @@ describe("the streamed activity backup at scale", () => {
     expect(result.verifyGrowth).toBeLessThan(RSS_GROWTH_BOUND);
     expect(result.restoreGrowth).toBeLessThan(RSS_GROWTH_BOUND);
   }, 600_000);
-
-  it("writes, verifies and restores 2,000,000 rows exactly, the size that failed the JSON backup", async () => {
-    const result = await roundTrip(2_000_000);
-    process.stderr.write(`${JSON.stringify({ scale: result })}\n`);
-    expect(result.writeGrowth).toBeLessThan(RSS_GROWTH_BOUND);
-    expect(result.verifyGrowth).toBeLessThan(RSS_GROWTH_BOUND);
-    expect(result.restoreGrowth).toBeLessThan(RSS_GROWTH_BOUND);
-  }, 1_800_000);
 });
