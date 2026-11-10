@@ -31,6 +31,16 @@ import { sessionClock } from "./session-clock";
 import type { PoolSql, TxSql } from "./sql-pool";
 import { logOfferOutcome } from "./offer-log-writer";
 import { WriteSnapshot } from "./write-snapshot";
+import {
+  assertOwnerOccurredAt,
+  occurredAtEvidence,
+  recordOnlyOccurredAt,
+  replayOccurredAtReport,
+  reportOccurredAt,
+  settleSessionOccurredAt,
+  settleStartOccurredAt,
+  type OccurredAtOutcome
+} from "./occurred-at";
 
 /** The call that ends a session on anything but an action; the tool and its arguments are in the manifest. */
 const activityFinishCall = {
@@ -62,23 +72,28 @@ export function unstartableActionMessage(status: string): string | null {
 }
 
 export async function runSessionCommand(sql: PoolSql, command: SessionCommand): Promise<PortalState> {
+  assertOwnerOccurredAt(command);
   const userId = await ensureUser(sql);
   const requestHash = commandRequestHash(command.type, command);
-  if (await hasCommandReceipt(sql, { id: command.commandId, userId, commandType: command.type, requestHash }))
+  if (await hasCommandReceipt(sql, { id: command.commandId, userId, commandType: command.type, requestHash })) {
+    if (command.occurredAt !== undefined) await replayOccurredAtReport(sql, userId, command.commandId);
     return await readStateAfterCommit(sql);
+  }
   await sql.begin(async (tx) => {
     if (!(await claimCommandReceipt(tx, { id: command.commandId, userId, commandType: command.type, requestHash })))
       return;
     // An agent's session write keeps the rows it changes, so `POST /api/commands/revert` can put them back
     //. The person's own writes (null here) are not snapshotted.
     const snap = await WriteSnapshot.open(tx, userId, command.commandId, "session");
-    const at = await applySessionCommand(tx, userId, command, snap);
+    const claim: { outcome?: OccurredAtOutcome } = {};
+    const at = await applySessionCommand(tx, userId, command, snap, { claim });
     await snap?.save();
+    if (claim.outcome) await reportOccurredAt(tx, userId, claim.outcome);
     await recordStateChange(tx, userId, {
       entityType: "session",
       entityId: "sessionId" in command ? command.sessionId : command.commandId,
       operation: command.type,
-      evidence: { at: at.toISOString() },
+      evidence: { at: at.toISOString(), ...(claim.outcome ? { occurredAt: occurredAtEvidence(claim.outcome) } : {}) },
       commandId: command.commandId,
       at
     });
@@ -97,24 +112,34 @@ export async function applySessionCommand(
   userId: string,
   command: SessionCommand,
   snap: WriteSnapshot | null,
-  options: { endAtPause?: boolean } = {}
+  options: { endAtPause?: boolean; claim?: { outcome?: OccurredAtOutcome } } = {}
 ): Promise<Date> {
   let at = new Date();
+  const settled = (outcome: OccurredAtOutcome): OccurredAtOutcome => {
+    if (options.claim) options.claim.outcome = outcome;
+    return outcome;
+  };
   if (command.type === "start" || command.type === "select_alternative") {
     // Publication lock before any row lock, in the worker's order.
     await holdPlanForecastPublication(tx, userId);
-    // `startedAt` is when the work happened; `at` stays real now.
-    const { startTime, backfilled } = await resolveBackfilledStart(
-      tx,
-      userId,
-      {
-        commandId: command.commandId,
-        startedAt: command.startedAt,
-        targetType: "action",
-        targetId: command.actionId
-      },
-      at
-    );
+    // `startedAt` is when the work happened; `at` stays real now. An owner's `occurredAt` replaces it, and falls back
+    // to now (keeping the claim and the reason) instead of refusing when it does not fit.
+    const claimed = command.occurredAt
+      ? settled(await settleStartOccurredAt(tx, userId, command.occurredAt, at))
+      : undefined;
+    const { startTime, backfilled } = claimed
+      ? { startTime: claimed.at, backfilled: claimed.at.getTime() < at.getTime() }
+      : await resolveBackfilledStart(
+          tx,
+          userId,
+          {
+            commandId: command.commandId,
+            startedAt: command.startedAt,
+            targetType: "action",
+            targetId: command.actionId
+          },
+          at
+        );
     const currentPlanning = await requireCurrentPlanForecast(tx, userId, at);
     const occurrence = await tx<
       { id: string; action_id: string; status: string; window_starts_at: Date; window_ends_at: Date }[]
@@ -224,7 +249,7 @@ export async function applySessionCommand(
     });
     const firstSegment = await tx<
       { id: string }[]
-    >`INSERT INTO session_segments (session_id, started_at) VALUES (${command.commandId}, ${startTime}) RETURNING id`;
+    >`INSERT INTO session_segments (session_id, started_at, start_occurred_at, start_occurred_note) VALUES (${command.commandId}, ${startTime}, ${claimed?.claimed ?? null}, ${claimed?.reason ?? null}) RETURNING id`;
     snap?.inserted(
       "session_segments",
       firstSegment.map((row) => row.id)
@@ -259,6 +284,24 @@ export async function applySessionCommand(
     // Every command below that gets this far changes the session row.
     await snap?.before("sessions", [session[0].id]);
     at = await sessionClock(tx, session[0].id, at);
+    // The owner's device may say when this really happened. It is used when it fits the session (`settleSessionOccurredAt`),
+    // and `when` is then the command's event time; every time that is the event's own (a segment boundary, the remaining
+    // time, the end) reads `when`, while `at` (receipt) stays on `updated_at` and the other receipt stamps.
+    let claimed =
+      command.occurredAt === undefined
+        ? undefined
+        : command.type === "correct_start"
+          ? settled(
+              await recordOnlyOccurredAt(
+                tx,
+                userId,
+                command.occurredAt,
+                at,
+                "a correction moves the start to the time named in startedAt and uses no other time"
+              )
+            )
+          : settled(await settleSessionOccurredAt(tx, userId, session[0], command.occurredAt, at));
+    let when = claimed?.applied ? claimed.at : at;
     // Closes the session's open segments at `endAt`, never at or before a segment's own start (the table
     // forbids it). A set-based UPDATE, so the snapshot takes the ids first.
     const closeSegments = async (endAt: Date) => {
@@ -269,9 +312,9 @@ export async function applySessionCommand(
         "session_segments",
         open.map((row) => row.id)
       );
-      await tx`UPDATE session_segments SET ended_at=GREATEST(${endAt}, started_at + interval '1 millisecond') WHERE session_id=${session[0]!.id} AND ended_at IS NULL`;
+      await tx`UPDATE session_segments SET ended_at=GREATEST(${endAt}, started_at + interval '1 millisecond'), end_occurred_at=${claimed?.claimed ?? null}, end_occurred_note=${claimed?.reason ?? null} WHERE session_id=${session[0]!.id} AND ended_at IS NULL`;
     };
-    const closeSegment = () => closeSegments(at);
+    const closeSegment = () => closeSegments(when);
     // A deliverable session times each step through its segments. Any segment this path opens —
     // resuming, continuing after the checkpoint — must carry the current step, or the minutes after
     // it silently land on no step and the session total stops being a sum of its parts.
@@ -280,7 +323,7 @@ export async function applySessionCommand(
     const openSegment = async () => {
       const opened = await tx<
         { id: string }[]
-      >`INSERT INTO session_segments (session_id, started_at, step_id) VALUES (${session[0]!.id}, ${at}, ${segmentStepId}) RETURNING id`;
+      >`INSERT INTO session_segments (session_id, started_at, step_id, start_occurred_at, start_occurred_note) VALUES (${session[0]!.id}, ${when}, ${segmentStepId}, ${claimed?.claimed ?? null}, ${claimed?.reason ?? null}) RETURNING id`;
       snap?.inserted(
         "session_segments",
         opened.map((row) => row.id)
@@ -310,14 +353,14 @@ export async function applySessionCommand(
         );
       await closeSegment();
       // Never negative, as for `pause_activity`: a remainder below zero fails portal state validation.
-      const remainingSeconds = Math.max(0, Math.ceil((session[0].planned_end_at.getTime() - at.getTime()) / 1000));
+      const remainingSeconds = Math.max(0, Math.ceil((session[0].planned_end_at.getTime() - when.getTime()) / 1000));
       await tx`UPDATE sessions SET status='paused', paused_remaining_seconds=${remainingSeconds}, version=version+1, updated_at=${at} WHERE id=${session[0].id}`;
     } else if (command.type === "resume") {
       if (session[0].status !== "paused")
         throw wrongSessionState("rhen_session", session[0].id, session[0].status, ["paused"]);
       const remainingSeconds = session[0].paused_remaining_seconds ?? 0;
       await openSegment();
-      await tx`UPDATE sessions SET status='running', planned_end_at=${new Date(at.getTime() + remainingSeconds * 1000)}, paused_remaining_seconds=NULL, version=version+1, updated_at=${at} WHERE id=${session[0].id}`;
+      await tx`UPDATE sessions SET status='running', planned_end_at=${new Date(when.getTime() + remainingSeconds * 1000)}, paused_remaining_seconds=NULL, version=version+1, updated_at=${at} WHERE id=${session[0].id}`;
     } else if (command.type === "request_feedback") {
       // An activity has no feedback surface — it runs past its planned end by design, counting up.
       // Parking one in `awaiting_feedback` leaves it with no command it will still accept, not even
@@ -336,7 +379,7 @@ export async function applySessionCommand(
       // later, so the work is taken to have stopped at the planned end, not when somebody looked; `finish`
       // can still say when it really stopped (`endedAt`). A paused session closed its segment at the pause.
       if (session[0].status === "running")
-        await closeSegments(new Date(Math.min(at.getTime(), session[0].planned_end_at.getTime())));
+        await closeSegments(new Date(Math.min(when.getTime(), session[0].planned_end_at.getTime())));
       if (!(["running", "paused"] as string[]).includes(session[0].status))
         throw wrongSessionState("rhen_session", session[0].id, session[0].status, ["running", "paused"]);
       await tx`UPDATE sessions SET status='awaiting_feedback', feedback_requested_at=${at}, version=version+1, updated_at=${at} WHERE id=${session[0].id}`;
@@ -360,7 +403,7 @@ export async function applySessionCommand(
       await openSegment();
       // Decision Q2: `continue` sets `continuation` and moves the sanctioned end forward — the one
       // exception to "decided once, at start" the design names explicitly.
-      const continuedEnd = new Date(at.getTime() + command.requestedMinutes * 60_000);
+      const continuedEnd = new Date(when.getTime() + command.requestedMinutes * 60_000);
       await tx`UPDATE sessions SET status='running', planned_end_at=${continuedEnd}, planned_minutes=planned_minutes+${command.requestedMinutes}, feedback_requested_at=NULL, paused_remaining_seconds=NULL, plan_sanction='continuation', sanction_until=${continuedEnd}, version=version+1, updated_at=${at} WHERE id=${session[0].id}`;
     } else {
       // Ending a session is what attributes its time and closes its target, and that is per
@@ -381,8 +424,33 @@ export async function applySessionCommand(
       // own end and the action's `last_worked_at`/`completed_at`, while `at` stays on `updated_at` and
       // `ended_recorded_at`. The cadence and recurrence helpers keep `at`, since they stamp it on
       // `updated_at` too; a backfill reaches back at most a day, so their dates move by that at most.
-      const endedAt = command.type === "finish" ? command.endedAt : undefined;
-      const endTime = await resolveRetroactiveEnd(tx, session[0], endedAt, at, options.endAtPause);
+      // An owner's `occurredAt` that fits ends the session there, the same way; one that does not leaves the end at now.
+      const givenEnd = command.type === "finish" ? command.endedAt : undefined;
+      const occurredEnd = claimed?.applied ? claimed.at.toISOString() : undefined;
+      let endedAt = occurredEnd ?? givenEnd;
+      // A paused session's segments already ended at the pause, so a fitting claim only moves the session's own end.
+      let endTime: Date;
+      if (occurredEnd && session[0].status === "paused") endTime = claimed!.at;
+      else
+        try {
+          endTime = await resolveRetroactiveEnd(tx, session[0], endedAt, at, options.endAtPause);
+        } catch (error) {
+          // The claim does not fit this session's own record (for one awaiting feedback, it runs past where the work
+          // stopped): the command applies at receipt and the claim is kept with the reason, never refused for it.
+          if (!occurredEnd || !(error instanceof InvalidCommandError)) throw error;
+          claimed = settled(
+            await recordOnlyOccurredAt(
+              tx,
+              userId,
+              command.occurredAt!,
+              at,
+              "it falls after the point where this session stopped"
+            )
+          );
+          when = at;
+          endedAt = givenEnd;
+          endTime = await resolveRetroactiveEnd(tx, session[0], endedAt, at, options.endAtPause);
+        }
       // A running session's open segment closes at the end; one awaiting feedback closed its last segment
       // at the checkpoint, and a given end replaces that.
       if (session[0].status === "running") await closeSegments(endTime);
@@ -437,7 +505,7 @@ export async function applySessionCommand(
           }
         });
       }
-      await tx`UPDATE sessions SET status=${terminal}, ended_at=${endTime}, ended_recorded_at=${command.type === "finish" && command.endedAt ? at : null}, active_minutes=${activeMinutes}, remaining_after_minutes=${remainingAfter}, blocking_reason=${blockingReason}, result_note=COALESCE(${note}, result_note), paused_remaining_seconds=NULL, version=version+1, updated_at=${at} WHERE id=${session[0].id}`;
+      await tx`UPDATE sessions SET status=${terminal}, ended_at=${endTime}, ended_recorded_at=${endedAt ? at : null}, active_minutes=${activeMinutes}, remaining_after_minutes=${remainingAfter}, blocking_reason=${blockingReason}, result_note=COALESCE(${note}, result_note), paused_remaining_seconds=NULL, version=version+1, updated_at=${at} WHERE id=${session[0].id}`;
       const mode = await tx<
         { scheduling_mode: string }[]
       >`SELECT scheduling_mode FROM actions WHERE id=${actionId} FOR UPDATE`;

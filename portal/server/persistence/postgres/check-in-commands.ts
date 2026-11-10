@@ -10,6 +10,9 @@ import { logOfferOutcome } from "./offer-log-writer";
 import { readStateAfterCommit } from "./read-after-commit";
 import type { PoolSql, TxSql } from "./sql-pool";
 import { WriteSnapshot } from "./write-snapshot";
+import { assertOwnerOccurredAt, closedCheckInReport, settleCheckInOccurredAt, reportOccurredAt } from "./occurred-at";
+import { insertPendingCapture } from "./stores/inbox";
+import { noteOccurredAtReport } from "@/server/occurred-at-report";
 
 type AnswerCheckInCommand = Extract<CheckInCommand, { type: "answer_check_in" }>;
 type AnswerCheckInsCommand = Extract<CheckInCommand, { type: "answer_check_ins" }>;
@@ -27,10 +30,14 @@ type TagCheckInCommand = Extract<CheckInCommand, { type: "tag_check_in" }>;
  * (or `/api/check-ins/trail`) rather than looking for it in this response.
  */
 export async function runCheckInCommand(sql: PoolSql, command: CheckInCommand): Promise<PortalState> {
+  if (command.type === "answer_check_in") assertOwnerOccurredAt(command);
   const userId = await ensureUser(sql);
   const requestHash = commandRequestHash(command.type, command);
-  if (await hasCommandReceipt(sql, { id: command.commandId, userId, commandType: command.type, requestHash }))
+  if (await hasCommandReceipt(sql, { id: command.commandId, userId, commandType: command.type, requestHash })) {
+    if (command.type === "answer_check_in" && command.occurredAt !== undefined)
+      await replayCheckInReport(sql, userId, command);
     return await readStateAfterCommit(sql);
+  }
   await sql.begin(async (tx) => {
     // A request racing its own retry passes the pre-check above in both; the loser waits on the
     // winner's insert and then finds the receipt taken. That is an applied replay, not an error.
@@ -52,6 +59,67 @@ export async function runCheckInCommand(sql: PoolSql, command: CheckInCommand): 
   return await readStateAfterCommit(sql);
 }
 
+/** The external id of the capture that keeps the words of an answer whose check-in had closed. */
+const closedAnswerExternalId = (commandId: string) => `closed-check-in-answer:${commandId}`;
+
+/** A retried answer whose first run landed: the sentence comes from the row, or from the capture that kept the words. */
+async function replayCheckInReport(sql: PoolSql, userId: string, command: AnswerCheckInCommand): Promise<void> {
+  const row = await sql<
+    { answered_at: Date | null; occurred_at: Date | null; occurred_note: string | null }[]
+  >`SELECT answered_at, occurred_at, occurred_note FROM check_in WHERE id=${command.checkInId} AND user_id=${userId} AND answered_by IS NOT DISTINCT FROM ${requestAgent()}`;
+  if (row[0]?.occurred_at && row[0].answered_at) {
+    const outcome = {
+      claimed: row[0].occurred_at,
+      applied: row[0].occurred_note === null,
+      at: row[0].answered_at,
+      receipt: row[0].answered_at,
+      reason: row[0].occurred_note
+    };
+    await reportOccurredAt(sql, userId, outcome);
+    return;
+  }
+  const kept = await sql<
+    { created_at: Date }[]
+  >`SELECT created_at FROM sources WHERE user_id=${userId} AND source_type='manual_capture' AND external_id=${closedAnswerExternalId(command.commandId)}`;
+  noteOccurredAtReport(
+    await closedCheckInReport(
+      sql,
+      userId,
+      new Date(command.occurredAt!),
+      kept[0]?.created_at ?? new Date(),
+      kept.length > 0
+    )
+  );
+}
+
+/**
+ * An owner-device answer reached a check-in that had closed. It is not turned into a voluntary check-in (that would
+ * read as contact now and could confirm the current item): his words are kept as an ordinary capture marked with the
+ * check-in's own time (`sources.occurred_at`), and the reply says plainly that nothing was delivered. The pulse and
+ * the check-in row are untouched.
+ */
+async function keepClosedAnswer(
+  tx: TxSql,
+  userId: string,
+  command: AnswerCheckInCommand,
+  row: { slot_at: Date; directive_title: string | null },
+  receipt: Date
+): Promise<void> {
+  const words = command.deviationNote?.trim() ?? "";
+  if (words)
+    await insertPendingCapture(tx, {
+      userId,
+      sourceType: "manual_capture",
+      externalId: closedAnswerExternalId(command.commandId),
+      title: "Answer to a check-in that had closed",
+      text: words,
+      occurredAt: row.slot_at,
+      createdAt: receipt,
+      marks: { checkInId: command.checkInId, checkInAt: row.slot_at.toISOString(), answeredAs: command.status }
+    });
+  noteOccurredAtReport(await closedCheckInReport(tx, userId, new Date(command.occurredAt!), receipt, words !== ""));
+}
+
 async function answerCheckIn(
   tx: TxSql,
   userId: string,
@@ -59,11 +127,9 @@ async function answerCheckIn(
   snap: WriteSnapshot | null
 ): Promise<void> {
   const rows = await tx<
-    { version: number; status: string; answered_at: Date | null; directive_title: string | null }[]
-  >`SELECT version,status,answered_at,directive_title FROM check_in WHERE id=${command.checkInId} AND user_id=${userId} FOR UPDATE`;
+    { version: number; status: string; answered_at: Date | null; directive_title: string | null; slot_at: Date }[]
+  >`SELECT version,status,answered_at,directive_title,slot_at FROM check_in WHERE id=${command.checkInId} AND user_id=${userId} FOR UPDATE`;
   if (!rows[0]) throw notFound("check-in", command.checkInId);
-  if (command.expectedVersion !== null && command.expectedVersion !== rows[0].version)
-    throw versionConflict("check-in", command.checkInId, command.expectedVersion, rows[0].version);
   // Only a still-open slot can be answered: 'pending' (answered before its timeout) or 'unknown'
   // (the catch-up path, answered after the fact). Anything else has already said its piece.
   //
@@ -73,7 +139,14 @@ async function answerCheckIn(
   // Replay of an identical `commandId` never reaches here: the receipt check above returns first, so
   // a retried or duplicated request still succeeds without touching the row a second time.
   const alreadyAnswered = rows[0].answered_at !== null;
-  if ((rows[0].status !== "pending" && rows[0].status !== "unknown") || alreadyAnswered)
+  const closed = (rows[0].status !== "pending" && rows[0].status !== "unknown") || alreadyAnswered;
+  // The owner's device answers one row at a time while it can be answered. A row that closed meanwhile is not answered
+  // late: his words are kept (`keepClosedAnswer`) and the version he saw no longer matters.
+  if (closed && command.occurredAt !== undefined)
+    return await keepClosedAnswer(tx, userId, command, rows[0], new Date());
+  if (command.expectedVersion !== null && command.expectedVersion !== rows[0].version)
+    throw versionConflict("check-in", command.checkInId, command.expectedVersion, rows[0].version);
+  if (closed)
     throw alreadyClosed(
       "check-in",
       command.checkInId,
@@ -81,11 +154,18 @@ async function answerCheckIn(
       { tool: "rhen_status", arguments: {}, note: "shows the check-in that is pending now, if any" }
     );
   const at = new Date();
+  // The time he answered: his own, where it fits (`settleCheckInOccurredAt`), else now; the claim is kept either way.
+  const claimed = command.occurredAt
+    ? await settleCheckInOccurredAt(tx, userId, rows[0].slot_at, command.occurredAt, at)
+    : undefined;
+  if (claimed) await reportOccurredAt(tx, userId, claimed);
   await snap?.before("check_in", [command.checkInId]);
   await tx`
     UPDATE check_in SET
       status=${command.status},
-      answered_at=${at},
+      answered_at=${claimed?.at ?? at},
+      occurred_at=${claimed?.claimed ?? null},
+      occurred_note=${claimed?.reason ?? null},
       deviation_category=${command.deviationCategory ?? null},
       deviation_note=${command.deviationNote ?? null},
       deviation_target_id=${command.deviationTargetId ?? null},
