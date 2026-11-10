@@ -3581,7 +3581,8 @@ export const activityEvents = pgTable(
 );
 
 /**
- * Per-source settings for the activity store: the content gate, retention and a live poller's resume point. An
+ * Per-source settings for the activity store: the content gate, retention, how often the owner expects the source to send,
+ * and a live poller's resume point. An
  * absent row means the defaults (content off, kept permanently). The settings are authored, so the table is backed
  * up; the cursor rides along harmlessly.
  */
@@ -3594,13 +3595,19 @@ export const activitySourceState = pgTable(
     source: text("source").notNull(),
     contentEnabled: boolean("content_enabled").notNull().default(false),
     retentionDays: integer("retention_days"),
+    /** How often the owner expects the source to send, in minutes; null while the source learns its own rhythm. */
+    expectedEveryMinutes: integer("expected_every_minutes"),
     cursor: jsonb("cursor"),
     lastOkAt: timestamp("last_ok_at", { withTimezone: true }),
     lastError: text("last_error")
   },
   (table) => [
     primaryKey({ columns: [table.userId, table.source] }),
-    check("activity_source_state_retention_check", sql`${table.retentionDays} IS NULL OR ${table.retentionDays} >= 1`)
+    check("activity_source_state_retention_check", sql`${table.retentionDays} IS NULL OR ${table.retentionDays} >= 1`),
+    check(
+      "activity_source_state_expected_check",
+      sql`${table.expectedEveryMinutes} IS NULL OR ${table.expectedEveryMinutes} BETWEEN 5 AND 129600`
+    )
   ]
 );
 

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { OWNER_EXPECTED_MAX_MINUTES, OWNER_EXPECTED_MIN_MINUTES } from "./data-flow/rhythm.js";
 import { describeDerivedProblem } from "./activity-derived.js";
 import { describeDriftProblem } from "./activity-drift.js";
 import { describeDriftReasonProblem } from "./activity-drift-reason.js";
@@ -925,11 +926,22 @@ function describeCoverageProblem(
   return undefined;
 }
 
-/** Owner-side settings for one source (`PUT /api/activity-sources/:source`). Absent fields keep their value. */
+/**
+ * Owner-side settings for one source (`PUT /api/activity-sources/:source`). Absent fields keep their value.
+ * `expectedEveryMinutes` is how often the owner expects the source to send (5 to 129600, 90 days); a source that reports
+ * coverage is then late after 3 x that and stale after 6 x; `null` clears it and the source returns to learning its own rhythm.
+ */
 export const activitySourceSettingsSchema = z
   .object({
     contentEnabled: z.boolean().optional(),
-    retentionDays: z.number().int().min(1).max(36_500).nullable().optional()
+    retentionDays: z.number().int().min(1).max(36_500).nullable().optional(),
+    expectedEveryMinutes: z
+      .number()
+      .int()
+      .min(OWNER_EXPECTED_MIN_MINUTES)
+      .max(OWNER_EXPECTED_MAX_MINUTES)
+      .nullable()
+      .optional()
   })
   .strict();
 export type ActivitySourceSettings = z.infer<typeof activitySourceSettingsSchema>;
@@ -942,6 +954,8 @@ export interface ActivitySourceSummary {
   lastIngestedAt: string | null;
   contentEnabled: boolean;
   retentionDays: number | null;
+  /** How often the owner expects this source to send, in minutes; null while none is set and the source learns its own rhythm. */
+  expectedEveryMinutes: number | null;
   /** `scheduled` while a retention is set: the derived tick deletes expired events. `not_set` keeps the source permanently. */
   retentionPurge: "not_set" | "scheduled";
   /** The last purge of this source that deleted something (rows deleted, when), or that skipped it with the reason; null if neither has happened, and always null while the source has no retention (a record from an earlier setting is hidden). */

@@ -5,8 +5,11 @@ import { sqlPool } from "@/server/persistence/postgres/sql-pool";
 import { databaseUrl } from "@/server/runtime-env";
 
 /**
- * Sets one source's content gate and retention: `{contentEnabled?: boolean, retentionDays?: number | null}`. The gate
- * decides whether text is stored from now on (it deletes nothing); `null` retention keeps the source permanently.
+ * Sets one source's content gate, retention and expected rhythm:
+ * `{contentEnabled?: boolean, retentionDays?: number | null, expectedEveryMinutes?: number | null}`. The gate decides
+ * whether text is stored from now on (it deletes nothing); `null` retention keeps the source permanently;
+ * `expectedEveryMinutes` is how often the owner expects the source to send (a source that reports coverage is late after
+ * 3 x that), and `null` returns it to learning its own rhythm.
  */
 export const PUT = withRoute(
   "/api/activity-sources/[source]",
@@ -17,7 +20,7 @@ export const PUT = withRoute(
       return Response.json(
         {
           error:
-            'Send {"contentEnabled": true|false} and/or {"retentionDays": a whole number of days from 1 to 36500, or null to keep permanently}.'
+            'Send {"contentEnabled": true|false} and/or {"retentionDays": a whole number of days from 1 to 36500, or null to keep permanently} and/or {"expectedEveryMinutes": a whole number of minutes from 5 to 129600, how often you expect this source to send, or null to clear it}.'
         },
         { status: 400 }
       );

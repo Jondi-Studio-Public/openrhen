@@ -160,8 +160,56 @@ describe("rhen sources", () => {
     expect(text).toContain("scope work: up to 2026-10-17T20:00:00.000Z, 1 hole in the last 14 days");
     expect(text).toContain("scope old: up to 2026-08-01T00:00:00.000Z (retired: no longer reported)");
     expect(text).toContain("heartbeat: ok at 2026-10-18T11:00:00.000Z");
-    expect(text).toContain("(collector)");
+    expect(text).toContain("limit: late 12 h, stale 1 d (collector declares it)");
     expect(text).toContain("not reading");
+  });
+
+  it("shows a source's own limit and where it came from, or that there is no rhythm yet and what to do", async () => {
+    const shown = async (patch: Record<string, unknown>) => {
+      const changed = {
+        ...body,
+        health: { ...body.health, nodes: { ...body.health.nodes, alpha: node("alpha", patch as never) } }
+      };
+      return (await run({}, ["alpha"], vi.fn().mockResolvedValue(changed))).text;
+    };
+    expect(
+      await shown({
+        threshold: { warnHours: 72, errorHours: 144, from: "owner", usualMinutes: 1440, expectedEveryMinutes: 1440 }
+      })
+    ).toContain("limit: late 3 d, stale 6 d (owner: expects every 1 d)");
+    expect(
+      await shown({
+        threshold: { warnHours: 72, errorHours: 144, from: "learned", usualMinutes: 1440, gaps: 20 }
+      })
+    ).toContain("limit: late 3 d, stale 6 d (learned: usually every 1 d, 20 gaps)");
+    expect(
+      await shown({
+        threshold: {
+          warnHours: 72,
+          errorHours: 144,
+          from: "provisional",
+          usualMinutes: 1440,
+          gaps: 3,
+          provisional: { moreUpdates: 3, moreHours: 0 }
+        }
+      })
+    ).toContain("provisional: usually every 1 d, judged on 3 gaps; never blocks, becomes final after 3 more updates");
+    expect(
+      await shown({
+        threshold: {
+          warnHours: 72,
+          errorHours: 144,
+          from: "learned",
+          usualMinutes: 1440,
+          gaps: 20,
+          rhythmChanged: { lastGapHours: 168 }
+        }
+      })
+    ).toContain("usual rhythm changed (last gap 7 d), not blocking until confirmed");
+    const none = await shown({ freshness: "n/a", threshold: null, noRhythm: { updates: 1, gaps: 0 } });
+    expect(none).toContain("No rhythm yet (0 of 2 gaps needed); nothing is judged late");
+    expect(none).toContain("ask the owner to set how often they expect it (owner session: PUT /api/activity-sources/");
+    expect(none).toContain('{"expectedEveryMinutes": MINUTES}');
   });
 
   it("--unused lists the sources nothing uses, the ones nothing sends, tables and dead tables", async () => {

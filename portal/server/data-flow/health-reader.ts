@@ -17,8 +17,12 @@ import {
   type HeartbeatRead,
   type NodeCoverage,
   type ScopeCoverage,
+  learnRhythm,
   learnThreshold,
+  RHYTHM_HISTORY_DAYS,
+  RHYTHM_SAMPLE_MAX_POSTS,
   thresholdFor,
+  type Rhythm,
   type DataFlowHealthRead,
   type DeviceHealth,
   type FlowEntry,
@@ -50,7 +54,7 @@ const HISTORY_DAYS = 45;
 const COVERAGE_DAYS = 400;
 /** The processing report covers this many days of messages collected and of runs recorded. */
 const PROCESSING_WINDOW_DAYS = 30;
-/** The most coverage windows read for holes and rhythm: 45 days of hourly posts for ten scopes. Older holes are not counted. */
+/** The most coverage windows read for holes: 45 days of hourly posts for ten scopes. Older holes are not counted. */
 const COVERAGE_WINDOW_ROWS = 10_800;
 const LEARN_DAYS = 30;
 /** A kind that has been quiet for longer than this many times its warning is retired, not late. */
@@ -90,6 +94,9 @@ interface Raw {
   credentialPresent?: boolean;
   /** A source that reports coverage: how far it has been read. `lastSuccessAt` is then its `coveredTo`. */
   coverage?: NodeCoverage;
+  /** A source that reports coverage: the rhythm of its own live posts, and the owner's expectation if one is set. */
+  rhythm?: Rhythm;
+  ownerExpectedEveryMinutes?: number | null;
   note?: string | undefined;
   /** A lag probe found the downstream stage trailing: late even when its own clock is recent. */
   forceLate?: boolean;
@@ -273,9 +280,10 @@ interface ActivityRead {
 /** What the coverage and heartbeat rows of one source say, before thresholds are applied. */
 interface CoverageRaw {
   scopes: ScopeCoverage[];
-  /** When coverage rows were posted over the last 30 days: a collector's own rhythm, which a threshold can learn from. */
-  postedAt: number[];
-  historyDays?: number;
+  /** The rhythm of the collector's own live posts (not an import's, not a backfill's), learned from their `ts_end`. */
+  rhythm: Rhythm;
+  /** The owner's `expectedEveryMinutes` for the source, or null. */
+  ownerExpectedEveryMinutes: number | null;
   heartbeat: HeartbeatRead | null;
 }
 
@@ -353,8 +361,13 @@ async function readActivity(
 
 /**
  * Coverage and heartbeat rows of the sources whose registry entry takes them (a message source, or one that declares
- * availability with no feeds): the high-water mark per scope over 400 days, the windows of the last 45 days for holes and
- * the collector's posting rhythm, and the newest heartbeat. Three index-backed statements on (user, source, ts_start).
+ * availability with no feeds): the high-water mark per scope over 400 days, the windows of the last 45 days for holes,
+ * the collector's own live posts for its rhythm, the newest heartbeat and the owner's expectation. Index-backed
+ * statements on (user, source, ts_start).
+ *
+ * The rhythm sample leaves out rows that belong to an import; `learnRhythm` then drops windows that reached the server
+ * long after the newest one did (a backfill), which a collector that always reports a day behind is not. It is the newest
+ * 2000 such rows of the last 180 days.
  */
 async function readCoverage(context: Context, sources: readonly string[], read: ActivityRead): Promise<void> {
   const capable = sources.filter((source) => coverageScopeRequiredFor(activitySourceEntry(source)));
@@ -362,16 +375,16 @@ async function readCoverage(context: Context, sources: readonly string[], read: 
   const list = context.sql(capable);
   const since400 = new Date(context.now.getTime() - COVERAGE_DAYS * 86_400_000);
   const since45 = new Date(context.now.getTime() - HISTORY_DAYS * 86_400_000);
-  const since30 = new Date(context.now.getTime() - LEARN_DAYS * 86_400_000);
+  const sinceRhythm = new Date(context.now.getTime() - RHYTHM_HISTORY_DAYS * 86_400_000);
   const values = capable.map((source) => context.sql`(${source}::text)`).reduce((a, b) => context.sql`${a}, ${b}`);
-  const [high, windows, beats] = await Promise.all([
+  const [high, windows, beats, posts, expected] = await Promise.all([
     context.sql<{ source: string; scope: string | null; high: Date }[]>`
       SELECT source, attrs->>'scope' AS scope, max(ts_end) AS high FROM activity_events
       WHERE user_id = ${context.userId} AND source IN ${list} AND kind = ${ACTIVITY_COVERAGE_KIND}
         AND ts_start > ${since400} AND ts_end IS NOT NULL
       GROUP BY 1, 2`,
-    context.sql<{ source: string; scope: string | null; ts_start: Date; ts_end: Date; ingested_at: Date }[]>`
-      SELECT source, attrs->>'scope' AS scope, ts_start, ts_end, ingested_at FROM activity_events
+    context.sql<{ source: string; scope: string | null; ts_start: Date; ts_end: Date }[]>`
+      SELECT source, attrs->>'scope' AS scope, ts_start, ts_end FROM activity_events
       WHERE user_id = ${context.userId} AND source IN ${list} AND kind = ${ACTIVITY_COVERAGE_KIND}
         AND ts_start > ${since45} AND ts_end IS NOT NULL
       ORDER BY ts_start DESC LIMIT ${COVERAGE_WINDOW_ROWS}`,
@@ -382,13 +395,24 @@ async function readCoverage(context: Context, sources: readonly string[], read: 
         SELECT ts_start, attrs FROM activity_events
         WHERE user_id = ${context.userId} AND source = v.s AND kind = ${ACTIVITY_HEARTBEAT_KIND} AND ts_start > ${since45}
         ORDER BY ts_start DESC LIMIT 1
-      ) AS hb`
+      ) AS hb`,
+    context.sql<{ source: string; scope: string | null; ts_end: Date; ingested_at: Date }[]>`
+      SELECT v.s AS source, p.scope, p.ts_end, p.ingested_at
+      FROM (VALUES ${values}) AS v(s)
+      CROSS JOIN LATERAL (
+        SELECT attrs->>'scope' AS scope, ts_end, ingested_at FROM activity_events
+        WHERE user_id = ${context.userId} AND source = v.s AND kind = ${ACTIVITY_COVERAGE_KIND}
+          AND ts_start > ${sinceRhythm} AND ts_end IS NOT NULL AND import_id IS NULL
+        ORDER BY ts_start DESC LIMIT ${RHYTHM_SAMPLE_MAX_POSTS}
+      ) AS p`,
+    context.sql<{ source: string; expected_every_minutes: number }[]>`
+      SELECT source, expected_every_minutes FROM activity_source_state
+      WHERE user_id = ${context.userId} AND source IN ${list} AND expected_every_minutes IS NOT NULL`
   ]);
   const now = context.now.getTime();
   for (const source of capable) {
     const scopes: ScopeCoverage[] = [];
     const mine = windows.filter((row) => row.source === source);
-    const posted = mine.filter((row) => row.ingested_at > since30).map((row) => row.ingested_at.getTime());
     for (const row of high.filter((candidate) => candidate.source === source)) {
       const spans: CoverageWindow[] = mine
         .filter((candidate) => candidate.scope === row.scope)
@@ -408,15 +432,18 @@ async function readCoverage(context: Context, sources: readonly string[], read: 
           }
         : null;
     if (scopes.length === 0 && heartbeat === null) continue;
-    // How long the collector has been posting, from when it posted, never from the windows it claimed: one backfill
-    // window can span 31 days on the first day, and a learned threshold must not borrow that history.
-    const postedTimes = mine.map((row) => row.ingested_at.getTime());
+    // The rhythm comes from when the collector says each window ended, never from when the rows reached the server, and
+    // never from one backfill window: its history is the span of its own live posts.
+    const rhythm = learnRhythm({
+      posts: posts
+        .filter((row) => row.source === source)
+        .map((row) => ({ scope: row.scope, end: row.ts_end.getTime(), postedAt: row.ingested_at.getTime() })),
+      now
+    });
     read.coverage.set(source, {
       scopes,
-      postedAt: posted,
-      ...(postedTimes.length > 0
-        ? { historyDays: Math.floor((Math.max(...postedTimes) - Math.min(...postedTimes)) / 86_400_000) }
-        : {}),
+      rhythm,
+      ownerExpectedEveryMinutes: expected.find((row) => row.source === source)?.expected_every_minutes ?? null,
       heartbeat
     });
   }
@@ -425,7 +452,7 @@ async function readCoverage(context: Context, sources: readonly string[], read: 
 /**
  * A source that reports coverage is judged by how far it has been read, not by when its last row arrived: a quiet inbox
  * with a live collector stays fresh, a stuck collector goes late. The newest heartbeat gives the attempt (an error one
- * newer than the high-water mark is `failing`). Posting rhythm of the coverage rows is what a threshold learns from.
+ * newer than the high-water mark is `failing`). The rhythm of the collector's own coverage posts sets its limit.
  */
 function withCoverage(raw: Raw, found: CoverageRaw | undefined): Raw {
   if (!found) return raw;
@@ -452,8 +479,8 @@ function withCoverage(raw: Raw, found: CoverageRaw | undefined): Raw {
         ? (raw.lastError ?? null)
         : null,
     everSeen: true,
-    arrivals: found.postedAt,
-    ...(found.historyDays !== undefined ? { historyDays: found.historyDays } : {})
+    rhythm: found.rhythm,
+    ownerExpectedEveryMinutes: found.ownerExpectedEveryMinutes
   };
 }
 
@@ -1004,8 +1031,8 @@ async function computeHealth(
       ...(outcome.coverage
         ? {
             coverage: {
-              // The owner's own setting arrives with a later change; until then none is set.
-              ownerStaleAfterMinutes: null,
+              ownerExpectedEveryMinutes: outcome.ownerExpectedEveryMinutes ?? null,
+              rhythm: outcome.rhythm ?? null,
               collector: {
                 ...(declared?.expectedEveryMinutes !== undefined
                   ? { expectedEveryMinutes: declared.expectedEveryMinutes }
@@ -1030,12 +1057,21 @@ async function computeHealth(
               threshold
             })
           : "never";
+    // A coverage source with no threshold has no rhythm yet and is judged neither late nor stale; one that has reported
+    // nothing read (a heartbeat and no coverage row) is still `never`.
+    const neverRead = outcome.coverage !== undefined && outcome.lastSuccessAt === null && freshness === "n/a";
     const finalFreshness: FreshnessState =
       outcome.forceLate && freshness === "fresh"
         ? "late"
-        : threshold === null && freshness !== "never" && freshness !== "failing"
-          ? "n/a"
-          : freshness;
+        : neverRead
+          ? "never"
+          : threshold === null && freshness !== "never" && freshness !== "failing"
+            ? "n/a"
+            : freshness;
+    const noRhythm =
+      outcome.coverage && outcome.rhythm && threshold === null
+        ? { updates: outcome.rhythm.updates, gaps: outcome.rhythm.gaps }
+        : undefined;
     const lateKinds = finalFreshness === "fresh" ? lateKindsOf(outcome, now.getTime()) : [];
     nodes[entry.id] = {
       ...base,
@@ -1049,11 +1085,14 @@ async function computeHealth(
       ...(lateKinds.length > 0 ? { lateKinds } : {}),
       ...(outcome.credentialPresent ? { credentialPresent: true } : {}),
       ...(outcome.coverage ? { coverage: outcome.coverage } : {}),
+      ...(noRhythm ? { noRhythm } : {}),
       threshold,
       ...(outcome.note
         ? { note: outcome.note }
         : outcome.coverage
-          ? { note: coverageNote(outcome.coverage, finalFreshness) ?? "" }
+          ? {
+              note: `${coverageNote(outcome.coverage, finalFreshness) ?? ""}${noRhythm ? `; no rhythm yet (${noRhythm.gaps} of 2 gaps needed), so nothing is judged late` : ""}`
+            }
           : {})
     };
     if (nodes[entry.id]!.note === "") delete nodes[entry.id]!.note;

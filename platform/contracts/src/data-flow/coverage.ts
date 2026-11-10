@@ -11,11 +11,6 @@ const DAY_MS = 24 * HOUR_MS;
 export const COVERAGE_HOLE_DAYS = 14;
 /** A scope whose high-water mark trails the newest scope's by more than this many days was retired, not behind. */
 export const COVERAGE_RETIRED_SCOPE_DAYS = 31;
-/**
- * T for a coverage source that sets none: late when it is read up to more than 12 h ago, stale at 2T (24 h). Used only
- * when neither the owner, the collector's declared cadence, the entry nor a learned rhythm gives a number.
- */
-export const COVERAGE_DEFAULT_WARN_HOURS = 12;
 /** Stale is at 2T, the same ratio the connection rule uses. */
 export const COVERAGE_STALE_FACTOR = 2;
 

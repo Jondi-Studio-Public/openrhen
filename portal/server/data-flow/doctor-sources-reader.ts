@@ -58,6 +58,14 @@ const changesPlan = (entry: FlowEntry) =>
   entry.changesPlan === true ||
   (entry.activitySource !== undefined && activitySourceEntry(entry.activitySource)?.family === ACTIVITY_MESSAGE_FAMILY);
 
+/**
+ * Whether the plan is judged on this source. An entry that says so itself always counts. One that is only of the message
+ * family counts once its collector reports coverage: until then nothing says how far it has been read, so it is named in the
+ * plan inputs' note instead of being called behind.
+ */
+const changesPlanNow = (entry: FlowEntry, reportsCoverage: boolean) =>
+  entry.changesPlan === true || (changesPlan(entry) && reportsCoverage);
+
 export async function readSourcesSlice(sql: Sql, now: Date, userId: string): Promise<DoctorSourcesSlice> {
   const startedAt = Date.now();
   try {
@@ -98,7 +106,7 @@ export async function readSourcesSlice(sql: Sql, now: Date, userId: string): Pro
         keepsSyncChecks: entry.category === "calendar" || (provider !== undefined && provider in cadence),
         ...(entry.device !== undefined ? { device: entry.device } : {}),
         engineReads: graph.engineUse(entry.id).reads,
-        ...(changesPlan(entry) ? { changesPlan: true as const } : {}),
+        ...(changesPlanNow(entry, node.coverage !== undefined) ? { changesPlan: true as const } : {}),
         ...(entry.activitySource !== undefined && coverageScopeRequiredFor(activitySourceEntry(entry.activitySource))
           ? { messageSource: true as const }
           : {}),
@@ -121,6 +129,7 @@ export async function readSourcesSlice(sql: Sql, now: Date, userId: string): Pro
         freshness: node.freshness,
         lastSuccessAt: node.lastSuccessAt,
         threshold: node.threshold,
+        ...(node.noRhythm ? { noRhythm: node.noRhythm } : {}),
         ...(node.lateKinds ? { lateKinds: node.lateKinds } : {}),
         // A file export is a one-off archive, not a feed: rows from a fresh import are not "arriving".
         ...(node.count7d !== undefined && entry.method !== "file-import" ? { count7d: node.count7d } : {}),

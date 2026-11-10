@@ -10,6 +10,7 @@ import { integrationDatabaseName } from "./integration-database.js";
 import {
   assertBackupCoverage,
   BACKUP_TABLES,
+  checksum,
   CURRENT_BACKUP_FORMAT_VERSION,
   readAllTables,
   validateBackup
@@ -88,13 +89,13 @@ const seedRows = async (rows: number, importId: string | null = null) =>
       FROM generate_series(1, ${rows}::int) g`;
 
 describe("the activity store in the backup", () => {
-  it("is covered by the backup lists, with imports before events and lineage after them, and at format 26", async () => {
+  it("is covered by the backup lists, with imports before events and lineage after them, and at format 27", async () => {
     for (const table of TABLES) expect(BACKUP_TABLES).toContain(table);
     expect(BACKUP_TABLES.indexOf("activity_imports")).toBeLessThan(BACKUP_TABLES.indexOf("activity_events"));
     expect(BACKUP_TABLES.indexOf("activity_events")).toBeLessThan(BACKUP_TABLES.indexOf("derived_lineage"));
     expect(BACKUP_TABLES.indexOf("users")).toBeLessThan(BACKUP_TABLES.indexOf("derived_settings"));
     expect(BACKUP_TABLES.indexOf("users")).toBeLessThan(BACKUP_TABLES.indexOf("derived_model_calls"));
-    expect(CURRENT_BACKUP_FORMAT_VERSION).toBe(26);
+    expect(CURRENT_BACKUP_FORMAT_VERSION).toBe(27);
     await expect(assertBackupCoverage(sql)).resolves.toBeUndefined();
   });
 
@@ -109,8 +110,8 @@ describe("the activity store in the backup", () => {
         (${userId}, 'chrome-takeout', 'visit', 'k1', '2026-11-01T10:15:30.123Z', NULL, 660, false, '{"transition":"link"}', 'Title \u2014 \u65e5\u672c', ${imported!.id}, NULL),
         (${userId}, 'steam', 'session', 'k2', '2026-11-01T11:00:00Z', '2026-11-01T11:30:00Z', NULL, true, '{}', NULL, NULL, 'agent-a')
     `;
-    await sql`INSERT INTO activity_source_state (user_id, source, content_enabled, retention_days, cursor)
-              VALUES (${userId}, 'spotify', true, 365, '{"after":"123"}')`;
+    await sql`INSERT INTO activity_source_state (user_id, source, content_enabled, retention_days, expected_every_minutes, cursor)
+              VALUES (${userId}, 'spotify', true, 365, 1440, '{"after":"123"}')`;
     const [k1, k2] = await sql<{ id: string }[]>`SELECT id FROM activity_events ORDER BY event_key`;
     await sql`INSERT INTO derived_lineage (user_id, derived_id, source_id) VALUES (${userId}, ${k2!.id}, ${k1!.id})`;
     await sql`INSERT INTO extractor_state (user_id, extractor, version, cursor, active)
@@ -123,7 +124,7 @@ describe("the activity store in the backup", () => {
     expect(written.sections[0]).toMatchObject({ table: "activity_events", rows: 2 });
     expect((await readdir(dir)).sort()).toEqual([written.path.split("/").at(-1), written.sections[0]!.file].sort());
     const backup = validateBackup(JSON.parse(await readFile(written.path, "utf8")));
-    expect(backup.formatVersion).toBe(26);
+    expect(backup.formatVersion).toBe(27);
     expect(backup.tables.activity_events).toEqual([]);
     expect(backup.tables.activity_imports).toHaveLength(1);
     expect(backup.streamed!.activity_events).toMatchObject({ rows: 2, sha256: written.sections[0]!.sha256 });
@@ -143,6 +144,32 @@ describe("the activity store in the backup", () => {
     expect(after.activity_source_state).toEqual(before.activity_source_state);
     expect(after.derived_lineage).toEqual(before.derived_lineage);
     expect(after.extractor_state).toEqual(before.extractor_state);
+  });
+
+  it("restores a backup written before expected_every_minutes existed: the column comes back null and nothing else changes", async () => {
+    await sql`INSERT INTO activity_source_state (user_id, source, content_enabled, retention_days, expected_every_minutes)
+              VALUES (${userId}, 'rhen-watch', true, 365, 1440)`;
+    const written = await writeBackup(sql, { databaseUrl: testUrl.toString(), directory: dir });
+    const raw = JSON.parse(await readFile(written.path, "utf8")) as {
+      formatVersion: number;
+      sha256: string;
+      tables: Record<string, Record<string, unknown>[]>;
+    };
+    const rows = raw.tables.activity_source_state!;
+    expect(rows).toHaveLength(1);
+    for (const row of rows) for (const key of Object.keys(row)) if (/expected/i.test(key)) delete row[key];
+    expect(Object.keys(rows[0]!).some((key) => /expected/i.test(key))).toBe(false);
+    // A file from before the column existed is a format 26 file: the current format must come back row for row.
+    raw.formatVersion = 26;
+    raw.sha256 = checksum(raw.tables);
+    const older = validateBackup(raw);
+    expect(older.formatVersion).toBe(26);
+    await sql.unsafe('TRUNCATE TABLE "activity_events", "activity_imports", "activity_source_state" CASCADE');
+    await restoreBackup(sql, older, written.path);
+    const [restored] = await sql<
+      { content_enabled: boolean; retention_days: number; expected_every_minutes: number | null }[]
+    >`SELECT content_enabled, retention_days, expected_every_minutes FROM activity_source_state`;
+    expect(restored).toEqual({ content_enabled: true, retention_days: 365, expected_every_minutes: null });
   });
 
   it("restores into a database that already holds other events: the restore replaces them", async () => {
