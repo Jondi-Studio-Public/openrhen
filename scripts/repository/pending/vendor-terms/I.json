@@ -1,7 +1,7 @@
 {
   "lane": "I",
   "terms": {
-    "total": 631,
+    "total": 627,
     "files": {
       "integrations/activity-importers/src/archive.ts": 6,
       "integrations/activity-importers/src/index.ts": 15,
@@ -38,14 +38,14 @@
       "integrations/communication-readers/src/link-candidates.test.ts": 3,
       "integrations/communication-readers/src/message-context.test.ts": 21,
       "integrations/communication-readers/src/message-context.ts": 6,
-      "tools/cli/src/commands/import-activity.ts": 30,
+      "tools/cli/src/commands/import-activity.ts": 27,
       "tools/cli/src/commands/import.ts": 5,
       "tools/cli/src/commands/sources.test.ts": 12,
       "tools/cli/src/config.ts": 2,
       "tools/cli/test/agent-tools.test.ts": 1,
       "tools/cli/test/config.test.ts": 1,
       "tools/cli/test/doctor-fixes.test.ts": 1,
-      "tools/cli/test/import-activity.test.ts": 73,
+      "tools/cli/test/import-activity.test.ts": 72,
       "tools/cli/test/outside-text-e2e.test.ts": 4,
       "tools/cli/test/outside-text.test.ts": 8,
       "tools/cli/test/self-update.test.ts": 1,

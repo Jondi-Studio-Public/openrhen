@@ -178,6 +178,70 @@ describe("Timeline: on-device Timeline.json", () => {
   });
 });
 
+describe("Timeline: iOS Maps export (geo: positions)", () => {
+  // SYNTHETIC fixture: written by hand from the publicly described iOS Timeline export shape (geo: position
+  // strings, `placeID`, probabilities as strings). It is not a real redacted file; replace it with one (issue #147).
+  const ios = [
+    {
+      startTime: "2026-01-02T10:00:00.000+11:00",
+      endTime: "2026-01-02T11:00:00.000+11:00",
+      visit: {
+        hierarchyLevel: "0",
+        probability: "0.92",
+        topCandidate: {
+          placeID: "SYNTHETIC_PLACE_1",
+          semanticType: "HOME",
+          probability: "0.81",
+          placeLocation: "geo:-33.86,151.20"
+        }
+      }
+    },
+    {
+      startTime: "2026-01-02T11:00:00.000+11:00",
+      endTime: "2026-01-02T11:30:00.000+11:00",
+      activity: {
+        start: "geo:-33.86,151.20",
+        end: "geo:-33.9,151.3",
+        distanceMeters: "5000.5",
+        probability: "0.7",
+        topCandidate: { type: "cycling", probability: "0.6" }
+      }
+    },
+    {
+      startTime: "2026-01-02T11:00:00.000+11:00",
+      endTime: "2026-01-02T11:30:00.000+11:00",
+      timelinePath: [
+        { point: "geo:-33.87,151.21", durationMinutesOffsetFromStartTime: "5" },
+        { point: "geo:not,a-point", durationMinutesOffsetFromStartTime: "6" }
+      ]
+    }
+  ];
+
+  it("reads geo: positions, placeID and string probabilities", async () => {
+    const stats = newStats();
+    const events = await collect(parseTimeline(chunked(JSON.stringify(ios), 19), stats, now));
+    expect(events.map((e) => e.kind)).toEqual(["place_visit", "activity_segment", "point"]);
+    expect(events[0]!.attrs).toMatchObject({
+      lat: -33.86,
+      lng: 151.2,
+      place_id: "SYNTHETIC_PLACE_1",
+      semantic_type: "HOME",
+      probability: 0.92
+    });
+    expect(events[1]!.attrs).toMatchObject({
+      start_lat: -33.86,
+      start_lng: 151.2,
+      end_lat: -33.9,
+      end_lng: 151.3,
+      activity_type: "cycling",
+      distance_m: 5001,
+      confidence: 0.7
+    });
+    expect(events[2]!.attrs).toMatchObject({ lat: -33.87, lng: 151.21 });
+    expect(stats).toMatchObject({ emitted: 3, skipped: 1 });
+  });
+});
+
 describe("Google Chat", () => {
   const messages = JSON.stringify({
     messages: [

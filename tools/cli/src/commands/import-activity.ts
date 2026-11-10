@@ -178,7 +178,7 @@ export async function runActivityImport(context: CommandContext, args: ParsedArg
   for (const note of plan.notes) context.stderr(`rhen: ${note}`);
 
   const summaries: SourceSummary[] = [];
-  const youtube: { file: string; result: WatchImportResult | null; dryRun: boolean }[] = [];
+  const youtube: WatchItem[] = [];
   const failures: JobFailure[] = [];
   const poster = runPoster(context);
   // One job failing (a damaged file, a refused batch) must not hide the others: every job gets its turn and its
@@ -517,26 +517,100 @@ function suspiciousRun(summary: SourceSummary, emitted: number, job: EventJob): 
   return `WARNING ${summary.source}: ${what}.${top ? ` The commonest reason: "${top[0]}" (${top[1]} rows).` : ""} If you expected events, the format may not match this importer. Report it with: the source name (${summary.source}), the file name (${file}) and the skipped reasons listed here. Do not send the file's contents or any personal data.`;
 }
 
-async function runYoutube(
-  context: CommandContext,
-  job: YoutubeJob,
-  path: string,
-  dryRun: boolean
-): Promise<{ file: string; result: WatchImportResult | null; dryRun: boolean }> {
-  if (job.size > WATCH_IMPORT_MAX_FILE_BYTES)
-    throw new CliError(
-      `${job.file} is ${Math.round(job.size / 1048576)} MB; the watch-history route reads at most ${Math.round(WATCH_IMPORT_MAX_FILE_BYTES / 1048576)} MB. Export a shorter date range from takeout.google.com (YouTube, History, JSON) and import that.`,
-      EXIT.usage
-    );
+type WatchItem = { file: string; result: WatchImportResult | null; dryRun: boolean; importIds?: string[] };
+
+/** Room under the route's file limit for the brackets and commas of each part's array. */
+const WATCH_PART_MARGIN_BYTES = 1024;
+
+/**
+ * Splits a watch-history JSON array into bodies of at most `limit` bytes. Each entry is re-serialised on its own,
+ * so a part is valid JSON the route reads as a whole history. The route keys each watch by video and time, so an
+ * import that overlaps another, or a run repeated after a failure, adds nothing twice.
+ */
+export function splitWatchHistory(bytes: Uint8Array, limit: number, file: string): Uint8Array[] {
+  let entries: unknown;
+  try {
+    entries = JSON.parse(Buffer.from(bytes).toString("utf8"));
+  } catch {
+    throw new CliError(`${file} is not valid JSON, so it cannot be split. Download the export again.`, EXIT.usage);
+  }
+  if (!Array.isArray(entries))
+    throw new CliError(`${file} is not a JSON array of watch entries, so it cannot be split.`, EXIT.usage);
+  const budget = limit - WATCH_PART_MARGIN_BYTES;
+  const parts: Uint8Array[] = [];
+  let pieces: string[] = [];
+  let size = 0;
+  const close = () => {
+    if (pieces.length === 0) return;
+    parts.push(Buffer.from(`[${pieces.join(",")}]`));
+    pieces = [];
+    size = 0;
+  };
+  for (const entry of entries) {
+    const text = JSON.stringify(entry) ?? "null";
+    const length = Buffer.byteLength(text) + 1;
+    if (length > budget)
+      throw new CliError(
+        `${file} holds one entry larger than ${Math.round(budget / 1048576)} MB; it cannot be sent.`,
+        EXIT.usage
+      );
+    if (size + length > budget) close();
+    pieces.push(text);
+    size += length;
+  }
+  close();
+  return parts;
+}
+
+function addResults(total: WatchImportResult, next: WatchImportResult): WatchImportResult {
+  return {
+    importId: total.importId ?? next.importId,
+    read: total.read + next.read,
+    added: total.added + next.added,
+    alreadyHeld: total.alreadyHeld + next.alreadyHeld,
+    skipped: total.skipped + next.skipped,
+    watches: total.watches + next.watches,
+    ads: total.ads + next.ads,
+    posts: total.posts + next.posts,
+    music: total.music + next.music
+  };
+}
+
+async function runYoutube(context: CommandContext, job: YoutubeJob, path: string, dryRun: boolean): Promise<WatchItem> {
   if (dryRun) return { file: job.file, result: null, dryRun: true };
   const bytes = await job.read();
-  // Only the history entry is read; the old parser is the route's own. Base64 keeps the body under its 70 MB cap.
-  const result = await context.client.post<WatchImportResult>("/api/imports/watch-history", {
-    filename: basename(job.file) || basename(path),
-    encoding: "base64",
-    data: Buffer.from(bytes).toString("base64")
-  });
-  return { file: job.file, result, dryRun: false };
+  const filename = basename(job.file) || basename(path);
+  // The route reads at most WATCH_IMPORT_MAX_FILE_BYTES, so a larger history goes up as several bodies. A zip's
+  // entry is the same JSON once read, so a history inside a zip splits the same way.
+  const bodies =
+    bytes.length <= WATCH_IMPORT_MAX_FILE_BYTES
+      ? [bytes]
+      : splitWatchHistory(bytes, WATCH_IMPORT_MAX_FILE_BYTES, job.file);
+  let result: WatchImportResult | null = null;
+  const importIds: string[] = [];
+  for (const [index, body] of bodies.entries()) {
+    let part: WatchImportResult;
+    try {
+      // Base64 keeps the body under the route's 70 MB cap.
+      part = await context.client.post<WatchImportResult>("/api/imports/watch-history", {
+        filename,
+        encoding: "base64",
+        data: Buffer.from(body).toString("base64")
+      });
+    } catch (error) {
+      if (error instanceof CliError && bodies.length > 1)
+        throw new CliError(
+          `${error.message} (stopped after ${index} of ${bodies.length} parts were accepted; run the same command again: watches already held are never duplicated.)`,
+          error.exitCode,
+          error.details,
+          error.agent
+        );
+      throw error;
+    }
+    if (part.importId) importIds.push(part.importId);
+    result = result ? addResults(result, part) : part;
+  }
+  return { file: job.file, result, dryRun: false, ...(importIds.length > 1 ? { importIds } : {}) };
 }
 
 function renderSummary(summary: SourceSummary): string {
@@ -581,9 +655,9 @@ function renderSummary(summary: SourceSummary): string {
   return lines.join("\n");
 }
 
-function renderYoutube(item: { file: string; result: WatchImportResult | null; dryRun: boolean }): string {
+function renderYoutube(item: WatchItem): string {
   if (item.dryRun || !item.result)
     return `youtube (${item.file}): dry run, nothing sent; the history would go to the watch-history route.`;
   const r = item.result;
-  return `youtube (${item.file}): watch-history route read ${r.read}; added ${r.added}, already held ${r.alreadyHeld}, skipped ${r.skipped}${r.importId ? `; import id ${r.importId}` : ""}.`;
+  return `youtube (${item.file}): watch-history route read ${r.read}; added ${r.added}, already held ${r.alreadyHeld}, skipped ${r.skipped}${item.importIds ? `; sent in ${item.importIds.length} parts, import ids ${item.importIds.join(", ")}` : r.importId ? `; import id ${r.importId}` : ""}.`;
 }
