@@ -10,6 +10,7 @@ export * from "./scheduling/dependencies.js";
 export * from "./scheduling/slots.js";
 export * from "./scheduling/schedule.js";
 export * from "./scheduling/adherence.js";
+export * from "./scheduling/deadline-outlook.js";
 export * from "./recommendation/continuation.js";
 export * from "./recurrence/sleep.js";
 export * from "./recurrence/stay-up-offer.js";

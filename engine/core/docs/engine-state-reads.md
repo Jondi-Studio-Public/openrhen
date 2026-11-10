@@ -43,7 +43,7 @@ UPDATE_ENGINE_STATE_READS=1 corepack pnpm --filter @openrhen/engine-core exec vi
 
 ### `state.outcomes`
 
-`[].areaId`, `[].id`, `[].status`
+`[].areaId`, `[].deadlineAt`, `[].id`, `[].status`, `[].title`
 
 ### `state.projects`
 

@@ -513,6 +513,12 @@ export const planForecastResponseSchema = z.object({
    * so results stored by earlier engine versions still parse.
    */
   weekOutlook: jsonValueSchema.optional(),
+  /**
+   * A reachability verdict (ok, tight, behind, overdue) per project and per outcome, derived from the
+   * forecasts above with rows sorted by slack, overdue first. Present only when some active project has
+   * a deadline. Optional so results stored by earlier engine versions still parse.
+   */
+  deadlineOutlook: jsonValueSchema.optional(),
   /** The projected day (§12 of the logic design). Optional so results stored before 1.4.0 still parse. */
   dayPlan: dayPlanSchema.optional(),
   /** Present only while a commitment's preparation is under way or due; see `prepPaceSchema`. */

@@ -56,6 +56,7 @@ import { resolvePlanningCapacity } from "./scheduling/capacity.js";
 import { localisePlanText } from "./recommendation/format.js";
 import { resolveStretchState } from "./recommendation/stretch.js";
 import { planSchedule, planningSlots } from "./scheduling/schedule.js";
+import { assessDeadlines } from "./scheduling/deadline-outlook.js";
 import { isStepOfferableNow, recommend, type RecommendArguments } from "./recommendation/recommend.js";
 import {
   addLocalDays,
@@ -516,6 +517,24 @@ export function calculatePlanAndForecast(input: PlanForecastRequest): PlanForeca
     planning.actions
   );
   const weekOutlook = buildWeekOutlook(request.state, schedule, now);
+  const deadlineOutlook = assessDeadlines({
+    forecasts: (schedule.forecasts ?? []) as ProjectForecast[],
+    projects: request.state.projects.map((project) => ({
+      id: project.id,
+      title: project.title,
+      outcomeId: project.outcomeId,
+      status: project.status,
+      externalDeadlineAt: project.externalDeadlineAt ? new Date(project.externalDeadlineAt) : null,
+      internalDeadlineAt: project.internalDeadlineAt ? new Date(project.internalDeadlineAt) : null
+    })),
+    outcomes: request.state.outcomes.map((outcome) => ({
+      id: outcome.id,
+      title: outcome.title,
+      status: outcome.status,
+      deadlineAt: outcome.deadlineAt ? new Date(outcome.deadlineAt) : null
+    })),
+    now
+  });
   const tonight = nights.slice().sort((a, b) => a.plannedStartAt.getTime() - b.plannedStartAt.getTime())[0];
   const stayUpOfferResult = computeStayUpOffer({
     now,
@@ -749,6 +768,7 @@ export function calculatePlanAndForecast(input: PlanForecastRequest): PlanForeca
     upcomingDirectives,
     continuation: continuation ? toJson(continuation) : null,
     ...(weekOutlook ? { weekOutlook: toJson(weekOutlook) } : {}),
+    ...(deadlineOutlook.projects.length ? { deadlineOutlook: toJson(deadlineOutlook) } : {}),
     dayPlan,
     ...(prepPace ? { prepPace } : {}),
     ...(stayUpOffer ? { stayUpOffer } : {}),
