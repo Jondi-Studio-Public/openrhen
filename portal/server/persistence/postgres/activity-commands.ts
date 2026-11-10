@@ -39,6 +39,17 @@ import { watchActivityWrite } from "./entity-snapshot";
 import { activityOutcomeRefusal } from "./activity-outcome-refusal";
 import type { PoolSql, Sql, TxSql } from "./sql-pool";
 import { WriteSnapshot } from "./write-snapshot";
+import {
+  assertOwnerOccurredAt,
+  occurredAtEvidence,
+  recordOnlyOccurredAt,
+  replayOccurredAtReport,
+  reportOccurredAt,
+  settleSessionOccurredAt,
+  settleStandaloneOccurredAt,
+  settleStartOccurredAt,
+  type OccurredAtOutcome
+} from "./occurred-at";
 
 /**
  * Names a fixed-commitment session by the phase it actually tracks, so a session opened during setup
@@ -106,22 +117,27 @@ function closedStepRefusal(step: { id: string; status: string; version: number }
 }
 
 export async function runActivityCommand(sql: PoolSql, command: ActivityCommand): Promise<PortalState> {
+  assertOwnerOccurredAt(command);
   const userId = await ensureUser(sql);
   const requestHash = commandRequestHash(command.type, command);
-  if (await hasCommandReceipt(sql, { id: command.commandId, userId, commandType: command.type, requestHash }))
+  if (await hasCommandReceipt(sql, { id: command.commandId, userId, commandType: command.type, requestHash })) {
+    if (command.occurredAt !== undefined) await replayOccurredAtReport(sql, userId, command.commandId);
     return await readStateAfterCommit(sql);
+  }
   await sql.begin(async (tx) => {
     if (!(await claimCommandReceipt(tx, { id: command.commandId, userId, commandType: command.type, requestHash })))
       return;
     // An agent's activity write keeps the rows it touches so it can be undone afterwards (write-snapshot.ts).
     const snap = await WriteSnapshot.open(tx, userId, command.commandId, "activity");
-    const at = await applyActivityCommand(tx, userId, command, snap);
+    const claim: { outcome?: OccurredAtOutcome } = {};
+    const at = await applyActivityCommand(tx, userId, command, snap, { claim });
     await snap?.save();
+    if (claim.outcome) await reportOccurredAt(tx, userId, claim.outcome);
     await recordStateChange(tx, userId, {
       entityType: "activity_session",
       entityId: "sessionId" in command ? command.sessionId : "targetId" in command ? command.targetId : command.stepId,
       operation: command.type,
-      evidence: { at: at.toISOString() },
+      evidence: { at: at.toISOString(), ...(claim.outcome ? { occurredAt: occurredAtEvidence(claim.outcome) } : {}) },
       commandId: command.commandId,
       at
     });
@@ -140,9 +156,13 @@ export async function applyActivityCommand(
   userId: string,
   command: ActivityCommand,
   snap: WriteSnapshot | null,
-  options: { endAtPause?: boolean } = {}
+  options: { endAtPause?: boolean; claim?: { outcome?: OccurredAtOutcome } } = {}
 ): Promise<Date> {
   let at = new Date();
+  const settled = (outcome: OccurredAtOutcome): OccurredAtOutcome => {
+    if (options.claim) options.claim.outcome = outcome;
+    return outcome;
+  };
   await watchActivityWrite(snap, tx, userId, command);
   if (command.type === "start_activity") {
     // Publication lock before the open-session row lock, in the worker's order.
@@ -155,12 +175,29 @@ export async function applyActivityCommand(
     let title = "Sleep";
     // `startedAt` is when the work happened; `at` stays real now
     // for `updated_at` and every other record of this command.
-    const { startTime, backfilled } = await resolveBackfilledStart(
-      tx,
-      userId,
-      { commandId: command.commandId, startedAt: command.startedAt, targetType: command.targetType, targetId },
-      at
-    );
+    // An owner's `occurredAt` replaces `startedAt`, and falls back to now with the claim kept when it does not fit. A
+    // sleep keeps receipt time (a past sleep start is refused by design, `backfilled-start.ts`).
+    const claimed = command.occurredAt
+      ? settled(
+          command.targetType === "sleep"
+            ? await recordOnlyOccurredAt(
+                tx,
+                userId,
+                command.occurredAt,
+                at,
+                "a sleep start keeps the time the server received it"
+              )
+            : await settleStartOccurredAt(tx, userId, command.occurredAt, at)
+        )
+      : undefined;
+    const { startTime, backfilled } = claimed
+      ? { startTime: claimed.at, backfilled: claimed.at.getTime() < at.getTime() }
+      : await resolveBackfilledStart(
+          tx,
+          userId,
+          { commandId: command.commandId, startedAt: command.startedAt, targetType: command.targetType, targetId },
+          at
+        );
     const currentPlanning = await requireCurrentPlanForecast(tx, userId, at);
     if (
       !currentEngineResultIncludesActivity(
@@ -274,7 +311,7 @@ export async function applyActivityCommand(
     const sanction = deriveSessionSanction(currentPlanning, command.targetType, targetId, startTime, command.phase);
     const sanctionUntil = sanction === "free" || sanction === null ? null : plannedEnd;
     await tx`INSERT INTO sessions (id,user_id,action_id,target_type,target_id,target_step_id,target_title,status,planned_started_at,planned_end_at,started_at,started_recorded_at,planned_minutes,remaining_before_minutes,plan_sanction,sanction_until,started_by) VALUES (${command.commandId},${userId},NULL,${command.targetType},${targetId},${command.targetType === "deliverable" ? (command.stepId ?? null) : null},${title},'running',${startTime},${plannedEnd},${startTime},${backfilled ? at : null},${command.plannedMinutes},0,${sanction},${sanctionUntil},${requestAgent()})`;
-    await tx`INSERT INTO session_segments (session_id,started_at,step_id) VALUES (${command.commandId},${startTime},${command.targetType === "deliverable" ? (command.stepId ?? null) : null})`;
+    await tx`INSERT INTO session_segments (session_id,started_at,step_id,start_occurred_at,start_occurred_note) VALUES (${command.commandId},${startTime},${command.targetType === "deliverable" ? (command.stepId ?? null) : null},${claimed?.claimed ?? null},${claimed?.reason ?? null})`;
     // The offer log's `started` row. A routine step, commitment or sleep is rarely in the offered top five, so its rank
     // is usually null with `off_plan` set; that is the honest reading, not an error.
     await logOfferOutcome(tx, userId, {
@@ -302,6 +339,8 @@ export async function applyActivityCommand(
       }
     });
   } else if (command.type === "skip_routine_step") {
+    // A step's status carries no time of its own, so the claimed time is recorded in the change log and nothing moves.
+    if (command.occurredAt) settled(await settleStandaloneOccurredAt(tx, userId, command.occurredAt, at));
     // Names the `routine_steps` row directly, for either anchor — no instance id, since a
     // sleep-anchored step is skipped exactly like a commitment's own preparation step now.
     const openStep = await tx<
@@ -360,6 +399,7 @@ export async function applyActivityCommand(
     // — the engine's placer picks that up on the recalculation the one-write-path enqueues, the same
     // as a completion does below; nothing here reschedules synchronously any more.
   } else if (command.type === "reopen_routine_step") {
+    if (command.occurredAt) settled(await settleStandaloneOccurredAt(tx, userId, command.occurredAt, at));
     // Undoes `skip_routine_step` for either anchor. `save routine-step` cannot do this for a
     // sleep-anchored step (it needs a commitment), so a mistaken skip of a bedtime step had no way back.
     const target = await tx<
@@ -399,6 +439,22 @@ export async function applyActivityCommand(
           "Use the session commands instead: rhen session finish (which takes an ended-at time and records the action's outcome), pause, resume, block or did-not-start."
       );
     at = await sessionClock(tx, session[0].id, at);
+    // The command's event time: the owner's claimed one where it fits this session (`settleSessionOccurredAt`), else
+    // receipt. A sleep's end is the wake, which keeps receipt time. `at` stays on `updated_at` and the receipt stamps.
+    let claimed: OccurredAtOutcome | undefined;
+    if (command.occurredAt)
+      claimed = settled(
+        command.type === "finish_activity" && session[0].target_type === "sleep"
+          ? await recordOnlyOccurredAt(
+              tx,
+              userId,
+              command.occurredAt,
+              at,
+              "a wake keeps the time the server received it"
+            )
+          : await settleSessionOccurredAt(tx, userId, session[0], command.occurredAt, at)
+      );
+    const when = claimed?.applied ? claimed.at : at;
     if (command.type === "switch_deliverable_step") {
       if (session[0].target_type !== "deliverable")
         throw new InvalidCommandError("Only a deliverable session moves between steps.");
@@ -412,7 +468,7 @@ export async function applyActivityCommand(
         );
       // Past the allocation the engine granted, the only honest moves are finishing or stopping.
       // Letting work continue here would quietly bill time the plan never reserved.
-      if (session[0].planned_end_at <= at)
+      if (session[0].planned_end_at <= when)
         throw new InvalidCommandError(
           "This session has reached its checkpoint. Finish or stop it before doing more work."
         );
@@ -431,11 +487,11 @@ export async function applyActivityCommand(
       if (["done", "cancelled", "archived"].includes(next[0].status)) throw closedStepRefusal(next[0]);
       // Close the open segment before opening the next, so the elapsed minutes land on the step
       // they were actually spent on and no two segments ever run at once.
-      await tx`UPDATE session_segments SET ended_at=${at} WHERE session_id=${session[0].id} AND ended_at IS NULL`;
-      await tx`INSERT INTO session_segments (session_id,started_at,step_id) VALUES (${session[0].id},${at},${command.stepId})`;
+      await tx`UPDATE session_segments SET ended_at=${when}, end_occurred_at=${claimed?.claimed ?? null}, end_occurred_note=${claimed?.reason ?? null} WHERE session_id=${session[0].id} AND ended_at IS NULL`;
+      await tx`INSERT INTO session_segments (session_id,started_at,step_id,start_occurred_at,start_occurred_note) VALUES (${session[0].id},${when},${command.stepId},${claimed?.claimed ?? null},${claimed?.reason ?? null})`;
       if (session[0].target_step_id && session[0].target_step_id !== command.stepId)
         await tx`UPDATE actions SET status='planned',version=version+1,updated_at=${at} WHERE id=${session[0].target_step_id} AND status='doing'`;
-      await tx`UPDATE actions SET status='doing',last_worked_at=${at},version=version+1,updated_at=${at} WHERE id=${command.stepId}`;
+      await tx`UPDATE actions SET status='doing',last_worked_at=${when},version=version+1,updated_at=${at} WHERE id=${command.stepId}`;
       await tx`UPDATE sessions SET target_step_id=${command.stepId},version=version+1,updated_at=${at} WHERE id=${session[0].id}`;
     } else if (command.type === "pause_activity") {
       if (session[0].status !== "running")
@@ -446,9 +502,9 @@ export async function applyActivityCommand(
           ["running"],
           session[0].status === "paused" ? "resume" : undefined
         );
-      await tx`UPDATE session_segments SET ended_at=${at} WHERE session_id=${session[0].id} AND ended_at IS NULL`; // Never negative: pausing after the planned end would otherwise store a negative remainder, which
+      await tx`UPDATE session_segments SET ended_at=${when}, end_occurred_at=${claimed?.claimed ?? null}, end_occurred_note=${claimed?.reason ?? null} WHERE session_id=${session[0].id} AND ended_at IS NULL`; // Never negative: pausing after the planned end would otherwise store a negative remainder, which
       // fails portal state validation and takes the whole planning request down with it.
-      const remaining = Math.max(0, Math.ceil((session[0].planned_end_at.getTime() - at.getTime()) / 1000));
+      const remaining = Math.max(0, Math.ceil((session[0].planned_end_at.getTime() - when.getTime()) / 1000));
       await tx`UPDATE sessions SET status='paused',paused_remaining_seconds=${remaining},result_note=${command.note ?? null},version=version+1,updated_at=${at} WHERE id=${session[0].id}`;
     } else if (command.type === "resume_activity") {
       if (session[0].status !== "paused")
@@ -457,10 +513,10 @@ export async function applyActivityCommand(
         throw new InvalidCommandError(
           "This session has reached its checkpoint. Finish or stop it before doing more work."
         );
-      await tx`INSERT INTO session_segments (session_id,started_at,step_id) VALUES (${session[0].id},${at},${session[0].target_type === "deliverable" ? session[0].target_step_id : null})`;
+      await tx`INSERT INTO session_segments (session_id,started_at,step_id,start_occurred_at,start_occurred_note) VALUES (${session[0].id},${when},${session[0].target_type === "deliverable" ? session[0].target_step_id : null},${claimed?.claimed ?? null},${claimed?.reason ?? null})`;
       // Clears whatever pause note was recorded: `result_note` is otherwise a finish-time field, and
       // once work resumes the reason for the interruption is no longer this session's current state.
-      await tx`UPDATE sessions SET status='running',planned_end_at=${new Date(at.getTime() + (session[0].paused_remaining_seconds ?? 0) * 1000)},paused_remaining_seconds=NULL,result_note=NULL,version=version+1,updated_at=${at} WHERE id=${session[0].id}`;
+      await tx`UPDATE sessions SET status='running',planned_end_at=${new Date(when.getTime() + (session[0].paused_remaining_seconds ?? 0) * 1000)},paused_remaining_seconds=NULL,result_note=NULL,version=version+1,updated_at=${at} WHERE id=${session[0].id}`;
     } else {
       // Skipped is a routine step's own thing — moot preparation, not merely undone — and is never
       // offered against a deliverable, a commitment, sleep or the bedtime routine's own steps.
@@ -468,7 +524,30 @@ export async function applyActivityCommand(
       if (outcomeRefusal !== null) throw new InvalidCommandError(outcomeRefusal);
       // A chosen retroactive end: `endTime` takes over from `at` wherever the session's own end is
       // recorded, while `at` (real now) stays on `updated_at` (see resolveRetroactiveEnd).
-      const endTime = await resolveRetroactiveEnd(tx, session[0], command.endedAt, at, options.endAtPause);
+      // An owner's `occurredAt` that fits ends the session there; one that does not fit the segment record leaves the
+      // end at now and keeps the claim with its reason (never refused for it).
+      let endedAt = claimed?.applied ? claimed.at.toISOString() : command.endedAt;
+      let endClaim = claimed;
+      let endTime: Date;
+      try {
+        endTime =
+          claimed?.applied && session[0].status === "paused"
+            ? claimed.at
+            : await resolveRetroactiveEnd(tx, session[0], endedAt, at, options.endAtPause);
+      } catch (error) {
+        if (!claimed?.applied || !(error instanceof InvalidCommandError)) throw error;
+        endClaim = settled(
+          await recordOnlyOccurredAt(
+            tx,
+            userId,
+            command.occurredAt!,
+            at,
+            "it falls after the point where this session stopped"
+          )
+        );
+        endedAt = command.endedAt;
+        endTime = await resolveRetroactiveEnd(tx, session[0], endedAt, at, options.endAtPause);
+      }
       const terminal =
         command.outcome === "completed"
           ? "completed"
@@ -503,10 +582,11 @@ export async function applyActivityCommand(
       }
       const minutes = await closeOpenSession(tx, session[0], {
         endTime,
-        retroactive: Boolean(command.endedAt),
+        retroactive: Boolean(endedAt),
         terminal,
         note: command.note ?? null,
-        at
+        at,
+        claim: endClaim ? { at: endClaim.claimed, note: endClaim.reason } : undefined
       });
       if (session[0].target_type === "routine_step") {
         const parent = await tx<
@@ -521,7 +601,7 @@ export async function applyActivityCommand(
         // just below ("the step stays open and can be started or skipped again": nothing there writes
         // over a status the routine system itself already decided, and nothing here does either).
         if (parent[0] && parent[0].status !== "skipped") {
-          await tx`UPDATE routine_steps SET status=${command.outcome === "completed" ? "completed" : command.outcome === "blocked" ? "blocked" : command.outcome === "skipped" ? "skipped" : "pending"},completed_at=${command.outcome === "completed" ? at : null},version=version+1,updated_at=${at} WHERE id=${session[0].target_id}`;
+          await tx`UPDATE routine_steps SET status=${command.outcome === "completed" ? "completed" : command.outcome === "blocked" ? "blocked" : command.outcome === "skipped" ? "skipped" : "pending"},completed_at=${command.outcome === "completed" ? (endClaim?.applied ? endTime : at) : null},version=version+1,updated_at=${at} WHERE id=${session[0].target_id}`;
           if (command.outcome === "completed") {
             await completeStepActionOccurrence(tx, userId, session[0].target_id, at, snap);
             await recordCadenceStepCompletion(tx, parent[0].cadence_action_id, at, minutes, session[0].id, snap);

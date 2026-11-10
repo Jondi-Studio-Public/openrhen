@@ -1354,6 +1354,12 @@ export const checkIns = pgTable(
       .default(sql`'[]'::jsonb`),
     /** The agent that answered, by its self-declared name; null for a person or an answer before this column. */
     answeredBy: text("answered_by"),
+    /**
+     * The time the owner's device claimed for the answer (`occurredAt`), kept beside `answered_at`, which holds the time
+     * the server used. Null when the answer carried none. The note says why the claim was not used; null when it was.
+     */
+    occurredAt: timestamp("occurred_at", { withTimezone: true }),
+    occurredNote: text("occurred_note"),
     ...timestamps
   },
   (table) => [
@@ -2155,7 +2161,16 @@ export const sessionSegments = pgTable(
      * name because nothing about a session's own shape moved.
      */
     stepId: uuid("step_id").references(() => actions.id, { onDelete: "set null" }),
-    interruptionNote: text("interruption_note")
+    interruptionNote: text("interruption_note"),
+    /**
+     * The time the owner's device claimed for this segment's start and end (`occurredAt` on the command that made
+     * it), always kept beside `started_at` / `ended_at`, which hold the time the server used. Null when the command
+     * carried none. The note says why the claim was not used (the reply said the same); null when it was used.
+     */
+    startOccurredAt: timestamp("start_occurred_at", { withTimezone: true }),
+    startOccurredNote: text("start_occurred_note"),
+    endOccurredAt: timestamp("end_occurred_at", { withTimezone: true }),
+    endOccurredNote: text("end_occurred_note")
   },
   (table) => [
     check("session_segments_time_check", sql`${table.endedAt} is null or ${table.endedAt} > ${table.startedAt}`),
