@@ -17,6 +17,32 @@ const version = z.number().int().positive().nullable();
 const status = lifecycleStatusSchema;
 const score = z.number().int().min(1).max(5);
 const commandBase = z.object({ commandId: z.string().uuid(), expectedVersion: version });
+
+/**
+ * When the owner really did it, for a command his own device queued while offline (C4 of the native app design,
+ * `docs/design/real-times-for-owner-commands.md`). Owner credentials only: the server refuses it from an agent. It is
+ * always recorded; it is applied only where it is at most 5 minutes ahead, no more than 7 days old and consistent with
+ * what the server holds, and the reply says in words when it was not. It supersedes `startedAt` / `endedAt`.
+ */
+export const OCCURRED_AT_FUTURE_GRACE_MS = 5 * 60_000;
+export const OCCURRED_AT_MAX_BACK_MS = 7 * 24 * 3_600_000;
+const occurredAtField = { occurredAt: offsetDateTime().optional() };
+
+/** `occurredAt` replaces `startedAt` / `endedAt` on an owner-device call, so the two may not name different moments. */
+function refuseConflictingClock(
+  value: { occurredAt?: string | undefined } & Record<string, unknown>,
+  field: "startedAt" | "endedAt",
+  context: z.RefinementCtx
+): void {
+  const other = value[field];
+  if (value.occurredAt === undefined || typeof other !== "string") return;
+  if (Date.parse(value.occurredAt) !== Date.parse(other))
+    context.addIssue({
+      code: "custom",
+      path: [field],
+      message: `occurredAt and ${field} name different moments. occurredAt replaces ${field} on a call from the owner's device, so send one of them, or the same time in both.`
+    });
+}
 const clockWindowSchema = z.object({
   startTime: z.string().regex(/^\d{2}:\d{2}$/),
   endTime: z.string().regex(/^\d{2}:\d{2}$/)
@@ -421,37 +447,47 @@ export type ConfirmProjectWantedCommand = z.infer<typeof confirmProjectWantedCom
 export type SaveActionCommand = z.infer<typeof saveActionCommandSchema>;
 
 export const sessionCommandSchema = z.discriminatedUnion("type", [
-  commandBase.extend({
-    type: z.literal("start"),
-    actionId: z.string().min(1),
-    plannedMinutes: plannedSessionMinutes,
-    recommendationId: z.string().uuid().nullable().optional(),
-    // A past start: bounded on the server.
-    startedAt: optionalDateTime
-  }),
-  commandBase.extend({
-    type: z.literal("select_alternative"),
-    actionId: z.string().min(1),
-    plannedMinutes: plannedSessionMinutes,
-    recommendationId: z.string().uuid().nullable().optional(),
-    reason: overrideReasonSchema,
-    note: z.string().trim().max(1000).optional(),
-    startedAt: optionalDateTime
-  }),
+  commandBase
+    .extend({
+      type: z.literal("start"),
+      actionId: z.string().min(1),
+      plannedMinutes: plannedSessionMinutes,
+      recommendationId: z.string().uuid().nullable().optional(),
+      // A past start: bounded on the server.
+      startedAt: optionalDateTime,
+      ...occurredAtField
+    })
+    .superRefine((value, context) => refuseConflictingClock(value, "startedAt", context)),
+  commandBase
+    .extend({
+      type: z.literal("select_alternative"),
+      actionId: z.string().min(1),
+      plannedMinutes: plannedSessionMinutes,
+      recommendationId: z.string().uuid().nullable().optional(),
+      reason: overrideReasonSchema,
+      note: z.string().trim().max(1000).optional(),
+      startedAt: optionalDateTime,
+      ...occurredAtField
+    })
+    .superRefine((value, context) => refuseConflictingClock(value, "startedAt", context)),
   // Moves the start of the open session to a past moment (the design notes,
   // "Correcting a start already made"): the same bounds as a past start.
   commandBase.extend({
     type: z.literal("correct_start"),
     sessionId: z.string().uuid(),
-    startedAt: offsetDateTime()
+    // The moment to move the start to. `occurredAt` here is when the owner made the correction: recorded, and it
+    // moves nothing, because `startedAt` is already the time that matters.
+    startedAt: offsetDateTime(),
+    ...occurredAtField
   }),
-  commandBase.extend({ type: z.literal("pause"), sessionId: z.string().uuid() }),
-  commandBase.extend({ type: z.literal("resume"), sessionId: z.string().uuid() }),
-  commandBase.extend({ type: z.literal("request_feedback"), sessionId: z.string().uuid() }),
+  commandBase.extend({ type: z.literal("pause"), sessionId: z.string().uuid(), ...occurredAtField }),
+  commandBase.extend({ type: z.literal("resume"), sessionId: z.string().uuid(), ...occurredAtField }),
+  commandBase.extend({ type: z.literal("request_feedback"), sessionId: z.string().uuid(), ...occurredAtField }),
   commandBase.extend({
     type: z.literal("continue"),
     sessionId: z.string().uuid(),
-    requestedMinutes: z.number().int().positive().max(480)
+    requestedMinutes: z.number().int().positive().max(480),
+    ...occurredAtField
   }),
   commandBase
     .extend({
@@ -462,9 +498,11 @@ export const sessionCommandSchema = z.discriminatedUnion("type", [
       note: z.string().trim().max(2000).optional(),
       // Ends a session at a chosen past moment instead of now, with the same bounds as `finish_activity`'s:
       // after the start of the segment it ends, no later than now, running or awaiting-feedback sessions only.
-      endedAt: optionalDateTime
+      endedAt: optionalDateTime,
+      ...occurredAtField
     })
     .superRefine((value, context) => {
+      refuseConflictingClock(value, "endedAt", context);
       if (value.outcome === "progress" && value.remainingMinutes === undefined)
         context.addIssue({
           code: "custom",
@@ -477,12 +515,14 @@ export const sessionCommandSchema = z.discriminatedUnion("type", [
     sessionId: z.string().uuid(),
     reason: blockingReasonSchema,
     actionStatus: z.enum(["waiting", "blocked"]),
-    note: z.string().trim().max(2000).optional()
+    note: z.string().trim().max(2000).optional(),
+    ...occurredAtField
   }),
   commandBase.extend({
     type: z.literal("did_not_start"),
     sessionId: z.string().uuid(),
-    note: z.string().trim().max(2000).optional()
+    note: z.string().trim().max(2000).optional(),
+    ...occurredAtField
   })
 ]);
 
@@ -503,9 +543,12 @@ export const activityCommandSchema = z.discriminatedUnion("type", [
       phase: z.enum(["setup", "travel", "arrival", "active", "transition", "return"]).optional(),
       // Starts the session at a chosen past moment instead of now.
       // Refused for `sleep` (use the sleep log), and by the server outside its bounds.
-      startedAt: optionalDateTime
+      startedAt: optionalDateTime,
+      // A sleep start keeps the time the server received it (`occurredAt` is recorded, not applied).
+      ...occurredAtField
     })
     .superRefine((value, context) => {
+      refuseConflictingClock(value, "startedAt", context);
       if (value.targetType === "sleep" && value.startedAt !== undefined)
         context.addIssue({
           code: "custom",
@@ -519,37 +562,45 @@ export const activityCommandSchema = z.discriminatedUnion("type", [
   commandBase.extend({
     type: z.literal("switch_deliverable_step"),
     sessionId: z.string().uuid(),
-    stepId: z.string().min(1)
+    stepId: z.string().min(1),
+    ...occurredAtField
   }),
   commandBase.extend({
     type: z.literal("pause_activity"),
     sessionId: z.string().uuid(),
-    note: z.string().trim().max(2000).optional()
-  }),
-  commandBase.extend({ type: z.literal("resume_activity"), sessionId: z.string().uuid() }),
-  commandBase.extend({
-    type: z.literal("finish_activity"),
-    sessionId: z.string().uuid(),
-    // `skipped` is only ever valid for a `routine_step` session — the server refuses it for anything
-    // else — since it is the one target whose "done" and "moot" are worth telling apart.
-    outcome: z.enum(["completed", "stopped", "blocked", "did_not_start", "skipped"]),
     note: z.string().trim().max(2000).optional(),
-    // Ends the session at a chosen past moment instead of now: the open segment closes there, or for a
-    // session awaiting feedback the segment the checkpoint closed ends there. Refused unless that
-    // segment's start < endedAt <= now, and refused outright for a paused session — see
-    // The session reconciliation design note.
-    endedAt: optionalDateTime
+    ...occurredAtField
   }),
+  commandBase.extend({ type: z.literal("resume_activity"), sessionId: z.string().uuid(), ...occurredAtField }),
+  commandBase
+    .extend({
+      type: z.literal("finish_activity"),
+      sessionId: z.string().uuid(),
+      // `skipped` is only ever valid for a `routine_step` session — the server refuses it for anything
+      // else — since it is the one target whose "done" and "moot" are worth telling apart.
+      outcome: z.enum(["completed", "stopped", "blocked", "did_not_start", "skipped"]),
+      note: z.string().trim().max(2000).optional(),
+      // Ends the session at a chosen past moment instead of now: the open segment closes there, or for a
+      // session awaiting feedback the segment the checkpoint closed ends there. Refused unless that
+      // segment's start < endedAt <= now, and refused outright for a paused session — see
+      // The session reconciliation design note.
+      endedAt: optionalDateTime,
+      // A sleep's end (the wake) keeps the time the server received it (`occurredAt` is recorded, not applied).
+      ...occurredAtField
+    })
+    .superRefine((value, context) => refuseConflictingClock(value, "endedAt", context)),
   commandBase.extend({
     type: z.literal("skip_routine_step"),
     // Names the `routine_steps` row directly, for either anchor — no instance id, since a
     // sleep-anchored step is a row like a commitment's own.
-    stepId: z.string().min(1)
+    stepId: z.string().min(1),
+    ...occurredAtField
   }),
   commandBase.extend({
     type: z.literal("reopen_routine_step"),
     // Undoes a skip: names the same `routine_steps` row, for either anchor, and returns it to pending.
-    stepId: z.string().min(1)
+    stepId: z.string().min(1),
+    ...occurredAtField
   })
 ]);
 
@@ -715,7 +766,13 @@ const answerCheckInObjectSchema = commandBase.extend({
   deviationNote: checkInNoteSchema,
   /** A different planned task named instead of the engine's belief — recorded only, never started. */
   deviationTargetId: z.string().min(1).optional(),
-  answerSource: z.enum(CHECK_IN_ANSWER_SOURCE_VALUES)
+  answerSource: z.enum(CHECK_IN_ANSWER_SOURCE_VALUES),
+  /**
+   * When he really answered, from a queue the owner's device held offline. Recorded always; used as the answer time
+   * only where it fits the row (after the slot, 5 minutes ahead at most, 7 days back at most). If the check-in
+   * closed before the answer arrived, his words are kept as a capture and the reply says it was not delivered.
+   */
+  ...occurredAtField
 });
 
 /**

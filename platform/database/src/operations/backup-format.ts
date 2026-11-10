@@ -70,6 +70,9 @@ const CORE_BACKUP_TABLES = [
   "action_occurrences",
   "routine_step_dependencies",
   "sessions",
+  // `start_occurred_at` / `end_occurred_at` and their notes (the owner's claimed times, migration 0155) ride inside this
+  // table, and `check_in.occurred_at` / `occurred_note` inside `check_in`; a backup written before them restores with
+  // the columns empty (`occurred-times-backup.integration.test.ts`). No format bump.
   "session_segments",
   "action_cadence_completions",
   "deliverable_criteria",

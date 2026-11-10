@@ -125,10 +125,18 @@ export async function replaceCheckpointEnd(
 export async function closeOpenSession(
   tx: Sql,
   session: { id: string; status: string },
-  close: { endTime: Date; retroactive: boolean; terminal: string; note: string | null; at: Date }
+  close: {
+    endTime: Date;
+    retroactive: boolean;
+    terminal: string;
+    note: string | null;
+    at: Date;
+    /** The owner's claimed time for this end and why it was not used (null when it was), kept on the segment. */
+    claim?: { at: Date; note: string | null } | undefined;
+  }
 ): Promise<number> {
   if (session.status === "running")
-    await tx`UPDATE session_segments SET ended_at=${close.endTime} WHERE session_id=${session.id} AND ended_at IS NULL`;
+    await tx`UPDATE session_segments SET ended_at=${close.endTime}, end_occurred_at=${close.claim?.at ?? null}, end_occurred_note=${close.claim?.note ?? null} WHERE session_id=${session.id} AND ended_at IS NULL`;
   else if (session.status === "awaiting_feedback" && close.retroactive)
     await replaceCheckpointEnd(tx, session.id, close.endTime);
   const totals = await tx<

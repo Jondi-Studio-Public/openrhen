@@ -24,6 +24,10 @@ No body. A surface calls it when it actually shows the check-in (a sheet opens, 
 
 Answers `{ id, status, promptedAt, stamped }`. `stamped` is `true` on the call that recorded the time and `false` on any repeat, or for a check-in that is no longer pending, which changes nothing and returns what is stored. An id that is not the owner's check-in is a 404.
 
+## Real times for queued commands
+
+Session, activity and `answer_check_in` commands take an optional `occurredAt` (ISO 8601 with an offset) from an owner credential only; an agent sending it is refused with the fix. It is always recorded, used when at most 5 minutes ahead, no more than 7 days old and consistent with the server's record, and otherwise the command applies at receipt. The response carries `occurredAt: { claimedAt, applied, appliedAt, reason?, message }` saying which. An answer to a check-in that has closed saves his words as a capture and answers `delivered: false`. Full rules: [Real times for owner-device commands](../design/real-times-for-owner-commands.md).
+
 ## Types and fixtures
 
 The request and response types are zod schemas in `platform/contracts/src/client-view.ts` (`ClientView`, `CheckInShown`), exported as JSON Schema to `platform/contracts/client-view-schema.v1.json` (one `$defs` entry per type) with one or more examples per type in `platform/contracts/client-view-fixtures.v1.json`. A client decodes every fixture with its own types, so a change that breaks it fails in the same pull request. `portal/server/client-view-schema.test.ts` fails when either file is stale and parses each fixture with its schema; the commands to regenerate them are in the file's comments. Objects may gain fields, so a client ignores the ones it does not know.
