@@ -15,6 +15,7 @@ export * from "./operations/integration-database.js";
 export * from "./operations/pending-migrations.js";
 export * from "./push/leave-by-scheduler.js";
 export * from "./push/leave-by-copy.js";
+export * from "./push/check-in-waiting-push.js";
 export * from "./planning/plan-reviewer.js";
 export * from "./offer-log/offer-log.js";
 export * from "./consequence/material-hash.js";

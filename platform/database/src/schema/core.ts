@@ -1988,7 +1988,10 @@ export const pushOutbox = pgTable(
   (table) => [
     uniqueIndex("push_outbox_user_dedupe_unique").on(table.userId, table.dedupeKey, table.channel),
     index("push_outbox_status_next_attempt_idx").on(table.status, table.nextAttemptAt),
-    check("push_outbox_kind_check", sql`${table.kind} IN ('reminder','assumed_origin','earlier','due','test')`),
+    check(
+      "push_outbox_kind_check",
+      sql`${table.kind} IN ('reminder','assumed_origin','earlier','due','test','check_in_waiting')`
+    ),
     check("push_outbox_status_check", sql`${table.status} IN ('pending','sent','cancelled','expired','failed')`),
     check(
       "push_outbox_channel_check",

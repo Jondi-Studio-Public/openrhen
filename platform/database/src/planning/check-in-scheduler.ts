@@ -3,6 +3,7 @@ import type postgres from "postgres";
 import { currentFreshLocationId } from "./routine-step-mootness.js";
 import { enqueueAgentWake } from "./agent-wake.js";
 import { notifyStateChanged } from "./state-changed.js";
+import { cancelCheckInWaitingPush, queueCheckInWaitingPush } from "../push/check-in-waiting-push.js";
 
 /**
  * Periodic ground-truth sampling: "Still on X?" where X is the engine's own belief at the instant the
@@ -525,6 +526,8 @@ export async function runCheckInSchedulerTick(sql: postgres.Sql, userId: string,
     const flipped = await sql<{ id: string }[]>`
       UPDATE check_in SET status='unknown', updated_at=CURRENT_TIMESTAMP
       WHERE id=${decision.rowId} AND status='pending' RETURNING id`;
+    // The question closed unanswered, so a push still waiting for it must not arrive late.
+    if (flipped.length > 0) await cancelCheckInWaitingPush(sql, userId, flipped[0]!.id);
     // Wake the owner's agent only when this tick made the flip
     // (a racing answer makes none), the owner is not asleep, and the commitment does not ask for silence.
     // Not in a transaction with the flip: a crash between them loses one wake, which is harmless.
@@ -626,11 +629,22 @@ export async function runCheckInSchedulerTick(sql: postgres.Sql, userId: string,
     // Never two pending: a defensive supersede immediately before the insert, so a race that slipped
     // past the single-threaded check above still cannot leave two rows open. The database's partial
     // unique index (`check_in_one_pending_per_user`) is what makes this actually hold, not this line.
-    await tx`UPDATE check_in SET status='superseded', updated_at=CURRENT_TIMESTAMP WHERE user_id=${userId} AND status='pending'`;
-    await tx`
+    const superseded = await tx<
+      { id: string }[]
+    >`UPDATE check_in SET status='superseded', updated_at=CURRENT_TIMESTAMP WHERE user_id=${userId} AND status='pending' RETURNING id`;
+    for (const row of superseded) await cancelCheckInWaitingPush(tx, userId, row.id);
+    const created = await tx<{ id: string }[]>`
       INSERT INTO check_in (user_id, slot_at, directive_kind, directive_target_id, directive_phase, directive_title, status)
       VALUES (${userId}, ${now}, ${decision.belief.kind}, ${decision.belief.targetId}, ${decision.belief.phase}, ${decision.belief.title}, 'pending')
+      RETURNING id
     `;
+    // Queued with the slot, so it only exists where the scheduler decided to ask (not asleep, not silent, something askable).
+    await queueCheckInWaitingPush(tx, {
+      userId,
+      checkInId: created[0]!.id,
+      expiresAt: new Date(now.getTime() + CHECK_IN_TIMEOUT_MINUTES * 60_000),
+      title: decision.belief.title
+    });
   });
   // Fired only once the transaction above has committed, on the outer (pooled) `sql`, not `tx` — a
   // notification sent on a connection whose transaction later rolled back would never actually fire

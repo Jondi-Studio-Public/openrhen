@@ -1,4 +1,4 @@
-import { readCurrentBelief } from "@openrhen/database";
+import { cancelCheckInWaitingPush, readCurrentBelief } from "@openrhen/database";
 import type postgres from "postgres";
 import { requestAgent } from "@/server/agent-actor";
 import { CHECK_IN_TAGS_MAX, type CheckInCommand, type StoredCheckInTag } from "@openrhen/contracts";
@@ -175,6 +175,8 @@ async function answerCheckIn(
       updated_at=${at}
     WHERE id=${command.checkInId}
   `;
+  // Answered: a push still waiting for it must not arrive late.
+  await cancelCheckInWaitingPush(tx as unknown as postgres.Sql, userId, command.checkInId);
   // The offer log's `checked_in` row: what he said he was doing, so "what did he do instead" has an answer.
   await logOfferOutcome(tx, userId, {
     event: "checked_in",

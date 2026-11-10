@@ -123,6 +123,18 @@ afterAll(async () => {
 });
 
 describe("runCheckInCommand", () => {
+  it("cancels the check-in's waiting push when it is answered", async () => {
+    const row = await insertCheckIn({});
+    await sql`
+      INSERT INTO push_outbox (user_id, dedupe_key, kind, payload, status, expires_at)
+      VALUES (${userId}, ${`check-in:${row.id}`}, 'check_in_waiting', ${sql.json({ checkInId: row.id } as never)}, 'pending', now() + interval '10 minutes')`;
+    await runCheckInCommand(sql, answerCommand({ checkInId: row.id, expectedVersion: row.version }));
+    const outbox = await sql<
+      { status: string }[]
+    >`SELECT status FROM push_outbox WHERE dedupe_key=${`check-in:${row.id}`}`;
+    expect(outbox.map((r) => r.status)).toEqual(["cancelled"]);
+  });
+
   it("records an on-track answer, stamping answered_at and the answer source", async () => {
     const row = await insertCheckIn({});
     await runCheckInCommand(sql, answerCommand({ checkInId: row.id, expectedVersion: row.version }));

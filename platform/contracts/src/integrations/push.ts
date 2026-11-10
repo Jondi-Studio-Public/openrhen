@@ -79,7 +79,9 @@ export const leaveByPushPayloadSchema = z.object({
   /** `true` for the at-leave-by and leave-earlier prompts, so a newer one replaces an older one
    * already showing (`tag` is always set) instead of the OS staying silent about the replacement
    * Absent/false for the lead reminder. */
-  renotify: z.boolean().optional()
+  renotify: z.boolean().optional(),
+  /** Set on a "check-in waiting" push: the check-in it asks about, so a channel can open or answer it. */
+  checkInId: z.string().uuid().optional()
 });
 export type LeaveByPushPayload = z.infer<typeof leaveByPushPayloadSchema>;
 
