@@ -1,0 +1,107 @@
+{
+  "ClientView": [
+    {
+      "schemaVersion": 1,
+      "timezone": "Australia/Sydney",
+      "planCurrent": true,
+      "validUntil": "2026-11-10T09:30:00+11:00",
+      "now": {
+        "directive": {
+          "kind": "action",
+          "title": "Write section 2",
+          "recommendedMinutes": 45,
+          "targetId": "action-1",
+          "reason": "Due Friday",
+          "projectId": "project-1",
+          "projectTitle": "Report"
+        },
+        "anchors": {
+          "open": [],
+          "engaged": []
+        },
+        "needs": [],
+        "stretchOffer": null,
+        "stretch": null,
+        "energyCost": null
+      },
+      "day": [
+        {
+          "startsAt": "2026-11-10T09:00:00+11:00",
+          "endsAt": "2026-11-10T09:45:00+11:00",
+          "kind": "action",
+          "title": "Write section 2",
+          "targetId": "action-1",
+          "minutes": 45,
+          "confidence": "firm"
+        }
+      ],
+      "pending": {
+        "checkIn": {
+          "id": "6f0c2c1e-3f5b-4f3a-9b0e-2a6d5f0d9a11",
+          "version": 1,
+          "slotAt": "2026-11-10T09:00:00+11:00",
+          "promptedAt": null,
+          "directiveKind": "action",
+          "directiveTargetId": "action-1",
+          "directivePhase": null,
+          "directiveTitle": "Write section 2",
+          "status": "pending"
+        },
+        "session": {
+          "id": "session-1",
+          "status": "running",
+          "title": "Write section 2",
+          "targetType": "action",
+          "targetId": "action-1",
+          "startedAt": "2026-11-10T09:00:00+11:00",
+          "plannedEndAt": "2026-11-10T09:45:00+11:00",
+          "plannedMinutes": 45,
+          "elapsedMinutes": 5,
+          "minutesLeft": 40
+        },
+        "leaveBy": {
+          "commitmentId": "commitment-1",
+          "occurrenceStartsAt": "2026-11-10T11:00:00+11:00",
+          "title": "Dentist",
+          "leaveBy": "2026-11-10T10:30:00+11:00",
+          "remindAt": "2026-11-10T10:15:00+11:00",
+          "phase": "remind",
+          "typicalMinutes": 25,
+          "allowingMinutes": 30,
+          "originAssumed": false
+        },
+        "placeSuggestion": {
+          "locationId": "studio",
+          "locationName": "Studio",
+          "observedAt": "2026-11-10T09:00:00+11:00"
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "timezone": "Australia/Sydney",
+      "planCurrent": false,
+      "validUntil": null,
+      "pending": {
+        "checkIn": null,
+        "session": null,
+        "leaveBy": null,
+        "placeSuggestion": null
+      }
+    }
+  ],
+  "CheckInShown": [
+    {
+      "id": "6f0c2c1e-3f5b-4f3a-9b0e-2a6d5f0d9a11",
+      "status": "pending",
+      "promptedAt": "2026-11-10T09:00:00+11:00",
+      "stamped": true
+    },
+    {
+      "id": "6f0c2c1e-3f5b-4f3a-9b0e-2a6d5f0d9a11",
+      "status": "pending",
+      "promptedAt": "2026-11-10T09:00:00+11:00",
+      "stamped": false
+    }
+  ]
+}

@@ -1214,6 +1214,23 @@ export {
 } from "./agent-routes.js";
 export type { LimitedCredentialDecision, RouteDecision, StoredFacts } from "./agent-routes.js";
 export {
+  CLIENT_VIEW_PARTS,
+  CLIENT_VIEW_SCHEMA_VERSION,
+  CLIENT_VIEW_TYPES,
+  checkInShownSchema,
+  clientCheckInSchema,
+  clientDayEntrySchema,
+  clientDirectiveSchema,
+  clientLeaveBySchema,
+  clientNowSchema,
+  clientPendingSchema,
+  clientSessionSchema,
+  clientViewFixtures,
+  clientViewJsonSchema,
+  clientViewSchema
+} from "./client-view.js";
+export type { CheckInShown, ClientPending, ClientView, ClientViewPart } from "./client-view.js";
+export {
   AGENT_SESSION_FUTURE_SLACK_MINUTES,
   AGENT_SESSION_IDLE_GAP_MINUTES,
   AGENT_SESSION_KINDS,
