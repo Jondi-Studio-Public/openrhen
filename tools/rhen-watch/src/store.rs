@@ -529,6 +529,16 @@ impl Store {
         rows.collect()
     }
 
+    /// (app, declared type) for every app that declared a category for itself.
+    pub fn declared_apps(&self) -> rusqlite::Result<Vec<(String, String)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT json_extract(attrs, '$.exe'), json_extract(attrs, '$.declared') FROM events
+             WHERE source = 'foreground' AND kind = 'app' AND json_extract(attrs, '$.declared') IS NOT NULL",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, String>(1)?)))?;
+        Ok(rows.filter_map(Result::ok).filter_map(|(e, d)| e.map(|e| (e, d))).collect())
+    }
+
     /// The end of the oldest stored event: nothing older survives retention.
     pub fn earliest_event_end(&self) -> rusqlite::Result<Option<Ms>> {
         self.conn.query_row("SELECT MIN(ts_end) FROM events", [], |r| r.get(0))

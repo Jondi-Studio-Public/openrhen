@@ -254,6 +254,7 @@ fn front(exe: &str) -> Signal {
     Signal::Foreground(Fg {
         class: "Chrome_WidgetWin_1".into(),
         exe: Some(exe.into()),
+        declared: None,
     })
 }
 
@@ -300,6 +301,7 @@ fn an_unreadable_foreground_is_attributed_to_the_empty_exe() {
         Signal::Foreground(Fg {
             class: "X".into(),
             exe: None,
+            declared: None,
         }),
     );
     poll(&mut e, 1_001_000, 60_000);
@@ -622,12 +624,14 @@ impl Sys for RigSys {
         Fg {
             class: "Chrome_WidgetWin_1".into(),
             exe: Some(self.3.get().into()),
+            declared: None,
         }
     }
     fn current_foreground(&self) -> Option<Fg> {
         Some(Fg {
             class: "Chrome_WidgetWin_1".into(),
             exe: Some(self.3.get().into()),
+            declared: None,
         })
     }
     fn proc_stats(&self) -> (i64, i64) {

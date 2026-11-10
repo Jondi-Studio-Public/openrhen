@@ -140,6 +140,33 @@
         "cp -R build/Build/Products/Release-iphoneos/OpenRhen.app Payload/"
       ],
       "why": "The iOS SDK name and the build output folder xcodebuild defines; the build toolchain, not something a deployment chooses."
+    },
+    {
+      "category": "platform-detection",
+      "path": "tools/rhen-watch/src/platform/macos.rs",
+      "strings": ["com.apple.screenIsLocked", "com.apple.screenIsUnlocked"],
+      "why": "The names of the screen lock and unlock notifications the OS posts; rewording them stops lock detection."
+    },
+    {
+      "category": "platform-detection",
+      "path": "tools/rhen-watch/src/platform/macos_rules.rs",
+      "strings": [
+        "\"com.apple.loginwindow\",",
+        "\"com.apple.dock\",",
+        "\"com.apple.systemuiserver\",",
+        "\"com.apple.notificationcenterui\",",
+        "\"com.apple.controlcenter\",",
+        "\"com.apple.spotlight\",",
+        "\"com.apple.wallpaper.agent\",",
+        "\"com.apple.screensaver.engine\","
+      ],
+      "why": "The bundle ids of the OS's own interface processes, which must not end an app interval; the OS defines them."
+    },
+    {
+      "category": "toolchain",
+      "path": ".github/workflows/rhen-watch-release.yml",
+      "strings": ["aarch64-apple-darwin", "x86_64-apple-darwin"],
+      "why": "The Rust target triples of the macOS release build; the build toolchain names them."
     }
   ]
 }

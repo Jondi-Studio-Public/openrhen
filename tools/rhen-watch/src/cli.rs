@@ -5,9 +5,11 @@ use std::path::PathBuf;
 use crate::categories::{self, CategoryFile};
 use crate::config::{self, Config};
 use crate::model::Ms;
+#[cfg(any(windows, target_os = "macos"))]
+use crate::platform;
 use crate::tz::TzOffset;
 #[cfg(windows)]
-use crate::{engine, ids, platform, runner};
+use crate::{engine, ids, runner};
 use crate::{paths, report, store};
 
 const HELP: &str = "rhen-watch: local desktop activity recorder (observation only, nothing is sent anywhere)
@@ -23,7 +25,8 @@ USAGE
   rhen-watch categories init [--from-config]|path|list [--uncategorised]|set EXE CATEGORY
                                      the per-exe category map (categories.toml); --from-config prints the
                                      [exe] text for an old config.toml [categories] table
-  rhen-watch install                 copy to %LOCALAPPDATA%\\Programs\\rhen-watch, start at logon (restarted if it crashes), start now
+  rhen-watch install                 copy to %LOCALAPPDATA%\\Programs\\rhen-watch (Windows) or ~/Applications/rhen-watch.app
+                                     (macOS), start at logon (restarted if it crashes), start now
   rhen-watch uninstall [--purge]     stop, remove start at logon, the restart task and the program (--purge also deletes your data: the
                                      database, config, logs and the data folder)
   rhen-watch wipe --yes              delete the database, its sidecar files, the config and the log files
@@ -75,6 +78,12 @@ fn run_main(windowless: bool) {
     // The no-console build has nowhere to show a panic, so put it in the log.
     std::panic::set_hook(Box::new(|info| crate::log::error(&format!("internal error: {info}"))));
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // `report | head` should end quietly, as Unix tools do, not panic on a closed pipe. Never for `run`: the
+    // agent must not be killed by a reader going away.
+    #[cfg(target_os = "macos")]
+    if args.first().map(String::as_str) != Some("run") {
+        platform::macos::default_sigpipe();
+    }
     let code = match guarded(|| real_main(&args)) {
         Ok(()) => 0,
         Err(e) => {
@@ -111,7 +120,7 @@ pub fn real_main(args: &[String]) -> Result<(), String> {
     }
 }
 
-fn flag_value<'a>(args: &'a [String], name: &str) -> Result<Option<&'a str>, String> {
+pub(crate) fn flag_value<'a>(args: &'a [String], name: &str) -> Result<Option<&'a str>, String> {
     match args.iter().position(|a| a == name) {
         None => Ok(None),
         Some(i) => args
@@ -121,7 +130,7 @@ fn flag_value<'a>(args: &'a [String], name: &str) -> Result<Option<&'a str>, Str
     }
 }
 
-fn dir() -> Result<PathBuf, String> {
+pub(crate) fn dir() -> Result<PathBuf, String> {
     let d = paths::data_dir()?;
     std::fs::create_dir_all(&d).map_err(|e| format!("cannot create {}: {e}", d.display()))?;
     Ok(d)
@@ -283,6 +292,7 @@ fn cmd_categories(args: &[String]) -> Result<(), String> {
                 }
                 let store = store::Store::open_read_only(&db).map_err(|e| e.to_string())?;
                 let totals = store.app_time_totals().map_err(|e| e.to_string())?;
+                let cat = cat.with_declared(store.declared_apps().map_err(|e| e.to_string())?);
                 let list = categories::uncategorised(&totals, &cat, 15);
                 if list.is_empty() {
                     println!("Every app seen so far has a category.");
@@ -412,19 +422,37 @@ pub fn status_report(d: &std::path::Path, out: &mut String) -> Result<(), String
 
 /// The `restart on crash:` line: a live look at the task, and the reason `install` saved if it could not register one.
 fn restart_status(dir: &std::path::Path) -> String {
+    #[cfg(target_os = "macos")]
+    if platform::macos_install::agent_plist().is_ok_and(|p| p.exists()) {
+        return "restart on crash: yes (LaunchAgent)".to_string();
+    }
     #[cfg(windows)]
     let present = platform::windows::task_present();
     #[cfg(not(windows))]
     let present = false;
     let reason = std::fs::read_to_string(dir.join(REASON_FILE)).ok();
     let reason = reason.as_deref().map(str::trim).filter(|r| !r.is_empty());
-    #[cfg(not(windows))]
-    let reason = reason.or(Some("Windows only"));
+    #[cfg(target_os = "macos")]
+    let reason = reason.or(Some("no LaunchAgent; run `rhen-watch install`"));
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let reason = reason.or(Some("Windows and macOS only"));
     crate::restart::status_line(present, reason)
 }
 
 /// Why the last `run` refused to start (a bad config). Cleared by the next successful start. Listed in `handover::OWNED`.
 const NOT_STARTING_FILE: &str = "not-starting.txt";
+
+/// Leave why a start failed before recording where `status` shows it (macOS; Windows uses `refused`).
+#[cfg(target_os = "macos")]
+pub(crate) fn note_not_starting(d: &std::path::Path, e: &str) {
+    let _ = std::fs::write(d.join(NOT_STARTING_FILE), e);
+}
+
+/// Recording: an earlier "not starting" reason is stale.
+#[cfg(target_os = "macos")]
+pub(crate) fn clear_not_starting(d: &std::path::Path) {
+    let _ = std::fs::remove_file(d.join(NOT_STARTING_FILE));
+}
 
 /// Present after a requested stop; the keep-alive leaves the agent stopped while it exists. Removed by the next
 /// real start. Listed in `handover::OWNED`.
@@ -441,13 +469,17 @@ pub fn now_ms() -> Ms {
         .unwrap_or(0)
 }
 
-/// The user's time zone: per-instant offsets on Windows, UTC elsewhere.
+/// The user's time zone: per-instant offsets on Windows and macOS, UTC elsewhere.
 pub(crate) fn local_tz() -> TzOffset {
     #[cfg(windows)]
     {
         platform::windows::local_tz()
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        platform::macos::local_tz()
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         TzOffset::fixed(0)
     }
@@ -510,6 +542,8 @@ pub fn report_days(
     days: &[i64],
 ) -> Result<String, String> {
     let open_until = store.last_heartbeat().map_err(|e| e.to_string())?.unwrap_or(now).min(now);
+    // Apps that declared a category for themselves fill the gaps the tables leave.
+    let catalogue = &catalogue.clone().with_declared(store.declared_apps().map_err(|e| e.to_string())?);
     let params = crate::derive::Params::from(&cfg.derive);
     let mut out = String::new();
     for &day in days {
@@ -565,14 +599,34 @@ fn cmd_report(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn cmd_stop() -> Result<(), String> {
-    Err("rhen-watch records on Windows only in this version".into())
+    Err("rhen-watch records on Windows and macOS only in this version".into())
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn cmd_run(_args: &[String]) -> Result<(), String> {
-    Err("rhen-watch records on Windows only in this version (report, status and config work anywhere)".into())
+    Err("rhen-watch records on Windows and macOS only in this version (report, status and config work anywhere)".into())
+}
+
+#[cfg(target_os = "macos")]
+fn cmd_stop() -> Result<(), String> {
+    let d = dir()?;
+    let pid = platform::macos::signal_stop(&d)?;
+    // Wait for the clean stop to finish (the lock is released at exit), so a script can rely on it.
+    for _ in 0..100 {
+        if !agent_running(&d) {
+            println!("stopped (process {pid})");
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    Err(format!("asked process {pid} to stop, but it is still running after 10 s"))
+}
+
+#[cfg(target_os = "macos")]
+fn cmd_run(args: &[String]) -> Result<(), String> {
+    platform::macos_run::cmd_run(args)
 }
 
 /// A held run lock is a duplicate start, not a refusal: the keep-alive says nothing, a hand start reports it, and
@@ -810,14 +864,32 @@ fn refused(d: &std::path::Path, keepalive: bool, e: String) -> String {
     if same { format!("{REPEATED_REFUSAL}{e}") } else { e }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn cmd_install() -> Result<(), String> {
-    Err("install is for Windows".into())
+    Err("install is for Windows and macOS".into())
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn cmd_uninstall(_args: &[String]) -> Result<(), String> {
-    Err("uninstall is for Windows".into())
+    Err("uninstall is for Windows and macOS".into())
+}
+
+#[cfg(target_os = "macos")]
+fn cmd_install() -> Result<(), String> {
+    platform::macos_install::install(&dir()?)
+}
+
+#[cfg(target_os = "macos")]
+fn cmd_uninstall(args: &[String]) -> Result<(), String> {
+    let d = dir()?;
+    platform::macos_install::uninstall(&d)?;
+    if args.iter().any(|a| a == "--purge") {
+        wipe(true)?;
+    } else {
+        println!("Your data is kept in {}; add --purge to delete it.", d.display());
+    }
+    println!("Uninstalled.");
+    Ok(())
 }
 
 #[cfg(windows)]

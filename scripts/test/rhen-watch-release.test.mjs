@@ -69,3 +69,38 @@ test("the release workflow keeps write access on publish only", () => {
   assert.ok(wf.indexOf("contents: write") > wf.indexOf("  publish:"));
   assert.match(wf, /tags: \["rhen-watch-v\*"\]/);
 });
+
+const sh = readFileSync(resolve(root, "scripts/install/rhen-watch.sh"), "utf8");
+
+test("install.sh has one version assignment, checks the checksum and runs nothing until fully read", () => {
+  assert.match(sh, /^\s*version='@VERSION@'$/m);
+  assert.equal(sh.split("@VERSION@").length - 1, 2, "one in the header comment, one assignment");
+  assert.match(sh, /^set -eu$/m);
+  assert.match(sh, /https:\/\/github\.com\/Jondi-Studio-Public\/openrhen\/releases\/download\//);
+  assert.doesNotMatch(sh, /http:\/\//);
+  assert.match(sh, /^\s*proto='=https'$/m, "https only by default");
+  assert.match(
+    sh,
+    /\[ -z "\$\{RHEN_WATCH_RELEASE_BASE:-\}" \] \|\| proto='=https,file'/,
+    "file only with the override"
+  );
+  assert.equal(sh.match(/--proto "\$proto"/g).length, 2);
+  assert.match(sh, /shasum -a 256/);
+  assert.match(sh, /checksum mismatch/);
+  assert.match(sh, /not with sudo/);
+  const lines = sh.trimEnd().split("\n");
+  assert.equal(lines.at(-1), "install_rhen_watch", "the only top-level command is the last line");
+});
+
+test("the stamped install.sh parses", () => {
+  const out = spawnSync("sh", ["-n"], { input: sh.replaceAll("@VERSION@", "0.1.1"), encoding: "utf8" });
+  assert.equal(out.status, 0, out.stderr);
+});
+
+test("the release workflow builds the macOS leg and waits for it", () => {
+  const wf = readFileSync(resolve(root, ".github/workflows/rhen-watch-release.yml"), "utf8");
+  assert.match(wf, /^ {2}macos:\n/m);
+  assert.match(wf, /needs: \[version, windows, macos\]/);
+  assert.match(wf, /scripts\/install\/rhen-watch\.sh > release\/install\.sh/);
+  assert.match(wf, /-macos-universal\.tar\.gz/);
+});

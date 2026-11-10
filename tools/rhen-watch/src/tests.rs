@@ -35,6 +35,7 @@ fn fg(exe: &str) -> Signal {
     Signal::Foreground(Fg {
         class: "Chrome_WidgetWin_1".into(),
         exe: Some(exe.into()),
+        declared: None,
     })
 }
 
@@ -78,6 +79,7 @@ fn shell_windows_do_not_end_the_app_interval() {
         Signal::Foreground(Fg {
             class: "Shell_TrayWnd".into(),
             exe: Some("explorer.exe".into()),
+            declared: None,
         }),
     );
     assert!(s.ops.is_empty());
@@ -119,6 +121,7 @@ fn unreadable_exe_is_unknown_not_idle() {
             Signal::Foreground(Fg {
                 class: "X".into(),
                 exe: None,
+                declared: None,
             }),
         )
         .ops;
@@ -163,7 +166,8 @@ fn lock_closes_foreground_and_unlock_asks_for_a_fresh_look() {
             5100,
             Signal::Foreground(Fg {
                 class: "LockApp".into(),
-                exe: Some("lockapp.exe".into())
+                exe: Some("lockapp.exe".into()),
+                declared: None,
             })
         )
         .ops
@@ -406,12 +410,14 @@ impl Sys for Fake {
         Fg {
             class: "Chrome_WidgetWin_1".into(),
             exe: Some(["code.exe", "chrome.exe"][hwnd % 2].into()),
+            declared: None,
         }
     }
     fn current_foreground(&self) -> Option<Fg> {
         Some(Fg {
             class: "Chrome_WidgetWin_1".into(),
             exe: Some(self.front.get().into()),
+            declared: None,
         })
     }
     fn proc_stats(&self) -> (i64, i64) {
@@ -600,6 +606,7 @@ fn core_window_is_an_app_unless_a_shell_host_owns_it() {
         Signal::Foreground(Fg {
             class: "Windows.UI.Core.CoreWindow".into(),
             exe: Some(exe.into()),
+            declared: None,
         })
     };
     let mut e = engine();

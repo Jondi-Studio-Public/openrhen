@@ -30,6 +30,7 @@ fn fg(exe: &str) -> Signal {
     Signal::Foreground(Fg {
         class: "Chrome_WidgetWin_1".into(),
         exe: Some(exe.into()),
+        declared: None,
     })
 }
 
@@ -161,6 +162,7 @@ fn the_lock_screen_host_is_a_shell_window() {
         Signal::Foreground(Fg {
             class: "Windows.UI.Core.CoreWindow".into(),
             exe: Some("lockapp.exe".into()),
+            declared: None,
         }),
     );
     assert!(s.ops.is_empty(), "no app interval for the lock screen");
@@ -223,6 +225,7 @@ impl Sys for StateSys {
         Some(Fg {
             class: "Chrome_WidgetWin_1".into(),
             exe: Some("code.exe".into()),
+            declared: None,
         })
     }
     fn proc_stats(&self) -> (i64, i64) {

@@ -1,5 +1,5 @@
-# Releases rhen-watch (tools/rhen-watch) from a tag `rhen-watch-v<version>`: a Windows zip, SHA256SUMS across
-# every asset, and install.ps1, attached to a GitHub Release. The tag must equal `rhen-watch-v` plus the
+# Releases rhen-watch (tools/rhen-watch) from a tag `rhen-watch-v<version>`: a Windows zip, a macOS universal
+# archive, SHA256SUMS across every asset, install.ps1 and install.sh, attached to a GitHub Release. The tag must equal `rhen-watch-v` plus the
 # version in tools/rhen-watch/Cargo.toml (scripts/ci/rhen-watch-version.mjs). The release process is in
 # docs/architecture/desktop-activity-agent.md. Independent of the `rhen-watch` job in ci.yml.
 #
@@ -91,17 +91,59 @@ jobs:
           path: ${{ runner.temp }}/windows/rhen-watch-*-windows-x86_64.zip
           if-no-files-found: error
 
-  # The macOS leg (universal binary and install.sh) is kept in the project plan
-  # rhen-watch-mac-release-leg.md until the macOS agent is on main. Add it back as a job named `macos`, add it to
-  # `assemble.needs`, and it ships next to the Windows zip. `assemble` copies legs/install.sh when present.
+  macos:
+    name: rhen-watch (macOS universal)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    needs: [version]
+    defaults:
+      run:
+        working-directory: tools/rhen-watch
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - name: Build both architectures
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "13.0"
+        run: |
+          set -euo pipefail
+          cargo build --locked --release --target aarch64-apple-darwin
+          cargo build --locked --release --target x86_64-apple-darwin
+      - name: Join and pack
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/stage"
+          out="$RUNNER_TEMP/macos"
+          mkdir -p "$stage" "$out"
+          lipo -create -output "$stage/rhen-watch" \
+            target/aarch64-apple-darwin/release/rhen-watch target/x86_64-apple-darwin/release/rhen-watch
+          cp README.md "$stage/"
+          if [ -f ../../LICENSE ]; then cp ../../LICENSE "$stage/"; fi
+          tar -C "$stage" -czf "$out/rhen-watch-$VERSION-macos-universal.tar.gz" .
+          # The packed program starts on this (arm64) runner, and the archive holds both architectures.
+          check="$RUNNER_TEMP/check"
+          mkdir -p "$check"
+          tar -xzf "$out/rhen-watch-$VERSION-macos-universal.tar.gz" -C "$check"
+          "$check/rhen-watch" help > /dev/null
+          lipo "$check/rhen-watch" -verify_arch arm64 x86_64
+          ls -l "$out"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-macos
+          path: ${{ runner.temp }}/macos/rhen-watch-*-macos-universal.tar.gz
+          if-no-files-found: error
 
   # Gathers every leg that ran, writes ONE SHA256SUMS across them and stamps install.ps1. No write access.
   assemble:
     name: Assemble the assets
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: ${{ !cancelled() && needs.version.result == 'success' && needs.windows.result == 'success' }}
-    needs: [version, windows]
+    if: ${{ !cancelled() && needs.version.result == 'success' && needs.windows.result == 'success' && needs.macos.result == 'success' }}
+    needs: [version, windows, macos]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -111,18 +153,20 @@ jobs:
           pattern: release-*
           path: legs
           merge-multiple: true
-      - name: SHA256SUMS and install.ps1
+      - name: SHA256SUMS, install.ps1 and install.sh
         env:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
           mkdir release
           cp legs/rhen-watch-"$VERSION"-* release/
-          # install.ps1 comes from the Windows source; install.sh (macOS leg) is copied as built.
           sed "s/@VERSION@/$VERSION/g" scripts/install/rhen-watch.ps1 > release/install.ps1
-          if grep -q '@VERSION@' release/install.ps1; then echo "::error::install.ps1 still has a placeholder"; exit 1; fi
-          [ -f legs/install.sh ] && cp legs/install.sh release/install.sh
-          ls release/rhen-watch-"$VERSION"-windows-x86_64.zip
+          sed "s/@VERSION@/$VERSION/g" scripts/install/rhen-watch.sh > release/install.sh
+          for f in release/install.ps1 release/install.sh; do
+            if grep -q '@VERSION@' "$f"; then echo "::error::$f still has a placeholder"; exit 1; fi
+          done
+          sh -n release/install.sh
+          ls release/rhen-watch-"$VERSION"-windows-x86_64.zip release/rhen-watch-"$VERSION"-macos-universal.tar.gz
           # One sha256sum-format line per archive; the installers match on the file name.
           (cd release && sha256sum rhen-watch-"$VERSION"-* > SHA256SUMS && sha256sum -c SHA256SUMS)
           cat release/SHA256SUMS
@@ -156,4 +200,4 @@ jobs:
         run: |
           set -euo pipefail
           gh release create "$TAG" release/* --repo "$GITHUB_REPOSITORY" --title "$TAG" \
-            --notes "rhen-watch ${TAG#rhen-watch-v}. Windows: irm https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install.ps1 | iex . Verify downloads against SHA256SUMS. Builds are unsigned."
+            --notes "rhen-watch ${TAG#rhen-watch-v}. Windows: irm https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install.ps1 | iex . macOS 13 or later: curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install.sh | sh . Verify downloads against SHA256SUMS. Builds are unsigned (macOS install signs its own copy ad hoc)."
