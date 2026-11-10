@@ -27,6 +27,11 @@ export const DEVICE_ENTRIES: readonly FlowEntry[] = [
     health: TOKEN_PROBE,
     coldStart: { warnAfterHours: 24, errorAfterHours: 72 }
   }),
+  accepted("phone", "Phone app heartbeat", "phone", {
+    device: "phone",
+    health: TOKEN_PROBE,
+    coldStart: { warnAfterHours: 48, errorAfterHours: null }
+  }),
   accepted("iphone-health", "Health summary", "iphone-health", {
     device: "phone",
     health: TOKEN_PROBE,

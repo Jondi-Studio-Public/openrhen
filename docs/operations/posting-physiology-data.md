@@ -85,6 +85,8 @@ Lessons that apply to any collector:
 
 What no feed can do: give live data from a vendor cloud (the device-to-phone-to-cloud sync is the floor), read a locked phone's health store, or tell "not worn" from "not synced". OpenRhen reports only "no data newer than X".
 
+A collector that runs on a phone can also say it is alive: post `heartbeat` rows with `source: "phone"` (live delivery, origin phone, one row per install), keyed `hb:<device>:<UTC hour>:<status>` with the batch `device` set to the same label as `attrs.device`. The body-signal rows themselves stay `source: "physiology"`. See [Activity store](../architecture/activity-store.md).
+
 ## 5. Check before you post, and read back
 
 **Seeing your collector's health.** Your own post answers it: every entry in `rejected` names the field to fix, and `held` shows what is already stored for a key you re-posted. The owner also sees, in `GET /api/activity-events/summary`, a `devices` list per source, device, kind and your token's name with `lastEventAt`, `lastIngestedAt` and `rows30d` for the last 30 days. OpenRhen keeps no reject counters and raises no staleness alerts; a stalled collector shows as an old `lastIngestedAt`.

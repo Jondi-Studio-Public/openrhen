@@ -252,6 +252,20 @@ export const ACTIVITY_SOURCES: Readonly<Record<string, ActivitySourceEntry>> = {
   // text, so unlike `drift` it has no class and no read scope: ACTIVITY_OWNER_ONLY_SOURCES keeps it out of every
   // generic read, and no token may write it. Per-kind attrs are validated in activity-drift-reason.ts.
   "drift-reason": { schemaVersion: 1, kinds: ["reason", "reason_tag"] },
+  // The phone app's own liveness: a generic collector that delivers live from the phone. It posts only `heartbeat`
+  // (one row per install, key `hb:<device>:<UTC hour>:<status>`) and supplies no signal of its own, so `kinds` and
+  // `feeds` are empty. Its body-signal rows go to `physiology`; its place and motion kinds are separate work.
+  phone: {
+    schemaVersion: 1,
+    kinds: [],
+    availability: {
+      delivery: "live",
+      origin: "phone",
+      feeds: [],
+      recoveryHint:
+        "Open the phone app so it wakes and posts a heartbeat, and check its Sources screen for a sign-in or network problem."
+    }
+  },
   "iphone-shortcuts": {
     schemaVersion: 1,
     kinds: [

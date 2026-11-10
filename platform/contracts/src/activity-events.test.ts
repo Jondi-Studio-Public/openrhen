@@ -164,6 +164,29 @@ describe("the source registry", () => {
     });
   });
 
+  it("registers the phone source: live delivery, origin phone, no feeds, and only a heartbeat (plus correction) to post", () => {
+    expect(ACTIVITY_SOURCES.phone).toMatchObject({
+      schemaVersion: 1,
+      kinds: [],
+      availability: { delivery: "live", origin: "phone", feeds: [] }
+    });
+    expect(ACTIVITY_SOURCES.phone).not.toHaveProperty("class");
+    expect(activityKindsOf("phone")).toEqual(["correction"]);
+    const device = "0f3c2a9e-1d4b-4c6e-8a7b-5e9d1c2b3a4f";
+    const hour = "2026-11-10T07";
+    const heartbeat = {
+      id: `hb:${device}:${hour}:ok`,
+      source: "phone",
+      kind: "heartbeat",
+      start: "2026-11-10T07:20:00Z",
+      attrs: { status: "ok" }
+    };
+    const now = new Date("2026-11-10T07:30:00Z");
+    expect(validateActivityEvent(heartbeat, now, { device })).toMatchObject({ ok: true });
+    const other = validateActivityEvent({ ...heartbeat, kind: "app_open" }, now, { device });
+    expect(other.ok).toBe(false);
+  });
+
   it("registers derived-shadow with the extractor kinds only (msg_class, fact), and no correction kind", () => {
     expect(ACTIVITY_SOURCES["derived-shadow"]).toEqual({ schemaVersion: 1, kinds: ["msg_class", "fact"] });
     expect(activityKindsOf("derived-shadow")).toEqual(["msg_class", "fact"]);

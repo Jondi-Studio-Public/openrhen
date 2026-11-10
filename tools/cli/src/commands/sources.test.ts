@@ -282,7 +282,7 @@ describe("rhen sources", () => {
     ]) {
       expect(text).toContain(source);
     }
-    for (const source of ["iphone-shortcuts", "iphone-health", "rhen-watch", "steam", "weather", "gmail"])
+    for (const source of ["iphone-shortcuts", "iphone-health", "rhen-watch", "steam", "weather", "gmail", "phone"])
       expect(text).toContain(source);
     expect(text).toContain("offer_log");
     expect(text).toContain("photo_checkin_stage");

@@ -12,6 +12,7 @@ export const CORE_SOURCES = [
   "rhen-watch",
   "weather",
   "physiology",
+  "phone",
   "derived",
   "derived-shadow",
   "drift",
