@@ -505,7 +505,8 @@ describe("coverage of every entry point (PR A2, PR C)", () => {
   // Every registered entry, whoever owns it: an extension's entries cover the extension's entry points.
   const all = registry.entries;
   const core = all.filter((entry) => entry.owner === "core");
-  it("has no problem anywhere in the entries", () => expect(allProblems(all)).toEqual([]));
+  // Runs every rule over the whole registry (~3 s alone); under a loaded full run it passed the 5 s default.
+  it("has no problem anywhere in the entries", () => expect(allProblems(all)).toEqual([]), 60_000);
   it("A1: every activity source has an entry", () => expect(checkA1(Object.keys(ACTIVITY_SOURCES), all)).toEqual([]));
   it("P1: every parser and extractor file is in an entry", () => {
     expect(coreParserFiles.length).toBeGreaterThanOrEqual(15);
