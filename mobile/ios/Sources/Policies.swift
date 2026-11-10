@@ -1,39 +1,11 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
-/// Pure decisions behind the token binding, redirect refusal, send throttle and re-sign reminder.
+/// Pure decisions behind redirect refusal, the send throttle and the re-sign reminder.
 /// Foundation only, so `Checks/main.swift` can compile and run them on the runner.
 enum Policies {
-    // MARK: Token origin binding
-
-    /// What to do with a saved token when the portal address is saved.
-    enum AddressChange: Equatable {
-        case keepToken
-        case clearToken
-    }
-
-    /// A token bound to another origin than the new address is cleared; no token, or the same origin, keeps things as they are.
-    static func addressChange(boundOrigin: String?, newAddress: URL) -> AddressChange {
-        guard let bound = boundOrigin else { return .keepToken }
-        return HostPolicy.origin(of: newAddress) == bound ? .keepToken : .clearToken
-    }
-
-    /// Why a location reading cannot be sent, or `.send` when the token may go to the ping URL.
-    enum SendDecision: Equatable {
-        case send(URL)
-        case notConfigured
-        case notHTTPS
-        case originMismatch(bound: String)
-    }
-
-    /// The token goes only to the address it was saved for, only over https.
-    static func sendDecision(portal: URL?, token: String?, boundOrigin: String?) -> SendDecision {
-        guard let portal, let url = HostPolicy.pingURL(portal: portal),
-              let token, !token.isEmpty, let bound = boundOrigin else { return .notConfigured }
-        guard HostPolicy.mayCarryToken(to: url) else { return .notHTTPS }
-        guard HostPolicy.origin(of: portal) == bound else { return .originMismatch(bound: bound) }
-        return .send(url)
-    }
-
     // MARK: Redirects
 
     /// The request to follow after a 3xx. Always nil: the bearer token never follows a redirect.
