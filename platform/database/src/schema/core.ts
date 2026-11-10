@@ -2469,13 +2469,106 @@ export const ownerCredentials = pgTable(
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     /** Null for an owner token, which lives until revoked. */
     expiresAt: timestamp("expires_at", { withTimezone: true }),
-    revokedAt: timestamp("revoked_at", { withTimezone: true })
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    /** A device credential's install id (lowercase, kept by the app); null for a credential made by hand. */
+    deviceInstallId: text("device_install_id"),
+    /** What kind of device a device credential is (a short lowercase word the app declares). */
+    platform: text("platform"),
+    /** A limited credential is refused the routes in the `owner-admin` class (`agent-routes.ts`). */
+    limited: boolean("limited").notNull().default(false),
+    /** A web-view session's device credential: it is revoked with it, and does not count toward the browser cap. */
+    parentCredentialId: uuid("parent_credential_id").references((): AnyPgColumn => ownerCredentials.id),
+    /** The address of the last request that used it (the proxy's connecting address), beside `last_used_at`. */
+    lastUsedFrom: text("last_used_from")
   },
   (table) => [
     check("owner_credentials_kind_check", sql`${table.kind} IN ('token','browser')`),
     check("owner_credentials_hash_check", sql`${table.secretHash} ~ '^[0-9a-f]{64}$'`),
     check("owner_credentials_label_check", sql`char_length(${table.label}) BETWEEN 1 AND 60`),
-    uniqueIndex("owner_credentials_hash_idx").on(table.secretHash)
+    check(
+      "owner_credentials_device_check",
+      sql`${table.deviceInstallId} IS NULL OR (${table.deviceInstallId} ~ '^[a-z0-9][a-z0-9_-]{7,63}$' AND ${table.platform} ~ '^[a-z0-9_-]{1,16}$')`
+    ),
+    uniqueIndex("owner_credentials_hash_idx").on(table.secretHash),
+    index("owner_credentials_parent_idx").on(table.parentCredentialId),
+    uniqueIndex("owner_credentials_live_child_idx")
+      .on(table.parentCredentialId)
+      .where(sql`${table.parentCredentialId} IS NOT NULL AND ${table.revokedAt} IS NULL`)
+  ]
+);
+
+/**
+ * A pending or finished device pairing: a QR grant the signed-in owner made (`flow='pairing'`, approved from the
+ * start) or a device code a phone asked for (`flow='code'`, approved when the owner types the code). Only
+ * `sha256(secret)` is stored, for the pairing secret or device code (`secret_hash`) and for the typed code
+ * (`user_code_hash`). The credential is minted when the device redeems or polls, so its secret is never held.
+ * A regenerable table: ten minutes of life, and a restore signs every credential out anyway.
+ */
+export const ownerDevicePairings = pgTable(
+  "owner_device_pairings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    flow: text("flow").notNull(),
+    status: text("status").notNull().default("pending"),
+    secretHash: text("secret_hash").notNull(),
+    userCodeHash: text("user_code_hash"),
+    name: text("name"),
+    installId: text("install_id"),
+    platform: text("platform"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    redeemedAt: timestamp("redeemed_at", { withTimezone: true }),
+    lastPolledAt: timestamp("last_polled_at", { withTimezone: true }),
+    pollIntervalSeconds: integer("poll_interval_seconds").notNull().default(5),
+    createdByCredentialId: uuid("created_by_credential_id").references(() => ownerCredentials.id, {
+      onDelete: "set null"
+    }),
+    credentialId: uuid("credential_id").references(() => ownerCredentials.id, { onDelete: "set null" }),
+    createdFrom: text("created_from")
+  },
+  (table) => [
+    check("owner_device_pairings_flow_check", sql`${table.flow} IN ('pairing','code')`),
+    check("owner_device_pairings_status_check", sql`${table.status} IN ('pending','approved','denied','redeemed')`),
+    check("owner_device_pairings_hash_check", sql`${table.secretHash} ~ '^[0-9a-f]{64}$'`),
+    uniqueIndex("owner_device_pairings_secret_idx").on(table.secretHash),
+    uniqueIndex("owner_device_pairings_user_code_idx")
+      .on(table.userCodeHash)
+      .where(sql`${table.userCodeHash} IS NOT NULL AND ${table.status} = 'pending'`),
+    index("owner_device_pairings_user_time_idx").on(table.userId, table.createdAt)
+  ]
+);
+
+/**
+ * Who paired, redeemed and revoked what, shown on the Devices page. Not a plan input (`/api/changes` is). No secret
+ * or hash is ever stored here. `credential_id` is cleared if the credential row is removed, and the label and
+ * install id stay so the line still reads. A regenerable table: a restore signs every credential out.
+ */
+export const ownerCredentialEvents = pgTable(
+  "owner_credential_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+    event: text("event").notNull(),
+    credentialId: uuid("credential_id").references(() => ownerCredentials.id, { onDelete: "set null" }),
+    actorCredentialId: uuid("actor_credential_id").references(() => ownerCredentials.id, { onDelete: "set null" }),
+    label: text("label"),
+    deviceInstallId: text("device_install_id"),
+    platform: text("platform"),
+    address: text("address")
+  },
+  (table) => [
+    check(
+      "owner_credential_events_event_check",
+      sql`${table.event} IN ('pairing_started','code_started','code_approved','code_denied','redeemed','revoked')`
+    ),
+    index("owner_credential_events_user_time_idx").on(table.userId, table.occurredAt.desc())
   ]
 );
 

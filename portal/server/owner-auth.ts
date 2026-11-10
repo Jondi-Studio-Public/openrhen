@@ -5,6 +5,7 @@ import {
   OWNER_HEADER,
   DEVICE_HEADER,
   deviceRoute,
+  limitedCredentialDecision,
   OWNER_SESSION_DAYS,
   ownerAuthExemption,
   rateLimitMessage,
@@ -77,7 +78,7 @@ export function matchesDevice(secret: string, expectedHex: string | undefined = 
 export interface OwnerDeps {
   lookup?: (hash: string) => Promise<StoredOwnerCredential | null>;
   /** Records a use and slides a browser session; resolves true when the session slid (so its cookie is re-sent). */
-  touch?: (id: string, kind: StoredOwnerCredential["kind"]) => Promise<boolean>;
+  touch?: (id: string, kind: StoredOwnerCredential["kind"], address: string) => Promise<boolean>;
   throttle?: FailureThrottle;
   now?: () => Date;
   /**
@@ -99,7 +100,7 @@ async function databaseLookup(hash: string): Promise<StoredOwnerCredential | nul
   return url ? store.findOwnerCredentialByHash(sqlPool(url), hash) : null;
 }
 
-async function databaseTouch(id: string, kind: StoredOwnerCredential["kind"]): Promise<boolean> {
+async function databaseTouch(id: string, kind: StoredOwnerCredential["kind"], address: string): Promise<boolean> {
   try {
     const [{ databaseUrl }, { sqlPool }, store] = await Promise.all([
       import("./runtime-env"),
@@ -107,7 +108,7 @@ async function databaseTouch(id: string, kind: StoredOwnerCredential["kind"]): P
       import("./owner-credential-store")
     ]);
     const url = databaseUrl();
-    return url ? await store.touchOwnerCredential(sqlPool(url), id, kind) : false;
+    return url ? await store.touchOwnerCredential(sqlPool(url), id, kind, address) : false;
   } catch {
     return false; // a missed `last_used_at` must never fail the request it describes
   }
@@ -118,7 +119,19 @@ const lastTouched = new Map<string, number>();
 
 export type OwnerCheck =
   | { kind: "none" }
-  | { kind: "ok"; id: string; credential: StoredOwnerCredential["kind"]; via: "cookie" | "header"; slid: boolean }
+  | {
+      kind: "ok";
+      id: string;
+      credential: StoredOwnerCredential["kind"];
+      via: "cookie" | "header";
+      slid: boolean;
+      /** The credential is limited: it is refused the `owner-admin` routes. */
+      limited: boolean;
+      /** Set on a device credential, and on the web-view session that descends from one. */
+      device: StoredOwnerCredential["device"];
+      /** The device credential a web-view session descends from. */
+      parentId: string | null;
+    }
   | { kind: "invalid"; status: 401 | 429 | 503; error: string; retryAfter?: number; clearCookie?: true };
 
 export function cookieValue(request: Request, name: string): string | undefined {
@@ -179,9 +192,18 @@ export async function verifyOwnerCredential(request: Request, deps: OwnerDeps = 
   if (now.getTime() - last >= 60_000) {
     lastTouched.set(stored.id, now.getTime());
     if (lastTouched.size > 500) lastTouched.clear();
-    slid = await (deps.touch ?? databaseTouch)(stored.id, stored.kind);
+    slid = await (deps.touch ?? databaseTouch)(stored.id, stored.kind, address);
   }
-  return { kind: "ok", id: stored.id, credential: stored.kind, via, slid };
+  return {
+    kind: "ok",
+    id: stored.id,
+    credential: stored.kind,
+    via,
+    slid,
+    limited: stored.limited === true,
+    device: stored.device ?? null,
+    parentId: stored.parentId ?? null
+  };
 }
 
 /** The browser cookie. `Secure` when the request came over https (directly or through the proxy). */
@@ -227,7 +249,15 @@ export interface OwnerOutcome {
   /** Set when the device token let this request in (a device route, no owner credential). */
   device?: true;
   /** Set when a valid owner credential made this request: the person, whatever name it also declared. */
-  owner?: { id: string; credential: StoredOwnerCredential["kind"]; via: "cookie" | "header" };
+  owner?: {
+    id: string;
+    credential: StoredOwnerCredential["kind"];
+    via: "cookie" | "header";
+    /** Set for a limited credential, which the gate has already held to the routes it may call. */
+    limited?: true;
+    /** The device credential this session descends from, for a web-view session. */
+    parentId?: string;
+  };
   /** The request carried a cookie that is no longer valid: clear it. */
   clearCookie?: true;
   /** The browser session slid: send its cookie again so the browser's 30 days start over. */
@@ -336,10 +366,32 @@ export async function ownerGate(input: {
     // An agent token names the caller; an owner header sent beside it does not turn the agent into the owner.
     const check = agent ? ({ kind: "none" } as OwnerCheck) : await verifyOwnerCredential(request, input.deps);
     if (check.kind === "ok") {
+      // A limited credential (a paired phone, and its web view) may call every classified route that is not
+      // `owner-admin`; a route nothing classifies is refused to it. Routes that check their own secret are held
+      // to the same rule, so a limited token cannot enrol a browser either.
+      if (check.limited) {
+        const allowed = limitedCredentialDecision(method, route);
+        if (!allowed.allowed)
+          return {
+            refusal: refuse(
+              403,
+              allowed.reason === "owner-admin"
+                ? "This device is signed in with a limited credential, which cannot do that. Do it from a signed-in desk browser."
+                : "This route is not available to a limited credential.",
+              { "x-owner-reason": "limited-credential" }
+            )
+          };
+      }
       if (write && check.via === "cookie" && !sameOrigin(request))
         return { refusal: refuse(403, "A browser session may only write from this site (Origin must match Host).") };
       return {
-        owner: { id: check.id, credential: check.credential, via: check.via },
+        owner: {
+          id: check.id,
+          credential: check.credential,
+          via: check.via,
+          ...(check.limited ? { limited: true as const } : {}),
+          ...(check.parentId ? { parentId: check.parentId } : {})
+        },
         ...(check.slid && check.via === "cookie" ? { slid: true as const } : {})
       };
     }
@@ -397,7 +449,7 @@ export async function verifyEnrollSecret(
   request: Request,
   secret: string,
   deps: OwnerDeps = {}
-): Promise<"ok" | "bad" | "throttled"> {
+): Promise<"ok" | "bad" | "throttled" | "limited"> {
   const throttle = deps.throttle ?? sharedFailureThrottle;
   const address = remoteAddress(request.headers);
   if (throttle.retryAfter(address) > 0) return "throttled";
@@ -406,7 +458,7 @@ export async function verifyEnrollSecret(
     const stored = await (deps.lookup ?? databaseLookup)(sha(secret).toString("hex"));
     const now = (deps.now ?? (() => new Date()))();
     if (stored && stored.kind === "token" && !stored.revokedAt && (!stored.expiresAt || stored.expiresAt > now))
-      return "ok";
+      return stored.limited ? "limited" : "ok";
   } catch {
     return "bad";
   }

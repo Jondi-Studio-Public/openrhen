@@ -118,6 +118,90 @@ describe("POST /api/owner/enroll", () => {
   });
 });
 
+describe("a limited device credential", () => {
+  const LIMITED_ID = "22222222-2222-4222-8222-222222222222";
+  const PARENT_ID = "33333333-3333-4333-8333-333333333333";
+  const limited = (over: Record<string, unknown> = {}) =>
+    stored("token", { id: LIMITED_ID, secretHash: hash("pri_own_phone"), limited: true, ...over });
+  const del = (id: string, headers: Record<string, string>) =>
+    item.DELETE(
+      new Request(`http://portal.test/api/owner/credentials/${id}`, {
+        method: "DELETE",
+        headers: { ...base, ...headers }
+      }),
+      { params: Promise.resolve({ id }) }
+    );
+
+  it("cannot enrol a browser: refused as the held credential, and refused as the secret", async () => {
+    vi.stubEnv("OPENRHEN_OWNER_AUTH", "require");
+    store.findOwnerCredentialByHash.mockResolvedValue(limited());
+    const held = await enroll.POST(post("/api/owner/enroll", {}, { "x-openrhen-owner": "pri_own_phone" }), undefined);
+    expect(held.status).toBe(403);
+    expect(held.headers.get("x-owner-reason")).toBe("limited-credential");
+    // As the secret, from a caller with no credential of its own.
+    const asSecret = await enroll.POST(post("/api/owner/enroll", { secret: "pri_own_phone" }), undefined);
+    expect(asSecret.status).toBe(403);
+    expect(store.createOwnerCredential).not.toHaveBeenCalled();
+  });
+
+  it("cannot mint an owner token", async () => {
+    vi.stubEnv("OPENRHEN_OWNER_AUTH", "require");
+    store.findOwnerCredentialByHash.mockResolvedValue(limited());
+    const response = await credentials.POST(
+      post("/api/owner/credentials", { label: "x" }, { "x-openrhen-owner": "pri_own_phone" }),
+      undefined
+    );
+    expect(response.status).toBe(403);
+    expect(store.createOwnerCredential).not.toHaveBeenCalled();
+  });
+
+  it("may revoke itself or the device it is the web view of, but no other credential", async () => {
+    vi.stubEnv("OPENRHEN_OWNER_AUTH", "require");
+    store.revokeOwnerCredential.mockResolvedValue({ id: LIMITED_ID });
+    store.findOwnerCredentialByHash.mockResolvedValue(limited());
+    const headers = { "x-openrhen-owner": "pri_own_phone" };
+    expect((await del(LIMITED_ID, headers)).status).toBe(200);
+    const elsewhere = await del(ID, headers);
+    expect(elsewhere.status).toBe(403);
+    expect(store.revokeOwnerCredential).toHaveBeenCalledTimes(1);
+    // Its web view: a browser-kind child, which may revoke its parent device.
+    store.findOwnerCredentialByHash.mockResolvedValue(
+      stored("browser", { id: LIMITED_ID, secretHash: hash("pri_ses_view"), limited: true, parentId: PARENT_ID })
+    );
+    const cookie = { cookie: "openrhen_owner=pri_ses_view" };
+    expect((await del(PARENT_ID, cookie)).status).toBe(200);
+    expect((await del(ID, cookie)).status).toBe(403);
+  });
+
+  it("is named by the session route, so the Devices page can hide what it would refuse", async () => {
+    vi.stubEnv("OPENRHEN_OWNER_AUTH", "require");
+    store.findOwnerCredentialByHash.mockResolvedValue(limited());
+    const response = await session.GET(
+      new Request("http://portal.test/api/owner/session", { headers: { "x-openrhen-owner": "pri_own_phone" } }),
+      undefined
+    );
+    expect(await response.json()).toMatchObject({ signedIn: true, limited: true });
+  });
+
+  it("canManage is false for a limited credential", async () => {
+    vi.stubEnv("OPENRHEN_OWNER_AUTH", "require");
+    store.findOwnerCredentialByHash.mockResolvedValue(limited());
+    const response = await session.GET(
+      new Request("http://portal.test/api/owner/session", { headers: { "x-openrhen-owner": "pri_own_phone" } }),
+      undefined
+    );
+    expect(await response.json()).toMatchObject({ limited: true, canManage: false });
+  });
+
+  it("records who revoked what: the revoking credential and the address", async () => {
+    vi.stubEnv("OPENRHEN_OWNER_AUTH", "require");
+    store.revokeOwnerCredential.mockResolvedValue({ id: ID });
+    store.findOwnerCredentialByHash.mockResolvedValue(stored("token"));
+    await del(ID, { "x-openrhen-owner": "pri_own_x", "x-forwarded-for": "203.0.113.5" });
+    expect(store.revokeOwnerCredential.mock.calls[0]![3]).toEqual({ actorId: ID, address: "203.0.113.5" });
+  });
+});
+
 describe("GET /api/owner/session", () => {
   const get = (headers: Record<string, string> = {}) =>
     session.GET(new Request("http://portal.test/api/owner/session", { headers }), undefined);

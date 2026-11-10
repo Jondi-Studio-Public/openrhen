@@ -416,6 +416,8 @@ export const TABLE_OWNERS = {
   agent_proposals: { owner: "portal/server/agent-proposals/store.ts" },
   agent_tokens: { owner: "portal/server/agent-token-store.ts" },
   owner_credentials: { owner: "portal/server/owner-credential-store.ts" },
+  owner_device_pairings: { owner: "portal/server/owner-credential-store.ts" },
+  owner_credential_events: { owner: "portal/server/owner-credential-store.ts" },
   agent_access_tokens: { owner: "portal/server/mcp-access-tokens.ts" },
   oauth_clients: { owner: "portal/server/mcp-oauth-store.ts" },
   oauth_authorization_codes: { owner: "portal/server/mcp-oauth-store.ts" },

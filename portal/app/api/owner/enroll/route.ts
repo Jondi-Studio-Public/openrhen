@@ -30,6 +30,8 @@ export const POST = withRoute("/api/owner/enroll", async (request, _context, log
         { error: held.error },
         { status: held.status, ...(held.retryAfter ? { headers: { "retry-after": String(held.retryAfter) } } : {}) }
       );
+    if (held.kind === "ok" && held.limited)
+      return Response.json({ error: "A limited device credential cannot enrol a browser." }, { status: 403 });
     if (held.kind !== "ok") {
       if (!parsed.data.secret)
         return Response.json(
@@ -42,6 +44,8 @@ export const POST = withRoute("/api/owner/enroll", async (request, _context, log
           { error: "Too many unrecognised credentials; wait before trying again." },
           { status: 429 }
         );
+      if (verdict === "limited")
+        return Response.json({ error: "A limited device credential cannot enrol a browser." }, { status: 403 });
       if (verdict === "bad") return Response.json({ error: "That token is not recognised." }, { status: 401 });
     }
   }

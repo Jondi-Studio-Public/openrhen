@@ -185,6 +185,12 @@ const CORE_REGENERABLE_TABLES = [
   // Owner tokens and enrolled browsers (same section): hashes of secrets the person revokes at will, left out so
   // a restore cannot resurrect a revoked one. A restore signs every credential out; `OWNER_RECOVERY_TOKEN` is the way back in.
   "owner_credentials",
+  // Device sign-in (a phone paired by QR or code): the ten-minute pairing grants, and the record of who paired,
+  // redeemed and revoked what. Both point at `owner_credentials`, which a restore empties, so neither has anything
+  // to attach to afterwards. The new `owner_credentials` columns (`device_install_id`, `platform`, `limited`,
+  // `parent_credential_id`, `last_used_from`) ride inside that table. No format bump.
+  "owner_device_pairings",
+  "owner_credential_events",
   // Access tokens minted from an agent token for the remote `/mcp` endpoint (section 4): one hour, hashed, and
   // dead with their agent token, so a restore has nothing to bring back.
   "agent_access_tokens",

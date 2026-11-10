@@ -547,9 +547,11 @@ export type { ShownTarget } from "./planning/offer-log-shown-target.js";
 export {
   locationObservationSchema,
   locationObserveResponseSchema,
-  pendingLocationSuggestionSchema
+  pendingLocationSuggestionSchema,
+  phoneLocationPingSchema
 } from "./planning/location-observation.js";
 export type {
+  PhoneLocationPing,
   LocationObservation,
   LocationObserveResponse,
   PendingLocationSuggestion
@@ -1196,6 +1198,8 @@ export {
   classifiedRoutes,
   deviceRoute,
   deviceRoutes,
+  limitedCredentialDecision,
+  ownerAdminRoutes,
   ownerAuthExemption,
   ownerAuthExemptRoutes,
   proposableCommandRefusal,
@@ -1208,7 +1212,7 @@ export {
   workerRoute,
   workerRoutes
 } from "./agent-routes.js";
-export type { RouteDecision, StoredFacts } from "./agent-routes.js";
+export type { LimitedCredentialDecision, RouteDecision, StoredFacts } from "./agent-routes.js";
 export {
   AGENT_SESSION_FUTURE_SLACK_MINUTES,
   AGENT_SESSION_IDLE_GAP_MINUTES,
@@ -1565,16 +1569,36 @@ export {
   OWNER_TOKEN_PREFIX,
   WORKER_HEADER,
   DEVICE_HEADER,
+  DEVICE_CODE_ERRORS,
+  DEVICE_CODE_INTERVAL_SECONDS,
+  DEVICE_INSTALL_ID_PATTERN,
+  DEVICE_PAIRING_MINUTES,
+  DEVICE_PLATFORM_PATTERN,
+  approveDeviceCodeSchema,
   createOwnerTokenSchema,
+  deviceIdentitySchema,
   enrollBrowserSchema,
-  ownerCredentialSummarySchema
+  ownerCredentialEventSchema,
+  ownerCredentialSummarySchema,
+  pollDeviceCodeSchema,
+  redeemDevicePairingSchema,
+  requestDeviceCodeSchema,
+  startDevicePairingSchema
 } from "./owner-credentials.js";
 export type {
+  ApproveDeviceCode,
   CreateOwnerToken,
+  DeviceCodeError,
+  DeviceIdentity,
+  DevicePairingPayload,
   EnrollBrowser,
   OwnerAuthMode,
+  OwnerCredentialEvent,
   OwnerCredentialSummary,
-  OwnerSessionInfo
+  OwnerSessionInfo,
+  RedeemDevicePairing,
+  RequestDeviceCode,
+  StartDevicePairing
 } from "./owner-credentials.js";
 export { STATUS_VOCABULARY, normalizeStatus } from "./status-vocabulary.js";
 export type { NormalizedStatus, StatusVocabularyEntry } from "./status-vocabulary.js";

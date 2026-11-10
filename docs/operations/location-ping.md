@@ -6,7 +6,7 @@ You need this when you want a phone automation to tell OpenRhen where you are.
 
 The portal never trusts one reading alone. A ping either refreshes the staleness clock of the place you are already recorded at (the reading agrees), leaves a suggestion for Now to raise, or, after a sustained stay at a different saved place, updates your location. Readings coarser than 500 m never refresh or sustain a place, and two agreeing fixes more than an hour apart are not one stay.
 
-The route keeps its own bearer token, separate from owner sign-in, so the phone needs no owner credential.
+The route keeps its own bearer token, separate from owner sign-in, so a phone automation needs no owner credential. A phone that was added with **Add a phone** (see [Locking down the API](locking-down.md#adding-a-phone)) can instead send its own owner token in `X-OpenRhen-Owner`: the route checks that token itself under every `OPENRHEN_OWNER_AUTH` mode, a revoked token gets the owner-auth error (`401`, "The owner credential was revoked") rather than "requires a valid location token", and a cookie is never accepted, so a browser cannot move your location. The token names the phone, and the body may carry an optional `device` (the phone's install id; if both are given they must match). Sustained presence is read per phone, so two phones cannot break each other's ten minutes. `LOCATION_PING_TOKEN` keeps working for third-party collectors, with or without `device`.
 
 ## 1. Set the token
 

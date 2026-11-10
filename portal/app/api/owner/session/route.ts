@@ -12,7 +12,8 @@ export const GET = withRoute("/api/owner/session", async (request) => {
     mode,
     signedIn,
     via: check.kind === "ok" ? check.via : null,
-    canManage: mode === "require" ? signedIn : requestAgent() === null
+    canManage: check.kind === "ok" && check.limited ? false : mode === "require" ? signedIn : requestAgent() === null,
+    ...(check.kind === "ok" && check.limited ? { limited: true } : {})
   };
   return Response.json(info, { headers: { "cache-control": "no-store" } });
 });

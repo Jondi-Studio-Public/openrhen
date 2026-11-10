@@ -28,3 +28,44 @@
   font-size: var(--fs-small);
   color: var(--ink-2);
 }
+.actions {
+  display: flex;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  padding: var(--s3) var(--s5);
+}
+.input {
+  display: block;
+  margin-top: var(--s2);
+  width: 100%;
+  max-width: 28rem;
+  padding: var(--s2) var(--s3);
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+}
+.pairing {
+  display: grid;
+  justify-items: start;
+  gap: var(--s2);
+  padding: var(--s3) var(--s5);
+}
+.qr {
+  width: 14rem;
+  max-width: 100%;
+  background: #fff;
+  padding: var(--s2);
+  border-radius: var(--r-2);
+}
+.qr svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.host {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
