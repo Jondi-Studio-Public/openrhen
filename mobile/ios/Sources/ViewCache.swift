@@ -129,6 +129,9 @@ enum ViewFetch {
             if error == .revoked { return .revoked }
             return .failed(error.message)
         }
+        if let version = ClientViewCodec.schemaVersion(of: answer.body), version != ClientView.supportedSchemaVersion {
+            return .failed(ClientViewCodec.newerServerMessage)
+        }
         guard let view = ClientViewCodec.decodeView(answer.body) else { return .failed(ApiError.badResponse.message) }
         return .updated(CachedView(view: view, etag: answer.etag, fetchedAt: now))
     }
