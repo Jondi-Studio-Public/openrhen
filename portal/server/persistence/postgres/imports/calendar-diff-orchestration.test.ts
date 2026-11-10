@@ -50,6 +50,15 @@ const CORE_ENTRIES: ProfileUnderTest[] = [
     makeEcho: () => ({ event: withDefaults(), publishedRemoteIds: new Set(["e1"]) })
   },
   {
+    // The optional `input` reaches every scenario: this entry runs them over a wider window than the default.
+    name: SYNTHETIC,
+    provider: SYNTHETIC,
+    label: "Synthetic feed",
+    makeEvent: (overrides) => withDefaults(overrides),
+    makeEcho: () => ({ event: withDefaults(), publishedRemoteIds: new Set(["e1"]) }),
+    input: { timeMin: "2026-07-01T00:00:00.000Z", timeMax: "2026-10-01T00:00:00.000Z" }
+  },
+  {
     name: "fixed_blocks",
     provider: "rota_feed",
     label: "Rota feed",
