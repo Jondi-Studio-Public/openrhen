@@ -62,6 +62,8 @@ function pass(over: Partial<Omit<FeedSeriesPassInput, "series">> & { series?: Ca
     ruleLinks: [],
     dismissals: [],
     today: "2026-11-04",
+    // The pass defaults `now` to the real clock; pin it to the same day as `today` so the start dates it picks do not drift.
+    now: new Date("2026-11-04T00:00:00Z"),
     host: "calendar.example.com",
     locations: [],
     ...rest
