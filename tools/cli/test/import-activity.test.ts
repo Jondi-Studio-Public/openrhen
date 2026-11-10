@@ -12,6 +12,9 @@ import { fixtureNow } from "./fixture-state.js";
 const dir = mkdtempSync(join(tmpdir(), "cli-activity-import-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
+/** Where a Takeout keeps the watch history. */
+const HISTORY_DIR = ["Takeout", "YouTube and YouTube Music", "history"];
+
 type Route = FakeResponse | ((call: RecordedCall) => FakeResponse);
 
 async function run(argv: readonly string[], routes: Record<string, Route>) {
@@ -292,7 +295,7 @@ describe("rhen import <source> <path>", () => {
     const history = JSON.stringify([
       { title: "Watched x", titleUrl: "https://www.youtube.com/watch?v=abcdefghijk", time: "2026-02-03T04:05:06Z" }
     ]);
-    write(join(root, "Takeout", "YouTube and YouTube Music", "history", "watch-history.json"), history);
+    write(join(root, ...HISTORY_DIR, "watch-history.json"), history);
     const portal = fakePortal();
     const result = await run(["import", "takeout", root], {
       ...portal.routes,
@@ -322,6 +325,54 @@ describe("rhen import <source> <path>", () => {
     expect(result.stdout).toContain("chrome-takeout");
     expect(result.stdout).toContain("youtube (");
   });
+
+  it("splits a watch history over the 50 MB route limit into several bodies, each under it, and imports every entry", async () => {
+    const limit = 50 * 1024 * 1024;
+    const pad = "x".repeat(2000);
+    const total = 28_000;
+    const entry = (i: number) => ({
+      title: `Watched ${pad}${i}`,
+      titleUrl: `https://video.example.test/watch?v=v${String(i).padStart(10, "0")}`,
+      time: new Date(Date.UTC(2020, 0, 1) + i * 1000).toISOString()
+    });
+    const file = join(dir, "big-history", "watch-history.json");
+    write(file, JSON.stringify(Array.from({ length: total }, (_, i) => entry(i))));
+    expect(readFileSync(file).length).toBeGreaterThan(limit);
+    const sizes: number[] = [];
+    const ids: string[] = [];
+    const result = await run(["import", "youtube", file, "--json"], {
+      "/api/activity-imports/runs": { body: { recorded: true } },
+      "/api/imports/watch-history": (call) => {
+        const body = call.body as { data: string; encoding: string };
+        const bytes = Buffer.from(body.data, "base64");
+        sizes.push(bytes.length);
+        const entries = JSON.parse(bytes.toString()) as { titleUrl: string }[];
+        for (const e of entries) ids.push(e.titleUrl);
+        return {
+          body: {
+            importId: `00000000-0000-4000-8000-${String(sizes.length).padStart(12, "0")}`,
+            read: entries.length,
+            added: entries.length,
+            alreadyHeld: 0,
+            skipped: 0,
+            watches: entries.length,
+            ads: 0,
+            posts: 0,
+            music: 0
+          }
+        };
+      }
+    });
+    expect(result.exitCode).toBe(0);
+    expect(sizes.length).toBeGreaterThan(1);
+    for (const size of sizes) expect(size).toBeLessThanOrEqual(limit);
+    expect(ids).toHaveLength(total);
+    expect(new Set(ids).size).toBe(total);
+    const printed = JSON.parse(result.stdout) as Record<string, { result: object; importIds: string[] }[]>;
+    const [item] = Object.values(printed).flat();
+    expect(item!.result).toMatchObject({ added: total, read: total });
+    expect(item!.importIds).toHaveLength(sizes.length);
+  }, 60_000);
 
   it("prints machine-readable counts with --json", async () => {
     const file = write(join(dir, "json", "Streaming_History_Audio_2026_7.json"), JSON.stringify([play(1)]));
@@ -418,7 +469,7 @@ describe("rhen import run rows", () => {
     const history = JSON.stringify([
       { title: "Watched x", titleUrl: "https://www.youtube.com/watch?v=abcdefghijk", time: "2026-02-03T04:05:06Z" }
     ]);
-    write(join(root, "Takeout", "YouTube and YouTube Music", "history", "watch-history.json"), history);
+    write(join(root, ...HISTORY_DIR, "watch-history.json"), history);
     const portal = fakePortal();
     const result = await run(["import", "takeout", root], {
       ...portal.routes,

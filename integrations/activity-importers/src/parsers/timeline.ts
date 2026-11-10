@@ -10,6 +10,8 @@ import { noRowsError, skip, type ActivityEventDraft, type ByteSource, type Stats
  *  - `Semantic Location History/<year>/<year>_<MONTH>.json` `{"timelineObjects": [{placeVisit} | {activitySegment}]}`:
  *    a `place_visit` (start and end, position, place id) or an `activity_segment` (start and end, both positions,
  *    type, distance).
+ *  - iOS export: the same segment shape, but positions are `geo:lat,lng` strings (`placeLocation`, `activity.start`
+ *    and `end`, path `point`), the place id is `placeID`, and probabilities are strings.
  *  - on-device `Timeline.json`, `{"semanticSegments": [...]}` or a bare array of `{startTime, endTime, visit |
  *    activity | timelinePath}`: the same kinds; each `timelinePath` point becomes a `point`.
  * Place name and address are content; positions are rounded to 5 decimals in attrs. A time needs an explicit zone
@@ -58,6 +60,25 @@ function fromLatLngText(value: unknown): Position | null {
   return match ? validPosition(Number(match[1]), Number(match[2])) : null;
 }
 
+/** `"geo:-33.86,151.20"` as the iOS export writes a position (RFC 5870, optionally with `;u=` uncertainty). */
+function fromGeoUri(value: string): Position | null {
+  const match = /^\s*geo:(-?\d{1,3}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)(?:,-?\d+(?:\.\d+)?)?(?:;[^\s]*)?\s*$/i.exec(value);
+  return match ? validPosition(Number(match[1]), Number(match[2])) : null;
+}
+
+/** Any text position the exports write, or an object holding one as `latLng`. */
+function fromPositionText(value: unknown): Position | null {
+  if (isObj(value)) return fromPositionText(value.latLng);
+  if (typeof value !== "string") return null;
+  return fromGeoUri(value) ?? fromLatLngText(value);
+}
+
+/** A number, or the number a string spells (the iOS export writes probabilities and offsets as strings). */
+function numberOf(value: unknown): number | undefined {
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  return typeof value === "string" && /^\d+(\.\d+)?$/.test(value.trim()) ? Number(value) : undefined;
+}
+
 const posText = (p: Position | null) => (p ? `${round5(p.lat)},${round5(p.lng)}` : "");
 
 function withTime(draft: ActivityEventDraft, when: When): ActivityEventDraft {
@@ -98,11 +119,9 @@ export async function* parseTimeline(
   const visit = (when: { start: When; end?: When }, v: Obj): ActivityEventDraft | null => {
     const location = isObj(v.location) ? v.location : {};
     const candidate = isObj(v.topCandidate) ? v.topCandidate : {};
-    const position =
-      fromE7(location.latitudeE7, location.longitudeE7) ??
-      fromLatLngText(isObj(candidate.placeLocation) ? candidate.placeLocation.latLng : undefined);
-    const placeId =
-      typeof (location.placeId ?? candidate.placeId) === "string" ? String(location.placeId ?? candidate.placeId) : "";
+    const position = fromE7(location.latitudeE7, location.longitudeE7) ?? fromPositionText(candidate.placeLocation);
+    const rawPlaceId = location.placeId ?? candidate.placeId ?? candidate.placeID;
+    const placeId = typeof rawPlaceId === "string" ? rawPlaceId : "";
     if (!position && !placeId) {
       skip(stats, "place visit has neither a position nor a place id");
       return null;
@@ -117,9 +136,10 @@ export async function* parseTimeline(
     if (semantic) attrs.semantic_type = semantic;
     const placeConfidence = enumOf(v.placeConfidence);
     if (placeConfidence) attrs.place_confidence = placeConfidence;
-    if (typeof v.visitConfidence === "number") attrs.visit_confidence = v.visitConfidence;
-    const probability = v.probability ?? candidate.probability;
-    if (typeof probability === "number") attrs.probability = probability;
+    const visitConfidence = numberOf(v.visitConfidence);
+    if (visitConfidence !== undefined) attrs.visit_confidence = visitConfidence;
+    const probability = numberOf(v.probability ?? candidate.probability);
+    if (probability !== undefined) attrs.probability = probability;
     const startIso = when.start.date.toISOString();
     const endIso = when.end?.date.toISOString() ?? "";
     const dup = dups.next(`v\u001f${startIso}\u001f${endIso}\u001f${placeId}\u001f${posText(position)}`);
@@ -161,7 +181,8 @@ export async function* parseTimeline(
     }
     const meters = typeof distance === "string" && /^\d+(\.\d+)?$/.test(distance) ? Number(distance) : distance;
     if (typeof meters === "number" && Number.isFinite(meters) && meters >= 0) attrs.distance_m = Math.round(meters);
-    if (typeof confidence === "number") attrs.confidence = confidence;
+    const score = numberOf(confidence);
+    if (score !== undefined) attrs.confidence = score;
     else if (enumOf(confidence)) attrs.confidence = confidence;
     const startIso = when.start.date.toISOString();
     const endIso = when.end?.date.toISOString() ?? "";
@@ -276,8 +297,8 @@ export async function* parseTimeline(
       if (when)
         yield segment(
           when,
-          fromLatLngText(isObj(a.start) ? a.start.latLng : undefined),
-          fromLatLngText(isObj(a.end) ? a.end.latLng : undefined),
+          fromPositionText(a.start),
+          fromPositionText(a.end),
           candidate.type,
           a.distanceMeters,
           a.probability ?? candidate.probability
@@ -287,7 +308,7 @@ export async function* parseTimeline(
       for (const item of row.timelinePath as unknown[]) {
         stats.read += 1;
         const p = isObj(item) ? item : null;
-        const position = fromLatLngText(p?.point);
+        const position = fromPositionText(p?.point);
         if (!p || !position) {
           skip(stats, "path point has no readable position");
           continue;
