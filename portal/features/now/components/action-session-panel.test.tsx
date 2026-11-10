@@ -72,7 +72,9 @@ describe("ActionSessionPanel", () => {
     // Ten of thirty minutes gone.
     const bar = screen.getByRole("progressbar", { name: "Time used" });
     expect(bar.getAttribute("aria-valuenow")).toBe("33");
-    expect((bar.firstElementChild as HTMLElement).style.transform).toBe("scaleX(0.33333333333333337)");
+    // jsdom 31 serialises the number to six decimals, so compare the value, not the string.
+    const scale = /^scaleX\(([\d.]+)\)$/.exec((bar.firstElementChild as HTMLElement).style.transform);
+    expect(Number(scale?.[1])).toBeCloseTo(1 / 3, 5);
   });
 
   it("offers to resume once the session is paused", () => {
