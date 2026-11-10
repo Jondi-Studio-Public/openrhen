@@ -32,7 +32,7 @@ pub fn export_db(db: &Path, dest: &Path) -> Result<u64, String> {
 }
 
 /// Everything rhen-watch keeps in its data folder, sidecar files before the database they belong to.
-const OWNED: [&str; 13] = [
+const OWNED: [&str; 15] = [
     "activity.db-wal",
     "activity.db-shm",
     "activity.db",
@@ -45,6 +45,8 @@ const OWNED: [&str; 13] = [
     "restart-reason.txt",
     "not-starting.txt",
     "stopped-by-user.txt",
+    "state.txt",
+    "state.toml.tmp",
     // macOS: what launchd captured of the agent's output.
     "launchd.log",
 ];

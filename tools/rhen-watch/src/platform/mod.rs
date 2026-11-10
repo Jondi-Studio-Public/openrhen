@@ -7,3 +7,9 @@ pub mod macos_rules;
 pub mod macos_run;
 #[cfg(windows)]
 pub mod windows;
+#[cfg(windows)]
+pub mod windows_app;
+#[cfg(windows)]
+pub mod windows_install;
+#[cfg(windows)]
+pub mod windows_shortcut;

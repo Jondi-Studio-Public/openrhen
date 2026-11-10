@@ -104,7 +104,7 @@ last heartbeat: 4 s ago             (under 35)
 open intervals: 2                   (1 or more while it runs)
 ```
 
-The tray icon must show. Task Manager, Startup apps, must list `rhen-watch`.
+Open a new PowerShell (not the one you installed from) and run `rhen-watch status`: it must work without the full path, because `install` put the install folder on your user PATH. `($env:Path -split ';') -contains "$env:LOCALAPPDATA\Programs\rhen-watch"` is `True`; installing again must not add it twice. The tray icon must show (a green disc while recording). Task Manager, Startup apps, must list `rhen-watch`. Press the Windows key and type `rhen-watch`: the Start menu must list an app called `rhen-watch` with the green icon. If it is missing, `install` printed a warning and `rhen-watch.log` says why; the tray icon's Open settings still works.
 
 If you added games in step 2 after installing, restart the agent now:
 
@@ -115,6 +115,28 @@ $until = (Get-Date).AddSeconds(15)
 while ((& $rw status) -match 'agent: running' -and (Get-Date) -lt $until) { Start-Sleep -Seconds 1 }
 Start-Process "$env:LOCALAPPDATA\Programs\rhen-watch\rhen-watchw.exe" -ArgumentList 'run'
 ```
+
+## 3a. The settings window
+
+Start it from the Start menu entry `rhen-watch` (or the tray icon's Open settings, or `& "$env:LOCALAPPDATA\Programs\rhen-watch\rhen-watchw.exe" app`). It is a separate program from the recorder: closing it never stops recording. These checks need a real desktop; CI only builds the window hidden and reads its controls back (`app --smoke`).
+
+| Step | What you do | Expected |
+| --- | --- | --- |
+| Open twice | Open it, then open it again from the tray. | One window; the second launch brings the first to the front. |
+| Overview | Look at the Overview tab. | `Recording`, the privacy line `Data stays on this PC. rhen-watch has no network code.`, today's report in the box, and the window icon is the green disc. |
+| Pause | Press Pause recording. Wait for the headline. Look at the tray icon and menu. | The headline says `Paused` within a few seconds, the tray icon turns grey and its menu says Resume recording. Press Resume recording: green again. In `report`, `Paused:` appears. |
+| Tray in step | Pause from the tray menu instead. | Within 2 seconds the window says `Paused` too. |
+| Stop and start | Press Stop recording. Then Start recording. | `Not recording`, then `Recording`. After Stop, the keep-alive must not bring it back within 2 minutes. |
+| Not running | Quit from the tray, open the window from the Start menu. | `Not recording` and a Start recording button; opening the window did not start recording. |
+| Refused start | Put `idle_threshold_secs = 0` in `config.toml`. Press Start recording. | The window says why it did not start. Fix the file and press Start recording again. |
+| Apps | Use a few apps no category knows, open the Apps tab. | They are listed with time, `rhen-watch` itself is not. Pick one, type `editor`, press Set. The line says it takes effect when recording restarts; `categories.toml` has the entry. Press Restart recording. |
+| Keep data | On Settings choose `30 days` and press Apply with more than 30 days recorded. | A question says how many recorded events would be deleted. No leaves the file unchanged. |
+| Start with Windows | Untick it, Apply. | The note says rhen-watch stays closed after logoff and is no longer restarted after a crash; `schtasks /Query /TN rhen-watch` fails. The recorder keeps running. Tick it again, Apply: the tasks are back and there is still one `rhen-watchw` recording process. |
+| High DPI | Drag the window to a monitor with a different scale. | The text and controls resize with it. |
+| Install while open | Leave the window open and run `.\rhen-watch.exe install` again. | The window closes by itself and the install completes. |
+| Uninstall | Run `uninstall`. | The Start menu entry is gone, and so are `rhen-watch.lnk` and `rhen-watch.ico`. |
+
+Pause and resume from the window work because, on a real logon, the scheduled-task agent and your own windows are both on the interactive desktop (WinSta0) of your session. CI cannot show this: the task agent there runs on a window station its shell cannot see, so CI checks the same message path against a second agent it starts itself.
 
 ## 4. Day 1
 
@@ -232,6 +254,7 @@ Expected: `Uninstalled.` and `Your data is kept in ...`. Check:
 
 ```powershell
 Test-Path "$env:LOCALAPPDATA\Programs\rhen-watch"          # False
+(([Environment]::GetEnvironmentVariable('Path','User')) -split ';') -contains "$env:LOCALAPPDATA\Programs\rhen-watch"   # False: the PATH entry is gone, other entries are untouched
 Get-CimInstance Win32_StartupCommand | Where-Object Name -eq 'rhen-watch'   # prints nothing: no start-at-logon entry
 Get-Process rhen-watch* -ErrorAction SilentlyContinue      # prints nothing
 Test-Path "$env:LOCALAPPDATA\rhen-watch\activity.db"       # True: plain uninstall keeps your data
@@ -259,7 +282,8 @@ Do not file these as bugs. They are known and written down.
 - The UAC secure desktop is invisible to the agent.
 - Games are matched by exe name only.
 - `stop` does not cross remote desktop sessions. Use Ctrl+C in the console that runs the agent.
-- There is no uploader. Nothing leaves the PC.
+- Task Manager shows the plain program icon for `rhen-watchw.exe`: the icons are in the window, the tray and the Start menu entry, not embedded in the file (no resource compiler is used).
+- There is no uploader and no server setting in the window. Nothing leaves the PC.
 - There is no Mac agent.
 - Pause drops any lock, remote or suspend state in progress; Resume reads the lock and remote state again, but a suspend that began while paused is not recorded.
 - Whether `SM_REMOTESESSION` clears after a Remote Desktop disconnect is not checked yet; if it does not, time after a disconnect shows as remote.

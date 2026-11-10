@@ -25,8 +25,9 @@ USAGE
   rhen-watch categories init [--from-config]|path|list [--uncategorised]|set EXE CATEGORY
                                      the per-exe category map (categories.toml); --from-config prints the
                                      [exe] text for an old config.toml [categories] table
+  rhen-watch app                     open the settings window (Windows; also what rhen-watchw.exe does with no arguments)
   rhen-watch install                 copy to %LOCALAPPDATA%\\Programs\\rhen-watch (Windows) or ~/Applications/rhen-watch.app
-                                     (macOS), start at logon (restarted if it crashes), start now
+                                     (macOS), start at logon (restarted if it crashes), start now; on Windows also a Start menu shortcut to the settings window
   rhen-watch uninstall [--purge]     stop, remove start at logon, the restart task and the program (--purge also deletes your data: the
                                      database, config, logs and the data folder)
   rhen-watch wipe --yes              delete the database, its sidecar files, the config and the log files
@@ -44,6 +45,16 @@ pub fn main() {
 /// because nothing else on screen would say why the tray icon never appeared.
 pub fn main_windowless() {
     run_main(true);
+}
+
+/// The arguments the program acts on. The no-console program (`rhen-watchw.exe`) with none opens the settings window, so
+/// a double click on the Start menu entry or the file does something visible; the console program keeps printing help.
+pub fn effective_args(windowless: bool, args: Vec<String>) -> Vec<String> {
+    if windowless && args.is_empty() {
+        vec!["app".to_string()]
+    } else {
+        args
+    }
 }
 
 /// The shown error for a panic outside the recording loop (opening the store, starting the hooks, ...).
@@ -78,6 +89,8 @@ fn run_main(windowless: bool) {
     // The no-console build has nowhere to show a panic, so put it in the log.
     std::panic::set_hook(Box::new(|info| crate::log::error(&format!("internal error: {info}"))));
     let args: Vec<String> = std::env::args().skip(1).collect();
+    #[cfg(windows)]
+    let args = effective_args(windowless, args);
     // `report | head` should end quietly, as Unix tools do, not panic on a closed pipe. Never for `run`: the
     // agent must not be killed by a reader going away.
     #[cfg(target_os = "macos")]
@@ -110,6 +123,7 @@ pub fn real_main(args: &[String]) -> Result<(), String> {
         Some("config") => cmd_config(&args[1..]),
         Some("categories") => cmd_categories(&args[1..]),
         Some("wipe") => cmd_wipe(&args[1..]),
+        Some("app") => cmd_app(&args[1..]),
         Some("install") => cmd_install(),
         Some("uninstall") => cmd_uninstall(&args[1..]),
         Some("--help") | Some("-h") | Some("help") | None => {
@@ -160,11 +174,14 @@ pub fn load_run_settings(dir: &std::path::Path) -> Result<(Config, categories::C
     Ok((cfg, catalogue, problem))
 }
 
+/// Would `run` accept the settings? The settings window asks before it starts the agent.
+pub fn check_settings(dir: &std::path::Path) -> Result<(), String> {
+    load_run_settings(dir).map(|_| ())
+}
+
 /// `install` proves the agent could start before it copies anything or touches the Run key.
 pub fn check_settings_for_install(dir: &std::path::Path) -> Result<(), String> {
-    load_run_settings(dir)
-        .map(|_| ())
-        .map_err(|e| format!("{e}\nnothing was installed; fix the settings and run install again"))
+    check_settings(dir).map_err(|e| format!("{e}\nnothing was installed; fix the settings and run install again"))
 }
 
 /// The error `run` returns when another agent holds the lock. A duplicate start needs no message box.
@@ -175,9 +192,13 @@ pub const ALREADY_RUNNING: &str = "another rhen-watch is already running (use `r
 pub const REPEATED_REFUSAL: &str = "(repeated) ";
 
 /// The title of the message box the no-console build shows for a failed command, or `None` for no box.
-/// Only `run` gets one: "did not start" before recording began, "stopped" after (for example when writes
+/// `run` gets one: "did not start" before recording began, "stopped" after (for example when writes
 /// kept failing). A duplicate start is not an error the user needs to see.
 pub fn error_box_title(args: &[String], recording: bool, error: &str) -> Option<&'static str> {
+    // The settings window failing to open would otherwise leave nothing on screen. `--smoke` (CI) never shows a box.
+    if args.first().map(String::as_str) == Some("app") {
+        return (!args.iter().any(|a| a == "--smoke")).then_some("rhen-watch could not open its window");
+    }
     if args.first().map(String::as_str) != Some("run") || error == ALREADY_RUNNING || error.starts_with(REPEATED_REFUSAL) {
         return None;
     }
@@ -440,7 +461,7 @@ fn restart_status(dir: &std::path::Path) -> String {
 }
 
 /// Why the last `run` refused to start (a bad config). Cleared by the next successful start. Listed in `handover::OWNED`.
-const NOT_STARTING_FILE: &str = "not-starting.txt";
+pub(crate) const NOT_STARTING_FILE: &str = "not-starting.txt";
 
 /// Leave why a start failed before recording where `status` shows it (macOS; Windows uses `refused`).
 #[cfg(target_os = "macos")]
@@ -456,11 +477,11 @@ pub(crate) fn clear_not_starting(d: &std::path::Path) {
 
 /// Present after a requested stop; the keep-alive leaves the agent stopped while it exists. Removed by the next
 /// real start. Listed in `handover::OWNED`.
-const STOPPED_FILE: &str = "stopped-by-user.txt";
-const STOPPED_TEXT: &str = "stopped on request; the keep-alive leaves it alone until the next logon or install\n";
+pub(crate) const STOPPED_FILE: &str = "stopped-by-user.txt";
+pub(crate) const STOPPED_TEXT: &str = "stopped on request; the keep-alive leaves it alone until the next logon or install\n";
 
 /// Why `install` could not register the restart task (absent when it did). Listed in `handover::OWNED`.
-const REASON_FILE: &str = "restart-reason.txt";
+pub(crate) const REASON_FILE: &str = "restart-reason.txt";
 
 pub fn now_ms() -> Ms {
     std::time::SystemTime::now()
@@ -636,8 +657,6 @@ pub(crate) fn duplicate_start(keepalive: bool, error: &str) -> Option<Result<(),
 }
 
 #[cfg(windows)]
-const ELEVATED_AGENT: &str = "an agent is running as administrator; use tray Quit or an elevated prompt";
-#[cfg(windows)]
 const ELEVATED_INSTALL_WARNING: &str = "rhen-watch: warning: this prompt is running as administrator, so the agent will too. \
 A normal prompt will not be able to stop or uninstall it: use tray Quit or an administrator prompt, \
 or uninstall and install again from a normal PowerShell.";
@@ -650,7 +669,7 @@ fn cmd_stop() -> Result<(), String> {
             println!("stop requested; the agent flushes and exits within a few seconds");
             Ok(())
         }
-        StopSignal::AccessDenied => Err(ELEVATED_AGENT.into()),
+        StopSignal::AccessDenied => Err(platform::windows_install::ELEVATED_AGENT.into()),
         StopSignal::NotRunning => {
             // Nothing to signal, but the user's intent stands: a crashed agent must not come back at the next
             // keep-alive tick.
@@ -726,6 +745,8 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
 
     // Past config and the lock: an earlier "stopped by you" marker is stale.
     let _ = std::fs::remove_file(d.join(STOPPED_FILE));
+    // A state left by the previous run is stale; the first tick writes the real one.
+    let _ = std::fs::remove_file(d.join(crate::app_model::STATE_FILE));
     let stop_event = win::StopEvent::create(&d).map_err(|e| refused(&d, keepalive, e))?;
     win::install_ctrl_handler();
     win::set_data_dir(&d);
@@ -864,6 +885,17 @@ fn refused(d: &std::path::Path, keepalive: bool, e: String) -> String {
     if same { format!("{REPEATED_REFUSAL}{e}") } else { e }
 }
 
+#[cfg(not(windows))]
+fn cmd_app(_args: &[String]) -> Result<(), String> {
+    Err("the settings window is for Windows (on macOS use the menu bar item)".into())
+}
+
+/// `app [--smoke]`: the settings window. `--smoke` builds it without showing it, checks its controls and exits (CI).
+#[cfg(windows)]
+fn cmd_app(args: &[String]) -> Result<(), String> {
+    platform::windows_app::run(args.iter().any(|a| a == "--smoke"))
+}
+
 #[cfg(not(any(windows, target_os = "macos")))]
 fn cmd_install() -> Result<(), String> {
     Err("install is for Windows and macOS".into())
@@ -893,58 +925,8 @@ fn cmd_uninstall(args: &[String]) -> Result<(), String> {
 }
 
 #[cfg(windows)]
-fn install_dir() -> Result<PathBuf, String> {
-    std::env::var_os("LOCALAPPDATA")
-        .map(|d| PathBuf::from(d).join("Programs").join("rhen-watch"))
-        .ok_or_else(|| "LOCALAPPDATA is not set".to_string())
-}
-
-/// Wait until none of `files` is held open by a running copy (Windows will not replace or delete a running program).
-#[cfg(windows)]
-fn wait_released(files: &[PathBuf]) -> Result<(), String> {
-    use std::time::{Duration, Instant};
-    let started = Instant::now();
-    loop {
-        let busy: Vec<_> = files
-            .iter()
-            .filter(|f| f.exists() && std::fs::OpenOptions::new().write(true).open(f).is_err())
-            .collect();
-        if busy.is_empty() {
-            return Ok(());
-        }
-        if started.elapsed() > Duration::from_secs(10) {
-            return Err(format!("{} is still running; close it and try again", busy[0].display()));
-        }
-        std::thread::sleep(Duration::from_millis(200));
-    }
-}
-
-/// Ask a running agent to stop and wait until its lock is free.
-#[cfg(windows)]
-fn stop_and_wait() -> Result<(), String> {
-    use platform::windows::StopSignal;
-    use std::time::{Duration, Instant};
-    let data = paths::data_dir()?;
-    match platform::windows::signal_stop(&data) {
-        StopSignal::Sent => {}
-        StopSignal::NotRunning => return Ok(()),
-        StopSignal::AccessDenied => return Err(ELEVATED_AGENT.into()),
-    }
-    let lock = data.join("run.lock");
-    let started = Instant::now();
-    while started.elapsed() < Duration::from_secs(10) {
-        match std::fs::OpenOptions::new().write(true).open(&lock) {
-            Ok(f) if f.try_lock().is_ok() => return Ok(()),
-            Err(_) => return Ok(()),
-            _ => std::thread::sleep(Duration::from_millis(200)),
-        }
-    }
-    Err("the running agent did not stop within 10 seconds".into())
-}
-
-#[cfg(windows)]
 fn cmd_install() -> Result<(), String> {
-    use std::os::windows::process::CommandExt;
+    use platform::windows_install as inst;
 
     // An elevated install starts an agent that a normal prompt can neither stop nor uninstall.
     // Say so before anything changes; `stop` names the same cause when it meets one. It is a
@@ -956,7 +938,7 @@ fn cmd_install() -> Result<(), String> {
     check_settings_for_install(&dir()?)?;
     let here = std::env::current_exe().map_err(|e| e.to_string())?;
     let src_dir = here.parent().ok_or("cannot find the folder this program is in")?.to_path_buf();
-    let dest = install_dir()?;
+    let dest = inst::install_dir()?;
     let names = ["rhen-watch.exe", "rhen-watchw.exe"];
     for n in names {
         if !src_dir.join(n).exists() {
@@ -966,7 +948,9 @@ fn cmd_install() -> Result<(), String> {
             ));
         }
     }
-    stop_and_wait()?;
+    // An open settings window holds rhen-watchw.exe: close it first, and change nothing if it will not close.
+    inst::close_app_window()?;
+    inst::stop_and_wait()?;
     std::fs::create_dir_all(&dest).map_err(|e| format!("cannot create {}: {e}", dest.display()))?;
     let same = match (src_dir.canonicalize(), dest.canonicalize()) {
         (Ok(a), Ok(b)) => a == b,
@@ -974,7 +958,7 @@ fn cmd_install() -> Result<(), String> {
     };
     if !same {
         let targets: Vec<PathBuf> = names.iter().map(|n| dest.join(n)).collect();
-        wait_released(&targets)?;
+        inst::wait_released(&targets)?;
         // Copy both under temporary names first, so a failure leaves the old pair untouched.
         let staged: Vec<(PathBuf, PathBuf)> = names.iter().map(|n| (dest.join(format!("{n}.new")), dest.join(n))).collect();
         for (n, (tmp, _)) in names.iter().zip(&staged) {
@@ -993,61 +977,13 @@ fn cmd_install() -> Result<(), String> {
     let data = paths::data_dir()?;
     // Prefer a per-user Scheduled Task: it starts the agent at logon and restarts it if it crashes or is killed.
     // If it cannot be registered (or started), fall back to the HKCU Run entry, which only starts it at logon.
-    let mut autostart = crate::restart::plan(platform::windows::register_task(&gui));
-    if autostart.start_via_task() {
-        // A task only restarts a process it launched, so the agent must be started through it.
-        if let Err(e) = platform::windows::run_task() {
-            let _ = platform::windows::delete_task();
-            autostart = crate::restart::plan(Err(e));
-        } else {
-            // The task can register and "run" yet never launch (no interactive session). Prove the agent is up;
-            // if not, undo the task and fall back to the Run entry, so the user is never left with nothing.
-            let until = std::time::Instant::now() + std::time::Duration::from_secs(15);
-            while !agent_running(&data) && std::time::Instant::now() < until {
-                std::thread::sleep(std::time::Duration::from_millis(200));
-            }
-            if !agent_running(&data) {
-                let _ = platform::windows::delete_task();
-                autostart = crate::restart::plan(Err("the task was registered but did not start the agent".into()));
-            }
-        }
-    }
-    let reason_file = data.join(REASON_FILE);
-    match autostart.reason() {
-        Some(reason) => {
-            crate::log::warn(&format!(
-                "restart on crash is off: {reason}; using the start-at-logon entry instead"
-            ));
-            let _ = std::fs::create_dir_all(&data);
-            let _ = std::fs::write(&reason_file, reason);
-        }
-        None => {
-            let _ = std::fs::remove_file(&reason_file);
-        }
-    }
-    if autostart.keep_run_entry() {
-        platform::windows::set_autostart(&format!("\"{}\" run", gui.display()))?;
-    } else {
-        // One mechanism: with the task registered, the Run entry would start a second copy at logon.
-        platform::windows::clear_autostart()?;
-    }
+    let autostart = inst::enable_autostart(&gui, &data, true)?;
     // With a Run entry the agent is started directly; DETACHED_PROCESS | CREATE_NO_WINDOW lets it outlive this
     // console and show no window of its own. Through the task there is no child of ours to watch.
     let mut child = if autostart.start_via_task() {
         None
     } else {
-        // The agent must not hold this command's output pipe open, or a script capturing it never finishes.
-        platform::windows::stop_std_handle_inheritance();
-        Some(
-            std::process::Command::new(&gui)
-                .arg("run")
-                .creation_flags(0x0000_0008 | 0x0800_0000)
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn()
-                .map_err(|e| format!("installed, but could not start it: {e}"))?,
-        )
+        Some(inst::spawn_agent(&gui).map_err(|e| format!("installed, but could not start it: {e}"))?)
     };
     // Prove it is alive: it holds run.lock once it is recording, and it must not have exited.
     let started = std::time::Instant::now();
@@ -1075,8 +1011,25 @@ fn cmd_install() -> Result<(), String> {
         }
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
+    // Last, so a failed install leaves no Start menu entry behind.
+    // The Start menu entry. It is a convenience: a policy-locked Start menu must not fail the install.
+    match inst::create_start_menu_shortcut(&dest, &gui) {
+        Ok(lnk) => crate::log::info(&format!("Start menu entry: {}", lnk.display())),
+        Err(e) => crate::log::warn(&format!(
+            "could not add the Start menu entry ({e}); open settings from the tray icon instead"
+        )),
+    }
+    // So `rhen-watch` works from a new PowerShell. A convenience, like the Start menu entry: a warning, not a failure.
+    if let Err(e) = inst::add_to_user_path(&dest) {
+        crate::log::warn(&format!(
+            "could not add {} to your PATH ({e}); use the full path instead",
+            dest.display()
+        ));
+    }
     crate::log::info(&format!("installed to {}", dest.display()));
     println!("It starts when you log on and is running now (look for the tray icon).");
+    println!("Open a new PowerShell and run: rhen-watch status");
+    println!("Settings: open \"rhen-watch\" from the Start menu, or the tray icon's Open settings.");
     println!("{}", crate::restart::status_line(autostart.start_via_task(), autostart.reason()));
     println!("Report:    {}\\rhen-watch.exe report", dest.display());
     println!("Stop:      {}\\rhen-watch.exe stop", dest.display());
@@ -1089,14 +1042,22 @@ fn cmd_install() -> Result<(), String> {
 
 #[cfg(windows)]
 fn cmd_uninstall(args: &[String]) -> Result<(), String> {
-    let dest = install_dir()?;
+    use platform::windows_install as inst;
+
+    let dest = inst::install_dir()?;
+    // Close an open settings window before anything changes: it holds the program file.
+    inst::close_app_window()?;
     // Remove the tasks first, or the keep-alive could restart an agent that had crashed earlier, between the stop
     // and the delete.
     platform::windows::delete_task()?;
-    stop_and_wait()?;
+    inst::stop_and_wait()?;
     let gui = dest.join("rhen-watchw.exe");
-    wait_released(&[gui])?;
+    inst::wait_released(&[gui])?;
     platform::windows::clear_autostart()?;
+    inst::remove_start_menu_shortcut(&dest);
+    if let Err(e) = inst::remove_from_user_path(&dest) {
+        crate::log::warn(&format!("could not remove {} from your PATH ({e})", dest.display()));
+    }
     let mut leftovers = Vec::new();
     for n in ["rhen-watch.exe", "rhen-watchw.exe"] {
         let p = dest.join(n);
