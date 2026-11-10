@@ -120,7 +120,9 @@ struct CommandOutbox: Codable, Equatable {
         items[index].hold = nil
         items[index].attempts = 0
         items[index].nextAttemptAt = nil
-        if items[index].kind != .checkIn { items[index].expectedVersion = nil }
+        // A version looked up before the hold (or named by an answer against an older view) is stale now; the server
+        // refuses a mismatch, so every kind sends anew without one (a check-in answer then means "any version").
+        items[index].expectedVersion = nil
     }
 
     /// The person chose Drop: the command goes, and so do the later commands on its entity (they depended on it).

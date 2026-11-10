@@ -165,6 +165,15 @@ enum ClientViewCodec {
         return view
     }
 
+    /// The `schemaVersion` of a body when it names an integer, nil otherwise.
+    static func schemaVersion(of data: Data) -> Int? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let version = object["schemaVersion"] as? Int else { return nil }
+        return version
+    }
+
+    static let newerServerMessage = "Your server is newer than this app. Update the app to see the latest."
+
     static func decodeShown(_ data: Data) -> CheckInShown? {
         try? JSONDecoder().decode(CheckInShown.self, from: data)
     }

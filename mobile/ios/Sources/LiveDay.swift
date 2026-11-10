@@ -275,12 +275,23 @@ final class LiveDay: ObservableObject {
     func drop(_ commandId: String) {
         outbox.drop(commandId: commandId, now: Date())
         outboxFile.save(outbox)
+        releaseUnqueuedAnswers()
     }
 
     @MainActor
     func dismissOutcome(_ id: String) {
         outbox.dismissOutcome(id: id)
         outboxFile.save(outbox)
+    }
+
+    /// A check-in whose queued answer was dropped or is held is asked again: it leaves the answered set, so the
+    /// pending check-in reappears. Answers still queued and not held stay hidden.
+    @MainActor
+    private func releaseUnqueuedAnswers() {
+        let held = Set(outbox.heldItems.map { $0.entityKey })
+        answeredCheckIns = answeredCheckIns.filter { id in
+            outbox.hasQueuedAnswer(forCheckIn: id) && !held.contains("check-in:\(id)")
+        }
     }
 
     /// Sends what is queued, one at a time, in the order it was made.
@@ -320,6 +331,7 @@ final class LiveDay: ObservableObject {
                     case .held(let sentence):
                         _ = outbox.apply(.held(message: sentence), to: command.commandId, now: Date())
                         outboxFile.save(outbox)
+                        releaseUnqueuedAnswers()
                         continue loop
                     case .resolved(let version, let sessionId):
                         outbox.fill(commandId: command.commandId, expectedVersion: version, sessionId: sessionId)
@@ -330,6 +342,7 @@ final class LiveDay: ObservableObject {
                 guard let request = CommandRequests.request(command, origin: device.origin, token: device.token) else {
                     _ = outbox.apply(.held(message: "This command could not be built for your server's address."), to: command.commandId, now: Date())
                     outboxFile.save(outbox)
+                    releaseUnqueuedAnswers()
                     continue loop
                 }
                 let answer = await session.api.send(request)
@@ -338,6 +351,7 @@ final class LiveDay: ObservableObject {
                 if case .applied = result { sentAny = true }
                 let step = outbox.apply(result, to: command.commandId, now: Date())
                 outboxFile.save(outbox)
+                if case .applied = result {} else { releaseUnqueuedAnswers() }
                 switch step {
                 case .continueDraining:
                     continue loop

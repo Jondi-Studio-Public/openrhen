@@ -16,7 +16,7 @@ Two fields let an app run commands without reading `GET /api/state`. `pending.se
 
 The envelope also carries `schemaVersion`, `timezone`, `planCurrent` and `validUntil` (when the plan behind `now` and `day` stops being current), so a cache can say "as of" and dim itself past it. Every instant is ISO 8601 with an offset; `Z` is the zero offset.
 
-The response has an `ETag` over the whole body and answers `304` to a matching `If-None-Match` (quotes, a `W/` prefix, a list and `*` are all read). It is `Cache-Control: no-store`: revalidating by tag is the only caching wanted. Nothing in the body is a server clock reading, so a 304 means none of it changed.
+The response has an `ETag` over the whole body and answers `304` to a matching `If-None-Match` (quotes, a `W/` prefix, a list and `*` are all read). It is `Cache-Control: no-store`: revalidating by tag is the only caching wanted. Parts of the body are server clock readings: `minutesLeft`, `elapsedMinutes` and the leave-by phase are computed from the server's now, so during a session the ETag changes about every minute and a 304 means only that those readings and everything else are unchanged since the tag was issued.
 
 **It never starts a check-in's timeout.** `pending.checkIn` is read without stamping `prompted_at`, so a widget or background refresh is not mistaken for the owner being shown the question. Without PostgreSQL `pending.checkIn` is `null` and the rest still answers.
 
