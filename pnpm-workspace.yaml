@@ -10,7 +10,6 @@ allowBuilds:
   sharp: true
 
 verifyDepsBeforeRun: false
-confirmModulesPurge: false
 
 overrides:
   fflate: 0.7.5
