@@ -14,8 +14,9 @@ import { verifySection } from "./streamed-sections.js";
 
 /**
  * The streamed activity section at scale. The old single-JSON backup measured about 2.4 GB of process memory for one
- * million synthetic rows and failed outright at two million (V8's string limit); this writes, verifies and restores the
- * same sizes with memory that does not grow with the row count, and the restored table is identical to the source.
+ * million synthetic rows and failed outright at two million (V8's string limit, a one-off measurement); this writes,
+ * verifies and restores 300,000 rows with memory that does not grow with the row count, and the restored table is
+ * identical to the source.
  *
  * One size is enough: the bound below is 300 MB, and the old backup's measured ~2.4 KB of process memory per row puts
  * 300,000 rows at about 720 MB, so a regression to buffering the whole table fails here long before it would reach the
