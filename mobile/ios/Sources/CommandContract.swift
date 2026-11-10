@@ -294,59 +294,33 @@ enum CommandResults {
     }
 }
 
-/// The few facts of `GET /api/state` a command needs: which session is open and its version, and the version of the
-/// action a start names. (The client view carries neither; see the notes in the README.)
-struct StateProbe: Decodable, Equatable {
-    struct Active: Decodable, Equatable {
-        let id: String
-        let version: Int?
-        let status: String?
-        let actionId: String?
-    }
-    struct Item: Decodable, Equatable {
-        let id: String
-        let version: Int?
-        let actionId: String?
-    }
-    private struct Wrapper: Decodable { let state: StateProbe }
-
-    let activeSession: Active?
-    let actions: [Item]?
-    let occurrences: [Item]?
-
-    static func decode(_ body: Data) -> StateProbe? { (try? JSONDecoder().decode(Wrapper.self, from: body))?.state }
-
-    /// The version a start of `actionId` must name: the action's, or for an occurrence id the version of its action.
-    func actionVersion(forStartOf actionId: String) -> Int? {
-        let owner = occurrences?.first(where: { $0.id == actionId })?.actionId ?? actionId
-        return actions?.first(where: { $0.id == owner })?.version
-    }
-}
-
-/// Fills in the version a command must carry from what the server holds now, or says in words why it can no longer
+/// Fills in the version a command must carry from the client view just fetched (`pending.session.version` for a
+/// session command, `now.directive.expectedVersion` for a start), or says in words why it can no longer
 /// be sent as the person made it.
 enum VersionResolution: Equatable {
     case send(expectedVersion: Int, sessionId: String?)
     case conflict(String)
 
-    static func resolve(_ command: OutboxCommand, probe: StateProbe) -> VersionResolution {
+    static func resolve(_ command: OutboxCommand, view: ClientView) -> VersionResolution {
         if command.type == "start" {
-            if let active = probe.activeSession {
-                return .conflict("\(command.label) wasn't sent: another session is already open (\(active.status ?? "running")). Finish it first.")
+            if let active = view.pending?.session {
+                return .conflict("\(command.label) wasn't sent: another session is already open (\(active.status)). Finish it first.")
             }
-            guard case .string(let actionId)? = command.fields["actionId"], let version = probe.actionVersion(forStartOf: actionId) else {
+            guard case .string(let actionId)? = command.fields["actionId"],
+                  let directive = view.now?.directive, directive.kind == "action", directive.targetId == actionId,
+                  let version = directive.expectedVersion else {
                 return .conflict("\(command.label) wasn't sent: the plan no longer has that task.")
             }
             return .send(expectedVersion: version, sessionId: nil)
         }
-        guard let active = probe.activeSession else {
+        guard let active = view.pending?.session else {
             return .conflict("\(command.label) wasn't sent: no session is open now.")
         }
         if let wanted = command.sessionId, wanted != active.id {
             return .conflict("\(command.label) wasn't sent: that session is no longer the open one.")
         }
-        if let seen = command.seenStatus, let now = active.status, seen != now {
-            return .conflict("\(command.label) wasn't applied: the session is now \(SessionWords.status(now)), not \(SessionWords.status(seen)) as you left it.")
+        if let seen = command.seenStatus, seen != active.status {
+            return .conflict("\(command.label) wasn't applied: the session is now \(SessionWords.status(active.status)), not \(SessionWords.status(seen)) as you left it.")
         }
         guard let version = active.version else {
             return .conflict("\(command.label) wasn't sent: the server didn't say which version of the session to change.")

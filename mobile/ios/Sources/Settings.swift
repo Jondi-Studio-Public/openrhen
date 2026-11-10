@@ -17,7 +17,7 @@ struct SettingsView: View {
                     } else {
                         Text("Not connected")
                     }
-                    Text("Revoke this phone from the portal's Devices page to end its access.").font(.footnote)
+                    Text("Removing the phone here also revokes it on the portal. You can revoke it from the portal's Devices page too.").font(.footnote)
                 }
                 Section(header: Text("Location")) {
                     Text(location.status).font(.footnote).foregroundStyle(.secondary)
@@ -36,13 +36,13 @@ struct SettingsView: View {
             .confirmationDialog("Remove this phone from the app?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
                 Button("Remove", role: .destructive) {
                     Task { @MainActor in
-                        session.signOut()
+                        await session.signOut()
                         dismiss()
                     }
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("It stays listed on the portal until you remove it there.")
+                Text("The phone first asks the portal to remove it. If it cannot reach the portal, it still signs out here and stays listed on the Devices page until you remove it there.")
             }
         }
     }

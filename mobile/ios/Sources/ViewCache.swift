@@ -75,7 +75,6 @@ enum TimeText {
 enum ClientRequests {
     static let viewPath = "/api/client/view?parts=now,day,pending"
     static let eventsPath = "/api/events"
-    static let statePath = "/api/state"
 
     private static func get(origin: String, path: String, token: String, headers: [String: String] = [:], timeout: TimeInterval = ApiRequests.timeout) -> URLRequest? {
         guard let target = ApiRequests.endpoint(origin: origin, path: path) else { return nil }
@@ -96,11 +95,6 @@ enum ClientRequests {
     /// The server's event stream. The server pings every 25 seconds, so a connection silent for 90 is dead.
     static func events(origin: String, token: String) -> URLRequest? {
         get(origin: origin, path: eventsPath, token: token, headers: ["Accept": "text/event-stream"], timeout: 90)
-    }
-
-    /// The whole plan state, read only to find the version a command must name.
-    static func state(origin: String, token: String) -> URLRequest? {
-        get(origin: origin, path: statePath, token: token, headers: ["Accept": "application/json"], timeout: 30)
     }
 
     /// `POST /api/check-ins/{id}/shown`, no body. nil when `id` is not a plain id (nothing is sent).

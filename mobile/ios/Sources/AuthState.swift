@@ -28,8 +28,8 @@ final class SessionCore {
 
     /// Keeps a freshly issued token. False (and still signed out) when the store refused to keep it.
     @discardableResult
-    func complete(token: String, origin: String) -> Bool {
-        let session = DeviceSession(token: token, origin: origin)
+    func complete(token: String, origin: String, credentialId: String? = nil) -> Bool {
+        let session = DeviceSession(token: token, origin: origin, credentialId: credentialId)
         guard store.saveSession(session) else { return false }
         set(AuthState(session: session, notice: nil))
         return true
@@ -42,9 +42,10 @@ final class SessionCore {
     }
 
     /// The person chose to remove the phone from the app.
-    func signOut() {
+    /// `notice` says what the portal was left holding (for instance that the phone could not be removed there).
+    func signOut(notice: String? = nil) {
         guard state.session != nil else { return }
-        end(notice: nil)
+        end(notice: notice)
     }
 
     func dismissNotice() {

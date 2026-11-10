@@ -39,7 +39,7 @@ final class AppSession: ObservableObject {
         case .failure(let error):
             return error.message
         case .success(let issued):
-            guard core.complete(token: issued.token, origin: payload.origin) else {
+            guard core.complete(token: issued.token, origin: payload.origin, credentialId: issued.credentialId) else {
                 return "The phone could not keep the sign-in (its secure storage refused it). Try again."
             }
             return nil
@@ -69,7 +69,7 @@ final class AppSession: ObservableObject {
                 return .failed(failure.message)
             case .approved:
                 guard let issued else { return .failed(DeviceCodeFailure.unexpected("no token").message) }
-                guard core.complete(token: issued.token, origin: origin) else {
+                guard core.complete(token: issued.token, origin: origin, credentialId: issued.credentialId) else {
                     return .failed("The phone could not keep the sign-in (its secure storage refused it). Try again.")
                 }
                 return .signedIn
@@ -81,9 +81,18 @@ final class AppSession: ObservableObject {
     @MainActor
     func tokenRejected(_ token: String) { core.tokenRejected(token) }
 
-    /// The person chose to remove the phone from the app. (The portal's Devices page still lists it until removed there.)
+    /// The person chose to remove the phone from the app. The phone first revokes its own credential at the portal
+    /// (`DELETE /api/owner/credentials/{id}`); if that cannot be done it still signs out here and says so.
     @MainActor
-    func signOut() { core.signOut() }
+    func signOut() async {
+        guard let device = auth.session else { return }
+        var outcome = SignOutRevoke.notAttempted
+        if let id = device.credentialId,
+           let request = ApiRequests.revokeOwnCredential(origin: device.origin, token: device.token, credentialId: id) {
+            outcome = SignOutRevoke.interpret(await api.send(request))
+        }
+        core.signOut(notice: outcome.notice)
+    }
 
     @MainActor
     func dismissNotice() { core.dismissNotice() }

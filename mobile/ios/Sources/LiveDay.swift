@@ -360,25 +360,27 @@ final class LiveDay: ObservableObject {
         case signedOut
     }
 
-    /// Reads the plan state for the one fact the client view does not carry: the version a session or start command
-    /// must name. A session that has changed since the person tapped is reported in words, never overwritten.
+    /// Reads the client view afresh (no cached tag) for the version a session or start command must name:
+    /// `pending.session.version`, or `now.directive.expectedVersion`. A session that has changed since the person
+    /// tapped is reported in words, never overwritten.
     @MainActor
     private func lookUpVersion(for command: OutboxCommand, device: DeviceSession) async -> Lookup {
-        guard let request = ClientRequests.state(origin: device.origin, token: device.token) else {
+        guard let request = ClientRequests.view(origin: device.origin, token: device.token, etag: nil) else {
             return .held("This command could not be built for your server's address.")
         }
         let answer = await session.api.send(request)
-        guard let answer else { return .retry }
-        if answer.status == 401 { return .signedOut }
-        if !(200..<300).contains(answer.status) {
-            if answer.status >= 500 || answer.status == 429 { return Lookup.retry }
-            let failure = ApiResponses.failure(for: answer, signed: true)
-            return Lookup.held(failure?.message ?? "The server refused the lookup.")
-        }
-        guard let probe = StateProbe.decode(answer.body) else { return .held("The plan's state could not be read to check this command.") }
-        switch VersionResolution.resolve(command, probe: probe) {
-        case .send(let version, let sessionId): return .resolved(version: version, sessionId: sessionId)
-        case .conflict(let sentence): return .held(sentence)
+        switch ViewFetch.interpret(answer, previous: nil, now: Date()) {
+        case .unreachable: return .retry
+        case .revoked: return .signedOut
+        case .unchanged: return .retry
+        case .failed(let message):
+            if let status = answer?.status, status >= 500 || status == 429 || status == 408 { return .retry }
+            return .held(message)
+        case .updated(let cached):
+            switch VersionResolution.resolve(command, view: cached.view) {
+            case .send(let version, let sessionId): return .resolved(version: version, sessionId: sessionId)
+            case .conflict(let sentence): return .held(sentence)
+            }
         }
     }
 
