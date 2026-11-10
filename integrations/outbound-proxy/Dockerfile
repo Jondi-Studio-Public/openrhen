@@ -5,7 +5,7 @@
 # set only on this container, which is never published on the LAN, while the portal - which is -
 # holds nothing but this service's URL and a bearer token. Every outbound HTTPS call the portal
 # needs goes here.
-FROM node:24.22.1-alpine AS build
+FROM node:24.22.2-alpine AS build
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
@@ -18,7 +18,7 @@ COPY integrations/outbound-proxy integrations/outbound-proxy
 COPY platform/contracts platform/contracts
 RUN pnpm --filter @openrhen/outbound-proxy build
 
-FROM node:24.22.1-alpine
+FROM node:24.22.2-alpine
 WORKDIR /app
 # main.js, plus any one-time tool a drop-in ships (drop-ins/<name>/bin).
 COPY --from=build /app/integrations/outbound-proxy/dist ./
