@@ -22,6 +22,8 @@ final class LocationReporter: NSObject, ObservableObject, CLLocationManagerDeleg
     private var lastAccepted = Date.distantPast
     private var draining = false
     private var retryTask: Task<Void, Never>?
+    /// Told about every reading, so the interval between iOS's wakes is measured (set at launch, see OpenRhenApp.init).
+    weak var sensors: SensorCenter?
 
     /// How long to wait before retrying a ping the portal could not take.
     private static let retryDelay: UInt64 = 60 * 1_000_000_000
@@ -65,7 +67,10 @@ final class LocationReporter: NSObject, ObservableObject, CLLocationManagerDeleg
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let fix = locations.last else { return }
-        Task { @MainActor in self.accept(fix) }
+        Task { @MainActor in
+            self.sensors?.wake(.location)
+            self.accept(fix)
+        }
     }
 
     @MainActor

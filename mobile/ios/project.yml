@@ -13,6 +13,12 @@ targets:
     type: application
     platform: iOS
     sources: [Sources]
+    # HealthKit is the only capability (documented as available on a free account; not yet tried on a phone). No App Group, no shared Keychain group, no background-delivery entitlement.
+    entitlements:
+      path: OpenRhen.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+        com.apple.developer.healthkit.access: []
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.openrhen.app
@@ -24,6 +30,7 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         NSCameraUsageDescription: Scan the code your portal shows to add this phone, and take photos for uploads through the portal.
+        NSHealthShareUsageDescription: OpenRhen reads your sleep, steps, heart rate and heart-rate variability from Health and sends them to your own portal as context for your plan. It writes nothing to Health.
         NSLocationWhenInUseUsageDescription: Tell OpenRhen where you are so it can plan the day.
         NSLocationAlwaysAndWhenInUseUsageDescription: Tell OpenRhen when you arrive or leave a place, even when the app is closed.
         # App Transport Security stays at its default: https only, no exceptions. The portal is reached

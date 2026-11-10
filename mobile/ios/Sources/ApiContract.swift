@@ -13,6 +13,7 @@ enum ApiPath {
     static let codePoll = "/api/owner/devices/code/token"
     static let webSession = "/api/owner/web-session"
     static let locationPing = "/api/location/ping"
+    static let activityEvents = "/api/activity-events"
 }
 
 /// What a call can fail with, each with the words the person sees.
@@ -138,9 +139,20 @@ enum ApiRequests {
         return request
     }
 
+    /// `POST /api/activity-events`: a batch of sensor rows (physiology and the phone's heartbeat). `device` is the install id.
+    /// Up to 1 MB, so it gets longer than an ordinary call.
+    static func activityEvents(origin: String, token: String, installId: String, events: [SensorEvent]) -> URLRequest? {
+        guard let data = SensorWire.batchBody(device: installId, events: events) else { return nil }
+        return postData(origin: origin, path: ApiPath.activityEvents, token: token, data: data, timeout: 60)
+    }
+
     static func post(origin: String, path: String, token: String?, body: [String: Any]) -> URLRequest? {
-        guard let target = endpoint(origin: origin, path: path),
-              let data = try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys]) else { return nil }
+        guard let data = try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys]) else { return nil }
+        return postData(origin: origin, path: path, token: token, data: data, timeout: timeout)
+    }
+
+    static func postData(origin: String, path: String, token: String?, data: Data, timeout: TimeInterval) -> URLRequest? {
+        guard let target = endpoint(origin: origin, path: path) else { return nil }
         var request = URLRequest(url: target, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

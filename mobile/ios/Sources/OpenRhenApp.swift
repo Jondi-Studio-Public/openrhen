@@ -5,6 +5,7 @@ struct OpenRhenApp: App {
     @StateObject private var session: AppSession
     @StateObject private var location: LocationReporter
     @StateObject private var live: LiveDay
+    @StateObject private var sensors: SensorCenter
     @Environment(\.scenePhase) private var scenePhase
 
     // Built here, not in onAppear: significant-change monitoring relaunches the app in the
@@ -12,7 +13,11 @@ struct OpenRhenApp: App {
     init() {
         let session = AppSession(api: ApiClient(), store: KeychainCredentialStore())
         _session = StateObject(wrappedValue: session)
-        _location = StateObject(wrappedValue: LocationReporter(session: session, file: OutboxFile(directory: OutboxFile.defaultDirectory())))
+        let location = LocationReporter(session: session, file: OutboxFile(directory: OutboxFile.defaultDirectory()))
+        let sensors = SensorCenter(session: session, directory: OutboxFile.defaultDirectory())
+        location.sensors = sensors
+        _location = StateObject(wrappedValue: location)
+        _sensors = StateObject(wrappedValue: sensors)
         _live = StateObject(wrappedValue: LiveDay(session: session, directory: OutboxFile.defaultDirectory()))
     }
 
@@ -22,10 +27,12 @@ struct OpenRhenApp: App {
                 .environmentObject(session)
                 .environmentObject(location)
                 .environmentObject(live)
+                .environmentObject(sensors)
                 .onAppear { ResignReminder.schedule() }
                 .onChange(of: scenePhase) { phase in
                     if phase == .active {
                         location.drain()
+                        sensors.appBecameActive()
                         live.start()
                     } else if phase == .background {
                         live.stop()

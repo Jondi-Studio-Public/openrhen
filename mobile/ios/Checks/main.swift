@@ -749,5 +749,211 @@ if let saved = try? JSONEncoder().encode(DeviceSession(token: "a", origin: "http
 revokeCore.signOut(notice: SignOutRevoke.offline.notice)
 check(revokeCore.state.session == nil && revokeStore.loadSession() == nil && revokeCore.state.notice == SignOutRevoke.offline.notice, "an offline sign-out still signs out locally and shows why")
 
+
+// MARK: Phone as sensor (slice 5): Health to physiology rows, the sensor queue, wakes and words
+func sensorChecks() {
+    let base = Date(timeIntervalSince1970: 1_793_998_800) // 2026-11-06T21:00:00Z, an hour boundary
+    let zone10: (Date) -> Int = { _ in 600 }
+    func rows(_ list: [PlannedRow], _ kind: String) -> [PlannedRow] { list.filter { $0.kind == kind } }
+    func intList(_ value: SensorValue?) -> [Int] {
+        guard case .array(let items)? = value else { return [] }
+        return items.compactMap { item -> Int? in if case .int(let number) = item { return number }; return nil }
+    }
+
+    // The alive signal's key is the one the server demands: hb:<device>:<UTC hour>:ok
+    check(SensorHeartbeat.id(device: "abc", at: base.addingTimeInterval(125)) == "hb:abc:2026-11-06T21:ok", "heartbeat key names the device and the UTC hour")
+    check(SensorHeartbeat.event(device: "abc", now: base).source == "phone" && SensorHeartbeat.event(device: "abc", now: base).kind == "heartbeat", "heartbeat is source phone, kind heartbeat")
+    check(SensorDevice.label(fromInstallId: "abc-DEF_1.2:3") == "abc-DEF_1.2:3" && SensorDevice.label(fromInstallId: "ab c|d") == "abcd", "the device label keeps only the characters the server allows")
+    check(SensorDevice.label(fromInstallId: "") == nil && SensorDevice.label(fromInstallId: String(repeating: "a", count: 70))?.count == 64, "an empty label is nothing; a long one is cut to 64")
+
+    // Local date of waking
+    let wake = Date(timeIntervalSince1970: 1_794_002_400 + 3600 * 1) // 2026-11-06T23:00Z + 1h = 2026-11-07T00:00Z
+    check(HealthRows.localDate(wake, offsetMin: 600) == "2026-11-07" && HealthRows.localDate(wake, offsetMin: -300) == "2026-11-06", "local date follows the offset")
+
+    // Steps: ended hours only, none empty, rounded
+    let now3 = base.addingTimeInterval(3 * 3600)
+    let stepRows = HealthRows.steps([
+        HourlyValue(hourStart: base, value: 99.6),
+        HourlyValue(hourStart: base.addingTimeInterval(3600), value: 0),
+        HourlyValue(hourStart: base.addingTimeInterval(2 * 3600), value: 500),
+    ], now: now3, offset: zone10)
+    check(stepRows.count == 1 && stepRows[0].period == "2026-11-06T21:00:00.000Z" && stepRows[0].attrs["steps"] == .int(100), "steps: the ended hour is a row, rounded; an empty hour and an unsettled one are not")
+    check(stepRows.first?.tzOffsetMin == 600 && stepRows.first?.end == nil, "steps carry the offset and no end")
+
+    // Heart rate: irregular readings, one a second, out-of-range ones dropped, whole numbers
+    let hrRows = HealthRows.heartRate([
+        Reading(at: base.addingTimeInterval(10), value: 60.4), Reading(at: base.addingTimeInterval(20), value: 70.2),
+        Reading(at: base.addingTimeInterval(20.7), value: 99), Reading(at: base.addingTimeInterval(30), value: 80),
+        Reading(at: base.addingTimeInterval(40), value: 300), Reading(at: base.addingTimeInterval(50), value: 10),
+        Reading(at: base.addingTimeInterval(2 * 3600 + 5), value: 70),
+    ], now: now3, offset: zone10)
+    if let row = hrRows.first {
+        check(hrRows.count == 1, "heart rate: only the settled hour is a row")
+        check(intList(row.attrs["t"]) == [10, 20, 30] && intList(row.attrs["values"]) == [60, 70, 80], "heart rate: sorted distinct seconds; 300 and 10 bpm are dropped, not sent")
+        check(row.attrs["step_s"] == .null && row.attrs["n"] == .int(3) && row.attrs["min"] == .int(60) && row.attrs["max"] == .int(80) && row.attrs["avg"] == .double(70), "heart rate: irregular, n/min/max/avg")
+        check(row.attrs["coverage_s"] == .int(45) && row.attrs["unit"] == .string("bpm") && row.period == "2026-11-06T21:00:00.000Z", "heart rate: coverage is 15 s per slot with a reading; unit bpm")
+    } else { check(false, "heart rate row built") }
+    var dense: [Reading] = []
+    for index in 0..<500 { dense.append(Reading(at: base.addingTimeInterval(Double(index) * 7), value: Double(50 + index % 40))) }
+    if let thin = HealthRows.heartRate(dense, now: now3, offset: zone10).first {
+        let offsets = intList(thin.attrs["t"])
+        check(offsets.count <= 240 && offsets == offsets.sorted() && Set(offsets).count == offsets.count && intList(thin.attrs["values"]).count == offsets.count, "heart rate: more than 240 readings are thinned to at most 240, sorted and distinct")
+        check(thin.attrs["n"] == .int(offsets.count), "heart rate: n counts the readings kept")
+    } else { check(false, "dense heart rate row built") }
+    check(HealthRows.heartRate([Reading(at: base.addingTimeInterval(5), value: 70)], now: base.addingTimeInterval(1800), offset: zone10).isEmpty, "an hour that has not settled is not built")
+    check(HealthRows.heartRate([Reading(at: base.addingTimeInterval(5), value: 5)], now: now3, offset: zone10).isEmpty, "an hour with only out-of-range readings is not built")
+
+    // Variability: SDNN in ms with one decimal
+    if let hrv = HealthRows.heartRateVariability([Reading(at: base.addingTimeInterval(60), value: 42.345)], now: now3, offset: zone10).first {
+        check(hrv.kind == "hrv" && hrv.attrs["method"] == .string("sdnn") && hrv.attrs["unit"] == .string("ms") && hrv.attrs["values"] == .array([.double(42.3)]), "hrv: method sdnn, unit ms, one decimal")
+    } else { check(false, "hrv row built") }
+
+    // Sleep: overlaps flattened (specific stage wins), a nap is not a night, the date is the local date of waking
+    let hour: TimeInterval = 3600
+    let night: [SleepPiece] = [
+        SleepPiece(start: base, end: base.addingTimeInterval(8 * hour), stage: .inBed, raw: "inBed"),
+        SleepPiece(start: base, end: base.addingTimeInterval(8 * hour), stage: .asleep, raw: "asleepUnspecified"),
+        SleepPiece(start: base.addingTimeInterval(600), end: base.addingTimeInterval(3 * hour), stage: .light, raw: "asleepCore"),
+        SleepPiece(start: base.addingTimeInterval(3 * hour), end: base.addingTimeInterval(4 * hour), stage: .deep, raw: "asleepDeep"),
+        SleepPiece(start: base.addingTimeInterval(4 * hour), end: base.addingTimeInterval(4 * hour + 300), stage: .awake, raw: "awake"),
+        SleepPiece(start: base.addingTimeInterval(4 * hour + 300), end: base.addingTimeInterval(7 * hour), stage: .rem, raw: "asleepREM"),
+    ]
+    let flat = HealthRows.flatten(night)
+    check(flat.map { $0.stage } == [.asleep, .light, .deep, .awake, .rem, .asleep], "sleep: where pieces overlap the more specific stage wins")
+    check(flat.first?.start == base && flat.last?.end == base.addingTimeInterval(8 * hour), "sleep: segments cover the night without overlap")
+    let nap = [SleepPiece(start: base.addingTimeInterval(20 * hour), end: base.addingTimeInterval(21 * hour), stage: .asleep, raw: nil)]
+    let sleepRows = HealthRows.sleep(night + nap, now: base.addingTimeInterval(30 * hour), offset: zone10)
+    if let row = sleepRows.first {
+        check(sleepRows.count == 1, "sleep: a one-hour nap is not a night")
+        check(row.period == "2026-11-07" && row.attrs["local_date"] == .string("2026-11-07") && row.start == base && row.end == base.addingTimeInterval(8 * hour), "sleep: keyed by the local date of waking; starts and ends with the night")
+        if case .array(let segments)? = row.attrs["segments"], case .object(let last)? = segments.last {
+            check(segments.count == 6 && last["end_s"] == .int(8 * 3600) && last["stage"] == .string("asleep"), "sleep: six segments, offsets from the start of the night")
+        } else { check(false, "sleep segments present") }
+    } else { check(false, "sleep row built") }
+    check(HealthRows.sleep(night, now: base.addingTimeInterval(8 * hour + 600), offset: zone10).isEmpty, "sleep: a night that ended minutes ago is not built yet")
+    check(HealthRows.sleep(nap, now: base.addingTimeInterval(40 * hour), offset: zone10).isEmpty, "sleep: only a nap is no row")
+    var fragments: [SleepPiece] = []
+    for index in 0..<400 { fragments.append(SleepPiece(start: base.addingTimeInterval(Double(index) * 120), end: base.addingTimeInterval(Double(index) * 120 + 60), stage: index % 2 == 0 ? .light : .awake, raw: nil)) }
+    if let many = HealthRows.sleep(fragments, now: base.addingTimeInterval(40 * hour), offset: zone10).first, case .array(let segments)? = many.attrs["segments"] {
+        check(segments.count <= HealthRows.maxSegments, "sleep: at most 200 segments, the shortest dropped first")
+    } else { check(false, "fragmented sleep still builds a row") }
+
+    // Sync window
+    let last = base.addingTimeInterval(10 * 86_400 + 1234)
+    let window = HealthSyncPlan.window(lastGoodRead: last, now: last.addingTimeInterval(600))
+    check(window.from == HealthRows.hourStart(last.addingTimeInterval(-HealthSyncPlan.rereadWindow)) && window.sleepFrom == window.from.addingTimeInterval(-HealthSyncPlan.sleepExtra), "window: re-reads two days before the last good read, sleep a little earlier")
+    check(HealthSyncPlan.window(lastGoodRead: nil, now: base).from == HealthRows.hourStart(base.addingTimeInterval(-HealthSyncPlan.firstLookback)), "window: the first read goes back a month")
+    check(HealthSyncPlan.window(lastGoodRead: base.addingTimeInterval(-900 * 86_400), now: base).from >= base.addingTimeInterval(-HealthSyncPlan.maxLookback - 3600), "window: never older than the server takes")
+
+    // The plan: versions, no repeats, replacement while queued, the next version while in the air, refusals
+    let device = "abc123"
+    func stepRow(_ steps: Int) -> PlannedRow {
+        PlannedRow(kind: "steps", period: "2026-11-06T21:00:00.000Z", start: base, end: nil, tzOffsetMin: 600, attrs: ["steps": .int(steps)])
+    }
+    var state = SensorState()
+    check(state.plan([stepRow(100)], device: device, now: base) == 1 && state.items.first?.id == "steps|abc123|2026-11-06T21:00:00.000Z|v0", "plan: a new period is version 0 under the canonical key")
+    check(state.items.first?.attrs["device"] == .string(device) && state.items.first?.attrs["route"] == .string("phone-app") && state.items.first?.attrs["v"] == .int(0) && state.items.first?.source == "physiology", "plan: every row carries device, route and v")
+    check(state.plan([stepRow(100)], device: device, now: base) == 0 && state.count == 1, "plan: the same content is not queued twice")
+    check(state.plan([stepRow(150)], device: device, now: base) == 1 && state.count == 1 && state.items.first?.attrs["steps"] == .int(150) && state.items.first?.v == 0, "plan: a queued row not yet sent takes the newer content at the same version")
+    guard case .send(let first) = state.nextBatch(now: base) else { check(false, "a batch is picked"); return }
+    check(first.count == 1 && state.sending.contains(first[0].id), "the batch is marked as in the air")
+    check(state.plan([stepRow(180)], device: device, now: base) == 1 && state.count == 2 && state.items.last?.v == 1, "plan: a change while the first is in the air is the next version")
+    check(state.apply(.accepted(rejected: []), sent: first, now: base) == .continueDraining && state.count == 1 && state.ledger["steps|abc123|2026-11-06T21:00:00.000Z"]?.v == 0, "an accepted row leaves the queue and is remembered")
+    check(state.plan([stepRow(150)], device: device, now: base) == 0, "plan: content the server already has is not sent again")
+    guard case .send(let second) = state.nextBatch(now: base) else { check(false, "second batch picked"); return }
+    _ = state.apply(.accepted(rejected: [SensorRejection(index: 0, reason: "attrs.v is wrong")]), sent: second, now: base.addingTimeInterval(5))
+    check(state.count == 0 && state.setAside.count == 1 && state.setAside[0].message == "attrs.v is wrong" && state.setAside[0].label == "Steps for 2026-11-06T21:00 UTC", "a refused row is set aside with the server's reason")
+    check(state.plan([stepRow(180)], device: device, now: base) == 0, "plan: refused content is not sent again")
+    check(state.plan([stepRow(200)], device: device, now: base) == 1 && state.items.first?.v == 1, "plan: changed content after a refusal is the next version")
+
+    // Heartbeat: one an hour
+    var beat = SensorState()
+    check(beat.planHeartbeat(device: device, now: base) && !beat.planHeartbeat(device: device, now: base.addingTimeInterval(600)) && beat.count == 1, "heartbeat: one queued per UTC hour")
+    check(beat.planHeartbeat(device: device, now: base.addingTimeInterval(3700)) && beat.count == 2, "heartbeat: the next hour queues another")
+
+    // Batches: the byte limit, backoff, a refused batch split down to the one at fault, a revoked phone
+    var big = SensorState()
+    let blob = String(repeating: "a", count: 600_000)
+    for index in 0..<3 {
+        big.plan([PlannedRow(kind: "steps", period: "p\(index)", start: base, end: nil, tzOffsetMin: nil, attrs: ["blob": .string(blob)])], device: device, now: base)
+    }
+    if case .send(let batch) = big.nextBatch(now: base) { check(batch.count == 1, "batch: a second 600 KB row would pass 1 MB, so the batch is one row") } else { check(false, "big batch picked") }
+    var backoff = SensorState()
+    backoff.plan([stepRow(1)], device: device, now: base)
+    guard case .send(let sent) = backoff.nextBatch(now: base) else { check(false, "backoff batch"); return }
+    check(backoff.apply(.retry(after: nil, note: "offline"), sent: sent, now: base) == .retryLater && backoff.notBefore == base.addingTimeInterval(5) && backoff.count == 1, "retry: the row stays and waits 5 s")
+    check(backoff.nextBatch(now: base.addingTimeInterval(2)) == .wait(until: base.addingTimeInterval(5)), "retry: nothing is sent while backing off")
+    if case .send(let again) = backoff.nextBatch(now: base.addingTimeInterval(6)) {
+        _ = backoff.apply(.retry(after: 60, note: "busy"), sent: again, now: base.addingTimeInterval(6))
+        check(backoff.notBefore == base.addingTimeInterval(66), "retry: a server wait longer than the backoff is honoured")
+    } else { check(false, "retry batch picked") }
+    check(SensorState.backoff(attempts: 1) == 5 && SensorState.backoff(attempts: 2) == 10 && SensorState.backoff(attempts: 30) == 300, "backoff doubles to five minutes")
+    var split = SensorState()
+    for index in 0..<4 { split.plan([PlannedRow(kind: "steps", period: "q\(index)", start: base, end: nil, tzOffsetMin: nil, attrs: ["steps": .int(index + 1)])], device: device, now: base) }
+    guard case .send(let all) = split.nextBatch(now: base) else { check(false, "split batch"); return }
+    check(all.count == 4, "batch: four small rows go together")
+    _ = split.apply(.refused("too large"), sent: all, now: base)
+    if case .send(let half) = split.nextBatch(now: base) { check(half.count == 2 && split.count == 4, "refused batch: tried again with half") } else { check(false, "half batch") }
+    split = SensorState()
+    split.plan([stepRow(1)], device: device, now: base)
+    guard case .send(let lone) = split.nextBatch(now: base) else { check(false, "lone batch"); return }
+    _ = split.apply(.refused("not valid JSON"), sent: lone, now: base)
+    check(split.count == 0 && split.setAside.first?.message == "not valid JSON", "refused batch of one: set aside with the reason")
+    var revoked = SensorState()
+    revoked.plan([stepRow(1)], device: device, now: base)
+    guard case .send(let doomed) = revoked.nextBatch(now: base) else { check(false, "revoked batch"); return }
+    check(revoked.apply(.revoked, sent: doomed, now: base) == .signedOut && revoked.count == 0 && revoked.ledger.isEmpty, "a revoked phone empties the sensor queue")
+
+    // What the server says
+    check(SensorReply.interpret(answer(200, "{\"added\":1,\"rejected\":[{\"index\":2,\"reason\":\"bad key\"}]}")) == .accepted(rejected: [SensorRejection(index: 2, reason: "bad key")]), "reply: a 200 lists the rows it refused")
+    check(SensorReply.interpret(answer(200, "not json")) == .accepted(rejected: []), "reply: a 200 is accepted even if the body is unreadable")
+    check(SensorReply.interpret(answer(401, "{\"error\":\"x\"}")) == .revoked, "reply: 401 is a removed phone")
+    check(SensorReply.interpret(answer(403, "{\"error\":\"This host is not allowed.\"}")) != .revoked && { if case .retry = SensorReply.interpret(answer(403, "{\"error\":\"This host is not allowed.\"}")) { return true }; return false }(), "reply: a host the server does not allow is retried, not blamed on the rows")
+    check(SensorReply.interpret(answer(429, "{}", retryAfter: 30)) == .retry(after: 30, note: ApiError.rateLimited(retryAfter: 30).message), "reply: a rate limit waits as long as asked")
+    check({ if case .retry = SensorReply.interpret(answer(503)) { return true }; return false }(), "reply: a 5xx is retried")
+    check(SensorReply.interpret(answer(413, "{\"error\":\"too big\"}")) == .refused("too big"), "reply: a 413 is refused with the server's words")
+
+    // The request
+    if let request = ApiRequests.activityEvents(origin: "https://p.example.com", token: "tokS", installId: device, events: [SensorHeartbeat.event(device: device, now: base)]),
+       let body = request.httpBody.flatMap({ String(data: $0, encoding: .utf8) }) {
+        check(request.url?.absoluteString == "https://p.example.com/api/activity-events" && request.httpMethod == "POST" && request.value(forHTTPHeaderField: ApiRequests.ownerHeader) == "tokS", "request: POST /api/activity-events with the owner token")
+        check(body.contains("\"device\":\"abc123\"") && body.contains("\"schema\":1") && body.contains("\"id\":\"hb:abc123:2026-11-06T21:ok\""), "request: the batch names the device and carries the heartbeat key")
+    } else { check(false, "the batch request builds") }
+    check(ApiRequests.activityEvents(origin: "http://p.example.com", token: "t", installId: device, events: []) == nil, "request: https only")
+    check(SensorWire.data(.double(63.67)).flatMap { String(data: $0, encoding: .utf8) } == "63.67", "wire: a decimal is written as itself")
+
+    // The file: the queue survives a restart, an older file still loads
+    let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .secondsSince1970
+    let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .secondsSince1970
+    if let data = try? encoder.encode(state), let back = try? decoder.decode(SensorState.self, from: data) {
+        check(back == state, "state: the queue, ledger and set-aside list survive the file")
+    } else { check(false, "state encodes and decodes") }
+    check((try? decoder.decode(SensorState.self, from: Data("{}".utf8)))?.count == 0, "state: a file with fewer fields still loads")
+    var restarted = state
+    _ = restarted.nextBatch(now: base)
+    restarted.clearInFlight()
+    check(restarted.sending.isEmpty, "state: a request lost at restart is no longer in the air")
+
+    // Wakes: only background wakes count; one wake is not counted twice
+    var wakes = WakeLog()
+    for offset in [0.0, 600, 600.5, 1800] { wakes.record(.location, at: base.addingTimeInterval(offset), background: true) }
+    wakes.record(.location, at: base.addingTimeInterval(2000), background: false)
+    if let summary = wakes.summary(.location) {
+        check(summary.wakes == 3 && summary.medianGap == 900 && summary.longestGap == 1200, "wakes: three background wakes, gaps 10 and 20 minutes")
+    } else { check(false, "wake summary") }
+    check(wakes.summary(.health) == nil, "wakes: none for a kind that never woke the app")
+    let utc = TimeZone(secondsFromGMT: 0) ?? TimeZone.current
+    check(SensorWords.wakes(wakes, zone: utc).first?.contains("woke the app in the background 3 times") == true && SensorWords.wakes(WakeLog(), zone: utc).isEmpty, "wake words: measured, and silent before any")
+
+    // Words
+    check(SensorWords.span(300) == "5 minutes" && SensorWords.span(3 * 3600) == "3 hours" && SensorWords.span(3 * 86_400) == "3 days", "span words")
+    var waiting = SensorState()
+    waiting.plan([stepRow(1)], device: device, now: base)
+    check(SensorWords.queue(waiting, now: base.addingTimeInterval(60)).warning == nil && SensorWords.queue(waiting, now: base.addingTimeInterval(2 * 86_400)).warning?.contains("over a day") == true && SensorWords.queue(waiting, now: base.addingTimeInterval(8 * 86_400)).warning?.contains("week") == true, "queue words: a warning after a day, a stronger one after a week")
+    check(SensorWords.queue(SensorState(), now: base).headline == "No sensor data is waiting to be sent.", "queue words: empty")
+    check(SensorWords.serverSide.contains("does not yet tell"), "the screen says the server-side part is not there yet")
+}
+sensorChecks()
+
 if failures > 0 { print("\(failures) check(s) failed"); exit(1) }
 print("All checks passed")

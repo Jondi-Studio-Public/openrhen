@@ -7,6 +7,7 @@ struct SettingsView: View {
     @EnvironmentObject var location: LocationReporter
     @Environment(\.dismiss) private var dismiss
     @State private var confirmingSignOut = false
+    @AppStorage(HealthSettings.key) private var sendHealth = true
 
     var body: some View {
         NavigationView {
@@ -22,6 +23,11 @@ struct SettingsView: View {
                 Section(header: Text("Location")) {
                     Text(location.status).font(.footnote).foregroundStyle(.secondary)
                     Text("Place changes are sent to your portal with this phone's sign-in. Turn location off in the system Settings if you do not want that.")
+                        .font(.footnote)
+                }
+                Section(header: Text("Health")) {
+                    Toggle("Send sleep, steps and heart rate", isOn: $sendHealth)
+                    Text("Your sleep, steps, heart rate and heart-rate variability are read from the Health app (nothing is written to it) and sent to your portal as context for your plan. They never change what the plan allows. iOS asks once for permission; turn this off to stop sending.")
                         .font(.footnote)
                 }
                 Section(header: Text("Re-signing")) {

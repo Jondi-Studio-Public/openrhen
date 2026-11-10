@@ -5,12 +5,14 @@ cd "$(dirname "$0")"
 
 xcodebuild -version
 # The pure files (Foundation only): URL rules, QR payload, request/response contract, device-code poll loop, ping outbox,
-# sign-in state, the client view types, cache and presentation words, the command outbox and the session flow. The checks
+# sign-in state, the client view types, cache and presentation words, the command outbox, the session flow and the sensor rows
+# (Health to physiology rows, the sensor queue and its words). The checks
 # decode every fixture in platform/contracts/client-view-fixtures.v1.json with the Swift types and fail on a mismatch.
 swiftc Sources/HostPolicy.swift Sources/Policies.swift Sources/PairingPayload.swift Sources/CredentialStore.swift \
   Sources/ApiContract.swift Sources/DeviceCodePoller.swift Sources/PingOutbox.swift Sources/AuthState.swift \
   Sources/ClientView.swift Sources/LocalFiles.swift Sources/ViewCache.swift Sources/ViewPresentation.swift \
   Sources/CommandContract.swift Sources/CommandOutbox.swift Sources/SessionFlow.swift \
+  Sources/SensorEvents.swift Sources/HealthRows.swift Sources/SensorOutbox.swift Sources/SensorWords.swift \
   Checks/main.swift -o host-policy-checks
 ./host-policy-checks ../../platform/contracts/client-view-fixtures.v1.json ../../platform/contracts/client-view-schema.v1.json
 command -v xcodegen >/dev/null || brew install xcodegen
