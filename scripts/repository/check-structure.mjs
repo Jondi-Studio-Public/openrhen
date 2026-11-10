@@ -28,6 +28,7 @@ const expectedPackages = new Map([
   ["platform/database/package.json", "@openrhen/database"],
   ["integrations/activity-importers/package.json", "@openrhen/activity-importers"],
   ["integrations/communication-readers/package.json", "@openrhen/communication-readers"],
+  ["integrations/signal-readers/package.json", "@openrhen/signal-readers"],
   ["integrations/outbound-proxy/package.json", "@openrhen/outbound-proxy"],
   ["integrations/openclaw-plugin/package.json", "@openrhen/openclaw-plugin"],
   ["tools/cli/package.json", "@openrhen/cli"]
@@ -201,6 +202,13 @@ for (const absolute of maintainedFiles) {
   if (source.startsWith("integrations/communication-readers/")) {
     for (const dependency of workspaceImports)
       errors.push(`${source} imports forbidden workspace package ${dependency}`);
+  }
+  // The signal readers are pure functions over position fixes and similar signals handed in as data. They may share the
+  // contracts' vocabulary and nothing else, and they hold no source or provider names.
+  if (source.startsWith("integrations/signal-readers/")) {
+    for (const dependency of workspaceImports)
+      if (dependency !== "@openrhen/contracts")
+        errors.push(`${source} imports forbidden workspace package ${dependency}`);
   }
   // The CLI is a LAN client of the portal, in the same trust position as the handheld: it reads and
   // writes only over the portal's HTTP routes, so it may share the wire contracts and nothing else; the one
