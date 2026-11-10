@@ -1,5 +1,5 @@
 export type { ActivityEventDraft, ByteSource, Stats } from "./types.js";
-export { ImportReadError, mergeStats, newStats, noteVerb, skip } from "./types.js";
+export { ImportReadError, count, mergeStats, newStats, noteVerb, skip, warn } from "./types.js";
 export { DupCounter, eventKey } from "./keys.js";
 export { jsonArrayObjects } from "./json-stream.js";
 export { csvRecords, headerIndex } from "./csv-stream.js";
@@ -24,6 +24,14 @@ export { isPhotoSidecarName, parseGooglePhotosSidecar, photoKindOf } from "./par
 export { parseFitMetrics } from "./parsers/fit.js";
 export { parseSpotifyHistory } from "./parsers/spotify.js";
 export { channelIdFromFolder, parseDiscordMessagesCsv, parseDiscordMessagesJson } from "./parsers/discord.js";
+export {
+  MAIL_DEFAULT_MAX_MESSAGE_BYTES,
+  MAIL_HARD_MAX_MESSAGE_BYTES,
+  parseMailFile,
+  type MailFile,
+  type MailKeying,
+  type MailOptions
+} from "./parsers/mail.js";
 export { parseAppleDate, parseAppleHealth } from "./parsers/apple-health.js";
 export {
   IMPORT_SOURCES,
@@ -33,5 +41,6 @@ export {
   type ImportJob,
   type ImportPlan,
   type ImportSourceName,
+  type MailPlanOptions,
   type YoutubeJob
 } from "./plan.js";

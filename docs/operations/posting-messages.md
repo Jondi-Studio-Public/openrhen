@@ -97,6 +97,12 @@ A quiet inbox and a dead collector look the same unless the collector says how f
 
 The activity store's existing mail source keeps its own shape (`thread_id`, a source-specific id, `from`, `to`, `from_self`, `direction`, `labels`, `subject`, plus header and calendar attrs) and its own readers; none of that changes and its rows keep working. `message@1` is additive. It uses the same field names where they overlap (`thread_id`, `from`, `to`, `from_self`, `direction`, `subject`) and the same `message_id` name that the mail classifier reads, so the existing mail collector can adopt the family later, by registering under it, without a rewrite of the fields it already sends. Until then its rows have no `attrs.fp` and no `mid:` key, and nothing here reads them differently. A new collector should use `message@1` from the start.
 
+## 6a. Loading mail files
+
+`rhen import mail <path> --source <your source>` posts standard `.mbox` and `.eml` files as `message@1` events into a source you registered (section 1), so a file archive and a live collector can share the contract. It is an explicit import (`import`/`importId`): the text is kept whatever the gate says. The key is `mid:<normalised Message-ID>` when the id passes `isRfcMessageId`, so it can match the same message from another source (section 4a); a message without a usable id gets the `fp:` key of section 3 (the importer computes it with `canonicalMessageKey`, and the server checks it) and no `message_id`. Use a source of its own for files: a re-import into a source hits the unique key and stays `alreadyHeld`, and the same message under a different key in one source is not compared. What it reads, what it counts and where it stops are in [Importing your data](importing-your-data.md).
+
+What the contract cannot carry from a mail file: the headers other than the closed attrs (`Cc` is merged into `to`; `Bcc`, `Reply-To`, `List-*`, authentication results and calendar parts are dropped), attachment names and content (only a count, in the import summary), HTML structure, and the file's own folder or label (only the file name, as `channel`). `thread_id` is derived from `References`, not given by the file.
+
 ## 7. Check your post
 
 Every entry in `rejected` names the field and the fix; treat it as a bug to fix, never as something to retry. Batch by bytes (at most 1.5 MB per request, the request cap is 2 MB), at most 1000 events per request. The owner sees the source's last event and ingest time in `GET /api/activity-events/summary`.

@@ -68,6 +68,13 @@ export const importCommand: CommandSpec = {
       type: "boolean",
       description: "commit: only the records with no blockers; blocked ones move to a new draft batch"
     },
+    source: { type: "string", placeholder: "name", description: "mail: the message@1 source to post to" },
+    "max-message-mib": {
+      type: "string",
+      placeholder: "n",
+      description: "mail: per-message size cap in MiB (default 128, at most 512)"
+    },
+    self: { type: "string", placeholder: "addresses", description: "mail: your own addresses, comma-separated" },
     "dry-run": { type: "boolean", description: "Print the request instead of sending it" },
     yes: { type: "boolean", description: "Confirm a commit or delete" }
   },
@@ -85,7 +92,8 @@ export const importCommand: CommandSpec = {
     "import takeout C:\\Users\\you\\Documents\\data-exports\\takeout-001.zip",
     "import timeline C:\\Users\\you\\Documents\\data-exports\\Records.json --dry-run",
     "import spotify C:\\Users\\you\\Documents\\data-exports\\my_spotify_data.zip --dry-run",
-    "import apple-health C:\\Users\\you\\Documents\\data-exports\\export.zip"
+    "import apple-health C:\\Users\\you\\Documents\\data-exports\\export.zip",
+    "import mail C:\\Users\\you\\Documents\\mail\\archive.mbox --source my-mail-import --dry-run"
   ],
   async run(context, args) {
     const action = requirePositional(importCommand, args, 0);
