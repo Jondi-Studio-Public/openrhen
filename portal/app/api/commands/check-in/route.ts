@@ -1,5 +1,6 @@
 import { checkInCommandSchema } from "@openrhen/contracts";
 import { requestAgent } from "@/server/agent-actor";
+import { collectOccurredAtReport } from "@/server/occurred-at-report";
 import { withRoute } from "@/server/logging";
 import { getStateStore } from "@/server/persistence/state-store";
 
@@ -8,7 +9,11 @@ export const POST = withRoute("/api/commands/check-in", async (request, _context
   if (!parsed.success)
     return Response.json({ error: parsed.error.issues[0]?.message ?? "Invalid check-in answer." }, { status: 400 });
   log.setCommandType(parsed.data.type);
-  const state = await getStateStore().runCheckInCommand(parsed.data);
+  const { value: state, report } = await collectOccurredAtReport(() => getStateStore().runCheckInCommand(parsed.data));
   // Snapshotted for an agent (write-snapshot.ts); the CLI journals the id so `rhen undo` can revert it.
-  return Response.json({ state, ...(requestAgent() !== null ? { revertible: parsed.data.commandId } : {}) });
+  return Response.json({
+    state,
+    ...(report ? { occurredAt: report } : {}),
+    ...(requestAgent() !== null ? { revertible: parsed.data.commandId } : {})
+  });
 });

@@ -23,7 +23,8 @@ while a session runs, so start one when they start.
 - Backdating: `started-at` on a start (up to 24 hours back, never before the last wake or an earlier session);
   `set-start` corrects a session already running; `ended-at` on a finish says when it really ended ("I stopped
   lab 7 at 3"). A session nobody closed stops counting at its planned end and waits for feedback; `finish` with
-  `ended-at` still says when it really ended, later than that only if they kept going.
+  `ended-at` still says when it really ended, later than that only if they kept going. An agent never sends
+  `occurredAt`: that field is for the owner's own device and is refused from an agent.
 - At a session's planned end, ask the owner what happened, then make the one call that matches their answer:
   - Done, stopped or part done: `rhen_session` `finish` with `outcome` `completed`, `progress` (plus
     `remaining`, the minutes still to do) or `unsure`, and `ended-at` if they stopped before the planned end.
