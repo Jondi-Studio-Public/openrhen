@@ -348,6 +348,7 @@ struct SourcesView: View {
     @EnvironmentObject var session: AppSession
     @EnvironmentObject var live: LiveDay
     @EnvironmentObject var location: LocationReporter
+    @EnvironmentObject var sensors: SensorCenter
     @State private var showingSettings = false
 
     var body: some View {
@@ -365,6 +366,7 @@ struct SourcesView: View {
                         Text("Place changes: \(location.status)")
                         Text("Your check-in answers and session changes, with the time you did them.").font(.footnote)
                     }
+                    SensorSections(now: context.date, zone: live.planZone)
                     Section(header: Text("What feeds the plan")) {
                         Text("Your server builds the plan from its own connections and from what this phone sends. The connections are shown on your server's pages in the Plan tab.")
                             .font(.footnote)
@@ -386,7 +388,7 @@ struct SourcesView: View {
                         }
                     }
                 }
-                .refreshable { await live.refresh(); await live.drainQueue() }
+                .refreshable { await live.refresh(); await live.drainQueue(); await sensors.refresh() }
             }
             .navigationTitle("Sources")
             .toolbar {

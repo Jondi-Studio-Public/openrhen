@@ -193,6 +193,15 @@
         "\t<key>com.apple.security.application-groups</key>"
       ],
       "why": "The entitlement key the iOS signing system defines for App Groups; fixed by the platform."
+    },
+    {
+      "category": "toolchain",
+      "path": "mobile/ios/project.yml",
+      "strings": [
+        "        com.apple.developer.healthkit: true",
+        "        com.apple.developer.healthkit.access: []"
+      ],
+      "why": "The entitlement keys the iOS signing system defines for reading Health data; fixed by the platform."
     }
   ]
 }

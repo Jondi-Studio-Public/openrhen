@@ -28,3 +28,4 @@ mobile/ios-spike/*/Info.plist
 mobile/ios-spike/build/
 mobile/ios-spike/Payload/
 *.ipa
+mobile/ios/OpenRhen.entitlements
