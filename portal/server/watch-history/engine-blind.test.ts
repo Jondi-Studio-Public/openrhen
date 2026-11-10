@@ -20,6 +20,7 @@ const ACTIVITY_TABLES = [
   "activity_events",
   "activity_imports",
   "activity_source_state",
+  "activity_supersessions",
   "derived_lineage",
   "extractor_state",
   "derived_settings",

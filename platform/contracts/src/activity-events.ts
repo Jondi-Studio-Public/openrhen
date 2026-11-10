@@ -4,7 +4,7 @@ import { describeDerivedProblem } from "./activity-derived.js";
 import { describeDriftProblem } from "./activity-drift.js";
 import { describeDriftReasonProblem } from "./activity-drift-reason.js";
 import { HIDDEN_OR_CONTROL_CHARS, MESSAGE_FAMILY, describeMessageProblem } from "./activity-message.js";
-import type { MessageDuplicate } from "./activity-message-dedupe.js";
+import type { MessageDuplicate, MessageDuplicateBy } from "./activity-message-dedupe.js";
 import {
   PHYSIOLOGY_KINDS,
   PHYSIOLOGY_SCHEMA_VERSION,
@@ -512,6 +512,20 @@ export interface ActivityHeldEntry {
   n: number | null;
 }
 
+/** One link made by supersession. `role` says which side the incoming event is on; `other` is the held row on the other side. */
+export interface ActivityReplacement {
+  /** The incoming event's position in the batch. */
+  index: number;
+  source: string;
+  key: string;
+  /** `replaces`: the incoming import row now stands in for the held thin row `other`. `replaced_by`: the incoming thin row stands behind the held import row `other`. */
+  role: "replaces" | "replaced_by";
+  other: { source: string; key: string };
+  by: MessageDuplicateBy;
+  /** Always `import`: the import copy is the one a text reader sees. */
+  kept: "import";
+}
+
 export interface ActivityIngestResult {
   schema: typeof ACTIVITY_SCHEMA_VERSION;
   added: number;
@@ -522,6 +536,12 @@ export interface ActivityIngestResult {
   held: ActivityHeldEntry[];
   /** Message copies not stored because another source already holds the message (or an earlier event of this batch does). Each also counts in `alreadyHeld`. Empty for every other event. */
   duplicates: MessageDuplicate[];
+  /**
+   * Copies linked to a fuller one (supersession): an import row that holds the text and a thinner copy of the same
+   * message in another source. The incoming event is stored and counts in `added`; the list is outside `alreadyHeld`, so
+   * `added + alreadyHeld + rejected` still equals the events sent. One entry per link made. Empty for every other batch.
+   */
+  replaced: ActivityReplacement[];
   /** The import record this batch belongs to, when it named one. */
   importId: string | null;
   /** The agent that posted the batch (the row's `ingested_via`); null for the owner. */
@@ -1025,6 +1045,8 @@ export interface ActivityEventRow {
   importId: string | null;
   ingestedVia: string | null;
   ingestedAt: string;
+  /** On a row that another copy stands in for (supersession), read with `source` named: the copy that holds the text. A read that names no source leaves such a row out. */
+  supersededBy?: { source: string; key: string };
   /** Only on a `fact` row read with `include=evidence`: its span resolved to the mail text, or why it cannot be. */
   evidence?: ActivityEvidence;
 }

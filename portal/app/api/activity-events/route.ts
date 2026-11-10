@@ -33,11 +33,23 @@ function duplicatesSentence(duplicates: ActivityIngestResult["duplicates"]): str
   return `${copies} of messages another source already holds (${how.join(", ")}); they were not stored. Nothing needs resending or fixing for them: do not post them again, and send your next batch as usual. The "duplicates" list in this response gives each dropped event's index and the row that was kept`;
 }
 
+/**
+ * One sentence on copies linked to a fuller one (supersession): the incoming event was stored and a thinner copy of the
+ * same message in another source now stands behind the copy that holds the text. Nothing needs resending, and the next call
+ * names the source whose rows carry `supersededBy`.
+ */
+function replacedSentence(replaced: ActivityIngestResult["replaced"]): string {
+  const thin = [...new Set(replaced.map((link) => (link.role === "replaces" ? link.other.source : link.source)))];
+  const copies = replaced.length === 1 ? "1 copy was" : `${replaced.length} copies were`;
+  return `${copies} linked to a fuller copy. Nothing needs resending. Read ${thin.length === 1 ? "them" : "each"} with ${thin.map((source) => `GET /api/activity-events?source=${source}&kind=message`).join(" or ")}`;
+}
+
 /** Plain English for what happened to a batch: a phone shortcut shows the response body as it is. */
 function messageFor(result: ActivityIngestResult): string {
   const parts = [`Saved ${result.added} event${result.added === 1 ? "" : "s"}`];
   if (result.alreadyHeld > 0) parts.push(`${result.alreadyHeld} already held`);
   if (result.duplicates.length > 0) parts.push(duplicatesSentence(result.duplicates));
+  if (result.replaced.length > 0) parts.push(replacedSentence(result.replaced));
   if (result.contentDropped > 0)
     parts.push(`text dropped from ${result.contentDropped} (the content gate for that source is off)`);
   if (result.rejected.length > 0)

@@ -1,4 +1,4 @@
-// This export reads the current backup format (27), and the legacy formats 26, 25, 24, 23, 22, 21 and 20.
+// This export reads the current backup format (28), and the legacy formats 27, 26, 25, 24, 23, 22, 21 and 20.
 import type { BackupTable, OpenRhenBackup } from "../backup-format.js";
 import { groupBackupTables } from "../../schema/table-groups.js";
 
@@ -113,8 +113,16 @@ const FORMAT_25_CORE_TABLES = [
  */
 const FORMAT_26_CORE_TABLES = [...FORMAT_25_CORE_TABLES, "derived_settings", "derived_model_calls"] as const;
 
+/**
+ * Format 27 has the same tables as format 26: the column it added, `activity_source_state.expected_every_minutes`, changed
+ * no list. Format 28 added `activity_supersessions` (after `activity_events`), so a format 27 file lacks it and restores
+ * with it empty.
+ */
+const FORMAT_27_CORE_TABLES = FORMAT_26_CORE_TABLES;
+
 export function legacyRequiredTables(formatVersion: number): readonly BackupTable[] | undefined {
   if (formatVersion === 20) return [...FORMAT_20_CORE_TABLES, ...groupBackupTables("current")];
+  if (formatVersion === 27) return [...FORMAT_27_CORE_TABLES, ...groupBackupTables("current")];
   if (formatVersion === 26) return [...FORMAT_26_CORE_TABLES, ...groupBackupTables("current")];
   if (formatVersion === 25) return [...FORMAT_25_CORE_TABLES, ...groupBackupTables("current")];
   if (formatVersion === 24) return [...FORMAT_24_CORE_TABLES, ...groupBackupTables("current")];
