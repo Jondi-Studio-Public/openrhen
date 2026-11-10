@@ -40,6 +40,7 @@ const REGISTRY_WRITE_TOOLS = [
   "catch-up-settle",
   "changeset",
   "check-in",
+  "check-in-tag",
   "deliverable",
   "disrupt",
   "disruption",

@@ -28,6 +28,7 @@ const checkIn = (overrides: Partial<StoredCheckIn> = {}): StoredCheckIn => ({
   deviationNote: null,
   deviationTargetId: null,
   answerSource: null,
+  tags: [],
   ...overrides
 });
 

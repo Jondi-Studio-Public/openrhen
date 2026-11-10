@@ -172,7 +172,7 @@ separated by pauses, and closed with a terminal outcome — completed, stopped, 
 start. Only time inside an open active segment counts as work.
 
 check-in — an answer to the app's periodic prompt about what you are actually doing right now: on
-track, deviated (with a category and optional note), or unknown. It answers one pending slot at a time.
+track, deviated, or unknown, each with the owner's own words as an optional note (a deviated answer needs them), and tags a reader may add to those words (check-in-tag). It answers one pending slot at a time.
 
 directive — the engine's live answer to "what should I do now": the recommended action (or a journey,
 when the next useful thing is elsewhere), its session length, planned end time, and the reasoning —
@@ -305,7 +305,7 @@ named like the flag without the leading --; each tool's input schema is the full
 
 6. Answer a check-in:
      rhen check-in on-track
-     rhen check-in deviated --category work --note "Fixed a production incident"
+     rhen check-in deviated --note "Fixed a production incident"
 
 7. Weekly review via list filters:
      rhen list actions --status blocked,waiting --json     # what needs unblocking

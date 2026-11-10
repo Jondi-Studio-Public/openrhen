@@ -33,12 +33,20 @@ describe("agent wake messages", () => {
 
   it("write the check-in arguments the tool takes, including its distinct disrupt tool", () => {
     const text = agentWakeMessage("check_in_unanswered", "x");
-    for (const arg of ["status", "basis", "evidence", "command-id", "category"]) {
+    for (const arg of ["status", "basis", "evidence", "command-id", "note"]) {
       expect(properties("rhen_check_in")).toContain(arg);
       expect(text).toContain(arg);
     }
     expect(text).toContain("rhen_disrupt ");
     expect(text).not.toContain("rhen_disruption");
+  });
+
+  it("ask for the owner's words, not a category, on a deviated answer", () => {
+    for (const event of ["check_in_unanswered", "pulse_unknown"] as const) {
+      const text = agentWakeMessage(event, "x");
+      expect(text).not.toMatch(/"category"|life_admin/);
+    }
+    expect(agentWakeMessage("check_in_unanswered", "x")).toContain("8000");
   });
 
   it("write the re-entry arguments the tool takes", () => {

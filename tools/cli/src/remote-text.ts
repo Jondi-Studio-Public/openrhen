@@ -732,18 +732,30 @@ export const REMOTE_TOOL_TEXT: Record<string, RemoteToolText> = {
   rhen_check_in: {
     description:
       "Answers the pending check-in from rhen_status; none waiting, records a voluntary one. status is " +
-      "on-track, deviated or unknown. A deviated answer needs a category; category, note and target belong to deviated " +
+      "on-track, deviated or unknown. note: the owner's words, any status; deviated needs it (or category). " +
+      "category and target belong to deviated " +
       "only and are refused otherwise. If they are doing something other than the plan, follow it at once with " +
-      "rhen_disrupt, or the pulse lapses. target: action " +
-      "worked on (id or exact title); recorded, nothing started. Returns the answer; rhen_undo " +
-      "reverses it.",
+      "rhen_disrupt, or the pulse lapses. Returns the answer; rhen_undo reverses it.",
     params: {
       status: "on-track, deviated or unknown.",
-      category: "Needed with deviated.",
-      note: "deviated only: up to 1000 characters.",
+      category: "Deviated only.",
+      note: "The owner's words, 8000 characters at most.",
       target: "deviated only: the id (or exact title) of the action actually worked on; recorded, never started."
     },
     enums: { status: ["on-track", "deviated", "unknown"], category: CHECK_IN_CATEGORIES }
+  },
+  rhen_check_in_tag: {
+    description:
+      'Tags the words of an answered check-in, e.g. "school run" -> family. Open phrases, 12 at most. Changes tags ' +
+      "only, never status, words or pulse. mark inferred (default) lets the owner remove it; stated if they named it. " +
+      "Returns the answer; rhen_undo reverses it.",
+    params: {
+      "check-in": "The check-in's id.",
+      add: "Tags to add, comma-separated, 40 characters each at most.",
+      remove: "Tags to remove, comma-separated.",
+      mark: "inferred (default) or stated."
+    },
+    enums: { mark: ["inferred", "stated"] }
   },
   rhen_routine: {
     description:

@@ -1,4 +1,4 @@
-import { checkInCommandSchema, deviationCategorySchema } from "@openrhen/contracts";
+import { CHECK_IN_NOTE_MAX_CHARS, checkInCommandSchema, deviationCategorySchema } from "@openrhen/contracts";
 import type { CommandContext, CommandSpec } from "../command.js";
 import { requirePositional, stringOption } from "../command.js";
 import { CliError, EXIT } from "../errors.js";
@@ -12,7 +12,6 @@ const STATUS_BY_POSITIONAL: Record<string, "on_track" | "deviated" | "unknown"> 
 };
 
 const DEVIATION_CATEGORIES: readonly string[] = deviationCategorySchema.options;
-const NOTE_MAX_CHARS = 1000;
 
 /**
  * The action a deviation names. The portal's sheet offers the person's actions as "a different planned
@@ -51,18 +50,25 @@ export const checkInCommand: CommandSpec = {
   name: "check-in",
   summary: "Answer or record a check-in",
   description:
-    "Answers the one pending check-in slot, the same way the check-in sheet does; with none waiting it records a voluntary one for what the plan believes now. A deviated answer requires " +
-    "--category; --category, --note and --target belong to a deviated answer and are refused on on-track or " +
+    "Answers the one pending check-in slot, the same way the check-in sheet does; with none waiting it records a voluntary one for what the plan believes now. --note is the owner's " +
+    "own words about what is happening, kept as written on any answer (up to 8000 characters); a deviated answer " +
+    "needs them (or the older --category), because the words say what the owner is doing instead. --category (work, family, life_admin, other) " +
+    "is optional and kept for older callers; --category and --target belong to a deviated answer and are refused on on-track or " +
     "unknown. --target is the id of the action that was actually being worked on (an exact title also works); " +
-    "it is checked against your actions, and nothing is started or switched.",
+    "it is checked against your actions, and nothing is started or switched. A reader that tags the words " +
+    "afterwards uses `check-in-tag`.",
   positionals: [{ name: "status", required: true, description: "on-track, deviated, or unknown" }],
   options: {
     category: {
       type: "string",
       placeholder: "work|family|life_admin|other",
-      description: "Deviation category; required when status is deviated, refused otherwise"
+      description: "Optional, kept for older callers; deviated only"
     },
-    note: { type: "string", placeholder: "text", description: "Deviation note, up to 1000 characters; deviated only" },
+    note: {
+      type: "string",
+      placeholder: "text",
+      description: "The owner's own words, up to 8000 characters; any status, required with deviated"
+    },
     target: {
       type: "string",
       placeholder: "id",
@@ -73,7 +79,8 @@ export const checkInCommand: CommandSpec = {
   mutates: true,
   examples: [
     "check-in on-track",
-    'check-in deviated --category work --note "Fixed a production incident"',
+    'check-in deviated --note "Fixed a production incident"',
+    'check-in on-track --note "Yes, but slower than planned"',
     "check-in unknown --dry-run"
   ],
   async run(context: CommandContext, args) {
@@ -91,7 +98,6 @@ export const checkInCommand: CommandSpec = {
     if (status !== "deviated") {
       const stray = [
         category !== undefined ? "--category" : undefined,
-        note !== undefined ? "--note" : undefined,
         target !== undefined ? "--target" : undefined
       ].filter((flag): flag is string => flag !== undefined);
       if (stray.length > 0)
@@ -102,15 +108,19 @@ export const checkInCommand: CommandSpec = {
         );
     }
     if (status === "deviated") {
-      if (category === undefined) throw new CliError("A deviated check-in needs --category.", EXIT.usage);
-      if (!DEVIATION_CATEGORIES.includes(category))
+      if ((note === undefined || note.trim() === "") && category === undefined)
+        throw new CliError(
+          "A deviated check-in needs --note: the owner's own words about what they are doing instead.",
+          EXIT.usage
+        );
+      if (category !== undefined && !DEVIATION_CATEGORIES.includes(category))
         throw new CliError(
           `Unknown --category "${category}". Use one of: ${DEVIATION_CATEGORIES.join(", ")}.`,
           EXIT.usage
         );
-      if (note !== undefined && note.trim().length > NOTE_MAX_CHARS)
-        throw new CliError(`--note is limited to ${NOTE_MAX_CHARS} characters.`, EXIT.usage);
     }
+    if (note !== undefined && note.trim().length > CHECK_IN_NOTE_MAX_CHARS)
+      throw new CliError(`--note is limited to ${CHECK_IN_NOTE_MAX_CHARS} characters.`, EXIT.usage);
     const targetId = target === undefined ? undefined : await resolveDeviationTarget(context, target);
 
     const response = await context.client.get<{ checkIn: Record<string, unknown> | null }>("/api/check-ins/current");
@@ -126,7 +136,7 @@ export const checkInCommand: CommandSpec = {
       ...(pending ? { checkInId: pending.id } : {}),
       status,
       ...(status === "deviated" && category !== undefined ? { deviationCategory: category } : {}),
-      ...(status === "deviated" && note !== undefined ? { deviationNote: note } : {}),
+      ...(note !== undefined && note.trim() !== "" ? { deviationNote: note } : {}),
       ...(status === "deviated" && targetId !== undefined ? { deviationTargetId: targetId } : {}),
       answerSource: "sheet"
     };

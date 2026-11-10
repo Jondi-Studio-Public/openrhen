@@ -8,7 +8,6 @@ import { useNow } from "@/shared/clock";
 import { clock } from "@/features/now/now-formatting";
 import { Field } from "@/components/field";
 import { Sheet } from "@/components/sheet";
-import { disruptionSourceOptions } from "@/features/disruptions/disruption-draft";
 import { DisruptionLine, useInForceDisruption } from "@/features/pulse/components/disruption-line";
 import { DisruptionFields } from "@/features/pulse/components/disruption-fields";
 import { DisruptionRefusedError, postDisruption, retryableCommandId } from "@/features/pulse/disruption-client";
@@ -33,8 +32,8 @@ const STALE_AFTER_MINUTES = 5;
 
 /**
  * "Still on X?" — the ground-truth sample the check-in scheduler asks about the engine's own current
- * belief. One tap for "On track"; "Something else" opens the fuller record: a category (the same
- * buckets Settings → Disruptions edits), an optional note, and an optional different planned task,
+ * belief. One tap for "On track"; "Something else" opens the fuller record: an optional note in the owner's own words (no
+ * category is asked), and an optional different planned task,
  * named for the record only — picking one here never starts or switches anything. Once the sampled
  * moment is more than `STALE_AFTER_MINUTES` in the past, a third tap — "Not sure" — records `unknown`
  * rather than forcing a guess; it is not counted for or against adherence (see `readCheckInSummary`).
@@ -58,7 +57,6 @@ function CheckInPrompt() {
   const { state, pendingCheckIn: providerCheckIn, dismissPendingCheckIn, acceptServerState } = usePortal();
   const now = useNow("minute");
   const [open, setOpen] = useState(false);
-  const [category, setCategory] = useState<"work" | "family" | "life_admin" | "other" | "">("");
   const [note, setNote] = useState("");
   // The words for "What pulled you off?". They are saved by their own owner-only route and never touch the note or the answer command.
   const [reason, setReason] = useState("");
@@ -117,7 +115,6 @@ function CheckInPrompt() {
   }
 
   function startDeviation() {
-    setCategory("");
     setNote("");
     setReason("");
     reasonSlot.current = null;
@@ -191,7 +188,7 @@ function CheckInPrompt() {
         await answerDeviated(
           checkIn.id,
           checkIn.version,
-          { ...(category ? { category } : {}), note, ...(deviationTargetId ? { targetId: deviationTargetId } : {}) },
+          { note, ...(deviationTargetId ? { targetId: deviationTargetId } : {}) },
           "sheet"
         );
         setAnswered(true);
@@ -259,21 +256,6 @@ function CheckInPrompt() {
           {answered && <p>Your check-in was saved. Your reason was not.</p>}
           {!answered && (
             <>
-              <Field label="Category" group>
-                <div className="disruption-choices">
-                  {disruptionSourceOptions(state.settings).map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      className={`quiet small${category === option.value ? " selected" : ""}`}
-                      aria-pressed={category === option.value}
-                      onClick={() => setCategory(option.value)}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              </Field>
               <Field label="A different planned task (optional)">
                 <select value={deviationTargetId} onChange={(event) => setDeviationTargetId(event.target.value)}>
                   <option value="">None named</option>
@@ -300,7 +282,7 @@ function CheckInPrompt() {
           </Field>
           {!answered && (
             <>
-              <Field label="Note (optional)">
+              <Field label="In your words (optional)">
                 <input value={note} onChange={(event) => setNote(event.target.value)} />
               </Field>
               <Field label="What are you doing? (needed unless you named a task)">
