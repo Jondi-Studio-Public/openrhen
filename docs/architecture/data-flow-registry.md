@@ -82,12 +82,11 @@ The closure walker (`enumerate.ts`) follows relative imports, the portal's `@/` 
 
 ### Doctor recording checks
 
-`platform/contracts/src/planning/doctor-recording.ts` judges the facts other modules leave behind; `portal/server/persistence/postgres/doctor-recording.ts` reads them. The reader stamps `pingTokenSeenAt` into `user_preferences.device_location_state` the first time it sees `LOCATION_PING_TOKEN` configured (the only doctor read that writes; it dates a token that lives in the environment and keeps the first stamp).
+`platform/contracts/src/planning/doctor-recording.ts` judges the facts other modules leave behind; `portal/server/persistence/postgres/doctor-recording.ts` reads them.
 
 | Check | Raised when | Tier |
 |---|---|---|
-| `location_ping_never` | the ping token is configured, no ping has ever arrived, and the token was first seen more than 24 h ago | degrading |
-| `agent_token_expiring` | a live (not revoked) agent token expires within 7 days, or already has; one item per token, id `agent_token_expiring:<name>`; fix is to mint a new token and revoke the old | degrading while it still works, blocking once expired |
+| `agent_token_expiring` | a live (not revoked) agent token that was used in the last 30 days expires within 7 days, or already has (a never-used or abandoned token raises nothing); one item per token, id `agent_token_expiring:<name>`; fix is to mint a new token and revoke the old | degrading while it still works, blocking once expired |
 | `agent_time_silent` | agent time has been reported before (`agent_sessions` source `reported`) and none has for 7 days; never raised before the first report | degrading |
 
 A silent feed (`source_late`), a silent handheld (`device_silent`, from the `device:handheld` poll rows) and travel lookup failures (`job:travel-lookup` runs) are judged by the source checks above.

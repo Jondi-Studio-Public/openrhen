@@ -125,8 +125,6 @@ export interface DeviceLocationState {
    * `observedAt`, no coordinates). Server-side only: nothing in `/api/state` reads it.
    */
   lastPhonePingAt?: string;
-  /** When Doctor first saw a ping token configured (ISO); dates the "set up but never pinged" check. Server-side only. */
-  pingTokenSeenAt?: string;
 }
 
 /**
@@ -156,8 +154,6 @@ export function parseDeviceLocationState(value: unknown): DeviceLocationState {
   const state: DeviceLocationState = { observations, suggestion: parseSuggestion(raw.suggestion) };
   if (typeof raw.lastPhonePingAt === "string" && !Number.isNaN(Date.parse(raw.lastPhonePingAt)))
     state.lastPhonePingAt = raw.lastPhonePingAt;
-  if (typeof raw.pingTokenSeenAt === "string" && !Number.isNaN(Date.parse(raw.pingTokenSeenAt)))
-    state.pingTokenSeenAt = raw.pingTokenSeenAt;
   return state;
 }
 

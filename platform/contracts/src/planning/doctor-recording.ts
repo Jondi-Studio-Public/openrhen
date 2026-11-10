@@ -11,10 +11,10 @@ const DAY_MS = 24 * HOUR_MS;
 export const DOCTOR_BACKUP_STALE_HOURS = 36;
 /** A phone that has pinged before and has been silent this long has probably lost its automation. */
 export const DOCTOR_PING_SILENT_HOURS = 48;
-/** A ping token set longer than this ago that has never been used is a setup that did not finish. */
-export const DOCTOR_PING_NEVER_HOURS = 24;
 /** An agent token is raised this long before it expires. */
 export const DOCTOR_TOKEN_EXPIRING_DAYS = 7;
+/** A token not used for this long is treated as abandoned and never raised, expired or not. */
+export const DOCTOR_TOKEN_IN_USE_DAYS = 30;
 /** Agent time that was reported before and stops for this long means the reporting plugin has probably stopped. */
 export const DOCTOR_AGENT_TIME_SILENT_DAYS = 7;
 
@@ -35,11 +35,9 @@ export interface DoctorRecordingSlice {
     configured: boolean;
     /** Server receipt time of the latest phone ping; null when it never pinged. */
     lastPingAt: string | null;
-    /** When the portal first saw the token configured (ISO), or null when not yet recorded. */
-    configuredSince?: string | null;
   };
-  /** Live (not revoked) database agent tokens: name and expiry only, never a hash. */
-  agentTokens?: { name: string; expiresAt: string }[];
+  /** Live (not revoked) database agent tokens: name, expiry and last use only, never a hash. */
+  agentTokens?: { name: string; expiresAt: string; lastUsedAt: string | null }[];
   /** The newest agent time an agent reported (`agent_sessions` with source `reported`); null when none ever was. */
   agentTime?: { lastReportedAt: string | null };
   /** Agent wakes (`agent_wakes`) that went `dead` in the last 24 h: not delivered, or expired unsent. */
@@ -150,31 +148,13 @@ export function recordingItems(slice: DoctorRecordingSlice, nowMs: number): Doct
       since: new Date(ping).toISOString(),
       fix: { who: "person", question: "Check the Shortcuts location automation on the phone is still running." }
     });
-  const since = ms(phonePing.configuredSince ?? null);
-  if (
-    phonePing.configured &&
-    ping === undefined &&
-    since !== undefined &&
-    nowMs - since > DOCTOR_PING_NEVER_HOURS * HOUR_MS
-  )
-    items.push({
-      id: "location_ping_never",
-      check: "location_ping_never",
-      tier: "degrading",
-      area: "integrations",
-      title: "The phone's location ping is set up but has never arrived",
-      why: "Place changes will not be reported until the first ping lands, so travel is planned from the place you last said.",
-      handles: [],
-      since: new Date(since).toISOString(),
-      fix: {
-        who: "person",
-        question:
-          "Check the Shortcuts location automation on the phone sends to the portal with the same token as LOCATION_PING_TOKEN."
-      }
-    });
   for (const token of slice.agentTokens ?? []) {
     const expires = ms(token.expiresAt);
     if (expires === undefined || expires - nowMs > DOCTOR_TOKEN_EXPIRING_DAYS * DAY_MS) continue;
+    // Only a token something still uses matters; an unrevoked token nobody has used for a month is abandoned, and
+    // raising it would leave a blocking item nobody can clear without revoking it.
+    const used = ms(token.lastUsedAt);
+    if (used === undefined || nowMs - used > DOCTOR_TOKEN_IN_USE_DAYS * DAY_MS) continue;
     const expired = expires <= nowMs;
     items.push({
       id: `agent_token_expiring:${token.name}`,

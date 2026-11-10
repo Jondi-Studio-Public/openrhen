@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { config } from "dotenv";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
@@ -128,13 +128,15 @@ describe("readRecordingSlice", () => {
   });
 
   it("reads live agent tokens by name and expiry, leaving out revoked ones", async () => {
-    const token = (name: string, hash: string, expires: string, revoked: string | null) => sql`
-      INSERT INTO agent_tokens (user_id, name, token_hash, expires_at, revoked_at)
-      VALUES (${userId}, ${name}, ${hash.repeat(64)}, ${expires}, ${revoked})`;
-    await token("claw", "a", "2026-11-20T00:00:00Z", null);
-    await token("old", "b", "2026-10-01T00:00:00Z", "2026-10-02T00:00:00Z");
+    const token = (name: string, hash: string, expires: string, revoked: string | null, used: string | null) => sql`
+      INSERT INTO agent_tokens (user_id, name, token_hash, expires_at, revoked_at, last_used_at)
+      VALUES (${userId}, ${name}, ${hash.repeat(64)}, ${expires}, ${revoked}, ${used})`;
+    await token("claw", "a", "2026-11-20T00:00:00Z", null, "2026-11-09T00:00:00Z");
+    await token("old", "b", "2026-10-01T00:00:00Z", "2026-10-02T00:00:00Z", null);
     const slice = await readRecordingSlice(sql as never, userId);
-    expect(slice.agentTokens).toEqual([{ name: "claw", expiresAt: "2026-11-20T00:00:00.000Z" }]);
+    expect(slice.agentTokens).toEqual([
+      { name: "claw", expiresAt: "2026-11-20T00:00:00.000Z", lastUsedAt: "2026-11-09T00:00:00.000Z" }
+    ]);
     await sql`DELETE FROM agent_tokens WHERE user_id = ${userId}`;
   });
 
@@ -149,17 +151,5 @@ describe("readRecordingSlice", () => {
       lastReportedAt: "2026-11-01T10:00:00.000Z"
     });
     await sql`DELETE FROM agent_sessions WHERE user_id = ${userId}`;
-  });
-
-  it("stamps when a configured ping token was first seen and keeps the first stamp", async () => {
-    vi.stubEnv("LOCATION_PING_TOKEN", "x".repeat(24));
-    await sql`INSERT INTO user_preferences (user_id) VALUES (${userId}) ON CONFLICT (user_id) DO NOTHING`;
-    const first = await readRecordingSlice(sql as never, userId);
-    expect(first.phonePing.configured).toBe(true);
-    const stamp = first.phonePing.configuredSince;
-    expect(stamp).toEqual(expect.any(String));
-    await new Promise((done) => setTimeout(done, 20));
-    expect((await readRecordingSlice(sql as never, userId)).phonePing.configuredSince).toBe(stamp);
-    vi.unstubAllEnvs();
   });
 });

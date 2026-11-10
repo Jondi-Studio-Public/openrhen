@@ -291,8 +291,6 @@ async function write(
   // Only a phone ping stamps `lastPhonePingAt`; every other writer carries the stored stamp forward.
   const stamp = device.lastPhonePingAt ?? context.device.lastPhonePingAt;
   if (stamp !== undefined) device = { ...device, lastPhonePingAt: stamp };
-  const seen = device.pingTokenSeenAt ?? context.device.pingTokenSeenAt;
-  if (seen !== undefined) device = { ...device, pingTokenSeenAt: seen };
   if (assertLocationId === null) {
     await tx`UPDATE user_preferences SET device_location_state=${tx.json(device as never)},updated_at=CURRENT_TIMESTAMP WHERE user_id=${userId}`;
     return;
@@ -343,28 +341,6 @@ export async function readLastPhonePingAt(sql: PoolSql, userId: string): Promise
     { device_location_state: unknown }[]
   >`SELECT device_location_state FROM user_preferences WHERE user_id=${userId}`;
   const stamp = parseDeviceLocationState(rows[0]?.device_location_state).lastPhonePingAt;
-  return stamp ? new Date(stamp) : null;
-}
-
-/**
- * When a configured ping token was first seen, stamping now if no stamp exists yet. Nothing else dates the token (it is
- * an environment setting), and Doctor needs the date to tell "set up yesterday" from "set up and never used".
- */
-export async function ensurePingTokenSeenAt(
-  sql: PoolSql,
-  userId: string,
-  now: Date = new Date()
-): Promise<Date | null> {
-  const rows = await sql<{ device_location_state: unknown }[]>`
-    UPDATE user_preferences
-    SET device_location_state = jsonb_set(COALESCE(device_location_state, '{}'::jsonb), '{pingTokenSeenAt}', to_jsonb(${now.toISOString()}::text))
-    WHERE user_id = ${userId} AND COALESCE(device_location_state, '{}'::jsonb) -> 'pingTokenSeenAt' IS NULL
-    RETURNING device_location_state`;
-  if (rows[0]) return now;
-  const existing = await sql<
-    { device_location_state: unknown }[]
-  >`SELECT device_location_state FROM user_preferences WHERE user_id=${userId}`;
-  const stamp = parseDeviceLocationState(existing[0]?.device_location_state).pingTokenSeenAt;
   return stamp ? new Date(stamp) : null;
 }
 
