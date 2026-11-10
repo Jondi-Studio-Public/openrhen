@@ -30,8 +30,13 @@ function hostname(host: string): string {
   return colon === -1 ? host : host.slice(0, colon);
 }
 
+/** `PORTAL_PUBLIC_URL` as set (trimmed), or undefined. */
+export function portalPublicUrl(): string | undefined {
+  return process.env.PORTAL_PUBLIC_URL?.trim() || undefined;
+}
+
 function publicUrlHost(): string | undefined {
-  const raw = process.env.PORTAL_PUBLIC_URL?.trim();
+  const raw = portalPublicUrl();
   if (!raw) return undefined;
   try {
     return new URL(raw).host.toLowerCase();

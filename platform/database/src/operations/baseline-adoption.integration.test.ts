@@ -78,7 +78,7 @@ function legacyEntries(): LegacyEntry[] {
 const legacySql = (e: LegacyEntry) =>
   `CREATE TABLE legacy_t${e.idx} (id integer);\n` +
   (e.idx === 140
-    ? `CREATE TABLE agent_wakes (event text, CONSTRAINT agent_wakes_event_check CHECK (event IN ('check_in_unanswered','pulse_lapsed')));\nCREATE TABLE commitments (id integer);\nCREATE TABLE users (id uuid PRIMARY KEY);\nCREATE TABLE projects (id integer);\nCREATE TABLE actions (id integer);\n`
+    ? `CREATE TABLE agent_wakes (event text, CONSTRAINT agent_wakes_event_check CHECK (event IN ('check_in_unanswered','pulse_lapsed')));\nCREATE TABLE commitments (id integer);\nCREATE TABLE users (id uuid PRIMARY KEY);\nCREATE TABLE projects (id integer);\nCREATE TABLE actions (id integer);\nCREATE TABLE owner_credentials (id uuid PRIMARY KEY, revoked_at timestamptz);\n`
     : "");
 
 /** Migrations after the legacy history ends: OpenRhen-native, applied once on top of an adopted baseline. */

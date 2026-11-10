@@ -28,6 +28,9 @@ function store(kind: "token" | "browser", secret: string, over: Partial<StoredOw
     secretHash: hash(secret),
     expiresAt: null,
     revokedAt: null,
+    limited: false,
+    device: null,
+    parentId: null,
     ...over
   };
   const lookup = vi.fn(async (h: string) => (h === credential.secretHash ? credential : null));

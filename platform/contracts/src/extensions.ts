@@ -36,6 +36,8 @@ export interface RouteExtension {
   ownerRunsItself?: string[];
   /** Owner-only reads, by route. */
   ownerReads?: string[];
+  /** `METHOD route` to why a limited device credential is refused it (the `owner-admin` class). */
+  ownerAdminRoutes?: Record<string, string>;
   /** Read route to the scope it needs. */
   readRules?: Record<string, string>;
   /** `METHOD route` to the single write call the route is. */

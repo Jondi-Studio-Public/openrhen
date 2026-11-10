@@ -13,7 +13,7 @@ First setup is three short steps (when you sleep, where you spend your days, the
 - **Disruptions and sharing**: the kinds of disruption you log, and status publishing.
 - **AI and add-ons**: which model each AI tool calls, plan map switches, reference codes, and agent tokens; its second tab, **Mail understanding**, sets where the model that reads your mail runs ([below](#mail-understanding)).
 - **Passwords and keys**: keys the app needs for outside services (the YouTube Data API key and the hosted model API key), saved encrypted and never shown again.
-- **Sign-in and devices**: the browsers and phones signed in as you.
+- **Sign-in and devices**: the browsers and phones signed in as you; **Add a phone** (a QR) and **Enter a code** add a phone, and a record shows who paired and revoked what.
 
 ### Sleep, time and capacity
 
