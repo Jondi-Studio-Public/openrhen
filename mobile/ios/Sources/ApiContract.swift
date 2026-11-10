@@ -127,6 +127,17 @@ enum ApiRequests {
         ])
     }
 
+    /// `DELETE /api/owner/credentials/{id}`: the phone revoking its own credential (a limited credential may revoke
+    /// only itself). nil when `id` is not a plain id, so nothing is sent.
+    static func revokeOwnCredential(origin: String, token: String, credentialId: String) -> URLRequest? {
+        guard !credentialId.isEmpty, credentialId.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" }),
+              let target = endpoint(origin: origin, path: "/api/owner/credentials/\(credentialId)") else { return nil }
+        var request = URLRequest(url: target, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
+        request.httpMethod = "DELETE"
+        request.setValue(token, forHTTPHeaderField: ownerHeader)
+        return request
+    }
+
     static func post(origin: String, path: String, token: String?, body: [String: Any]) -> URLRequest? {
         guard let target = endpoint(origin: origin, path: path),
               let data = try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys]) else { return nil }
@@ -278,5 +289,37 @@ enum UserCode {
         let letters = code.uppercased().filter { $0.isLetter }
         guard letters.count == 8, code.filter({ $0.isLetter || $0 == "-" || $0 == " " }).count == code.count else { return code }
         return String(letters.prefix(4)) + "-" + String(letters.suffix(4))
+    }
+}
+
+/// How signing out went at the portal. The phone signs out locally whatever this is.
+enum SignOutRevoke: Equatable {
+    /// The portal revoked the credential (or no longer knew it, which comes to the same).
+    case revoked
+    /// No credential id was kept, so nothing was sent.
+    case notAttempted
+    /// No answer at all: the phone is offline or the portal is unreachable.
+    case offline
+    /// The portal answered but did not revoke it.
+    case refused
+
+    static func interpret(_ answer: HTTPAnswer?) -> SignOutRevoke {
+        guard let answer else { return .offline }
+        if (200..<300).contains(answer.status) || answer.status == 401 || answer.status == 404 { return .revoked }
+        return .refused
+    }
+
+    /// What to tell the person after the local sign-out; nil when the portal confirmed it.
+    var notice: String? {
+        switch self {
+        case .revoked:
+            return nil
+        case .notAttempted:
+            return "Signed out of the app. This phone is still listed on the portal's Devices page; remove it there to end its access."
+        case .offline:
+            return "Signed out of the app, but the portal could not be reached to remove this phone. It is still listed on the portal's Devices page; remove it there to end its access."
+        case .refused:
+            return "Signed out of the app, but the portal did not remove this phone. It is still listed on the portal's Devices page; remove it there to end its access."
+        }
     }
 }

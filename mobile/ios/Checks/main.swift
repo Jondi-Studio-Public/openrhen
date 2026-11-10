@@ -453,7 +453,7 @@ func liveDayChecks(fixturesPath: String?, schemaPath: String?) {
         } else {
             check(false, "a day-only view decodes")
         }
-        let paused = ClientSession(id: "s", status: "paused", title: "T", targetType: nil, targetId: nil, startedAt: "2026-11-10T09:00:00Z", plannedEndAt: "2026-11-10T09:45:00Z", plannedMinutes: 45, elapsedMinutes: 5, minutesLeft: 40)
+        let paused = ClientSession(id: "s", status: "paused", version: nil, title: "T", targetType: nil, targetId: nil, startedAt: "2026-11-10T09:00:00Z", plannedEndAt: "2026-11-10T09:45:00Z", plannedMinutes: 45, elapsedMinutes: 5, minutesLeft: 40)
         check(ViewPresentation.timeLeft(paused, now: t, fetchedAt: fetched) == "40 min left (paused)", "a paused session is frozen")
     }
 
@@ -611,23 +611,47 @@ func liveDayChecks(fixturesPath: String?, schemaPath: String?) {
     boxFile.delete()
     check(held.hasQueuedAnswer(forCheckIn: "c9") && !held.hasQueuedAnswer(forCheckIn: "zzz") && held.oldestMadeAt != nil, "queued answers are found")
 
-    // Version lookup
-    let stateJSON = "{\"state\":{\"activeSession\":{\"id\":\"S1\",\"version\":5,\"status\":\"running\",\"actionId\":\"a1\"},\"actions\":[{\"id\":\"a1\",\"version\":8,\"title\":\"x\"},{\"id\":\"a2\",\"version\":3}],\"occurrences\":[{\"id\":\"o1\",\"version\":2,\"actionId\":\"a2\"}],\"areas\":[]}}"
-    if let probe = StateProbe.decode(jsonObject(stateJSON)) {
-        let ok = cmd("p1", "session:S1", sessionId: "S1")
-        check(VersionResolution.resolve(OutboxCommand(commandId: "p1", madeAt: made, kind: .session, type: "pause", label: "Pause", entityKey: "session:S1", sessionId: "S1", fields: [:], expectedVersion: nil, seenStatus: "running", attempts: 0, nextAttemptAt: nil, hold: nil), probe: probe) == .send(expectedVersion: 5, sessionId: "S1"), "a pause takes the session's version when it is as the person left it")
-        check(ok.needsVersionLookup, "a session command without a version needs a lookup")
-        if case .conflict(let sentence) = VersionResolution.resolve(OutboxCommand(commandId: "p2", madeAt: made, kind: .session, type: "resume", label: "Resume Write", entityKey: "session:S1", sessionId: "S1", fields: [:], expectedVersion: nil, seenStatus: "paused", attempts: 0, nextAttemptAt: nil, hold: nil), probe: probe) {
+    // Version lookup (from the client view)
+    func versionView(session: String?, directive: String?) -> ClientView? {
+        let sessionJSON = session ?? "null"
+        let nowJSON = directive.map { "{\"directive\":\($0),\"anchors\":{\"open\":[],\"engaged\":[]},\"needs\":[]}" } ?? "null"
+        let text = "{\"schemaVersion\":1,\"timezone\":\"UTC\",\"planCurrent\":true,\"validUntil\":null,\"now\":\(nowJSON),\"pending\":{\"checkIn\":null,\"session\":\(sessionJSON),\"leaveBy\":null,\"placeSuggestion\":null}}"
+        return ClientViewCodec.decodeView(jsonObject(text))
+    }
+    func sessionJSON(_ status: String, version: Int?) -> String {
+        let v = version.map { "\"version\":\($0)," } ?? ""
+        return "{\"id\":\"S1\",\"status\":\"\(status)\",\(v)\"title\":\"Write\",\"targetType\":null,\"targetId\":null,\"startedAt\":\"2026-11-10T09:00:00Z\",\"plannedEndAt\":\"2026-11-10T09:45:00Z\",\"plannedMinutes\":45,\"elapsedMinutes\":5,\"minutesLeft\":40}"
+    }
+    func directiveJSON(kind: String, target: String, version: Int?) -> String {
+        let v = version.map { ",\"expectedVersion\":\($0)" } ?? ""
+        return "{\"kind\":\"\(kind)\",\"title\":\"Write\",\"recommendedMinutes\":45,\"targetId\":\"\(target)\"\(v)}"
+    }
+    func sessionCmd(_ id: String, _ type: String, entity: String = "session:S1", sessionId: String? = "S1", seen: String = "running") -> OutboxCommand {
+        OutboxCommand(commandId: id, madeAt: made, kind: .session, type: type, label: "Pause", entityKey: entity, sessionId: sessionId, fields: [:], expectedVersion: nil, seenStatus: seen, attempts: 0, nextAttemptAt: nil, hold: nil)
+    }
+    if let running = versionView(session: sessionJSON("running", version: 5), directive: nil),
+       let idle = versionView(session: nil, directive: directiveJSON(kind: "action", target: "a1", version: 8)),
+       let noVersion = versionView(session: sessionJSON("running", version: nil), directive: nil) {
+        check(running.pending?.session?.version == 5 && idle.now?.directive?.expectedVersion == 8, "the view's session version and directive expectedVersion decode")
+        check(sessionCmd("p0", "pause").needsVersionLookup, "a session command without a version needs a lookup")
+        check(VersionResolution.resolve(sessionCmd("p1", "pause"), view: running) == .send(expectedVersion: 5, sessionId: "S1"), "a pause takes the session's version when it is as the person left it")
+        if case .conflict(let sentence) = VersionResolution.resolve(sessionCmd("p2", "resume", seen: "paused"), view: running) {
             check(sentence.contains("now running") && sentence.contains("paused"), "a changed session is explained, not overwritten")
         } else { check(false, "a changed session is a conflict") }
-        check(VersionResolution.resolve(OutboxCommand(commandId: "p3", madeAt: made, kind: .session, type: "pause", label: "Pause", entityKey: "session:OTHER", sessionId: "OTHER", fields: [:], expectedVersion: nil, seenStatus: "running", attempts: 0, nextAttemptAt: nil, hold: nil), probe: probe) != .send(expectedVersion: 5, sessionId: "S1"), "another session is not touched")
-        check(VersionResolution.resolve(OutboxCommand(commandId: "p4", madeAt: made, kind: .session, type: "pause", label: "Pause", entityKey: "action:a1", sessionId: nil, fields: [:], expectedVersion: nil, seenStatus: "running", attempts: 0, nextAttemptAt: nil, hold: nil), probe: probe) == .send(expectedVersion: 5, sessionId: "S1"), "a command waiting on its start finds the session")
-        if case .conflict = VersionResolution.resolve(CommandBuilders.startSession(actionId: "a1", title: "T", minutes: 10, at: made), probe: probe) {} else { check(false, "a start while a session is open is a conflict") }
-        let idle = StateProbe.decode(jsonObject("{\"state\":{\"activeSession\":null,\"actions\":[{\"id\":\"a1\",\"version\":8},{\"id\":\"a2\",\"version\":3}],\"occurrences\":[{\"id\":\"o1\",\"version\":2,\"actionId\":\"a2\"}]}}"))
-        check(idle.map { VersionResolution.resolve(CommandBuilders.startSession(actionId: "a1", title: "T", minutes: 10, at: made), probe: $0) } == .send(expectedVersion: 8, sessionId: nil), "a start names the action's version")
-        check(idle.map { VersionResolution.resolve(CommandBuilders.startSession(actionId: "o1", title: "T", minutes: 10, at: made), probe: $0) } == .send(expectedVersion: 3, sessionId: nil), "a start on an occurrence names its action's version")
-        if let idle, case .conflict = VersionResolution.resolve(CommandBuilders.startSession(actionId: "gone", title: "T", minutes: 10, at: made), probe: idle) {} else { check(false, "a start on a task that is gone is a conflict") }
-    } else { check(false, "the state probe decodes") }
+        if case .conflict = VersionResolution.resolve(sessionCmd("p3", "pause", entity: "session:OTHER", sessionId: "OTHER"), view: running) {} else { check(false, "another session is not touched") }
+        check(VersionResolution.resolve(sessionCmd("p4", "pause", entity: "action:a1", sessionId: nil), view: running) == .send(expectedVersion: 5, sessionId: "S1"), "a command waiting on its start finds the session")
+        if case .conflict = VersionResolution.resolve(sessionCmd("p5", "pause"), view: idle) {} else { check(false, "no open session is a conflict") }
+        if case .conflict = VersionResolution.resolve(sessionCmd("p6", "pause"), view: noVersion) {} else { check(false, "a session without a version is a conflict, not a guess") }
+        if case .conflict = VersionResolution.resolve(CommandBuilders.startSession(actionId: "a1", title: "T", minutes: 10, at: made), view: running) {} else { check(false, "a start while a session is open is a conflict") }
+        check(VersionResolution.resolve(CommandBuilders.startSession(actionId: "a1", title: "T", minutes: 10, at: made), view: idle) == .send(expectedVersion: 8, sessionId: nil), "a start names the directive's expectedVersion")
+        if case .conflict = VersionResolution.resolve(CommandBuilders.startSession(actionId: "gone", title: "T", minutes: 10, at: made), view: idle) {} else { check(false, "a start on a task that is no longer the directive is a conflict") }
+        if let travel = versionView(session: nil, directive: directiveJSON(kind: "travel", target: "a1", version: 8)) {
+            if case .conflict = VersionResolution.resolve(CommandBuilders.startSession(actionId: "a1", title: "T", minutes: 10, at: made), view: travel) {} else { check(false, "a start needs an action directive") }
+        } else { check(false, "a travel directive view decodes") }
+        if let bare = versionView(session: nil, directive: directiveJSON(kind: "action", target: "a1", version: nil)) {
+            if case .conflict = VersionResolution.resolve(CommandBuilders.startSession(actionId: "a1", title: "T", minutes: 10, at: made), view: bare) {} else { check(false, "a start without an expectedVersion is a conflict, not a guess") }
+        } else { check(false, "a directive without a version decodes") }
+    } else { check(false, "the version views decode") }
 
     // Session controls
     if let view = decodedViews.first {
@@ -688,6 +712,29 @@ func liveDayChecks(fixturesPath: String?, schemaPath: String?) {
 }
 liveDayChecks(fixturesPath: CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : nil,
               schemaPath: CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : nil)
+
+// MARK: Sign out revokes the phone's own credential first
+let credId = "0b7e5f0e-1d2c-4c53-9f0a-2f6d3c1a9b11"
+if let revokeRequest = ApiRequests.revokeOwnCredential(origin: "https://p.example.com", token: "tokR", credentialId: credId) {
+    check(revokeRequest.httpMethod == "DELETE" && revokeRequest.url?.absoluteString == "https://p.example.com/api/owner/credentials/\(credId)", "revoke is a DELETE on the credential")
+    check(revokeRequest.value(forHTTPHeaderField: ApiRequests.ownerHeader) == "tokR" && revokeRequest.httpBody == nil, "revoke carries the owner token and no body")
+} else { check(false, "the revoke request builds") }
+check(ApiRequests.revokeOwnCredential(origin: "https://p.example.com", token: "t", credentialId: "../x") == nil && ApiRequests.revokeOwnCredential(origin: "https://p.example.com", token: "t", credentialId: "") == nil, "a credential id that is not plain is never sent")
+check(ApiRequests.revokeOwnCredential(origin: "http://p.example.com", token: "t", credentialId: credId) == nil, "revoke is https only")
+check(SignOutRevoke.interpret(answer(200)) == .revoked && SignOutRevoke.interpret(answer(401)) == .revoked && SignOutRevoke.interpret(answer(404)) == .revoked, "revoked, or already gone, is a clean sign-out")
+check(SignOutRevoke.interpret(nil) == .offline && SignOutRevoke.interpret(answer(500)) == .refused && SignOutRevoke.interpret(answer(403)) == .refused, "no answer is offline; a refusal is refused")
+check(SignOutRevoke.revoked.notice == nil, "a confirmed revoke needs no notice")
+check(SignOutRevoke.offline.notice?.contains("could not be reached") == true && SignOutRevoke.offline.notice?.contains("Devices") == true, "an offline sign-out says the phone is still listed")
+check(SignOutRevoke.refused.notice != nil && SignOutRevoke.notAttempted.notice != nil, "every unconfirmed sign-out says so")
+let revokeStore = InMemoryCredentialStore()
+let revokeCore = SessionCore(store: revokeStore)
+check(revokeCore.complete(token: "tokR", origin: "https://p.example.com", credentialId: credId) && revokeStore.loadSession()?.credentialId == credId, "the credential id is kept at sign-in")
+if let saved = try? JSONEncoder().encode(DeviceSession(token: "a", origin: "https://p.example.com")),
+   let old = try? JSONDecoder().decode(DeviceSession.self, from: Data("{\"token\":\"a\",\"origin\":\"https://p.example.com\"}".utf8)) {
+    check(old.credentialId == nil && !saved.isEmpty, "a session stored before the id was kept still loads")
+} else { check(false, "an older stored session decodes") }
+revokeCore.signOut(notice: SignOutRevoke.offline.notice)
+check(revokeCore.state.session == nil && revokeStore.loadSession() == nil && revokeCore.state.notice == SignOutRevoke.offline.notice, "an offline sign-out still signs out locally and shows why")
 
 if failures > 0 { print("\(failures) check(s) failed"); exit(1) }
 print("All checks passed")

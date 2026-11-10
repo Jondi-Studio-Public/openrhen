@@ -61,6 +61,8 @@ struct ClientDirective: Codable, Equatable {
     let boundaryAt: String?
     let boundaryTitle: String?
     let question: String?
+    /// For an `action` directive: the version a `start` must name (the series template's for an occurrence).
+    let expectedVersion: Int?
 }
 
 /// A stale fact the plan wants to ask about.
@@ -104,6 +106,8 @@ struct ClientSession: Codable, Equatable {
     let id: String
     /// `running`, `paused` or `feedback`.
     let status: String
+    /// The version a pause, resume or finish must name.
+    let version: Int?
     let title: String
     let targetType: String?
     let targetId: String?

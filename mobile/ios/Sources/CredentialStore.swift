@@ -6,6 +6,9 @@ struct DeviceSession: Codable, Equatable {
     let token: String
     /// `https://host[:port]` (see `HostPolicy.origin`).
     let origin: String
+    /// The portal's id for this phone's own credential, kept so signing out can revoke it first. Nil for a
+    /// sign-in made before the id was kept, or when the portal did not send one.
+    var credentialId: String? = nil
 }
 
 /// Where the token and the install id live. Slice 1 keeps both in the app's own Keychain (no shared access
