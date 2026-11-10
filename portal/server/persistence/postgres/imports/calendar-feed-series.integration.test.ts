@@ -284,14 +284,14 @@ describe("an approved series", () => {
     expect(again.notImported).toMatchObject({ seriesChanged: 0, seriesPending: 0 });
     expect(await oneOffLinks()).toEqual([]);
 
-    // The loader reads the link joined to its rule and the dates still to come, never one already started.
+    // The loader reads the link joined to its rule and the dates from two days back on (one under way today still counts), never the 14-day-old one.
     await sql`INSERT INTO commitments(user_id,title,starts_at,ends_at,status,recurrence_rule_id,local_date) VALUES(${userId},'Past',${new Date(now.getTime() - 86_400_000 * 14)},${new Date(now.getTime() - 86_400_000 * 14 + 3_600_000)},'confirmed',${ruleId},${new Date(now.getTime() - 86_400_000 * 14).toISOString().slice(0, 10)})`;
     const loaded = await loadFeedSeries(sql, userId);
     expect(loaded.ruleLinks.map((l) => [l.external_event_id, l.status, l.recurrence_rule_id])).toEqual([
       ["series:weekly", "active", ruleId]
     ]);
     expect(loaded.occurrences.map((o) => o.id).sort()).toEqual(rows.map((row) => row.id as string).sort());
-    expect(loaded.occurrences.every((o) => o.starts_at.getTime() > now.getTime() - 1000)).toBe(true);
+    expect(loaded.occurrences.every((o) => o.starts_at.getTime() > now.getTime() - 2 * 86_400_000 - 1000)).toBe(true);
   });
 });
 
