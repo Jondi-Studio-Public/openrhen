@@ -132,19 +132,33 @@ function createFields(event: CalendarEvent, context: CalendarCreateContext): Imp
   };
 }
 
+const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
 function seriesCreateFields(
   group: CalendarSeriesGroup<CalendarEvent>,
   context: CalendarCreateContext
 ): ImportRecord["fields"] {
-  const evidence = [
-    `Google Calendar · ${context.calendarName} · ${group.events.length} occurrences seen, every ${group.intervalDays} day${group.intervalDays === 1 ? "" : "s"}`
-  ];
+  const { repeat } = group;
+  const spacing =
+    repeat.unit === "weeks"
+      ? `every ${repeat.intervalWeeks === 1 ? "week" : `${repeat.intervalWeeks} weeks`} on ${repeat.weekdays.map((day) => WEEKDAY_NAMES[day]).join(", ")}`
+      : `every ${group.intervalDays} day${group.intervalDays === 1 ? "" : "s"}`;
+  const evidence = [`Google Calendar · ${context.calendarName} · ${group.events.length} occurrences seen, ${spacing}`];
+  // A weekday-set series is a weeks rule: it carries its unit, interval and weekdays, never a days interval.
+  const repeatFields: ImportRecord["fields"] =
+    repeat.unit === "weeks"
+      ? {
+          intervalUnit: importField("weeks", evidence),
+          intervalWeeks: importField(repeat.intervalWeeks, evidence),
+          weekdays: importField(repeat.weekdays, evidence)
+        }
+      : { intervalDays: importField(group.intervalDays, evidence) };
   return {
     title: importField(group.title, evidence),
     timezone: importField(context.timezone, evidence),
     startDate: importField(group.startDate, evidence),
     endDate: importField(null, evidence),
-    intervalDays: importField(group.intervalDays, evidence),
+    ...repeatFields,
     localStartTime: importField(group.localStartTime, evidence),
     localEndTime: importField(group.localEndTime, evidence),
     location: importField(group.location, evidence),
