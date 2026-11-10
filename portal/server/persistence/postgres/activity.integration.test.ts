@@ -580,6 +580,29 @@ describe("settings, summary and reads", () => {
     await expect(setActivitySourceSettings(sql, "myspace", {})).rejects.toBeInstanceOf(ActivityInputError);
   });
 
+  it("refuses an expected rhythm for a source that reports no coverage, naming the next step, and still accepts null", async () => {
+    await expect(setActivitySourceSettings(sql, "rhen-watch", { expectedEveryMinutes: 1440 })).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringMatching(/does not report coverage.*docs\/operations\/posting-messages\.md/s)
+    });
+    expect(await sql`SELECT 1 FROM activity_source_state`).toHaveLength(0);
+    expect(await setActivitySourceSettings(sql, "rhen-watch", { expectedEveryMinutes: null })).toMatchObject({
+      expectedEveryMinutes: null
+    });
+  });
+
+  it("shows a stored expected rhythm in the summary, and the table refuses a value out of range", async () => {
+    await sql`INSERT INTO activity_source_state (user_id, source, expected_every_minutes)
+      SELECT id, 'rhen-watch', 1440 FROM users LIMIT 1`;
+    expect((await readActivitySummary(sql)).sources.find((s) => s.source === "rhen-watch")).toMatchObject({
+      expectedEveryMinutes: 1440
+    });
+    for (const bad of [4, 129_601, 0])
+      await expect(
+        sql`UPDATE activity_source_state SET expected_every_minutes = ${bad} WHERE source = 'rhen-watch'`
+      ).rejects.toThrow(/activity_source_state_expected_check/);
+  });
+
   it("summarises every registered source with counts, the last event and the settings", async () => {
     await ingest([event("a", { end: null }), event("b", { start: "2026-11-07T11:00:00Z", end: null })]);
     await setActivitySourceSettings(sql, "rhen-watch", { retentionDays: 10 });

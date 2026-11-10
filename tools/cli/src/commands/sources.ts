@@ -1,6 +1,7 @@
 import {
   buildDataFlowView,
   dataFlowRegistry,
+  limitLine,
   registryTables,
   type DataFlowView,
   type FreshnessState,
@@ -141,9 +142,10 @@ function detailLines(body: Body, id: string): string[] {
     lines.push(
       `health: ${node.freshness}${node.configured ? "" : " (not set up)"}, last success ${node.lastSuccessAt ?? "never"}`
     );
-    if (node.threshold)
+    if (node.threshold) lines.push(limitLine(node.threshold));
+    else if (node.noRhythm)
       lines.push(
-        `threshold: warn ${node.threshold.warnHours} h, error ${node.threshold.errorHours ?? "none"} h (${node.threshold.from})`
+        `limit: none yet. No rhythm yet (${node.noRhythm.gaps} of 2 gaps needed); nothing is judged late. To fix a limit now, ask the owner to set how often they expect it (owner session: PUT /api/activity-sources/${entry.activitySource ?? id} with {"expectedEveryMinutes": MINUTES}, MINUTES from 5 to 129600).`
       );
     if (node.coverage) {
       const { coverage } = node;
