@@ -550,11 +550,19 @@
       "fixtures": 13
     },
     {
+      "path": "state.outcomes[].deadlineAt",
+      "fixtures": 13
+    },
+    {
       "path": "state.outcomes[].id",
       "fixtures": 13
     },
     {
       "path": "state.outcomes[].status",
+      "fixtures": 13
+    },
+    {
+      "path": "state.outcomes[].title",
       "fixtures": 13
     },
     {
@@ -1112,8 +1120,10 @@
       "name": "outcomes",
       "fields": [
         "[].areaId",
+        "[].deadlineAt",
         "[].id",
-        "[].status"
+        "[].status",
+        "[].title"
       ]
     },
     {

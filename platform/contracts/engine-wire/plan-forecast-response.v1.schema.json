@@ -804,6 +804,9 @@
     "weekOutlook": {
       "$ref": "#/$defs/__schema0"
     },
+    "deadlineOutlook": {
+      "$ref": "#/$defs/__schema0"
+    },
     "dayPlan": {
       "type": "object",
       "properties": {
