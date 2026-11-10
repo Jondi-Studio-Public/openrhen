@@ -160,4 +160,44 @@ describe("rhen import mail", () => {
     expect(result.stderr).toContain("per-message cap of 1048576 bytes");
     expect(result.stderr).toContain("--max-message-mib");
   });
+
+  it("with --skip-unreadable skips and names each unreadable message, and exits 0; strict is the default", async () => {
+    const mixed = write(
+      join(dir, "skip", "Mixed.mbox"),
+      m("g1@mail.example.test", "good one") +
+        m("bad@mail.example.test", "bad one", "Content-Type: text/plain; charset=x-no-such\n") +
+        m("g2@mail.example.test", "good two")
+    );
+    const strict = await run(["import", "mail", mixed, "--source", SRC], portal().routes);
+    expect(strict.exitCode).not.toBe(0);
+    expect(strict.stderr).toContain("--skip-unreadable");
+    const p = portal();
+    const result = await run(["import", "mail", mixed, "--source", SRC, "--skip-unreadable"], p.routes);
+    expect(result.exitCode).toBe(0);
+    expect(p.problems).toEqual([]);
+    expect(p.sent.map((e) => e.id)).toEqual(["mid:g1@mail.example.test", "mid:g2@mail.example.test"]);
+    expect(result.stdout).toContain("skipped 1: unreadable message skipped (--skip-unreadable): unknown charset");
+    expect(result.stdout).toMatch(/Mixed\.mbox message 2 \(byte \d+\): unknown charset "x-no-such"/);
+    expect(p.runs[0]).toMatchObject({ status: "needs_review" });
+  });
+
+  it("refuses a core source that is not message@1, with the next step", async () => {
+    const result = await run(["import", "mail", inbox, "--source", "rhen-watch"], portal().routes);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain('"rhen-watch" is not a message@1 source');
+    expect(result.stderr).toContain("Register a source");
+  });
+
+  it("warns when it cannot check that the source is message@1", async () => {
+    const result = await run(["import", "mail", inbox, "--source", SRC, "--dry-run"], portal().routes);
+    expect(result.stderr).toContain(`cannot check that "${SRC}" is a message@1 source`);
+  });
+
+  it("warns that --source, --self and --max-message-mib mean nothing outside the mail import", async () => {
+    const result = await run(
+      ["import", "fit", join(dir, "nope.json"), "--source", "x", "--self", "a@b.test"],
+      portal().routes
+    );
+    expect(result.stderr).toContain("--source and --self are only used by 'import mail'; ignored");
+  });
 });
