@@ -186,3 +186,43 @@ fn info_plist_is_a_menu_bar_app() {
     assert!(p.contains("<string>13.0</string>"));
     assert!(p.contains("<string>0.1.0</string>"));
 }
+
+mod path_link {
+    use crate::platform::macos_rules::{add_path_block, path_has, profile_for_shell, remove_path_block};
+
+    #[test]
+    fn path_has_matches_whole_entries_only() {
+        assert!(path_has("/usr/bin:/Users/a/.local/bin:/bin", "/Users/a/.local/bin"));
+        assert!(path_has("/Users/a/.local/bin/", "/Users/a/.local/bin"));
+        assert!(!path_has("/Users/a/.local/bin2:/bin", "/Users/a/.local/bin"));
+        assert!(!path_has("", "/Users/a/.local/bin"));
+    }
+
+    #[test]
+    fn profile_follows_the_login_shell() {
+        assert_eq!(profile_for_shell(Some("/bin/zsh")), Some(".zprofile"));
+        assert_eq!(profile_for_shell(None), Some(".zprofile"));
+        assert_eq!(profile_for_shell(Some("/opt/homebrew/bin/bash")), Some(".bash_profile"));
+        assert_eq!(profile_for_shell(Some("/opt/homebrew/bin/fish")), None);
+    }
+
+    #[test]
+    fn the_block_is_added_once_and_removed_cleanly() {
+        let before = "# conda\nexport FOO=1";
+        let added = add_path_block(before).unwrap();
+        assert!(added.starts_with("# conda\nexport FOO=1\n# >>> rhen-watch"));
+        assert!(added.contains("export PATH=\"$HOME/.local/bin:$PATH\"\n"));
+        assert_eq!(add_path_block(&added), None);
+        let mut later = added.clone();
+        later.push_str("alias ll='ls -l'\n");
+        assert_eq!(remove_path_block(&later).unwrap(), "# conda\nexport FOO=1\nalias ll='ls -l'\n");
+        assert_eq!(remove_path_block(before), None);
+        assert_eq!(add_path_block("").unwrap().lines().count(), 3);
+    }
+
+    #[test]
+    fn a_block_with_no_end_line_is_left_alone() {
+        let broken = "# >>> rhen-watch: add ~/.local/bin to PATH >>>\nexport PATH=x\nalias keep=me\n";
+        assert_eq!(remove_path_block(broken), None);
+    }
+}

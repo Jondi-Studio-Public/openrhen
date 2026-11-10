@@ -3,7 +3,8 @@
 # the release's SHA256SUMS, unpack to a temporary folder, run `rhen-watch install`, delete the temporary folder.
 #
 # No administrator rights; refuses sudo. Touches nothing outside that temporary folder and rhen-watch's own
-# per-user install (~/Applications/rhen-watch.app, a LaunchAgent for your user, and its data folder).
+# per-user install (~/Applications/rhen-watch.app, a LaunchAgent for your user, its data folder, the link
+# ~/.local/bin/rhen-watch and, if that folder is not on PATH yet, a marked PATH line in ~/.zprofile).
 # The program is not notarised; `install` signs its own copy ad hoc, which is what macOS needs to run it.
 # Run as: curl -fsSL <release>/install.sh | sh    Run again to upgrade.
 #
@@ -47,14 +48,8 @@ install_rhen_watch() {
   tar -xzf "$tmp/$asset" -C "$tmp/unpacked"
   [ -x "$tmp/unpacked/rhen-watch" ] || { echo "rhen-watch is missing from the archive" >&2; return 1; }
 
+  # `install` prints how to use it, and puts `rhen-watch` on PATH.
   "$tmp/unpacked/rhen-watch" install
-
-  bin="$HOME/Applications/rhen-watch.app/Contents/MacOS/rhen-watch"
-  echo ""
-  echo "Installed rhen-watch $version to $HOME/Applications/rhen-watch.app (look for it in the menu bar)."
-  echo "Report:     \"$bin\" report"
-  echo "Stop it:    \"$bin\" stop"
-  echo "Uninstall:  \"$bin\" uninstall      (add --purge to delete your data too)"
 }
 
 install_rhen_watch

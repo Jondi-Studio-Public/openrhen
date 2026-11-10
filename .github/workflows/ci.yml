@@ -611,6 +611,15 @@ jobs:
           # Installing again replaces the app in place and starts it again.
           "$bin" install
           running || { echo "::error::not running after a second install"; exit 1; }
+          # The command is on PATH: linked in ~/.local/bin, which a new login shell finds by name, and a second
+          # install does not add the PATH line twice.
+          link="$HOME/.local/bin/rhen-watch"
+          [ "$(readlink "$link")" = "$bin" ] || { echo "::error::$link does not point at the app"; exit 1; }
+          out=$("${SHELL:-/bin/zsh}" -lc 'rhen-watch status') && [[ "$out" == *'agent: running'* ]] \
+            || { echo "::error::a new login shell cannot run rhen-watch by name"; exit 1; }
+          for f in "$HOME/.zprofile" "$HOME/.bash_profile"; do
+            [ "$(grep -cs '>>> rhen-watch' "$f" || true)" -le 1 ] || { echo "::error::$f has the PATH line twice"; exit 1; }
+          done
           # A clean stop exits 0, so launchd must not start it again (it would within its 30 s throttle).
           "$bin" stop
           sleep 35
@@ -626,6 +635,8 @@ jobs:
           "$bin" uninstall --purge
           if launchctl print "$svc" > /dev/null 2>&1; then echo "::error::still loaded after uninstall"; exit 1; fi
           [ ! -e "$plist" ] && [ ! -e "$app" ] || { echo "::error::uninstall left files behind"; exit 1; }
+          [ ! -L "$link" ] || { echo "::error::uninstall left $link"; exit 1; }
+          if grep -qs 'rhen-watch' "$HOME/.zprofile" "$HOME/.bash_profile"; then echo "::error::uninstall left the PATH line"; exit 1; fi
           [ ! -e "$RHEN_WATCH_DIR/activity.db" ] || { echo "::error::--purge kept the data"; exit 1; }
       # The one-paste installer as a release ships it, fed from a local folder instead of the release page:
       # a bad checksum installs nothing, a good one installs and starts the agent.

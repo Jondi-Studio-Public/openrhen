@@ -6,7 +6,7 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use super::macos as mac;
-use super::macos_rules::{LABEL, info_plist, launch_agent_plist};
+use super::macos_rules::{BIN_DIR, LABEL, add_path_block, info_plist, launch_agent_plist, path_has, profile_for_shell, remove_path_block};
 use crate::cli::agent_running;
 
 fn home() -> Result<PathBuf, String> {
@@ -113,6 +113,84 @@ fn stage_app(app: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn command_link() -> Result<PathBuf, String> {
+    Ok(home()?.join(BIN_DIR).join("rhen-watch"))
+}
+
+/// Link `~/.local/bin/rhen-watch` to the installed program and, when that folder is not on PATH yet, add it in
+/// the login shell's start-up file. Returns what to tell the user about typing `rhen-watch`.
+fn link_command(program: &Path) -> Result<String, String> {
+    let link = command_link()?;
+    let bin = link.parent().expect("link has a parent").to_path_buf();
+    std::fs::create_dir_all(&bin).map_err(|e| format!("cannot create {}: {e}", bin.display()))?;
+    match std::fs::symlink_metadata(&link) {
+        Ok(m) if m.file_type().is_symlink() => {
+            std::fs::remove_file(&link).map_err(|e| format!("cannot replace {}: {e}", link.display()))?
+        }
+        // Someone else's file: never overwrite it.
+        Ok(_) => {
+            return Ok(format!(
+                "{} already exists and is not a link made by rhen-watch, so it was left alone; run {} instead.",
+                link.display(),
+                program.display()
+            ));
+        }
+        Err(_) => {}
+    }
+    std::os::unix::fs::symlink(program, &link).map_err(|e| format!("cannot link {}: {e}", link.display()))?;
+    let path = std::env::var("PATH").unwrap_or_default();
+    if path_has(&path, &bin.to_string_lossy()) {
+        return Ok("Type rhen-watch in Terminal to use it.".into());
+    }
+    let shell = std::env::var("SHELL").ok();
+    let Some(name) = profile_for_shell(shell.as_deref()) else {
+        return Ok(format!(
+            "Add {} to your shell's PATH to type rhen-watch; until then run {}.",
+            bin.display(),
+            program.display()
+        ));
+    };
+    let profile = home()?.join(name);
+    let text = match std::fs::read_to_string(&profile) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("cannot read {}: {e}", profile.display())),
+    };
+    if let Some(new) = add_path_block(&text) {
+        // Only appends, and writes through a linked start-up file rather than replacing the link.
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&profile)
+            .map_err(|e| format!("cannot open {}: {e}", profile.display()))?;
+        f.write_all(&new.as_bytes()[text.len()..])
+            .map_err(|e| format!("cannot write {}: {e}", profile.display()))?;
+    }
+    Ok(format!(
+        "Added {} to PATH in {}. Open a new Terminal window, then type rhen-watch.",
+        bin.display(),
+        profile.display()
+    ))
+}
+
+/// Undo `link_command`: remove the link only if it still points at our program, and the PATH block from every
+/// start-up file `install` may have written.
+fn unlink_command(program: &Path) -> Result<(), String> {
+    let link = command_link()?;
+    if std::fs::read_link(&link).is_ok_and(|to| to == program) {
+        std::fs::remove_file(&link).map_err(|e| format!("cannot remove {}: {e}", link.display()))?;
+    }
+    for name in [".zprofile", ".bash_profile"] {
+        let profile = home()?.join(name);
+        let Ok(text) = std::fs::read_to_string(&profile) else { continue };
+        if let Some(new) = remove_path_block(&text) {
+            std::fs::write(&profile, new).map_err(|e| format!("cannot write {}: {e}", profile.display()))?;
+        }
+    }
+    Ok(())
+}
+
 pub fn install(data: &Path) -> Result<(), String> {
     if mac::is_root() {
         return Err("run install as the logged-in user, not with sudo".into());
@@ -147,10 +225,14 @@ pub fn install(data: &Path) -> Result<(), String> {
         std::thread::sleep(Duration::from_millis(200));
     }
     crate::log::info(&format!("installed to {}", app.display()));
+    // The agent is installed and running by now, so a failed link is a note, not a failed install.
+    let note =
+        link_command(&program).unwrap_or_else(|e| format!("Could not put rhen-watch on PATH ({e}); run {} instead.", program.display()));
     println!("It starts when you log in and is running now (look for the icon in the menu bar).");
-    println!("Report:    {} report", program.display());
-    println!("Stop:      {} stop", program.display());
-    println!("Uninstall: {} uninstall   (add --purge to delete your data too)", program.display());
+    println!("{note}");
+    println!("Report:    rhen-watch report");
+    println!("Stop:      rhen-watch stop");
+    println!("Uninstall: rhen-watch uninstall   (add --purge to delete your data too)");
     Ok(())
 }
 
@@ -165,6 +247,7 @@ pub fn uninstall(data: &Path) -> Result<(), String> {
         std::fs::remove_file(&plist).map_err(|e| format!("cannot remove {}: {e}", plist.display()))?;
     }
     let app = app_dir()?;
+    unlink_command(&app.join("Contents").join("MacOS").join("rhen-watch"))?;
     if app.exists() {
         // Removing the running program's own file is allowed on macOS; this process keeps running.
         std::fs::remove_dir_all(&app).map_err(|e| format!("cannot remove {}: {e}", app.display()))?;
