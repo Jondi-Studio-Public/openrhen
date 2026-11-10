@@ -118,17 +118,14 @@ const TYPED_SAVE_KINDS: { kind: SaveEntityKind; what: string; required: string; 
     what: "an action (a step of work under a project)",
     required: "projectId and title",
     defaults:
-      "status planned, a 60-minute estimate (listed in assumedFields), importance and consequence 3 (1-5), medium energy. " +
-      "Minutes are whole numbers; times are ISO 8601 with an offset. contexts and dependencyIds are ids from " +
-      "rhen_list conditions and actions"
+      "status planned, a 60-minute estimate (listed in assumedFields), importance and consequence 3, medium energy. " +
+      "Minutes are whole numbers; times are ISO 8601 with an offset"
   },
   {
     kind: "project",
     what: "a project",
     required: "outcomeId and title",
-    defaults:
-      "status active, uncertainty some (pads action estimates), consequence 3. internalDeadlineAt is the owner's own " +
-      "target (it can lapse); externalDeadlineAt is a real outside date"
+    defaults: "status active, uncertainty some, consequence 3"
   },
   {
     kind: "commitment",
@@ -146,8 +143,7 @@ const TYPED_SAVE_KINDS: { kind: SaveEntityKind; what: string; required: string; 
 
 function typedSaveDescription(kind: SaveEntityKind, what: string, required: string, defaults: string): string {
   return (
-    `Creates or updates ${what}: rhen_save with entityType ${kind}, every field checked (same id, create ` +
-    `and expected-version rules). Required on create: ${required}. Defaults: ${defaults}. ` +
+    `Creates or updates ${what}: rhen_save with entityType ${kind}, every field checked. Required on create: ${required}. Defaults: ${defaults}. ` +
     "Returns and undoes as rhen_save."
   );
 }
@@ -223,7 +219,7 @@ export function fieldsProperty(kind: SaveEntityKind): Record<string, unknown> {
     ...rest,
     properties,
     type: "object",
-    description: `The ${kind}'s fields. On create, give what the kind needs; on update, only what changes.`
+    description: `The ${kind}'s fields; on update, only what changes.`
   };
 }
 
@@ -302,7 +298,14 @@ export const REMOTE_TOOLS: RemoteTool[] = [
     omit: ["from", "set"],
     description: typedSaveDescription(kind, what, required, defaults),
     // The id, create and expected-version rules are rhen_save's; the description above says so.
-    text: { params: { id: "As rhen_save.", create: "As rhen_save.", "expected-version": "As rhen_save." } }
+    text: {
+      params: {
+        id: "As rhen_save.",
+        create: "As rhen_save.",
+        "expected-version": "As rhen_save.",
+        "dry-run": "As rhen_save."
+      }
+    }
   })),
   // One message of facts: each write inside is held to its own route's scope by the portal.
   { command: "changeset", scopes: ["propose:entity", "read:plan"] },
