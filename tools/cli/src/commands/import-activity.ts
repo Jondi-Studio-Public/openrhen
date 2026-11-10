@@ -8,15 +8,21 @@ import {
   type EventJob,
   type ImportPlan,
   type ImportSourceName,
+  type MailPlanOptions,
   type YoutubeJob
 } from "@openrhen/activity-importers";
 import {
+  ACTIVITY_CONTENT_MAX_BYTES,
   ACTIVITY_FILENAME_MAX_CHARS,
   ACTIVITY_MAX_BATCH,
+  MESSAGE_ID_MAX_CHARS,
+  canonicalMessageKey,
+  isRfcMessageId,
+  normaliseMessageId,
   WATCH_IMPORT_MAX_FILE_BYTES,
   type WatchImportResult
 } from "@openrhen/contracts";
-import { booleanOption, type CommandContext, type ParsedArgs } from "../command.js";
+import { booleanOption, stringOption, type CommandContext, type ParsedArgs } from "../command.js";
 import { CliError, EXIT } from "../errors.js";
 import { toJson } from "../output.js";
 
@@ -70,6 +76,10 @@ export interface SourceSummary {
   skippedReasons: Record<string, number>;
   /** The commonest first words of skipped titles (My Activity), most frequent first. */
   skippedVerbs: Record<string, number>;
+  /** Fallbacks taken for rows that were still sent (a missing Date, a Message-ID that is not RFC-shaped), by reason. */
+  warnings: Record<string, number>;
+  /** Plain tallies (attachments ignored, duplicates dropped). */
+  counts: Record<string, number>;
   truncated: boolean;
   /** Set when the run looks like a failure that exit code 0 would hide: no events, or most rows skipped. */
   warning?: string;
@@ -80,6 +90,39 @@ export const SOURCE_NAMES_TEXT = IMPORT_SOURCES.join(", ");
 
 export function isActivityImportSource(value: string): value is ImportSourceName {
   return isImportSource(value);
+}
+
+/** The mail importer's options: the caller names the source; the key rules are the contracts' own. */
+function mailOptions(args: ParsedArgs): MailPlanOptions {
+  const source = stringOption(args.values, "source");
+  if (!source)
+    throw new CliError(
+      "Missing --source. Usage: rhen import mail <path to .mbox, .eml, folder or zip> --source <name>, where <name> is a message@1 source an extension has registered (docs/operations/posting-messages.md section 1).",
+      EXIT.usage
+    );
+  const mib = stringOption(args.values, "max-message-mib");
+  if (mib !== undefined && !/^\d+$/.test(mib))
+    throw new CliError(`--max-message-mib must be a whole number of MiB, not "${mib}".`, EXIT.usage);
+  const self = stringOption(args.values, "self");
+  return {
+    source,
+    keying: {
+      normaliseMessageId,
+      isRfcMessageId,
+      canonicalMessageKey,
+      messageIdMaxChars: MESSAGE_ID_MAX_CHARS,
+      contentMaxBytes: ACTIVITY_CONTENT_MAX_BYTES
+    },
+    ...(mib === undefined ? {} : { maxMessageBytes: Number(mib) * 1048576 }),
+    ...(self
+      ? {
+          selfAddresses: self
+            .split(",")
+            .map((a) => a.trim().toLowerCase())
+            .filter((a) => a !== "")
+        }
+      : {})
+  };
 }
 
 export async function runActivityImport(context: CommandContext, args: ParsedArgs): Promise<void> {
@@ -99,7 +142,7 @@ export async function runActivityImport(context: CommandContext, args: ParsedArg
   const again = booleanOption(args.values, "yes");
   let plan: ImportPlan;
   try {
-    plan = await planImport(source, path);
+    plan = await planImport(source, path, source === "mail" ? { mail: mailOptions(args) } : {});
   } catch (error) {
     if (error instanceof ImportReadError) throw new CliError(error.message, EXIT.usage);
     throw error;
@@ -207,6 +250,8 @@ function eventsRun(source: string, summary: SourceSummary, startedAt: Date, fini
   const warnings: string[] = [];
   if (summary.warning) warnings.push(cut(summary.warning, 200));
   if (summary.truncated) warnings.push("The file ends in the middle of a record, so it looks cut off.");
+  for (const [reason, n] of Object.entries(summary.warnings).slice(0, 5))
+    warnings.push(cut(`${n} rows: ${reason}`, 200));
   for (const group of summary.rejections.slice(0, 3))
     warnings.push(cut(`rejected ${group.count}: ${group.reason}`, 200));
   const status = summary.skipped > 0 || summary.rejected > 0 || warnings.length > 0 ? "needs_review" : "synced";
@@ -295,6 +340,8 @@ function newSummary(job: EventJob, dryRun: boolean): SourceSummary {
     ignored: 0,
     skippedReasons: {},
     skippedVerbs: {},
+    warnings: {},
+    counts: {},
     truncated: false,
     importId: null
   };
@@ -413,6 +460,8 @@ async function runEvents(
     summary.skipped += oversized;
     summary.skippedReasons["event is larger than 1 MB, so it was not sent"] = oversized;
   }
+  summary.warnings = { ...stats.warnings };
+  summary.counts = { ...stats.counts };
   summary.truncated = stats.truncated;
   summary.importId = importId;
   summary.rejections = [...groups.values()].sort((a, b) => b.count - a.count);
@@ -481,6 +530,8 @@ function renderSummary(summary: SourceSummary): string {
       "  The file ends in the middle of a record, so it looks cut off. What was read before that is included; download the export again."
     );
   for (const [reason, count] of Object.entries(summary.skippedReasons)) lines.push(`  skipped ${count}: ${reason}`);
+  for (const [reason, count] of Object.entries(summary.warnings)) lines.push(`  warning, ${count} rows: ${reason}`);
+  for (const [label, count] of Object.entries(summary.counts)) lines.push(`  ${count}: ${label}`);
   if (summary.warning) lines.push(`  ${summary.warning}`);
   const verbs = Object.entries(summary.skippedVerbs);
   if (verbs.length > 0)
