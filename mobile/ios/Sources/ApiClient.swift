@@ -60,6 +60,15 @@ final class ApiClient {
         guard let answer = await send(request) else { return .retryLater }
         return PingDisposition.forStatus(answer.status)
     }
+
+    /// One batch of sensor rows to `POST /api/activity-events`, answered in the terms the sensor queue works in.
+    func sendSensorBatch(origin: String, token: String, installId: String, events: [SensorEvent]) async -> SensorReply {
+        guard let request = ApiRequests.activityEvents(origin: origin, token: token, installId: installId, events: events) else {
+            return .refused("The app could not build this request for your server's address.")
+        }
+        guard let answer = await send(request) else { return .retry(after: nil, note: ApiError.unreachable.message) }
+        return SensorReply.interpret(answer)
+    }
 }
 
 /// Refuses every redirect (see `Policies.redirectTarget`).
