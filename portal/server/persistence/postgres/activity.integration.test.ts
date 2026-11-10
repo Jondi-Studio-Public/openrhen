@@ -580,6 +580,29 @@ describe("settings, summary and reads", () => {
     await expect(setActivitySourceSettings(sql, "myspace", {})).rejects.toBeInstanceOf(ActivityInputError);
   });
 
+  it("keeps the owner's expected rhythm through other settings, clears it with null, and the table refuses a value out of range", async () => {
+    const set = await setActivitySourceSettings(sql, "rhen-watch", { expectedEveryMinutes: 1440 });
+    expect(set).toMatchObject({ source: "rhen-watch", expectedEveryMinutes: 1440 });
+    expect(await setActivitySourceSettings(sql, "rhen-watch", { retentionDays: 30 })).toMatchObject({
+      expectedEveryMinutes: 1440,
+      retentionDays: 30
+    });
+    expect(await setActivitySourceSettings(sql, "rhen-watch", { contentEnabled: true })).toMatchObject({
+      expectedEveryMinutes: 1440
+    });
+    expect((await readActivitySummary(sql)).sources.find((s) => s.source === "rhen-watch")).toMatchObject({
+      expectedEveryMinutes: 1440
+    });
+    expect(await setActivitySourceSettings(sql, "rhen-watch", { expectedEveryMinutes: null })).toMatchObject({
+      expectedEveryMinutes: null,
+      retentionDays: 30
+    });
+    for (const bad of [4, 129_601, 0])
+      await expect(
+        sql`UPDATE activity_source_state SET expected_every_minutes = ${bad} WHERE source = 'rhen-watch'`
+      ).rejects.toThrow(/activity_source_state_expected_check/);
+  });
+
   it("summarises every registered source with counts, the last event and the settings", async () => {
     await ingest([event("a", { end: null }), event("b", { start: "2026-11-07T11:00:00Z", end: null })]);
     await setActivitySourceSettings(sql, "rhen-watch", { retentionDays: 10 });

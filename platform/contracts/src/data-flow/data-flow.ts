@@ -21,6 +21,7 @@ import type { DataFlowContribution, FlowEntry } from "./types.js";
 export * from "./graph.js";
 export * from "./coverage.js";
 export * from "./health.js";
+export * from "./rhythm.js";
 export * from "./view.js";
 export { CORE_DATASET_NOTES } from "./notes.js";
 export * from "./surfaces.js";

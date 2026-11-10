@@ -8,11 +8,13 @@
  * nothing here replaces them and a source never raises two items for one problem.
  */
 import { processingLine, type HeartbeatRead, type ProcessingReport } from "../data-flow/coverage.js";
+import type { ThresholdInUse } from "../data-flow/health.js";
+import { RHYTHM_ABANDONED_FACTOR, RHYTHM_CHANGED_FACTOR, formatSpan } from "../data-flow/rhythm.js";
 import type { DoctorItem } from "./doctor.js";
 
 const HOUR_MS = 3_600_000;
 const DAY_MS = 24 * HOUR_MS;
-/** A learned threshold may make an item blocking only when it rests on this many days of arrivals. */
+/** A learned device threshold (arrivals, not coverage) may make an item blocking only when it rests on this many days of arrivals. */
 export const DOCTOR_LEARNED_BLOCKING_DAYS = 30;
 /** A device is only reasoned about as a whole when at least this many of its feeds have ever been seen. */
 export const DOCTOR_DEVICE_MIN_FEEDS = 2;
@@ -62,7 +64,9 @@ export interface DoctorSourceInput {
   credentialPresent?: boolean;
   freshness: DoctorSourceFreshness;
   lastSuccessAt: string | null;
-  threshold: { warnHours: number; errorHours: number | null; from: string; days?: number } | null;
+  threshold: ThresholdInUse | null;
+  /** A coverage source with fewer than 2 gaps and nothing declared: no rhythm yet, no threshold, nothing is late. */
+  noRhythm?: { updates: number; gaps: number };
   /** Kinds of this source that stopped arriving on their own learned rhythm while the source as a whole did not. */
   lateKinds?: { kind: string; lastAt: string; warnHours: number }[];
   /** Rows that arrived in the last 7 days. */
@@ -143,21 +147,119 @@ const number = (value: number) => value.toLocaleString("en-US");
 const isLate = (source: DoctorSourceInput) => source.freshness === "late" || source.freshness === "stale";
 const pastThreshold = (source: DoctorSourceInput) => source.configured && source.threshold !== null && isLate(source);
 
-/** An unlearned threshold, or a learned one with a full month behind it, may block; a young learned one may not. */
-const statedThreshold = (source: DoctorSourceInput) =>
-  source.threshold !== null &&
-  (source.threshold.from !== "learned" || (source.threshold.days ?? 0) >= DOCTOR_LEARNED_BLOCKING_DAYS);
+/**
+ * Whether a threshold is real enough to block on. The origins that may are listed: the owner's expectation, the collector's
+ * declared cadence, a coverage source's own rhythm once real (it carries its gaps; a provisional one has its own origin and
+ * never blocks), a learned device threshold with a full month of arrivals, and the entry's own, connection's or default numbers.
+ */
+const statedThreshold = (source: DoctorSourceInput) => {
+  const threshold = source.threshold;
+  if (threshold === null) return false;
+  switch (threshold.from) {
+    case "owner":
+    case "collector":
+      return true;
+    case "learned":
+      return threshold.gaps !== undefined || (threshold.days ?? 0) >= DOCTOR_LEARNED_BLOCKING_DAYS;
+    case "provisional":
+      return false;
+    default:
+      return true;
+  }
+};
+
+/** A coverage source more than 3 x its stale limit behind has probably been retired: it stops blocking and says so. */
+const abandoned = (source: DoctorSourceInput, now: number) => {
+  const last = ms(source.lastSuccessAt);
+  const stale = source.threshold?.errorHours;
+  return (
+    source.coverage !== undefined &&
+    statedThreshold(source) &&
+    stale !== undefined &&
+    stale !== null &&
+    last !== undefined &&
+    (now - last) / HOUR_MS > RHYTHM_ABANDONED_FACTOR * stale
+  );
+};
+
+/** A source that just resumed after a gap longer than twice its limit is not blocking until 1.5 x that gap has passed. */
+const awaitingConfirmation = (source: DoctorSourceInput, now: number) => {
+  const gap = source.threshold?.rhythmChanged?.lastGapHours;
+  const last = ms(source.lastSuccessAt);
+  return gap !== undefined && last !== undefined && (now - last) / HOUR_MS <= RHYTHM_CHANGED_FACTOR * gap;
+};
 
 /**
  * Whether a late source's own item is blocking: past its error threshold, read by the engine or able to change the plan
- * (a message source), threshold stated.
+ * (a message source), on a real limit, not retired and not waiting to confirm a changed rhythm.
  */
 const feedsPlan = (source: DoctorSourceInput) => source.engineReads || source.changesPlan === true;
-const blockingLate = (source: DoctorSourceInput) =>
-  pastThreshold(source) && source.freshness === "stale" && feedsPlan(source) && statedThreshold(source);
+const blockingLate = (source: DoctorSourceInput, now: number) =>
+  pastThreshold(source) &&
+  source.freshness === "stale" &&
+  feedsPlan(source) &&
+  statedThreshold(source) &&
+  !abandoned(source, now) &&
+  !awaitingConfirmation(source, now);
 
 /** The date and time, to the minute, in UTC, for text an agent or person reads. */
 const stamp = (iso: string) => `${iso.slice(0, 16).replace("T", " ")} UTC`;
+
+/** What a provisional limit still needs, in words: "3 more updates", "20 h more history" or both. */
+function moreText(threshold: ThresholdInUse): string {
+  const more = threshold.provisional;
+  const parts = [
+    more !== undefined && more.moreUpdates > 0
+      ? `${more.moreUpdates} more ${more.moreUpdates === 1 ? "update" : "updates"}`
+      : "",
+    more !== undefined && more.moreHours > 0 ? `${formatSpan(more.moreHours * HOUR_MS)} more history` : ""
+  ].filter(Boolean);
+  return `becomes final after ${parts.length > 0 ? parts.join(" and ") : "its next update"}`;
+}
+
+/** The next step for a source that has stopped for good; only the owner can remove a token or make a collector send. */
+const RETIRED_NEXT = "Ask the owner to remove its token (`rhen agent-token list` shows it) or to make it send once.";
+
+/** The owner's way to say how often a source is expected; the agent never sets it. No number is suggested. */
+const askOwnerExpectation = (activitySource: string) =>
+  `Ask the owner to set how often they expect this source if it is simply slower than it looks (owner session: \`PUT /api/activity-sources/${activitySource}\` with \`{"expectedEveryMinutes": MINUTES}\`, MINUTES a whole number from 5 to 129600; \`null\` clears it).`;
+
+/** "its usual rhythm of one update every 1 d", for the title of an item on a source with a rhythm; empty when none is known. */
+function rhythmClause(threshold: ThresholdInUse | null): string {
+  if (threshold?.usualMinutes === undefined) return "";
+  const every = formatSpan(threshold.usualMinutes * 60_000);
+  return threshold.from === "owner"
+    ? ` the rhythm the owner expects, one update every ${every}`
+    : ` its usual rhythm of one update every ${every}`;
+}
+
+/** The sentence that says where a coverage source's late and stale limits come from; null for any other origin. */
+function limitRule(source: DoctorSourceInput): string | null {
+  const threshold = source.threshold;
+  if (threshold === null || threshold.errorHours === null) return null;
+  const limits = `late after ${formatSpan(threshold.warnHours * HOUR_MS)} and stale after ${formatSpan(threshold.errorHours * HOUR_MS)}`;
+  switch (threshold.from) {
+    case "owner":
+      return `Its limit comes from the owner's expectation of one update every ${formatSpan((threshold.expectedEveryMinutes ?? 0) * 60_000)}: ${limits}.`;
+    case "provisional":
+      return `Its limit is provisional (${limits}): judged on ${threshold.gaps ?? 0} gaps; ${moreText(threshold)}. Nothing blocks on it until then.`;
+    case "learned":
+      if (threshold.gaps === undefined) return null;
+      return `It usually updates every ${formatSpan((threshold.usualMinutes ?? 0) * 60_000)}; ${limits} (learned from its own posts over ${threshold.gaps} gaps).${threshold.declaredWarnHours !== undefined ? ` Its collector declares late after ${formatSpan(threshold.declaredWarnHours * HOUR_MS)}.` : ""}`;
+    case "collector": {
+      const observed = threshold.observedWarnHours;
+      const compare =
+        observed === undefined
+          ? ""
+          : observed > threshold.warnHours
+            ? ` Observed slower than declared: its own posts would allow late after ${formatSpan(observed * HOUR_MS)}, but blocking holds to the declared limit.`
+            : ` Observed faster than declared: its own posts would give late after ${formatSpan(observed * HOUR_MS)}.`;
+      return `Its collector declares a cadence: ${limits}.${compare}`;
+    }
+    default:
+      return null;
+  }
+}
 
 export interface PlanInputsBehind {
   source: string;
@@ -184,10 +286,27 @@ export interface PlanInputs {
  * are in use (a row, a heartbeat or a live token), so a source nobody set up is not a gap. The engine is not told: this is
  * the portal's statement over the doctor's own slice.
  */
-export function planInputs(slice: DoctorSourcesSlice): PlanInputs {
+export function planInputs(slice: DoctorSourcesSlice, now?: number): PlanInputs {
   const behind: PlanInputsBehind[] = [];
+  const quiet: DoctorSourceInput[] = [];
+  const provisional: DoctorSourceInput[] = [];
+  const retired: DoctorSourceInput[] = [];
   for (const source of slice.sources) {
     if (source.changesPlan !== true || !(source.configured || source.credentialPresent === true)) continue;
+    const isLate = source.freshness === "late" || source.freshness === "stale";
+    // No rhythm yet: informational. Nothing is late, so the plan is not behind on it; the note says so.
+    if (source.noRhythm !== undefined && source.freshness === "n/a") {
+      quiet.push(source);
+      continue;
+    }
+    if (isLate && source.threshold?.from === "provisional") {
+      provisional.push(source);
+      continue;
+    }
+    if (isLate && now !== undefined && abandoned(source, now)) {
+      retired.push(source);
+      continue;
+    }
     const state: PlanInputsBehind["state"] | undefined =
       source.freshness === "late" ||
       source.freshness === "stale" ||
@@ -212,10 +331,24 @@ export function planInputs(slice: DoctorSourcesSlice): PlanInputs {
       !source.keepsSyncChecks &&
       (source.configured || source.credentialPresent === true)
   );
-  const note =
-    uncounted.length > 0
-      ? `Not covered by this statement: ${uncounted.map((source) => source.name).join(", ")}. ${uncounted.length === 1 ? "It sends" : "They send"} messages but ${uncounted.length === 1 ? "is" : "are"} not yet judged by how far ${uncounted.length === 1 ? "it is" : "they are"} read, so the plan can be behind on ${uncounted.length === 1 ? "it" : "them"} unseen. The collector must post a coverage row (docs/operations/posting-messages.md, section 5) and the source be marked as changing the plan.`
-      : null;
+  const parts: string[] = [];
+  if (uncounted.length > 0)
+    parts.push(
+      `Not covered by this statement: ${uncounted.map((source) => source.name).join(", ")}. ${uncounted.length === 1 ? "It sends" : "They send"} messages but ${uncounted.length === 1 ? "is" : "are"} not yet judged by how far ${uncounted.length === 1 ? "it is" : "they are"} read, so the plan can be behind on ${uncounted.length === 1 ? "it" : "them"} unseen. The collector must post a coverage row (docs/operations/posting-messages.md, section 5) and the source be marked as changing the plan.`
+    );
+  if (quiet.length > 0)
+    parts.push(
+      `${quiet.map((source) => `${source.name} reports ${source.noRhythm!.updates} ${source.noRhythm!.updates === 1 ? "update" : "updates"} and has no rhythm yet`).join(", ")}; nothing is judged late until ${quiet.length === 1 ? "it has" : "they have"} two gaps between updates. Run \`rhen sources ${quiet[0]!.id}\` to see ${quiet.length === 1 ? "it" : "each"}.`
+    );
+  if (provisional.length > 0)
+    parts.push(
+      `${provisional.map((source) => `${source.name} is behind on a limit judged on ${source.threshold!.gaps ?? 0} gaps (${moreText(source.threshold!)})`).join(", ")}, so ${provisional.length === 1 ? "it is" : "they are"} not counted as behind yet. Run \`rhen sources ${provisional[0]!.id}\`.`
+    );
+  if (retired.length > 0)
+    parts.push(
+      `${retired.map((source) => source.name).join(", ")} ${retired.length === 1 ? "has" : "have"} probably been retired (more than ${RHYTHM_ABANDONED_FACTOR} x ${retired.length === 1 ? "its" : "their"} stale limit behind) and no longer ${retired.length === 1 ? "counts" : "count"} as behind. ${RETIRED_NEXT}`
+    );
+  const note = parts.length > 0 ? parts.join(" ") : null;
   if (behind.length === 0) return { complete: true, behind, sentence: null, note };
   const read = behind
     .filter((item) => item.coveredTo !== null)
@@ -271,7 +404,7 @@ export function sourceItems(
     items.push({
       id: `device_silent:${device.id}`,
       check: "device_silent",
-      tier: feeds.some(blockingLate) ? "blocking" : "degrading",
+      tier: feeds.some((feed) => blockingLate(feed, now)) ? "blocking" : "degrading",
       area: "integrations",
       title: `The ${device.id} device has sent nothing for ${age(seen, now)}${from ? ` (last heard through ${from.name})` : ""}`,
       why: `All ${feeds.length} of its feeds (${feeds.map((feed) => feed.name).join(", ")}) are past their usual rhythm, the longest of which is ${widest} h, so the device itself has gone quiet rather than one feed. Whatever the plan learns from it is going stale, and the per-feed items are folded into this one.`,
@@ -297,14 +430,15 @@ export function sourceItems(
     if ((late || kinds.length > 0) && !inSilentDevice.has(source.id)) {
       const last = ms(source.lastSuccessAt);
       const warn = source.threshold?.warnHours;
-      const blocking = blockingLate(source);
+      const blocking = blockingLate(source, now);
       const coverage = source.coverage;
       const covered = coverage !== undefined && coverage.coveredTo !== null;
       const origin = source.threshold?.from ?? "default";
-      const rule = `Its warning comes after ${warn} h${source.threshold?.errorHours != null ? ` and its error after ${source.threshold.errorHours} h` : ""} (${origin} threshold).`;
+      const retired = late && covered && abandoned(source, now);
+      const rule = `${limitRule(source) ?? `Its warning comes after ${warn} h${source.threshold?.errorHours != null ? ` and its error after ${source.threshold.errorHours} h` : ""} (${origin} threshold).`}${awaitingConfirmation(source, now) ? ` The usual rhythm changed (last gap ${formatSpan(source.threshold!.rhythmChanged!.lastGapHours * HOUR_MS)}), not blocking until confirmed.` : ""}${retired ? ` This source has probably been retired: it is more than ${RHYTHM_ABANDONED_FACTOR} x its stale limit behind, so it no longer blocks.` : ""}`;
       const title = late
         ? covered
-          ? `${source.name} is read up to ${stamp(coverage.coveredTo!)}, ${age(last ?? now, now)} behind`
+          ? `${source.name} is read up to ${stamp(coverage.coveredTo!)}, ${age(last ?? now, now)} behind${rhythmClause(source.threshold)}`
           : `${source.name} last sent data ${last === undefined ? "a long while" : age(last, now)} ago, later than usual`
         : `${source.name} has stopped sending ${kinds.map((k) => k.kind).join(", ")} while the rest still arrives`;
       const alive = coverage?.heartbeat?.status === "ok";
@@ -331,9 +465,11 @@ export function sourceItems(
         ...(source.lastSuccessAt ? { since: source.lastSuccessAt } : {}),
         fix: {
           who: "person",
-          question: covered
-            ? `${source.name} has not been read since ${stamp(coverage.coveredTo!)}. Run \`rhen sources ${source.id}\` to see each scope's covered-up-to time, the newest heartbeat and the threshold in use. Then ask the owner whether the collector that reads it is still running and signed in, and have them make it read once. Run \`rhen sources ${source.id}\` again: covered up to should now be minutes old, and \`rhen sources --problems\` should no longer list it.`
-            : `${source.name} has not sent on its usual rhythm. Run \`rhen sources ${source.id}\` to see its last error, the kinds that still arrive and the threshold in use. Then ask the owner whether the automation or device that sends it is still switched on, and have them make it send once. Run \`rhen sources ${source.id}\` again: its newest row should now be minutes old, and \`rhen sources --problems\` should no longer list it.`,
+          question: retired
+            ? `${source.name} has not been read since ${stamp(coverage.coveredTo!)} and is more than ${RHYTHM_ABANDONED_FACTOR} x its stale limit behind, so it has probably been retired. Run \`rhen sources ${source.id}\` to see each scope's covered-up-to time and the newest heartbeat. ${RETIRED_NEXT} Run \`rhen sources ${source.id}\` again to confirm.`
+            : covered
+              ? `${source.name} has not been read since ${stamp(coverage.coveredTo!)}. Run \`rhen sources ${source.id}\` to see each scope's covered-up-to time, the newest heartbeat and the threshold in use. Then ask the owner whether the collector that reads it is still running and signed in, and have them make it read once. Run \`rhen sources ${source.id}\` again: covered up to should now be minutes old, and \`rhen sources --problems\` should no longer list it.${source.activitySource !== undefined ? ` ${askOwnerExpectation(source.activitySource)}` : ""}`
+              : `${source.name} has not sent on its usual rhythm. Run \`rhen sources ${source.id}\` to see its last error, the kinds that still arrive and the threshold in use. Then ask the owner whether the automation or device that sends it is still switched on, and have them make it send once. Run \`rhen sources ${source.id}\` again: its newest row should now be minutes old, and \`rhen sources --problems\` should no longer list it.`,
           cli: `rhen sources ${source.id}`
         }
       });

@@ -733,7 +733,8 @@ const OWNER_ROUTES: Record<string, string> = {
   "POST /api/imports/watch-history": "Importing a watch-history file",
   "DELETE /api/imports/watch-history/[id]": "Undoing a watch-history import",
   // The activity store's settings and deletions are the owner's: the content gate, retention, undoing an import, purging a source.
-  "PUT /api/activity-sources/[source]": "Setting a source's content gate or retention",
+  "PUT /api/activity-sources/[source]":
+    "Setting a source's content gate, retention or how often it is expected to send",
   "DELETE /api/activity-sources/[source]/events": "Purging every event of a source",
   "DELETE /api/activity-imports/[id]": "Undoing an activity import",
   // Passwords and keys the person typed in: write-only, and never an agent's to set, list or remove. Nothing reads a value back.

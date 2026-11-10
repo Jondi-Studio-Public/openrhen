@@ -714,7 +714,7 @@ export function runDoctor(snapshot: DoctorSnapshot): DoctorReport {
     } else {
       const found = sourceItems(snapshot.sources, now);
       sources = found.counts;
-      inputs = planInputs(snapshot.sources);
+      inputs = planInputs(snapshot.sources, now);
       if ((snapshot.sources.processing ?? []).length > 0) processing = snapshot.sources.processing;
       items.push(...found.items);
       // A silent phone is one device item; the separate location-ping item would say the same thing twice.

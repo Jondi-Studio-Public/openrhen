@@ -61,6 +61,24 @@ describe("PUT /api/activity-sources/[source]", () => {
   });
 });
 
+describe("PUT /api/activity-sources/[source] expectedEveryMinutes", () => {
+  it.each([5, 1440, 129_600, null])("passes %s on to the store", async (value) => {
+    store.setActivitySourceSettings.mockResolvedValue({ source: "demo-source", expectedEveryMinutes: value });
+    expect((await put({ expectedEveryMinutes: value })).status).toBe(200);
+    expect(store.setActivitySourceSettings.mock.calls[0]![2]).toEqual({ expectedEveryMinutes: value });
+  });
+
+  it.each([4, 0, 129_601, 1.5, "daily"])("refuses %s with a 400 that says what to send", async (value) => {
+    const response = await put({ expectedEveryMinutes: value });
+    expect(response.status).toBe(400);
+    const { error } = (await response.json()) as { error: string };
+    expect(error).toContain("expectedEveryMinutes");
+    expect(error).toContain("5 to 129600");
+    expect(error).toContain("null");
+    expect(store.setActivitySourceSettings).not.toHaveBeenCalled();
+  });
+});
+
 describe("DELETE /api/activity-sources/[source]/events", () => {
   it("purges the source and says how many went", async () => {
     store.purgeActivitySource.mockResolvedValue({ removed: 12 });

@@ -109,8 +109,8 @@ describe("the activity store in the backup", () => {
         (${userId}, 'chrome-takeout', 'visit', 'k1', '2026-11-01T10:15:30.123Z', NULL, 660, false, '{"transition":"link"}', 'Title \u2014 \u65e5\u672c', ${imported!.id}, NULL),
         (${userId}, 'steam', 'session', 'k2', '2026-11-01T11:00:00Z', '2026-11-01T11:30:00Z', NULL, true, '{}', NULL, NULL, 'agent-a')
     `;
-    await sql`INSERT INTO activity_source_state (user_id, source, content_enabled, retention_days, cursor)
-              VALUES (${userId}, 'spotify', true, 365, '{"after":"123"}')`;
+    await sql`INSERT INTO activity_source_state (user_id, source, content_enabled, retention_days, expected_every_minutes, cursor)
+              VALUES (${userId}, 'spotify', true, 365, 1440, '{"after":"123"}')`;
     const [k1, k2] = await sql<{ id: string }[]>`SELECT id FROM activity_events ORDER BY event_key`;
     await sql`INSERT INTO derived_lineage (user_id, derived_id, source_id) VALUES (${userId}, ${k2!.id}, ${k1!.id})`;
     await sql`INSERT INTO extractor_state (user_id, extractor, version, cursor, active)

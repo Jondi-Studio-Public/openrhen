@@ -170,7 +170,7 @@ describe("device_silent", () => {
       ...feed(id, 100, "phone", 24),
       freshness: "stale" as const,
       engineReads: id === "a",
-      threshold: { warnHours: 24, errorHours: 72, from: "default" }
+      threshold: { warnHours: 24, errorHours: 72, from: "default" as const }
     });
     const { items } = sourceItems(
       slice({ sources: [stale("a"), stale("b")], devices: [device(["a", "b"], 100)] }),
@@ -579,6 +579,149 @@ describe("a source that reports coverage", () => {
     expect(item).toMatchObject({ check: "source_silent", tier: "degrading" });
     expect(item!.title).toContain("alive but has never reported reading");
     expect(item!.fix.question).toContain("docs/operations/posting-messages.md");
+  });
+});
+
+describe("a source judged on its own rhythm", () => {
+  const learned = { warnHours: 72, errorHours: 144, from: "learned", gaps: 20, usualMinutes: 1440 } as const;
+  const inbox = (extra: Partial<DoctorSourceInput> = {}) =>
+    source("inbox", {
+      name: "Demo inbox",
+      activitySource: "inbox",
+      changesPlan: true,
+      messageSource: true,
+      freshness: "stale",
+      lastSuccessAt: hoursAgo(150),
+      threshold: learned,
+      coverage: { coveredTo: hoursAgo(150), heartbeat: null, holes14d: 0 },
+      ...extra
+    });
+  const first = (input: DoctorSourceInput) => sourceItems(slice({ sources: [input] }), NOW).items[0]!;
+
+  it("words a real limit against the source's usual rhythm and blocks at stale", () => {
+    const item = first(inbox());
+    expect(item.tier).toBe("blocking");
+    expect(item.title).toBe(
+      "Demo inbox is read up to 2026-11-03 06:00 UTC, 6 days behind its usual rhythm of one update every 1 d"
+    );
+    expect(item.why).toContain("late after 3 d and stale after 6 d");
+    expect(item.why).toContain("learned");
+  });
+
+  it("tells the agent to ask the owner to set how often the source is expected, with the exact call and no number", () => {
+    const { question } = first(inbox()).fix;
+    expect(question).toContain("Ask the owner");
+    expect(question).toContain("PUT /api/activity-sources/inbox");
+    expect(question).toContain('{"expectedEveryMinutes": MINUTES}');
+    expect(question).toContain("`rhen sources inbox`");
+    expect(question).not.toMatch(/expectedEveryMinutes": \d/);
+  });
+
+  it("never blocks on a provisional limit, and says how many more updates make it final", () => {
+    const provisional = inbox({
+      threshold: {
+        warnHours: 72,
+        errorHours: 144,
+        from: "provisional",
+        gaps: 3,
+        usualMinutes: 1440,
+        provisional: { moreUpdates: 3, moreHours: 0 }
+      }
+    });
+    const item = first(provisional);
+    expect(item.tier).toBe("degrading");
+    expect(item.why).toContain("judged on 3 gaps; becomes final after 3 more updates");
+  });
+
+  it("says a provisional limit waits on history when the updates are enough", () => {
+    const item = first(
+      inbox({
+        threshold: {
+          warnHours: 1.5,
+          errorHours: 3,
+          from: "provisional",
+          gaps: 7,
+          usualMinutes: 30,
+          provisional: { moreUpdates: 0, moreHours: 20 }
+        }
+      })
+    );
+    expect(item.why).toContain("judged on 7 gaps; becomes final after 20 h more history");
+  });
+
+  it("raises nothing for a source with no rhythm yet, and keeps it out of what the plan is behind on", () => {
+    const young = inbox({
+      freshness: "n/a",
+      threshold: null,
+      noRhythm: { updates: 2, gaps: 1 },
+      coverage: { coveredTo: hoursAgo(300), heartbeat: null, holes14d: 0 }
+    });
+    expect(sourceItems(slice({ sources: [young] }), NOW).items).toEqual([]);
+    const result = planInputs(slice({ sources: [young] }), NOW);
+    expect(result.complete).toBe(true);
+    expect(result.behind).toEqual([]);
+    expect(result.note).toContain("Demo inbox reports 2 updates and has no rhythm yet");
+    expect(result.note).toContain("nothing is judged late");
+    expect(result.note).toContain("`rhen sources inbox`");
+    expect(result.note).not.toMatch(/\d+ h/);
+  });
+
+  it("keeps a provisional limit out of what the plan is behind on and names it in the note", () => {
+    const provisional = inbox({
+      threshold: { ...learned, from: "provisional", gaps: 3, provisional: { moreUpdates: 3, moreHours: 0 } }
+    });
+    const result = planInputs(slice({ sources: [provisional] }), NOW);
+    expect(result.behind).toEqual([]);
+    expect(result.note).toContain("judged on 3 gaps");
+  });
+
+  it("stops blocking once the source is more than 3 x its stale limit behind, and says it was probably retired", () => {
+    const abandoned = inbox({
+      lastSuccessAt: hoursAgo(440),
+      coverage: { coveredTo: hoursAgo(440), heartbeat: null, holes14d: 0 }
+    });
+    const item = first(abandoned);
+    expect(item.tier).toBe("degrading");
+    expect(item.why).toContain("probably been retired");
+    expect(item.fix.question).toContain(
+      "Ask the owner to remove its token (`rhen agent-token list` shows it) or to make it send once"
+    );
+    const result = planInputs(slice({ sources: [abandoned] }), NOW);
+    expect(result.behind).toEqual([]);
+    expect(result.note).toContain("Demo inbox has probably been retired");
+    expect(first(inbox({ lastSuccessAt: hoursAgo(430) })).tier).toBe("blocking");
+  });
+
+  it("waits to block until 1.5 x the last long gap when the rhythm just changed, and says so", () => {
+    const changed = (hours: number) =>
+      inbox({
+        lastSuccessAt: hoursAgo(hours),
+        coverage: { coveredTo: hoursAgo(hours), heartbeat: null, holes14d: 0 },
+        threshold: { ...learned, rhythmChanged: { lastGapHours: 168 } }
+      });
+    const waiting = first(changed(200));
+    expect(waiting.tier).toBe("degrading");
+    expect(waiting.why).toContain("usual rhythm changed (last gap 7 d), not blocking until confirmed");
+    expect(first(changed(260)).tier).toBe("blocking");
+  });
+
+  it("blocks on an owner or declared limit from day one, and shows both numbers when they differ by more than 3 x", () => {
+    expect(
+      first(
+        inbox({
+          threshold: { warnHours: 72, errorHours: 144, from: "owner", expectedEveryMinutes: 1440, usualMinutes: 1440 }
+        })
+      ).tier
+    ).toBe("blocking");
+    const declared = first(
+      inbox({
+        lastSuccessAt: hoursAgo(30),
+        threshold: { warnHours: 12, errorHours: 24, from: "collector", observedWarnHours: 144 }
+      })
+    );
+    expect(declared.tier).toBe("blocking");
+    expect(declared.why).toContain("Observed slower than declared");
+    expect(declared.why).toContain("6 d");
   });
 });
 
