@@ -58,6 +58,29 @@ pub fn state_file_text(runner_state: &str) -> String {
     }
 }
 
+/// Keeps `state.txt` equal to the runner state. A write that fails (a reader without delete sharing holds the
+/// file, so the atomic rename is refused) is offered again on the next call, so the file cannot stay behind.
+#[derive(Debug, Default)]
+pub struct StateSync {
+    written: Option<String>,
+}
+
+impl StateSync {
+    pub const fn new() -> Self {
+        Self { written: None }
+    }
+
+    pub fn sync(&mut self, runner_state: &str, write: impl FnOnce(&str) -> Result<(), String>) -> Result<(), String> {
+        let text = state_file_text(runner_state);
+        if self.written.as_deref() == Some(text.as_str()) {
+            return Ok(());
+        }
+        write(&text)?;
+        self.written = Some(text);
+        Ok(())
+    }
+}
+
 /// What the window can see from outside the agent.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct AgentFacts {
@@ -718,5 +741,37 @@ mod tests {
         for exe in ["rhen-watchw.exe", "rhen-watch.exe"] {
             assert!(crate::categories::is_shell_window("anyclass", Some(exe)), "{exe}");
         }
+    }
+
+    #[test]
+    fn a_state_write_that_fails_is_tried_again_and_a_written_one_is_not_repeated() {
+        let mut sync = StateSync::default();
+        let mut writes: Vec<String> = Vec::new();
+        // The first write is refused (a reader held the file open): the same state is offered again.
+        assert!(sync.sync("paused", |_| Err("sharing violation".into())).is_err());
+        assert!(
+            sync.sync("paused", |text| {
+                writes.push(text.to_string());
+                Ok(())
+            })
+            .is_ok()
+        );
+        // Written: offering it again writes nothing.
+        assert!(
+            sync.sync("paused", |text| {
+                writes.push(text.to_string());
+                Ok(())
+            })
+            .is_ok()
+        );
+        // A change writes again; "degraded (writes are failing)" and "recording" map to the file's two words.
+        assert!(
+            sync.sync("recording", |text| {
+                writes.push(text.to_string());
+                Ok(())
+            })
+            .is_ok()
+        );
+        assert_eq!(writes, ["paused", "recording"]);
     }
 }
