@@ -35,10 +35,14 @@ use windows_sys::Win32::UI::Shell::{
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 use windows_sys::core::{BOOL, GUID};
 
+use crate::app_model::{self, AGENT_WINDOW_CLASS, APP_WINDOW_CLASS};
 use crate::engine::{Fg, PowerEvt, SessionEvt};
 use crate::model::Ms;
 use crate::runner::{Control, Raw, Sys};
-use crate::tray::{ID_FOLDER, ID_QUIT, ID_SETTINGS, ID_STATUS, ID_TOGGLE, TrayAction, TrayIcon, action_for, icon_for, should_balloon};
+use crate::tray::{
+    ID_FOLDER, ID_QUIT, ID_SETTINGS, ID_STATUS, ID_TOGGLE, TRAY_MSG_OFFSET, TRAY_REFRESH_MSG_OFFSET, TrayAction, TrayIcon, action_for,
+    icon_for, should_balloon,
+};
 
 /// Keeps helper programs from flashing a console when the no-console build starts them.
 pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -75,7 +79,7 @@ fn guid_eq(a: &GUID, b: &GUID) -> bool {
     a.data1 == b.data1 && a.data2 == b.data2 && a.data3 == b.data3 && a.data4 == b.data4
 }
 
-fn wide(s: &str) -> Vec<u16> {
+pub(crate) fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
@@ -263,13 +267,123 @@ impl Sys for WinSys {
     }
 }
 
+// ---- icons ----
+
+/// An icon of the generated set at about `px` pixels, made once per (icon, size) and kept for the life of the process
+/// (the handles are few and small, and the tray asks for them on every state change).
+pub fn icon_handle(icon: TrayIcon, px: i32) -> HICON {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    static CACHE: OnceLock<Mutex<HashMap<(u8, i32), isize>>> = OnceLock::new();
+    let key = (icon as u8, px);
+    let mut cache = CACHE.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(h) = cache.get(&key) {
+        return *h as HICON;
+    }
+    let Some(image) = crate::icons::pick(crate::icons::ico_for(icon), px.max(16) as u32) else {
+        return null_mut();
+    };
+    // SAFETY: `dib` is the icon image the file holds (a BITMAPINFOHEADER and its pixels), 0x00030000 is the
+    // documented version for icon resource data, and the call copies what it needs.
+    let h = unsafe { CreateIconFromResourceEx(image.dib.as_ptr(), image.dib.len() as u32, 1, 0x0003_0000, px, px, LR_DEFAULTCOLOR) };
+    if !h.is_null() {
+        cache.insert(key, h as isize);
+    }
+    h
+}
+
+// ---- finding and signalling windows ----
+
+/// A top-level window by class (and title, when given), or 0.
+pub fn find_window(class: &str, title: Option<&str>) -> isize {
+    let title = title.map(wide);
+    unsafe { FindWindowW(wide(class).as_ptr(), title.as_ref().map_or(null(), |t| t.as_ptr())) as isize }
+}
+
+/// The agent window of this data directory, or 0 when no agent of this version runs for it.
+pub fn find_agent_window(data_dir: &std::path::Path) -> isize {
+    find_window(AGENT_WINDOW_CLASS, Some(&crate::paths::agent_window_title(data_dir)))
+}
+
+/// Ask the settings window to close (it is a normal `WM_CLOSE`, so it ends the way the close button does).
+pub fn post_close(hwnd: isize) {
+    unsafe { PostMessageW(hwnd as HWND, WM_CLOSE, 0, 0) };
+}
+
+pub fn app_window() -> isize {
+    find_window(APP_WINDOW_CLASS, None)
+}
+
+/// Pause or resume the agent of this data directory through its window.
+pub fn send_control(data_dir: &std::path::Path, c: Control) -> Result<(), String> {
+    let hwnd = find_agent_window(data_dir);
+    if hwnd == 0 {
+        return Err("the agent is not reachable (it may be an older version; quit it from its tray icon and start it again)".into());
+    }
+    unsafe {
+        let msg = RegisterWindowMessageW(wide(app_model::CONTROL_MESSAGE_NAME).as_ptr());
+        if msg == 0 || PostMessageW(hwnd as HWND, msg, app_model::verb_for(c), 0) == 0 {
+            return Err(if GetLastError() == ERROR_ACCESS_DENIED {
+                crate::platform::windows_install::ELEVATED_AGENT.to_string()
+            } else {
+                format!("could not reach the agent (error {})", GetLastError())
+            });
+        }
+    }
+    Ok(())
+}
+
+/// The program that shows the settings window: the no-console copy next to this one, so no console window appears.
+fn app_exe() -> Result<std::path::PathBuf, String> {
+    let me = std::env::current_exe().map_err(|e| e.to_string())?;
+    let sibling = me.with_file_name("rhen-watchw.exe");
+    Ok(if sibling.exists() { sibling } else { me })
+}
+
+/// Tray "Open settings": bring the open settings window to the front, or start one. The click just made this
+/// process the foreground one, so it may hand the right on to the new window.
+fn launch_app() {
+    unsafe {
+        let open = app_window();
+        if open != 0 {
+            let hwnd = open as HWND;
+            if IsIconic(hwnd) != 0 {
+                ShowWindow(hwnd, SW_RESTORE);
+            }
+            SetForegroundWindow(hwnd);
+            return;
+        }
+    }
+    let spawned = app_exe().and_then(|exe| {
+        std::process::Command::new(exe)
+            .arg("app")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| e.to_string())
+    });
+    match spawned {
+        // The child may take the foreground; the handle is not needed after that, so it is closed here.
+        Ok(child) => unsafe {
+            AllowSetForegroundWindow(child.id());
+        },
+        Err(e) => crate::log::warn(&format!("could not open the settings window: {e}")),
+    }
+}
+
 // ---- tray icon ----
 //
 // The tray icon lives on the hook thread's hidden window, so it shares that thread's message loop. It is
 // always shown while the agent runs: the recorder is never hidden.
 
-const WM_TRAY: u32 = WM_APP + 1;
-const WM_TRAY_REFRESH: u32 = WM_APP + 2;
+const WM_TRAY: u32 = WM_APP + TRAY_MSG_OFFSET;
+const WM_TRAY_REFRESH: u32 = WM_APP + TRAY_REFRESH_MSG_OFFSET;
+// The model's "private messages stay below the registered range" test assumes these values.
+const _: () = assert!(WM_APP == app_model::WM_APP_BASE);
+const _: () = assert!(WM_TRAY_REFRESH < app_model::REGISTERED_MESSAGE_MIN && WM_TRAY < app_model::REGISTERED_MESSAGE_MIN);
+/// The registered message the settings window posts (`app_model::CONTROL_MESSAGE_NAME`); 0 until the window exists.
+static CONTROL_MESSAGE: AtomicU32 = AtomicU32::new(0);
 
 static TRAY_HWND: AtomicIsize = AtomicIsize::new(0);
 static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
@@ -277,9 +391,14 @@ static UI_STATE: AtomicU32 = AtomicU32::new(0);
 /// The state the tray last showed, to notice the change to degraded.
 static SHOWN_STATE: AtomicU32 = AtomicU32::new(0);
 static DATA_DIR: OnceLock<Vec<u16>> = OnceLock::new();
+/// The hidden window's title for this data directory, so the settings window finds this agent and no other.
+static AGENT_TITLE: OnceLock<Vec<u16>> = OnceLock::new();
+/// The last runner state written to `state.txt` (u32::MAX: none yet).
+static WRITTEN_STATE: AtomicU32 = AtomicU32::new(u32::MAX);
 
 pub fn set_data_dir(dir: &std::path::Path) {
     let _ = DATA_DIR.set(wide(&dir.to_string_lossy()));
+    let _ = AGENT_TITLE.set(wide(&crate::paths::agent_window_title(dir)));
 }
 
 fn state_name(code: u32) -> &'static str {
@@ -297,6 +416,13 @@ pub fn set_state(state: &str) {
         "degraded" => 2,
         _ => 0,
     };
+    // Leave the state where the settings window reads it. Only on change (the first call writes), best effort.
+    if WRITTEN_STATE.swap(code, Ordering::SeqCst) != code
+        && let Some(dir) = DATA_DIR.get()
+    {
+        let dir = std::path::PathBuf::from(String::from_utf16_lossy(&dir[..dir.len().saturating_sub(1)]));
+        let _ = crate::config::write_atomic(&dir.join(app_model::STATE_FILE), &app_model::state_file_text(state));
+    }
     if UI_STATE.swap(code, Ordering::SeqCst) != code {
         let hwnd = TRAY_HWND.load(Ordering::SeqCst);
         if hwnd != 0 {
@@ -313,17 +439,8 @@ fn tray_data(hwnd: HWND) -> NOTIFYICONDATAW {
     nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     nid.uCallbackMessage = WM_TRAY;
     let state = state_name(UI_STATE.load(Ordering::SeqCst));
-    // Built-in icons only, so the state shows at a glance and no image file ships.
-    nid.hIcon = unsafe {
-        LoadIconW(
-            null_mut(),
-            match icon_for(state) {
-                TrayIcon::Recording => IDI_APPLICATION,
-                TrayIcon::Paused => IDI_INFORMATION,
-                TrayIcon::Degraded => IDI_WARNING,
-            },
-        )
-    };
+    // The generated icons (green recording, grey paused, amber degraded), so the state shows at a glance.
+    nid.hIcon = icon_handle(icon_for(state), unsafe { GetSystemMetrics(SM_CXSMICON) });
     copy_wide(&mut nid.szTip, &format!("rhen-watch: {state}"));
     nid
 }
@@ -434,6 +551,7 @@ unsafe fn show_menu(hwnd: HWND) {
                     let _ = tx.send(Raw::Control(if state == 1 { Control::Resume } else { Control::Pause }));
                 }
             }
+            TrayAction::OpenApp => launch_app(),
             TrayAction::OpenDataFolder => {
                 // Settings (config.toml, categories.toml) live in the data folder. explorer.exe needs no COM
                 // setup on this thread, unlike ShellExecute.
@@ -475,6 +593,13 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
     // Explorer restarted: the tray is empty again, so put the icon back.
     if msg != 0 && msg == TASKBAR_CREATED.load(Ordering::Relaxed) {
         unsafe { tray_add_or_retry(hwnd) };
+        return 0;
+    }
+    // The settings window asked for a pause or resume: the same command the tray menu sends.
+    if msg != 0 && msg == CONTROL_MESSAGE.load(Ordering::Relaxed) {
+        if let (Some(c), Some(tx)) = (app_model::control_for_verb(wparam), SENDER.get()) {
+            let _ = tx.send(Raw::Control(c));
+        }
         return 0;
     }
     match msg {
@@ -580,7 +705,7 @@ impl Hooks {
 unsafe fn hook_thread(foreground: bool, session: bool, power: bool, ready: std::sync::mpsc::Sender<Result<(u32, Vec<String>), String>>) {
     unsafe {
         let hinst = GetModuleHandleW(null());
-        let class_name = wide("rhen-watch-hidden");
+        let class_name = wide(AGENT_WINDOW_CLASS);
         let class = WNDCLASSW {
             lpfnWndProc: Some(wndproc),
             hInstance: hinst,
@@ -595,7 +720,7 @@ unsafe fn hook_thread(foreground: bool, session: bool, power: bool, ready: std::
         let hwnd = CreateWindowExW(
             0,
             class_name.as_ptr(),
-            wide("rhen-watch").as_ptr(),
+            AGENT_TITLE.get().cloned().unwrap_or_else(|| wide("rhen-watch")).as_ptr(),
             WS_OVERLAPPED,
             0,
             0,
@@ -612,6 +737,10 @@ unsafe fn hook_thread(foreground: bool, session: bool, power: bool, ready: std::
         }
         TRAY_HWND.store(hwnd as isize, Ordering::SeqCst);
         TASKBAR_CREATED.store(RegisterWindowMessageW(wide("TaskbarCreated").as_ptr()), Ordering::SeqCst);
+        CONTROL_MESSAGE.store(
+            RegisterWindowMessageW(wide(app_model::CONTROL_MESSAGE_NAME).as_ptr()),
+            Ordering::SeqCst,
+        );
         tray_add_or_retry(hwnd);
         // A collector that cannot register is recorded as degraded and the rest keep running; nothing after the
         // tray icon exists may return early, or the icon would outlive the thread.
@@ -841,7 +970,7 @@ pub fn local_tz() -> crate::tz::TzOffset {
 
 /// `GetSystemDirectoryW` or `GetWindowsDirectoryW`, to build the full path of a helper program. A bare name
 /// would be looked up in the program's own folder first, which is user-writable.
-fn system_path(file: &str, windows_dir: bool) -> Result<std::path::PathBuf, String> {
+pub(crate) fn system_path(file: &str, windows_dir: bool) -> Result<std::path::PathBuf, String> {
     let mut buf = [0u16; 260];
     let n = unsafe {
         if windows_dir {
@@ -940,12 +1069,18 @@ pub fn run_task() -> Result<(), String> {
     }
 }
 
-/// True when both tasks are registered.
-pub fn task_present() -> bool {
+/// How many of the two tasks are registered (0, 1 or 2).
+pub fn task_count() -> usize {
     use crate::restart::{KEEPALIVE_TASK_NAME, TASK_NAME};
     [TASK_NAME, KEEPALIVE_TASK_NAME]
         .iter()
-        .all(|n| matches!(schtasks(&crate::restart::query_args(n)), Ok((0, _))))
+        .filter(|n| matches!(schtasks(&crate::restart::query_args(n)), Ok((0, _))))
+        .count()
+}
+
+/// True when both tasks are registered.
+pub fn task_present() -> bool {
+    task_count() == 2
 }
 
 /// Remove both tasks. Neither being registered is not an error.
@@ -1004,6 +1139,102 @@ pub fn set_autostart(command: &str) -> Result<(), String> {
         } else {
             Ok(())
         }
+    }
+}
+
+/// True when the HKCU Run value is set.
+pub fn run_entry_present() -> bool {
+    unsafe {
+        let mut key: HKEY = null_mut();
+        if RegOpenKeyExW(HKEY_CURRENT_USER, wide(RUN_KEY).as_ptr(), 0, KEY_QUERY_VALUE, &mut key) != 0 {
+            return false;
+        }
+        let rc = RegQueryValueExW(key, wide(RUN_VALUE).as_ptr(), null(), null_mut(), null_mut(), null_mut());
+        RegCloseKey(key);
+        rc == 0
+    }
+}
+
+/// The user's `PATH` (HKCU\\Environment) as text and its registry type, or `None` when there is no value.
+pub fn user_path_read() -> Result<Option<(String, u32)>, String> {
+    unsafe {
+        let mut key: HKEY = null_mut();
+        if RegOpenKeyExW(HKEY_CURRENT_USER, wide("Environment").as_ptr(), 0, KEY_QUERY_VALUE, &mut key) != 0 {
+            return Ok(None);
+        }
+        let name = wide("Path");
+        let (mut kind, mut bytes) = (0u32, 0u32);
+        let rc = RegQueryValueExW(key, name.as_ptr(), null(), &mut kind, null_mut(), &mut bytes);
+        if rc == 2 {
+            RegCloseKey(key);
+            return Ok(None);
+        }
+        if rc != 0 || (kind != REG_SZ && kind != REG_EXPAND_SZ) {
+            RegCloseKey(key);
+            return Err(format!("could not read the user PATH (error {rc}, type {kind})"));
+        }
+        let mut buf = vec![0u16; bytes as usize / 2 + 2];
+        let mut size = (buf.len() * 2) as u32;
+        let rc = RegQueryValueExW(key, name.as_ptr(), null(), &mut kind, buf.as_mut_ptr() as *mut u8, &mut size);
+        RegCloseKey(key);
+        if rc != 0 {
+            return Err(format!("could not read the user PATH (error {rc})"));
+        }
+        let units = (size as usize / 2).min(buf.len());
+        let text = String::from_utf16_lossy(&buf[..units]);
+        Ok(Some((text.trim_end_matches('\0').to_string(), kind)))
+    }
+}
+
+/// Write the user's `PATH` with the given registry type (`REG_SZ` or `REG_EXPAND_SZ`).
+pub fn user_path_write(value: &str, kind: u32) -> Result<(), String> {
+    unsafe {
+        let mut key: HKEY = null_mut();
+        let rc = RegCreateKeyExW(
+            HKEY_CURRENT_USER,
+            wide("Environment").as_ptr(),
+            0,
+            null(),
+            0,
+            KEY_SET_VALUE,
+            null(),
+            &mut key,
+            null_mut(),
+        );
+        if rc != 0 {
+            return Err(format!("could not open HKCU\\Environment (error {rc})"));
+        }
+        let data = wide(value);
+        let rc = RegSetValueExW(
+            key,
+            wide("Path").as_ptr(),
+            0,
+            kind,
+            data.as_ptr() as *const u8,
+            (data.len() * 2) as u32,
+        );
+        RegCloseKey(key);
+        if rc != 0 {
+            return Err(format!("could not write the user PATH (error {rc})"));
+        }
+    }
+    Ok(())
+}
+
+/// Tell running programs (Explorer, so new shells) that the environment changed. Short timeout, hung windows skipped;
+/// failing to tell anyone only means the change shows after the next logon.
+pub fn broadcast_environment_change() {
+    let mut result = 0usize;
+    unsafe {
+        SendMessageTimeoutW(
+            HWND_BROADCAST,
+            WM_SETTINGCHANGE,
+            0,
+            wide("Environment").as_ptr() as LPARAM,
+            SMTO_ABORTIFHUNG,
+            2000,
+            &mut result,
+        );
     }
 }
 

@@ -480,6 +480,17 @@ impl Store {
         rows.collect()
     }
 
+    /// How many per-minute input tallies a purge to `cutoff` would delete.
+    pub fn count_buckets_before(&self, cutoff: Ms) -> rusqlite::Result<i64> {
+        if !self.has_input_buckets() {
+            return Ok(0);
+        }
+        self.conn
+            .query_row("SELECT COUNT(*) FROM input_buckets WHERE minute_ts < ?1", params![cutoff], |r| {
+                r.get(0)
+            })
+    }
+
     pub fn purge_buckets_before(&self, cutoff: Ms) -> rusqlite::Result<usize> {
         if !self.has_input_buckets() {
             return Ok(0);
@@ -546,6 +557,12 @@ impl Store {
 
     pub fn count_events(&self) -> rusqlite::Result<i64> {
         self.conn.query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0))
+    }
+
+    /// How many events ended before `cutoff`: what a purge to that cutoff would delete (for the settings window's warning).
+    pub fn count_events_before(&self, cutoff: Ms) -> rusqlite::Result<i64> {
+        self.conn
+            .query_row("SELECT COUNT(*) FROM events WHERE ts_end < ?1", params![cutoff], |r| r.get(0))
     }
 
     /// Delete events that ended before `cutoff`. Open intervals are not in the table, so are never purged.

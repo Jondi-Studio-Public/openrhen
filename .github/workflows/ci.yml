@@ -331,6 +331,12 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked
+      # The checked-in icons are what their generator writes (standard library Python, deterministic).
+      - name: Icons match their generator
+        if: runner.os == 'Linux'
+        run: |
+          python3 assets/make_icons.py
+          git diff --exit-code -- assets
       - run: cargo build --locked --release
       # The testers' download: the two release binaries (TESTING.md step 1). Paths are from the repo root because
       # `uses` steps ignore the job's working-directory.
@@ -347,7 +353,7 @@ jobs:
       # The real Windows binaries on a real runner (a throwaway VM): install, record, upgrade over a running copy,
       # kill and automatic restart by the scheduled task, clean stop, export, uninstall and purge. Every native call is checked, because pwsh does not stop
       # on a non-zero exit by itself. Observation only. The runner may have no interactive desktop, so the only
-      # event that is certain is the agent's own start; the app switches are checked by hand (TESTING.md).
+      # event that is certain is the agent's own start; the app switches are checked by hand (TESTING.md). The settings window is built hidden and read back, and pause is sent by its message.
       - name: Install and uninstall smoke
         if: runner.os == 'Windows'
         # A hung step fails here in minutes instead of holding the job to its limit.
@@ -380,14 +386,25 @@ jobs:
 
           # 1. Install: two per-user Scheduled Tasks (start at logon; a keep-alive every minute that revives a dead
           # agent), so the Run entry is gone (one mechanism) and `status` says so.
+          function Get-UserPathEntries { ([string](Get-ItemProperty 'HKCU:\Environment' -Name Path -ErrorAction SilentlyContinue).Path) -split ';' | Where-Object { $_ } }
+          function Test-OnUserPath { @(Get-UserPathEntries | Where-Object { $_.TrimEnd('\') -ieq $dest }).Count }
+          $pathBefore = ([string](Get-ItemProperty 'HKCU:\Environment' -Name Path -ErrorAction SilentlyContinue).Path).TrimEnd(';')
           Rw $built @('install') | Out-Null
           if (-not (Test-Path "$dest\rhen-watchw.exe")) { throw 'program not installed' }
+          # The install folder is on the user PATH (once), so `rhen-watch` works from a new shell.
+          if ((Test-OnUserPath) -ne 1) { throw "the install folder is on the user PATH $(Test-OnUserPath) times, not once" }
           if (Get-ItemProperty $runKey -Name 'rhen-watch' -ErrorAction SilentlyContinue) { throw 'the Run entry is set although the task is registered' }
           & schtasks /Query /TN rhen-watch 2>&1 | Out-Null
           if ($LASTEXITCODE -ne 0) { throw 'the rhen-watch scheduled task is not registered' }
           & schtasks /Query /TN rhen-watch-keepalive 2>&1 | Out-Null
           if ($LASTEXITCODE -ne 0) { throw 'the rhen-watch-keepalive scheduled task is not registered' }
           if ((Rw "$dest\rhen-watch.exe" @('status')) -notmatch 'restart on crash: yes') { throw 'status does not report restart on crash' }
+          # The Start menu entry opens the settings window and carries its own icon.
+          $lnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'rhen-watch.lnk'
+          if (-not (Test-Path $lnk)) { throw 'the Start menu shortcut was not created' }
+          $sc = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
+          if ($sc.TargetPath -ne "$dest\rhen-watchw.exe" -or $sc.Arguments -ne 'app') { throw "the shortcut points at '$($sc.TargetPath) $($sc.Arguments)'" }
+          if (-not (Test-Path "$dest\rhen-watch.ico")) { throw 'the shortcut icon file was not written' }
 
           # 2. After about 5 s it has recorded something. Its own start is the one event that is certain.
           Start-Sleep -Seconds 5
@@ -399,11 +416,75 @@ jobs:
           if ($report -notmatch 'Activity for \d{4}-\d{2}-\d{2}') { throw 'the report has no day heading' }
           if ($report -match 'Nothing was captured') { throw 'the report shows nothing recorded although the agent runs' }
 
+          # 2b. The settings window. `app --smoke` builds it without showing it, fills it from the real data folder and
+          # reads every control back; the console exe gives the exit code and the message, the GUI exe is run the way
+          # the Start menu runs it.
+          if (-not (Test-Path (Join-Path $data 'state.txt'))) { throw 'the agent did not write state.txt' }
+          Rw "$dest\rhen-watch.exe" @('app', '--smoke') | Out-Null
+          $smoke = Start-Process "$dest\rhen-watchw.exe" -ArgumentList 'app', '--smoke' -Wait -PassThru
+          if ($smoke.ExitCode -ne 0) { throw "rhen-watchw app --smoke failed with exit code $($smoke.ExitCode); see rhen-watch.log" }
+
+          # 2c. Pause and resume exactly as the window sends them: the registered message to the agent's hidden window.
+          # Our own agent is found by its window, so another rhen-watchw on the runner (the settings window) is never mistaken for it.
+          Add-Type -Namespace Rw -Name Win -MemberDefinition @'
+            [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindowExW(IntPtr parent, IntPtr after, string cls, string title);
+            [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern uint RegisterWindowMessageW(string m);
+            [DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr h, uint m, UIntPtr w, IntPtr l);
+            [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+          '@
+          # The agent's window handle and process id, or $null when it has none.
+          function Get-AgentWindow {
+            $h = [IntPtr]::Zero
+            while ($true) {
+              $h = [Rw.Win]::FindWindowExW([IntPtr]::Zero, $h, 'rhen-watch-hidden', $null)
+              if ($h -eq [IntPtr]::Zero) { return $null }
+              [uint32]$owner = 0
+              [void][Rw.Win]::GetWindowThreadProcessId($h, [ref]$owner)
+              $proc = Get-Process -Id $owner -ErrorAction SilentlyContinue
+              if ($proc -and $proc.ProcessName -eq 'rhen-watchw') { return [pscustomobject]@{ Hwnd = $h; Pid = [int]$owner } }
+            }
+          }
+          function Send-Control([int]$verb) {
+            $w = $null
+            foreach ($i in 1..20) { $w = Get-AgentWindow; if ($w) { break }; Start-Sleep -Milliseconds 250 }
+            if (-not $w) { throw 'the agent window was not found' }
+            $m = [Rw.Win]::RegisterWindowMessageW('rhen-watch.control')
+            if (-not [Rw.Win]::PostMessageW($w.Hwnd, $m, [UIntPtr][uint32]$verb, [IntPtr]::Zero)) { throw 'could not post the control message' }
+          }
+          function Wait-State([string]$want) {
+            $until = (Get-Date).AddSeconds(15)
+            while ((Get-Date) -lt $until) {
+              if ((Get-Content (Join-Path $data 'state.txt') -ErrorAction SilentlyContinue) -eq $want) { return }
+              Start-Sleep -Milliseconds 300
+            }
+            throw "state.txt did not become '$want'"
+          }
+          Send-Control 1; Wait-State 'paused'
+          Send-Control 2; Wait-State 'recording'
+
+          # 2d. Open the settings window for real. Without an interactive desktop it may not appear: then say so and
+          # carry on (TESTING.md section 3a covers it by hand). If it appears, the next install must close it.
+          $app = Start-Process "$dest\rhen-watchw.exe" -ArgumentList 'app' -PassThru
+          $shown = $false
+          foreach ($i in 1..40) {
+            if ($app.HasExited) { break }
+            if ([Rw.Win]::FindWindowExW([IntPtr]::Zero, [IntPtr]::Zero, 'rhen-watch-app', $null) -ne [IntPtr]::Zero) { $shown = $true; break }
+            Start-Sleep -Milliseconds 250
+          }
+          if (-not $shown) {
+            Write-Host '::warning::the settings window did not appear (no interactive desktop?); skipping the install-closes-window check'
+            if (-not $app.HasExited) { Stop-Process -Id $app.Id -Force }
+          }
+
           # 3. Install again while the agent runs: it must stop the old copy, replace the files and start a new one.
-          $oldPid = (Get-Process rhen-watchw).Id
+          $oldPid = (Get-AgentWindow).Pid
           Rw $built @('install') | Out-Null
+          if ((Test-OnUserPath) -ne 1) { throw 'a second install changed how often the folder is on the user PATH' }
+          # An open settings window is closed by the install before it replaces the files.
+          if ($shown -and -not $app.WaitForExit(10000)) { throw 'install did not close the open settings window' }
           Wait-Agent $true 10
-          $newPid = (Get-Process rhen-watchw).Id
+          $newPid = $null
+          foreach ($i in 1..40) { $a = Get-AgentWindow; if ($a) { $newPid = $a.Pid; break }; Start-Sleep -Milliseconds 250 }
           if ($newPid -eq $oldPid) { throw 'the running copy was not replaced' }
           if ((Get-FileHash "$dest\rhen-watchw.exe").Hash -ne (Get-FileHash (Join-Path (Split-Path $built) 'rhen-watchw.exe')).Hash) { throw 'rhen-watchw.exe was not replaced' }
           if (Get-ChildItem $dest -Filter '*.new') { throw 'a staged .new file was left behind' }
@@ -464,6 +545,11 @@ jobs:
           if ($LASTEXITCODE -eq 0) { throw 'the scheduled task is still registered after uninstall' }
           & schtasks /Query /TN rhen-watch-keepalive 2>&1 | Out-Null
           if ($LASTEXITCODE -eq 0) { throw 'the keep-alive task is still registered after uninstall' }
+          if ((Test-OnUserPath) -ne 0) { throw 'uninstall left the install folder on the user PATH' }
+          $pathAfter = ([string](Get-ItemProperty 'HKCU:\Environment' -Name Path -ErrorAction SilentlyContinue).Path).TrimEnd(';')
+          if ($pathAfter -ne $pathBefore) { throw 'the user PATH is not what it was before the install' }
+          if (Test-Path $lnk) { throw 'uninstall left the Start menu shortcut' }
+          if (Test-Path "$dest\rhen-watch.ico") { throw 'uninstall left the icon file' }
           if (Test-Path $data) { throw "the data folder is still there: $((Get-ChildItem $data).Name -join ', ')" }
           # The two /Query calls above failed on purpose; do not let their exit code become the step's.
           $global:LASTEXITCODE = 0

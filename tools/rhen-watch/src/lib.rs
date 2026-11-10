@@ -2,12 +2,15 @@
 #![cfg_attr(not(windows), allow(dead_code))]
 
 pub mod activity;
+pub mod app_model;
+pub mod app_ops;
 pub mod categories;
 pub mod cli;
 pub mod config;
 pub mod derive;
 pub mod engine;
 pub mod handover;
+pub mod icons;
 pub mod ids;
 pub mod log;
 pub mod model;
@@ -44,3 +47,4 @@ mod tests_state;
 mod tests_tz;
 pub mod tray;
 pub mod tz;
+pub mod user_path;
