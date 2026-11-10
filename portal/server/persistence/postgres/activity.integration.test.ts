@@ -180,7 +180,7 @@ describe("append-only", () => {
     await ingest([event("a"), event("b")]);
     await sql`DELETE FROM activity_events WHERE event_key = 'a'`;
     expect(await count()).toBe(1);
-    await sql.unsafe("TRUNCATE TABLE activity_events, derived_lineage");
+    await sql.unsafe("TRUNCATE TABLE activity_events, derived_lineage, activity_supersessions");
     expect(await count()).toBe(0);
     await ingest([event("c")]);
     await sql`DELETE FROM users WHERE id = ${userId}`;
@@ -262,7 +262,7 @@ describe("OPENRHEN_ACTIVITY_CONTENT_DEFAULT", () => {
     process.env.OPENRHEN_ACTIVITY_CONTENT_DEFAULT = "on";
     await setActivitySourceSettings(sql, "rhen-watch", { contentEnabled: false });
     expect(await post()).toMatchObject({ contentDropped: 1 });
-    await sql`TRUNCATE TABLE activity_events, derived_lineage`;
+    await sql`TRUNCATE TABLE activity_events, derived_lineage, activity_supersessions`;
     process.env.OPENRHEN_ACTIVITY_CONTENT_DEFAULT = "off";
     await setActivitySourceSettings(sql, "rhen-watch", { contentEnabled: true });
     expect(await post()).toMatchObject({ contentDropped: 0 });

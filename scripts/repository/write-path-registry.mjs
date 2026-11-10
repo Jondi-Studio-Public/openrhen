@@ -460,6 +460,7 @@ export const TABLE_OWNERS = {
   activity_imports: { owner: "portal/server/persistence/postgres/activity-store.ts" },
   activity_events: { owner: "portal/server/persistence/postgres/activity-store.ts" }, // W14
   activity_source_state: { owner: "portal/server/persistence/postgres/activity-store.ts" }, // W14
+  activity_supersessions: { owner: "portal/server/persistence/postgres/activity-store.ts" },
   derived_lineage: { owner: "portal/server/persistence/postgres/derived-lineage-store.ts" },
   extractor_state: { owner: "portal/server/persistence/postgres/extractor-state-store.ts" },
   derived_settings: { owner: "portal/server/persistence/postgres/derived-settings-store.ts" },

@@ -130,7 +130,7 @@ async function roundTrip(rows: number) {
 
     let restoreGrowth = 0;
     await sql.unsafe(
-      'TRUNCATE TABLE "activity_events", "activity_imports", "activity_source_state", "derived_lineage"'
+      'TRUNCATE TABLE "activity_events", "activity_imports", "activity_source_state", "derived_lineage", "activity_supersessions"'
     );
     restoreGrowth = await peakRssGrowth(async () => {
       const outcome = await restoreBackup(sql, backup, written.path);
