@@ -451,6 +451,22 @@ describe("html with a stray quote", () => {
     expect(events[0]!.content).toContain("link");
   });
 
+  it("raises no warning for legitimate attributes that merely look odd", async () => {
+    const cases: [string, string][] = [
+      ['<a href="x" title="a<b">link</a> text', "link text"],
+      ['<a title="x<y>z">link</a> text', "link text"],
+      ['<p style="color:red;\n   margin:0">Para</p><p>Next</p>', "Para\n\nNext"],
+      [`<img src="data:image/png;base64,${"A".repeat(10_000)}"><p>After</p>`, "After"]
+    ];
+    for (const [html, text] of cases) {
+      const { events, stats } = await run(
+        mbox(basic("ok@x.example", ["Content-Type: text/html; charset=utf-8"], html + "\n"))
+      );
+      expect(events[0]!.content, html.slice(0, 40)).toBe(text);
+      expect(stats.warnings, html.slice(0, 40)).toEqual({});
+    }
+  });
+
   it("counts text dropped after a tag or comment that never closes", async () => {
     const { events, stats } = await run(
       mbox(basic("q@x.example", ["Content-Type: text/html; charset=utf-8"], "<p>Kept</p><!-- never closed Lost\n"))

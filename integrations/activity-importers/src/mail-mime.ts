@@ -439,8 +439,8 @@ const BLOCK = new Set([
   "h6"
 ]);
 
-/** A tag longer than this is taken to have a stray quote. */
-const MAX_TAG_CHARS = 4096;
+/** A tag longer than this is taken to have a stray quote (room for an inline image in a src). */
+const MAX_TAG_CHARS = 262_144;
 
 export type HtmlNote = "quote" | "unterminated";
 
@@ -485,14 +485,14 @@ export function htmlToText(html: string, note: (reason: HtmlNote) => void = () =
     let stray = false;
     while (end < html.length) {
       const c = html[end]!;
+      // Inside a quote "<" is legal (title="a<b", a wrapped style, a data: image), so quotes alone never make a tag
+      // stray. Outside one, "<" never belongs in a tag; and a tag longer than the bound is not a tag.
+      if (end - lt > MAX_TAG_CHARS || (!quote && c === "<")) {
+        stray = true;
+        break;
+      }
       if (quote) {
         if (c === quote) quote = "";
-        // A real attribute value is short and stays on one line; a newline, a new tag or a very long tag inside a
-        // quote means the quote was stray, whatever a later quote does to the state.
-        else if (c === "\n" || c === "<" || end - lt > MAX_TAG_CHARS) {
-          stray = true;
-          break;
-        }
       } else if (c === '"' || c === "'") quote = c;
       else if (c === ">") break;
       end += 1;
