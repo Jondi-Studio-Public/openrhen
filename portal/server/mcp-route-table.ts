@@ -28,6 +28,7 @@ export const CORE_MCP_ROUTE_TABLE: Record<string, () => Promise<RouteModule>> = 
   "/api/catch-up": () => import("@/app/api/catch-up/route"),
   "/api/changes": () => import("@/app/api/changes/route"),
   "/api/check-ins/[id]/shown": () => import("@/app/api/check-ins/[id]/shown/route"),
+  "/api/check-ins/answered": () => import("@/app/api/check-ins/answered/route"),
   "/api/check-ins/current": () => import("@/app/api/check-ins/current/route"),
   "/api/check-ins/summary": () => import("@/app/api/check-ins/summary/route"),
   "/api/check-ins/trail": () => import("@/app/api/check-ins/trail/route"),

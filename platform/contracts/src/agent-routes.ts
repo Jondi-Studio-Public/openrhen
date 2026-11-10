@@ -810,6 +810,7 @@ const READ_RULES: Record<string, string | "public"> = {
   "/.well-known/oauth-protected-resource/mcp": "public",
   "/.well-known/oauth-authorization-server": "public",
   "/api/state": "read:plan",
+  "/api/check-ins/answered": "read:plan",
   "/api/check-ins/current": "read:plan",
   "/api/check-ins/summary": "read:plan",
   "/api/check-ins/trail": "read:plan",
