@@ -357,4 +357,86 @@ describe("runPushDrain", () => {
     expect(result).toMatchObject({ claimed: 1, sent: 0, deferredNoSubscription: 1 });
     expect(sendPushViaProxyMock).not.toHaveBeenCalled();
   });
+  describe("check_in_waiting", () => {
+    async function checkIn(): Promise<string> {
+      const rows = await sql<{ id: string }[]>`
+        INSERT INTO check_in (user_id,slot_at,directive_kind,directive_target_id,directive_title,status)
+        VALUES (${userId},now(),'action',${crypto.randomUUID()},'Write chapter','pending') RETURNING id`;
+      return rows[0]!.id;
+    }
+    async function queue(checkInId: string, expiresInMs = 10 * 60_000) {
+      const payload = {
+        title: "Check-in",
+        body: "Still on Write chapter?",
+        tag: `check-in:${checkInId}`,
+        url: "/now",
+        checkInId
+      };
+      await sql`
+        INSERT INTO push_outbox (user_id, dedupe_key, kind, payload, status, expires_at)
+        VALUES (${userId}, ${`check-in:${checkInId}`}, 'check_in_waiting', ${sql.json(payload as never)}, 'pending', ${new Date(Date.now() + expiresInMs)})`;
+    }
+    async function promptedAt(id: string) {
+      return (await sql<{ prompted_at: Date | null }[]>`SELECT prompted_at FROM check_in WHERE id=${id}`)[0]!
+        .prompted_at;
+    }
+    async function subscribe() {
+      await upsertPushSubscription(
+        sql as never,
+        userId,
+        { endpoint: "https://push.example/ci", keys: { p256dh: "p", auth: "a" } },
+        CURRENT_KEY,
+        "browser"
+      );
+    }
+
+    it("stamps prompted_at only when the push is reported sent", async () => {
+      await subscribe();
+      const id = await checkIn();
+      await queue(id);
+      expect(await promptedAt(id)).toBeNull();
+      sendPushViaProxyMock.mockResolvedValue({ outcome: "delivered" });
+      await runPushDrain(sql as never, userId);
+      expect(await promptedAt(id)).not.toBeNull();
+      expect(JSON.parse(sendPushViaProxyMock.mock.calls[0]![0].payload)).toMatchObject({ checkInId: id, url: "/now" });
+    });
+
+    it("leaves prompted_at null when the send is refused, so an undelivered push never counts as a prompt", async () => {
+      await subscribe();
+      const id = await checkIn();
+      await queue(id);
+      sendPushViaProxyMock.mockResolvedValue({ outcome: "failed", httpStatus: 500 });
+      await runPushDrain(sql as never, userId);
+      expect(await promptedAt(id)).toBeNull();
+      expect((await outboxRow(`check-in:${id}`)).status).toBe("pending");
+    });
+
+    it("leaves prompted_at null while no subscription exists", async () => {
+      const id = await checkIn();
+      await queue(id);
+      await runPushDrain(sql as never, userId);
+      expect(await promptedAt(id)).toBeNull();
+    });
+
+    it("cancels a waiting push whose check-in was answered, without sending it", async () => {
+      await subscribe();
+      const id = await checkIn();
+      await queue(id);
+      await sql`UPDATE check_in SET status='on_track', answered_at=now() WHERE id=${id}`;
+      sendPushViaProxyMock.mockResolvedValue({ outcome: "delivered" });
+      await runPushDrain(sql as never, userId);
+      expect(sendPushViaProxyMock).not.toHaveBeenCalled();
+      expect((await outboxRow(`check-in:${id}`)).status).toBe("cancelled");
+      expect(await promptedAt(id)).toBeNull();
+    });
+
+    it("expires a waiting push once the check-in's timeout has passed", async () => {
+      await subscribe();
+      const id = await checkIn();
+      await queue(id, -1000);
+      await runPushDrain(sql as never, userId);
+      expect(sendPushViaProxyMock).not.toHaveBeenCalled();
+      expect((await outboxRow(`check-in:${id}`)).status).toBe("expired");
+    });
+  });
 });

@@ -78,7 +78,7 @@ function legacyEntries(): LegacyEntry[] {
 const legacySql = (e: LegacyEntry) =>
   `CREATE TABLE legacy_t${e.idx} (id integer);\n` +
   (e.idx === 140
-    ? `CREATE TABLE agent_wakes (event text, CONSTRAINT agent_wakes_event_check CHECK (event IN ('check_in_unanswered','pulse_lapsed')));\nCREATE TABLE commitments (id integer);\nCREATE TABLE users (id uuid PRIMARY KEY);\nCREATE TABLE projects (id integer);\nCREATE TABLE actions (id integer);\nCREATE TABLE owner_credentials (id uuid PRIMARY KEY, revoked_at timestamptz);\nCREATE TABLE check_in (id uuid PRIMARY KEY, answer_source text, CONSTRAINT check_in_answer_source_check CHECK (answer_source IS NULL OR answer_source IN ('in_app_banner','sheet','push_action','session_reconciliation')));\nCREATE TABLE session_segments (id uuid PRIMARY KEY);\n`
+    ? `CREATE TABLE agent_wakes (event text, CONSTRAINT agent_wakes_event_check CHECK (event IN ('check_in_unanswered','pulse_lapsed')));\nCREATE TABLE commitments (id integer);\nCREATE TABLE users (id uuid PRIMARY KEY);\nCREATE TABLE projects (id integer);\nCREATE TABLE actions (id integer);\nCREATE TABLE owner_credentials (id uuid PRIMARY KEY, revoked_at timestamptz);\nCREATE TABLE check_in (id uuid PRIMARY KEY, answer_source text, CONSTRAINT check_in_answer_source_check CHECK (answer_source IS NULL OR answer_source IN ('in_app_banner','sheet','push_action','session_reconciliation')));\nCREATE TABLE session_segments (id uuid PRIMARY KEY);\nCREATE TABLE push_outbox (kind text, CONSTRAINT push_outbox_kind_check CHECK (kind IN ('test')));\n`
     : "");
 
 /** Migrations after the legacy history ends: OpenRhen-native, applied once on top of an adopted baseline. */

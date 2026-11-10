@@ -18,7 +18,8 @@ self.addEventListener("activate", (event) => {
 
 /**
  * The payload is exactly `leaveByPushPayloadSchema` (`platform/contracts/src/integrations/push.ts`):
- * `title`, `body`, `tag`, `url`, optional `renotify`. `tag` is also the notification's replacement
+ * `title`, `body`, `tag`, `url`, optional `renotify` and `checkInId` (a check-in waiting; the click opens `url`,
+ * which shows the check-in on Now). `tag` is also the notification's replacement
  * key: a newer prompt for the same leg (`leaveByTag`) replaces an older one already showing rather
  * than stacking beside it. `renotify` (set for the at-leave-by and leave-earlier prompts) re-alerts
  * the person on that replacement instead of swapping the text silently — `tag` is always set, so
@@ -36,7 +37,7 @@ self.addEventListener("push", (event) => {
       body: payload.body,
       tag: payload.tag,
       renotify: Boolean(payload.renotify),
-      data: { url: payload.url },
+      data: { url: payload.url, checkInId: payload.checkInId || null },
       icon: "/icon-192.png",
       badge: "/icon-192.png"
     })

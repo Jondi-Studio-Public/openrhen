@@ -1,6 +1,6 @@
 # Web push
 
-You need this when you want leave-by reminders on your phone.
+You need this when you want leave-by reminders and check-in prompts on your phone.
 
 Leave-by reminders reach a phone through standard Web Push: the sender signs each message with a VAPID key (RFC 8292) and encrypts the payload (RFC 8291). The code is hand-written on Node `crypto` inside the outbound proxy, with no push library. The proxy holds the one key pair; the portal only fetches the public half from it.
 
@@ -27,6 +27,8 @@ iOS only delivers push to an app installed to the Home Screen; a Safari tab neve
 ## 3. Turn it on for a device
 
 Settings > Notifications > **Turn on for this device** registers the service worker, asks permission and subscribes with the proxy's current public key. At most five devices can be subscribed. Adding a device queues a "New device added" notice to the others, so an unexpected device stands out. **Send a test** pushes one notification to every subscribed device. **Remind me before leaving (minutes)** sets the lead time of the reminder before a commitment's leave-by moment.
+
+**Check-in prompts.** When the check-in scheduler asks "Still on X?" it also queues one push for that check-in (dedupe key `check-in:<id>`, expiring when the check-in times out). Nothing is queued while you are asleep, under a silent commitment, or when there is nothing to ask about. The push counts as the prompt only once a device reports it sent: that is when the check-in's timeout starts, so a push that never reached a device does not use up the answering window. Answering the check-in, or its timing out or being replaced, withdraws a push still waiting. Tapping it opens `/now`, which shows the check-in.
 
 ## 4. Confirm it worked
 
