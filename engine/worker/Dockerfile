@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.28
-FROM node:24.22.1-alpine AS build
+FROM node:24.22.2-alpine AS build
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
@@ -14,7 +14,7 @@ COPY platform/database platform/database
 COPY platform/contracts platform/contracts
 RUN pnpm --filter @openrhen/engine-worker build
 
-FROM node:24.22.1-alpine
+FROM node:24.22.2-alpine
 WORKDIR /app
 COPY --from=build /app/engine/worker/dist/main.js ./main.js
 USER node

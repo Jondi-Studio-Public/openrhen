@@ -4,7 +4,7 @@
 # BACKUP_TIME and runs the same backup-and-copy.mjs the Windows task runs, which calls `pnpm db:backup` and
 # `pnpm db:restore:verify`, so the workspace and its dependencies ship in the image. Runs as root because
 # /app/var/backups is a host bind mount that Docker creates root-owned; it serves no requests.
-FROM node:24.22.1-alpine
+FROM node:24.22.2-alpine
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./

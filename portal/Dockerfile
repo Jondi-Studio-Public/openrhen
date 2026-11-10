@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.28
-FROM node:24.22.1-alpine AS build
+FROM node:24.22.2-alpine AS build
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
@@ -28,7 +28,7 @@ RUN pnpm --filter @openrhen/portal build
 # no .git); the route stamps the real one at request time from OPENRHEN_BUILD_COMMIT.
 RUN OPENRHEN_BUILD_COMMIT=__SERVER_COMMIT__ pnpm --filter @openrhen/cli build
 
-FROM node:24.22.1-alpine
+FROM node:24.22.2-alpine
 WORKDIR /app
 # dist/standalone/ is self-contained: server.js, the built client and server output, the public
 # assets, and only the runtime dependencies the server bundle actually imports. No install here.

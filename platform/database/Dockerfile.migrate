@@ -4,7 +4,7 @@
 # drizzle migrations, takes a pg_dump into /backups if there are any, then applies them. The app services
 # wait for it to exit 0. Runs as root on purpose: /backups is a host bind mount that Docker creates
 # root-owned, and this container serves no requests, holds no secret but DATABASE_URL, and exits.
-FROM node:24.22.1-alpine AS build
+FROM node:24.22.2-alpine AS build
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
@@ -21,7 +21,7 @@ COPY platform/contracts platform/contracts
 RUN pnpm --filter @openrhen/engine-worker exec esbuild ../../platform/database/src/operations/migrate-on-deploy.ts \
     --bundle --platform=node --format=esm --target=node22 --outfile=/app/migrate/main.js
 
-FROM node:24.22.1-alpine
+FROM node:24.22.2-alpine
 WORKDIR /app
 # Prod Postgres is 17; pg_dump must be at least that new. Bump this with any server upgrade.
 RUN apk add --no-cache postgresql17-client
