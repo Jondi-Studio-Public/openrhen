@@ -167,6 +167,32 @@
       "path": ".github/workflows/rhen-watch-release.yml",
       "strings": ["aarch64-apple-darwin", "x86_64-apple-darwin"],
       "why": "The Rust target triples of the macOS release build; the build toolchain names them."
+    },
+    {
+      "category": "toolchain",
+      "path": "mobile/ios-spike/ci-build.sh",
+      "strings": [
+        "  -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \\",
+        "APP=build/Build/Products/Release-iphoneos/Spike.app"
+      ],
+      "why": "The iOS SDK name and the build output folder xcodebuild defines; the build toolchain, not something a deployment chooses."
+    },
+    {
+      "category": "toolchain",
+      "path": "mobile/ios-spike/project.yml",
+      "strings": [
+        "          NSExtensionPointIdentifier: com.apple.widgetkit-extension",
+        "          NSExtensionPointIdentifier: com.apple.share-services"
+      ],
+      "why": "The extension point names the iOS SDK defines for a widget and a share extension; fixed by the platform."
+    },
+    {
+      "category": "toolchain",
+      "path": "mobile/ios-spike/entitlements.plist",
+      "strings": [
+        "\t<key>com.apple.security.application-groups</key>"
+      ],
+      "why": "The entitlement key the iOS signing system defines for App Groups; fixed by the platform."
     }
   ]
 }

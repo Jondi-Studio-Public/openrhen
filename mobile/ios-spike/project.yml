@@ -1,0 +1,60 @@
+name: OpenRhenSpike
+options:
+  bundleIdPrefix: org.openrhen
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: "0.0.1"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  Spike:
+    type: application
+    platform: iOS
+    sources: [App, Shared]
+    dependencies:
+      - target: SpikeWidget
+      - target: SpikeShare
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.openrhen.spike
+        CODE_SIGN_ENTITLEMENTS: entitlements.plist
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Spike
+        UILaunchScreen: {}
+  SpikeWidget:
+    type: app-extension
+    platform: iOS
+    sources: [Widget, Shared]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.openrhen.spike.widget
+        CODE_SIGN_ENTITLEMENTS: entitlements.plist
+    info:
+      path: Widget/Info.plist
+      properties:
+        CFBundleDisplayName: Spike widget
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+  SpikeShare:
+    type: app-extension
+    platform: iOS
+    sources: [Share, Shared]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.openrhen.spike.share
+        CODE_SIGN_ENTITLEMENTS: entitlements.plist
+    info:
+      path: Share/Info.plist
+      properties:
+        CFBundleDisplayName: Spike
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1

@@ -21,4 +21,10 @@ mobile/ios/*.xcodeproj/
 mobile/ios/Sources/Info.plist
 mobile/ios/build/
 mobile/ios/Payload/
+
+# Same for the throwaway signing spike
+mobile/ios-spike/*.xcodeproj/
+mobile/ios-spike/*/Info.plist
+mobile/ios-spike/build/
+mobile/ios-spike/Payload/
 *.ipa
