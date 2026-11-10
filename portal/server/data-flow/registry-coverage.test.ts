@@ -578,7 +578,7 @@ describe("coverage of every entry point (PR A2, PR C)", () => {
       ));
     it("accepts the sources nothing sends", () =>
       expect(bucket("nothing-sends")).toEqual(
-        ["iphone-shortcuts", "iphone-health", "rhen-watch", "steam", "weather", "gmail", "physiology"].sort()
+        ["iphone-shortcuts", "iphone-health", "phone", "rhen-watch", "steam", "weather", "gmail", "physiology"].sort()
       ));
     it("reports offer_log, forecast_snapshots and place_reference_photo as unused tables and photo_checkin_stage as dead", () => {
       for (const table of ["offer_log", "forecast_snapshots", "place_reference_photo"]) {

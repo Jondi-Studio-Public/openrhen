@@ -107,6 +107,7 @@ describe("GET /api/data-flow body", () => {
       "gmail",
       "iphone-health",
       "iphone-shortcuts",
+      "phone",
       "physiology",
       "rhen-watch",
       "steam",
