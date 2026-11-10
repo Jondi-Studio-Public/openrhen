@@ -49,6 +49,11 @@
                     "targetId": {
                       "type": "string"
                     },
+                    "expectedVersion": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
                     "reason": {
                       "type": "string"
                     },
@@ -595,6 +600,11 @@
                   "properties": {
                     "id": {
                       "type": "string"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
                     },
                     "status": {
                       "type": "string",

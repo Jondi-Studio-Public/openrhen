@@ -43,6 +43,8 @@ export const clientDirectiveSchema = z.looseObject({
   title: z.string(),
   recommendedMinutes: z.number(),
   targetId: z.string().optional(),
+  /** An `action` directive only: the version the `start` command checks (the series template's for an occurrence). */
+  expectedVersion: z.number().int().optional(),
   reason: z.string().optional(),
   tier: z.string().optional(),
   projectId: z.string().optional(),
@@ -141,6 +143,8 @@ export const clientCheckInSchema = z.object({
 
 export const clientSessionSchema = z.object({
   id: z.string(),
+  /** The version the pause, resume and finish commands check as `expectedVersion`. */
+  version: z.number().int().optional(),
   status: z.enum(["running", "paused", "feedback"]),
   title: z.string(),
   targetType: z.string().optional(),
@@ -252,6 +256,7 @@ export function clientViewFixtures(): Record<keyof typeof CLIENT_VIEW_TYPES, unk
             title: "Write section 2",
             recommendedMinutes: 45,
             targetId: "action-1",
+            expectedVersion: 3,
             reason: "Due Friday",
             projectId: "project-1",
             projectTitle: "Report"
@@ -287,6 +292,7 @@ export function clientViewFixtures(): Record<keyof typeof CLIENT_VIEW_TYPES, unk
           },
           session: {
             id: "session-1",
+            version: 2,
             status: "running",
             title: "Write section 2",
             targetType: "action",

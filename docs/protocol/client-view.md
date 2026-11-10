@@ -12,6 +12,8 @@ What an installed app (or any other owner client) reads to show "what is on, wha
 | `day` | The day plan through local midnight: what is running and every block that starts today. | `buildDay`, as `rhen status` |
 | `pending` | `checkIn` (the waiting one), `session` (the active one), `leaveBy` (the leg to leave for, only in its remind or leave phase and not suppressed) and `placeSuggestion` (a "move" suggestion from a phone reading). Each is `null` when there is none. | the check-in read, the state, `leaveByPrompts` (as the handheld) |
 
+Two fields let an app run commands without reading `GET /api/state`. `pending.session.version` is the `expectedVersion` the pause, resume and finish commands check. On an `action` directive in `now`, `directive.expectedVersion` is the version the `start` command checks: the action's own, or the series template's when `targetId` names one of its occurrences. It is absent for other directive kinds (their commands check their own records) and when the action is not in the state.
+
 The envelope also carries `schemaVersion`, `timezone`, `planCurrent` and `validUntil` (when the plan behind `now` and `day` stops being current), so a cache can say "as of" and dim itself past it. Every instant is ISO 8601 with an offset; `Z` is the zero offset.
 
 The response has an `ETag` over the whole body and answers `304` to a matching `If-None-Match` (quotes, a `W/` prefix, a list and `*` are all read). It is `Cache-Control: no-store`: revalidating by tag is the only caching wanted. Nothing in the body is a server clock reading, so a 304 means none of it changed.
