@@ -95,6 +95,8 @@ describe("PortalProvider snapshot replay", () => {
       </PortalProvider>
     );
     await waitFor(() => expect(view.getByTestId("ready").textContent).toBe("true"));
+    // `latest` is assigned in a passive effect, which can lag the rendered text on a loaded runner.
+    await waitFor(() => expect(latest?.ready).toBe(true));
     let caught: unknown;
     await act(async () => {
       caught = await latest
