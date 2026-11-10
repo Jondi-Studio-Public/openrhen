@@ -38,6 +38,10 @@ export interface Stats {
   warnings: Record<string, number>;
   /** Plain tallies that are neither skips nor warnings (attachments ignored, duplicates dropped), by plain-English label. */
   counts: Record<string, number>;
+  /** Named items behind `skipped` where each one matters (mail: file, message and byte offset, reason); at most `MAX_DETAILS`. */
+  details: string[];
+  /** Items past `MAX_DETAILS` that were counted but not named. */
+  detailsDropped: number;
 }
 
 export function newStats(): Stats {
@@ -50,7 +54,9 @@ export function newStats(): Stats {
     verbs: {},
     truncated: false,
     warnings: {},
-    counts: {}
+    counts: {},
+    details: [],
+    detailsDropped: 0
   };
 }
 
@@ -62,6 +68,14 @@ export function warn(stats: Stats, reason: string): void {
 /** Adds to a plain tally. */
 export function count(stats: Stats, label: string, by = 1): void {
   stats.counts[label] = (stats.counts[label] ?? 0) + by;
+}
+
+export const MAX_DETAILS = 100;
+
+/** Names one skipped item, up to `MAX_DETAILS`; the rest are only counted. */
+export function detail(stats: Stats, text: string): void {
+  if (stats.details.length < MAX_DETAILS) stats.details.push(text);
+  else stats.detailsDropped += 1;
 }
 
 export const MAX_VERBS = 200;
@@ -89,6 +103,8 @@ export function mergeStats(into: Stats, from: Stats): void {
   for (const [verb, n] of Object.entries(from.verbs)) into.verbs[verb] = (into.verbs[verb] ?? 0) + n;
   for (const [reason, n] of Object.entries(from.reasons)) into.reasons[reason] = (into.reasons[reason] ?? 0) + n;
   for (const [reason, n] of Object.entries(from.warnings)) into.warnings[reason] = (into.warnings[reason] ?? 0) + n;
+  for (const text of from.details) detail(into, text);
+  into.detailsDropped += from.detailsDropped;
   for (const [label, n] of Object.entries(from.counts)) into.counts[label] = (into.counts[label] ?? 0) + n;
 }
 

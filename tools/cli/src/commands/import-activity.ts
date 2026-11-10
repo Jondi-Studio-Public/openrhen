@@ -13,6 +13,8 @@ import {
 } from "@openrhen/activity-importers";
 import {
   ACTIVITY_CONTENT_MAX_BYTES,
+  ACTIVITY_MESSAGE_FAMILY,
+  activitySourceEntry,
   ACTIVITY_FILENAME_MAX_CHARS,
   ACTIVITY_MAX_BATCH,
   MESSAGE_ID_MAX_CHARS,
@@ -76,6 +78,9 @@ export interface SourceSummary {
   skippedReasons: Record<string, number>;
   /** The commonest first words of skipped titles (My Activity), most frequent first. */
   skippedVerbs: Record<string, number>;
+  /** Named skipped items (mail with --skip-unreadable: file, message, byte, reason), and how many more went unnamed. */
+  details: string[];
+  detailsDropped: number;
   /** Fallbacks taken for rows that were still sent (a missing Date, a Message-ID that is not RFC-shaped), by reason. */
   warnings: Record<string, number>;
   /** Plain tallies (attachments ignored, duplicates dropped). */
@@ -93,18 +98,28 @@ export function isActivityImportSource(value: string): value is ImportSourceName
 }
 
 /** The mail importer's options: the caller names the source; the key rules are the contracts' own. */
-function mailOptions(args: ParsedArgs): MailPlanOptions {
+function mailOptions(args: ParsedArgs): { options: MailPlanOptions; warning?: string } {
   const source = stringOption(args.values, "source");
   if (!source)
     throw new CliError(
       "Missing --source. Usage: rhen import mail <path to .mbox, .eml, folder or zip> --source <name>, where <name> is a message@1 source an extension has registered (docs/operations/posting-messages.md section 1).",
       EXIT.usage
     );
+  // The CLI knows core's sources (and any extension compiled in); it cannot see one the portal registered at run time.
+  const known = activitySourceEntry(source);
+  if (known && known.family !== ACTIVITY_MESSAGE_FAMILY)
+    throw new CliError(
+      `"${source}" is not a message@1 source, so a mail import into it would double-count messages it already holds. Register a source of its own for files (family message@1, kind message; docs/operations/posting-messages.md section 1) and pass its name with --source.`,
+      EXIT.usage
+    );
+  const warning = known
+    ? undefined
+    : `cannot check that "${source}" is a message@1 source (only the portal knows what an extension registered). If it is the legacy core mail source, stop: importing into it double-counts live mail. The portal rejects a source that is not registered.`;
   const mib = stringOption(args.values, "max-message-mib");
   if (mib !== undefined && !/^\d+$/.test(mib))
     throw new CliError(`--max-message-mib must be a whole number of MiB, not "${mib}".`, EXIT.usage);
   const self = stringOption(args.values, "self");
-  return {
+  const options: MailPlanOptions = {
     source,
     keying: {
       normaliseMessageId,
@@ -113,6 +128,7 @@ function mailOptions(args: ParsedArgs): MailPlanOptions {
       messageIdMaxChars: MESSAGE_ID_MAX_CHARS,
       contentMaxBytes: ACTIVITY_CONTENT_MAX_BYTES
     },
+    ...(booleanOption(args.values, "skip-unreadable") ? { skipUnreadable: true } : {}),
     ...(mib === undefined ? {} : { maxMessageBytes: Number(mib) * 1048576 }),
     ...(self
       ? {
@@ -123,6 +139,7 @@ function mailOptions(args: ParsedArgs): MailPlanOptions {
         }
       : {})
   };
+  return { options, ...(warning ? { warning } : {}) };
 }
 
 export async function runActivityImport(context: CommandContext, args: ParsedArgs): Promise<void> {
@@ -140,9 +157,20 @@ export async function runActivityImport(context: CommandContext, args: ParsedArg
     );
   const dryRun = booleanOption(args.values, "dry-run");
   const again = booleanOption(args.values, "yes");
+  if (source !== "mail") {
+    const stray = ["source", "self", "max-message-mib", "skip-unreadable"].filter(
+      (name) => args.values[name] !== undefined
+    );
+    if (stray.length > 0)
+      context.stderr(
+        `rhen: ${stray.map((n) => `--${n}`).join(" and ")} ${stray.length > 1 ? "are" : "is"} only used by 'import mail'; ignored.`
+      );
+  }
   let plan: ImportPlan;
   try {
-    plan = await planImport(source, path, source === "mail" ? { mail: mailOptions(args) } : {});
+    const mail = source === "mail" ? mailOptions(args) : undefined;
+    if (mail?.warning) context.stderr(`rhen: ${mail.warning}`);
+    plan = await planImport(source, path, mail ? { mail: mail.options } : {});
   } catch (error) {
     if (error instanceof ImportReadError) throw new CliError(error.message, EXIT.usage);
     throw error;
@@ -340,6 +368,8 @@ function newSummary(job: EventJob, dryRun: boolean): SourceSummary {
     ignored: 0,
     skippedReasons: {},
     skippedVerbs: {},
+    details: [],
+    detailsDropped: 0,
     warnings: {},
     counts: {},
     truncated: false,
@@ -460,6 +490,8 @@ async function runEvents(
     summary.skipped += oversized;
     summary.skippedReasons["event is larger than 1 MB, so it was not sent"] = oversized;
   }
+  summary.details = [...stats.details];
+  summary.detailsDropped = stats.detailsDropped;
   summary.warnings = { ...stats.warnings };
   summary.counts = { ...stats.counts };
   summary.truncated = stats.truncated;
@@ -530,6 +562,8 @@ function renderSummary(summary: SourceSummary): string {
       "  The file ends in the middle of a record, so it looks cut off. What was read before that is included; download the export again."
     );
   for (const [reason, count] of Object.entries(summary.skippedReasons)) lines.push(`  skipped ${count}: ${reason}`);
+  for (const text of summary.details) lines.push(`    ${text}`);
+  if (summary.detailsDropped > 0) lines.push(`    ...and ${summary.detailsDropped} more, counted but not named.`);
   for (const [reason, count] of Object.entries(summary.warnings)) lines.push(`  warning, ${count} rows: ${reason}`);
   for (const [label, count] of Object.entries(summary.counts)) lines.push(`  ${count}: ${label}`);
   if (summary.warning) lines.push(`  ${summary.warning}`);

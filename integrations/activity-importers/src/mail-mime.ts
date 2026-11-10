@@ -231,7 +231,12 @@ export interface ParsedDate {
   date: Date;
   /** Minutes east of UTC when the header names a non-UTC zone; null for UTC or an unknown zone. */
   offsetMin: number | null;
+  /** The header named no zone, or a name this importer does not know; the time was read as UTC. */
+  zoneUnknown?: boolean;
 }
+
+/** The most the contract allows for `tzOffsetMin`; a Date header with a zone past it is unreadable, not clamped. */
+export const MAX_ZONE_MINUTES = 840;
 
 function build(
   y: number,
@@ -262,13 +267,16 @@ export function parseMailDate(value: string): ParsedDate | null {
   else if (m[3]!.length === 3) year += 1900;
   const zone = m[7];
   let offset = 0;
+  let zoneUnknown = false;
   if (zone && /^[+-]\d{4}$/.test(zone)) {
     const hours = Number(zone.slice(1, 3));
     const minutes = Number(zone.slice(3, 5));
     if (minutes > 59 || hours > 23) return null;
     offset = (zone[0] === "-" ? -1 : 1) * (hours * 60 + minutes);
-  } else if (zone) offset = ZONES[zone.toLowerCase()] ?? 0;
-  return build(
+    if (Math.abs(offset) > MAX_ZONE_MINUTES) return null;
+  } else if (zone && ZONES[zone.toLowerCase()] !== undefined) offset = ZONES[zone.toLowerCase()]!;
+  else zoneUnknown = true;
+  const parsed = build(
     year,
     MONTHS.indexOf(m[2]!.slice(0, 3).toLowerCase()),
     Number(m[1]),
@@ -277,6 +285,7 @@ export function parseMailDate(value: string): ParsedDate | null {
     Number(m[6] ?? 0),
     offset
   );
+  return parsed && zoneUnknown ? { ...parsed, zoneUnknown } : parsed;
 }
 
 /** The date of an mbox `From ` line: `Mon Jan  5 10:00:00 2026`, with an optional numeric zone. */
@@ -430,8 +439,13 @@ const BLOCK = new Set([
   "h6"
 ]);
 
+/** A tag longer than this is taken to have a stray quote. */
+const MAX_TAG_CHARS = 4096;
+
+export type HtmlNote = "quote" | "unterminated";
+
 /** HTML to plain text with one linear scan: tags dropped, script, style and head content skipped, blocks as line breaks, entities decoded. */
-export function htmlToText(html: string): string {
+export function htmlToText(html: string, note: (reason: HtmlNote) => void = () => {}): string {
   const lower = html.toLowerCase();
   let out = "";
   let i = 0;
@@ -444,7 +458,10 @@ export function htmlToText(html: string): string {
     out += html.slice(i, lt);
     if (html.startsWith("<!--", lt)) {
       const close = html.indexOf("-->", lt + 4);
-      if (close < 0) break;
+      if (close < 0) {
+        note("unterminated");
+        break;
+      }
       i = close + 3;
       continue;
     }
@@ -452,7 +469,10 @@ export function htmlToText(html: string): string {
     if (!tag) {
       if (/^<[!?]/.test(html.slice(lt, lt + 2))) {
         const close = html.indexOf(">", lt);
-        if (close < 0) break;
+        if (close < 0) {
+          note("unterminated");
+          break;
+        }
         i = close + 1;
       } else {
         out += "<";
@@ -462,15 +482,31 @@ export function htmlToText(html: string): string {
     }
     let end = lt + tag[0].length;
     let quote = "";
+    let stray = false;
     while (end < html.length) {
       const c = html[end]!;
       if (quote) {
         if (c === quote) quote = "";
+        // A real attribute value is short and stays on one line; a newline, a new tag or a very long tag inside a
+        // quote means the quote was stray, whatever a later quote does to the state.
+        else if (c === "\n" || c === "<" || end - lt > MAX_TAG_CHARS) {
+          stray = true;
+          break;
+        }
       } else if (c === '"' || c === "'") quote = c;
       else if (c === ">") break;
       end += 1;
     }
-    if (end >= html.length) break;
+    if (stray || end >= html.length) {
+      // A stray quote hid the closing ">": close the tag at the first ">" instead of dropping the rest of the message.
+      const plain = html.indexOf(">", lt);
+      if (plain < 0) {
+        note("unterminated");
+        break;
+      }
+      end = plain;
+      note("quote");
+    }
     const name = tag[2]!.toLowerCase();
     i = end + 1;
     if (tag[1] === "") {
@@ -478,6 +514,7 @@ export function htmlToText(html: string): string {
         const close = lower.indexOf(`</${name}`, i);
         if (close < 0) {
           if (name === "head") continue;
+          note("unterminated");
           break;
         }
         const closeEnd = html.indexOf(">", close);
