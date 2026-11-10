@@ -69,7 +69,7 @@ export const FILE_ENTRIES: readonly FlowEntry[] = [
     code: {
       paths: ["integrations/activity-importers/src/parsers/mail.ts", "integrations/activity-importers/src/mail-mime.ts"]
     },
-    from: ["local:mail-file-export"],
+    from: ["local:mail-file-export-export"],
     health: { kind: "none", reason: "the caller names the source, so health is per source" }
   }),
   flow({

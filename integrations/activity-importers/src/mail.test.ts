@@ -345,6 +345,90 @@ describe("failing loudly", () => {
   });
 });
 
+describe("skipping unreadable messages (opt in)", () => {
+  const bad = (id: string, extra: string[]) => basic(id, extra);
+  const skipping = () => options({ skipUnreadable: true });
+
+  it("skips and names a bad charset, a bad encoding and an unclosed multipart, and keeps reading", async () => {
+    const text = mbox(
+      basic("ok1@x.example"),
+      bad("cs@x.example", ["Content-Type: text/plain; charset=x-no-such"]),
+      bad("te@x.example", ["Content-Transfer-Encoding: x-uuencode"]),
+      bad("mp@x.example", ["Content-Type: multipart/mixed; boundary=b"]),
+      basic("ok2@x.example")
+    );
+    const { events, stats } = await run(text, skipping(), "Inbox.mbox");
+    expect(events.map((e) => e.id)).toEqual(["mid:ok1@x.example", "mid:ok2@x.example"]);
+    expect(stats.skipped).toBe(3);
+    expect(stats.details).toHaveLength(3);
+    expect(stats.details[0]).toMatch(/^Inbox\.mbox message 2 \(byte \d+\): unknown charset "x-no-such"/);
+    expect(stats.details[1]).toMatch(/message 3 .*x-uuencode/);
+    expect(stats.details[2]).toMatch(/message 4 .*boundary/);
+  });
+
+  it("skips an oversize message without holding it, then reads the next one", async () => {
+    const huge = basic("big@x.example", [], "y".repeat(20_000) + "\n");
+    const oneLine = basic("line@x.example", [], "z".repeat(20_000));
+    const text = mbox(basic("a@x.example"), huge, oneLine, basic("b@x.example"));
+    for (const size of [undefined, 3]) {
+      const { events, stats } = await run(
+        text,
+        options({ skipUnreadable: true, maxMessageBytes: 2000 }),
+        "a.mbox",
+        size
+      );
+      expect(events.map((e) => e.id)).toEqual(["mid:a@x.example", "mid:b@x.example"]);
+      expect(stats.details).toHaveLength(2);
+      expect(stats.details[0]).toMatch(/message 2 .*per-message cap of 2000 bytes/);
+    }
+  });
+
+  it("still stops on a file that is not an mbox", async () => {
+    await expect(run("not mail\n", skipping(), "x.mbox")).rejects.toBeInstanceOf(ImportReadError);
+  });
+
+  it("stays strict by default", async () => {
+    await fails(mbox(bad("cs@x.example", ["Content-Type: text/plain; charset=x-no-such"])));
+  });
+});
+
+describe("dates: zones", () => {
+  it("treats a zone beyond +-14:00 as an unreadable Date and warns", async () => {
+    const { events, stats } = await run(
+      mbox(basic("z@x.example").replace(/Date:.*/, "Date: Mon, 5 Jan 2026 10:00:00 +2500"))
+    );
+    expect(events[0]!.start).toBe("2026-01-05T10:00:00.000Z");
+    expect(stats.warnings["Date header has a time zone beyond +-14:00; the separator line's date was used"]).toBe(1);
+    const ok = await run(mbox(basic("z2@x.example").replace(/Date:.*/, "Date: Mon, 5 Jan 2026 10:00:00 +1400")));
+    expect(ok.events[0]!.tzOffsetMin).toBe(840);
+  });
+
+  it("warns when the zone name is not one it knows, and reads it as UTC", async () => {
+    const { events, stats } = await run(
+      mbox(basic("z@x.example").replace(/Date:.*/, "Date: Mon, 5 Jan 2026 10:00:00 XYZ"))
+    );
+    expect(events[0]!.start).toBe("2026-01-05T10:00:00.000Z");
+    expect(stats.warnings["Date header names a time zone this importer does not know; it was read as UTC"]).toBe(1);
+  });
+});
+
+describe("html with a stray quote", () => {
+  it("keeps the rest of the message and counts the recovery", async () => {
+    const html = '<p class="a>Hello</p><p>World</p>\n';
+    const { events, stats } = await run(mbox(basic("q@x.example", ["Content-Type: text/html; charset=utf-8"], html)));
+    expect(events[0]!.content).toBe("Hello\n\nWorld");
+    expect(stats.warnings["an HTML tag with an unbalanced quote was closed at the next >"]).toBe(1);
+  });
+
+  it("counts text dropped after a tag or comment that never closes", async () => {
+    const { events, stats } = await run(
+      mbox(basic("q@x.example", ["Content-Type: text/html; charset=utf-8"], "<p>Kept</p><!-- never closed Lost\n"))
+    );
+    expect(events[0]!.content).toBe("Kept");
+    expect(stats.warnings["HTML ended inside a comment or tag; the rest of it was dropped"]).toBe(1);
+  });
+});
+
 describe("single .eml", () => {
   it("reads one message with no separator line", async () => {
     const { events } = await run(

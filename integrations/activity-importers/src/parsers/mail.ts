@@ -17,7 +17,16 @@ import {
   type Header,
   type ParsedDate
 } from "../mail-mime.js";
-import { count, ImportReadError, skip, warn, type ActivityEventDraft, type ByteSource, type Stats } from "../types.js";
+import {
+  count,
+  detail,
+  ImportReadError,
+  skip,
+  warn,
+  type ActivityEventDraft,
+  type ByteSource,
+  type Stats
+} from "../types.js";
 
 /**
  * A standards-only mail file importer: `.mbox` (mboxrd and mboxo: `From ` separator lines, `>From ` unescaping) and
@@ -56,6 +65,12 @@ export interface MailOptions {
   /** Addresses that are the owner's own, lower-case; mail from them is `from_self`, `direction: "out"`. */
   selfAddresses?: readonly string[];
   now?: Date;
+  /**
+   * Off by default: any message that cannot be read stops the import. On: such a message (bad charset or transfer
+   * encoding, unclosed multipart, damaged headers, over the size cap) is skipped, counted, and named in `stats.details`.
+   * A file that is not mbox at all, or empty, still stops the import.
+   */
+  skipUnreadable?: boolean;
   /** Message-ID digests already emitted in this import, shared by every file of it. */
   seen: Set<string>;
 }
@@ -102,6 +117,8 @@ interface Pending {
   envelope: string | null;
   chunks: Buffer[];
   size: number;
+  /** Set (skip mode only) when the message went over the cap: its text is dropped as it streams past. */
+  discard?: string;
 }
 
 /** Streams `source` and yields one event per message. See the module comment for what throws. */
@@ -117,13 +134,17 @@ export async function* parseMailFile(
   let offset = 0;
   let carry: Buffer[] = [];
   let carryLength = 0;
+  let dropping = false;
   const isEml = baseOf(file.name).toLowerCase().endsWith(".eml");
 
+  // Over the cap: strict mode stops; skip mode drops what was held and ignores the rest of the message.
   const overCap = (m: Pending, extra: number) => {
-    if (m.size + extra > options.maxMessageBytes)
-      throw new ImportReadError(
-        `${file.name}: message ${m.index} (starts at byte ${m.offset}) is larger than the per-message cap of ${options.maxMessageBytes} bytes. Nothing was truncated. Raise the cap with --max-message-mib <n> (at most ${MAIL_HARD_MAX_MESSAGE_BYTES / 1048576}) or remove that message from the file, then run the import again.`
-      );
+    if (m.size + extra <= options.maxMessageBytes) return;
+    const inner = `is larger than the per-message cap of ${options.maxMessageBytes} bytes. Nothing was truncated. Raise the cap with --max-message-mib <n> (at most ${MAIL_HARD_MAX_MESSAGE_BYTES / 1048576}) or remove that message from the file, then run the import again.`;
+    if (!options.skipUnreadable) throw new ImportReadError(wrap(file, m, inner));
+    m.discard = inner;
+    m.chunks = [];
+    m.size = 0;
   };
 
   // Returns the finished message when this line starts the next one.
@@ -152,17 +173,28 @@ export async function* parseMailFile(
       current = { index, offset, envelope: null, chunks: [], size: 0 };
     }
     const m = current!;
+    if (m.discard) {
+      offset += line.length;
+      return null;
+    }
     // mboxrd/mboxo: one level of ">" is removed from every ">...>From " line.
     const text = mode === "mbox" && line[0] === 0x3e ? line.subarray(0, 400).toString("latin1") : "";
     const body = text !== "" && /^>+From /.test(text) ? line.subarray(1) : line;
     overCap(m, body.length);
-    m.chunks.push(body);
-    m.size += body.length;
+    if (!m.discard) {
+      m.chunks.push(body);
+      m.size += body.length;
+    }
     offset += line.length;
     return null;
   };
 
   const handle = function* (m: Pending): Generator<ActivityEventDraft> {
+    if (m.discard) {
+      stats.read += 1;
+      unreadable(stats, file, m, m.discard);
+      return;
+    }
     const event = parseMessage(Buffer.concat(m.chunks), m, file, options, stats);
     if (event) yield event;
   };
@@ -174,6 +206,12 @@ export async function* parseMailFile(
         : Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
     let start = 0;
     for (let nl = buf.indexOf(10, start); nl >= 0; nl = buf.indexOf(10, start)) {
+      if (dropping) {
+        dropping = false;
+        offset += nl + 1 - start;
+        start = nl + 1;
+        continue;
+      }
       const part = buf.subarray(start, nl + 1);
       const line = carry.length > 0 ? Buffer.concat([...carry, part]) : Buffer.from(part);
       carry = [];
@@ -183,9 +221,18 @@ export async function* parseMailFile(
       if (done) yield* handle(done);
     }
     if (start < buf.length) {
+      if (dropping) continue;
       carry.push(Buffer.from(buf.subarray(start)));
       carryLength += buf.length - start;
-      if (current && current.size + carryLength > options.maxMessageBytes) overCap(current, carryLength);
+      if (current && !current.discard && current.size + carryLength > options.maxMessageBytes)
+        overCap(current, carryLength);
+      if (current?.discard && carryLength > 65536) {
+        // A line with no end inside a message already being dropped: drop it as it arrives.
+        offset += carryLength;
+        carry = [];
+        carryLength = 0;
+        dropping = true;
+      }
       if (mode === null && carryLength > 1 << 20) feed(Buffer.concat(carry));
     }
   }
@@ -200,6 +247,28 @@ export async function* parseMailFile(
   yield* handle(current);
 }
 
+const SKIP_HINT =
+  " To import everything else and list the unreadable messages in the summary, run again with --skip-unreadable.";
+const wrap = (file: MailFile, m: Pending, inner: string) =>
+  `${file.name}: message ${m.index} (starts at byte ${m.offset}): ${inner}${SKIP_HINT}`;
+
+/** Counts and names a message skipped in skip mode; the reason bucket is fixed, the detail has the specifics. */
+function unreadable(stats: Stats, file: MailFile, m: Pending, inner: string): void {
+  const bucket = /charset/.test(inner)
+    ? "unknown charset"
+    : /Content-Transfer-Encoding|base64/.test(inner)
+      ? "unknown or damaged transfer encoding"
+      : /boundary|multipart/.test(inner)
+        ? "multipart damaged or cut off"
+        : /per-message cap/.test(inner)
+          ? "over the per-message size cap"
+          : /header/.test(inner)
+            ? "garbage where a header should be"
+            : "damaged message";
+  skip(stats, `unreadable message skipped (--skip-unreadable): ${bucket}`);
+  detail(stats, `${file.name} message ${m.index} (byte ${m.offset}): ${inner.split(/\.\s/)[0]!.slice(0, 200)}`);
+}
+
 function parseMessage(
   raw: Buffer,
   m: Pending,
@@ -210,9 +279,12 @@ function parseMessage(
   try {
     return buildEvent(raw, m, file, options, stats);
   } catch (error) {
-    if (error instanceof ImportReadError)
-      throw new ImportReadError(`${file.name}: message ${m.index} (starts at byte ${m.offset}): ${error.message}`);
-    throw error;
+    if (!(error instanceof ImportReadError)) throw error;
+    if (options.skipUnreadable) {
+      unreadable(stats, file, m, error.message);
+      return null;
+    }
+    throw new ImportReadError(wrap(file, m, error.message));
   }
 }
 
@@ -284,7 +356,9 @@ function buildEvent(
       dateHeader === undefined || dateHeader.trim() === ""
         ? "is missing"
         : when === null
-          ? "cannot be parsed"
+          ? /(?:^|\s)[+-](?:[01]\d|2\d)\d\d\s*(?:\(.*\))?$/.test(dateHeader) && !/:\d\d\s*$/.test(dateHeader)
+            ? "has a time zone beyond +-14:00"
+            : "cannot be parsed"
           : "is absurd (before 1990 or in the future)";
     const envelope = m.envelope === null ? null : parseEnvelopeDate(m.envelope);
     const received = headersOf(headers, "received").at(-1);
@@ -300,6 +374,8 @@ function buildEvent(
       return null;
     }
     approximate = true;
+  } else if (when?.zoneUnknown) {
+    warn(stats, "Date header names a time zone this importer does not know; it was read as UTC");
   }
 
   // Body.
@@ -484,7 +560,19 @@ function extractEntity(
     throw new ImportReadError(
       "a text part holds NUL bytes, so it is binary data, not text. The file may be damaged or the message mislabelled."
     );
-  return type === "text/html" ? { kind: "html", text: htmlToText(decoded) } : { kind: "plain", text: decoded };
+  return type === "text/html"
+    ? {
+        kind: "html",
+        text: htmlToText(decoded, (note) =>
+          warn(
+            stats,
+            note === "quote"
+              ? "an HTML tag with an unbalanced quote was closed at the next >"
+              : "HTML ended inside a comment or tag; the rest of it was dropped"
+          )
+        )
+      }
+    : { kind: "plain", text: decoded };
 }
 
 /** The `[start, end)` ranges of a multipart body's parts. A missing closing boundary is an error (the message is cut off). */

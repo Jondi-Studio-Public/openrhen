@@ -555,6 +555,8 @@ describe("coverage of every entry point (PR A2, PR C)", () => {
         .map((item) => graph.entries.find((entry) => entry.id === item.id)?.activitySource ?? item.id)
         .sort();
     // The drift labels are collected and read by no surface yet: rule A's predicate is wired by the flag writer's change.
+    // mail-file-export is here because the registry cannot link it to its readers: the message rows it posts are read by the
+    // processing report and the coverage reader, which the registry does not model as consumers of a caller-named source.
     it("lists the eleven archive sources, the mail file import, and the drift labels and reasons, as collected and unused", () =>
       expect(bucket("unused")).toEqual(
         [

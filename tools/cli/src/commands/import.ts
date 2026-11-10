@@ -75,6 +75,7 @@ export const importCommand: CommandSpec = {
       description: "mail: per-message size cap in MiB (default 128, at most 512)"
     },
     self: { type: "string", placeholder: "addresses", description: "mail: your own addresses, comma-separated" },
+    "skip-unreadable": { type: "boolean", description: "mail: skip and name unreadable messages instead of stopping" },
     "dry-run": { type: "boolean", description: "Print the request instead of sending it" },
     yes: { type: "boolean", description: "Confirm a commit or delete" }
   },

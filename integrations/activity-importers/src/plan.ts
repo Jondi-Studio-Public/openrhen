@@ -320,6 +320,7 @@ export interface MailPlanOptions {
   keying: MailKeying;
   maxMessageBytes?: number;
   selfAddresses?: string[];
+  skipUnreadable?: boolean;
   now?: Date;
 }
 
@@ -347,6 +348,7 @@ function mailJob(archive: Archive, options: MailPlanOptions): EventJob | null {
             maxMessageBytes: max,
             seen,
             ...(options.selfAddresses ? { selfAddresses: options.selfAddresses } : {}),
+            ...(options.skipUnreadable ? { skipUnreadable: true } : {}),
             ...(options.now ? { now: options.now } : {})
           },
           stats
