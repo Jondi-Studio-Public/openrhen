@@ -2,7 +2,7 @@
   "name": "rhen",
   "private": true,
   "license": "Apache-2.0",
-  "packageManager": "pnpm@11.28.10",
+  "packageManager": "pnpm@11.28.11",
   "scripts": {
     "build": "pnpm -r build",
     "check": "pnpm format:check && pnpm lint && pnpm structure:check && pnpm test-files:check && pnpm docs:check && pnpm test:scripts",
@@ -45,10 +45,10 @@
   "devDependencies": {
     "@types/node": "26.6.3",
     "oxc-parser": "0.156.0",
-    "oxlint": "1.90.0",
+    "oxlint": "1.92.0",
     "prettier": "3.9.10",
     "puppeteer-core": "25.16.0",
     "typescript": "7.0.2",
-    "vitest": "5.0.5"
+    "vitest": "5.1.0"
   }
 }
