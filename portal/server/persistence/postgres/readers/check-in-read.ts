@@ -246,3 +246,120 @@ export async function readCheckInSummary(sql: Sql, userId: string): Promise<Chec
   const row = rows[0] ?? { on_track: 0, deviated: 0, unknown: 0 };
   return { answered: row.on_track + row.deviated, onTrack: row.on_track, deviated: row.deviated, unknown: row.unknown };
 }
+
+export const ANSWERED_CHECK_INS_DEFAULT_LIMIT = 50;
+export const ANSWERED_CHECK_INS_MAX_LIMIT = 200;
+
+export interface AnsweredCheckInsQuery {
+  /** The `next` of a previous page: opaque, encodes the last row's answer time and id. */
+  after?: { answeredAt: string; id: string } | undefined;
+  limit: number;
+  /** Only check-ins with no tag yet. */
+  untagged: boolean;
+  /** Only check-ins where the owner left words (a non-blank `deviationNote`). */
+  withWords: boolean;
+}
+
+export type AnsweredCheckInsQueryResult = { ok: true; query: AnsweredCheckInsQuery } | { ok: false; error: string };
+
+const CURSOR_AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const QUERY_NAMES = ["after", "limit", "untagged", "with-words"];
+
+function encodeCursor(answeredAt: string, id: string): string {
+  return Buffer.from(`${answeredAt}|${id}`, "utf8").toString("base64url");
+}
+
+function decodeCursor(raw: string): { answeredAt: string; id: string } | null {
+  if (!/^[A-Za-z0-9_-]+$/.test(raw)) return null;
+  const [answeredAt, id, extra] = Buffer.from(raw, "base64url").toString("utf8").split("|");
+  if (extra !== undefined || !answeredAt || !id || !CURSOR_AT.test(answeredAt) || !UUID.test(id)) return null;
+  return { answeredAt, id };
+}
+
+function flag(params: URLSearchParams, name: string): boolean | string {
+  const value = params.get(name);
+  if (value === null || value === "0" || value === "false") return false;
+  if (value === "1" || value === "true") return true;
+  return `${name} must be 1 (only those rows) or left out, got "${value}". Send ${name}=1, or omit ${name}.`;
+}
+
+/** Reads the query string of `GET /api/check-ins/answered`; every refusal names what to send instead. */
+export function parseAnsweredCheckInsQuery(params: URLSearchParams): AnsweredCheckInsQueryResult {
+  for (const name of params.keys())
+    if (!QUERY_NAMES.includes(name))
+      return { ok: false, error: `Unknown parameter "${name}". Send only ${QUERY_NAMES.join(", ")}.` };
+  const query: AnsweredCheckInsQuery = {
+    limit: ANSWERED_CHECK_INS_DEFAULT_LIMIT,
+    untagged: false,
+    withWords: false
+  };
+  const limit = params.get("limit");
+  if (limit !== null) {
+    const value = Number(limit);
+    if (limit.trim() === "" || !Number.isInteger(value) || value < 1 || value > ANSWERED_CHECK_INS_MAX_LIMIT)
+      return {
+        ok: false,
+        error: `limit must be a whole number from 1 to ${ANSWERED_CHECK_INS_MAX_LIMIT} (default ${ANSWERED_CHECK_INS_DEFAULT_LIMIT}), got "${limit}". Send limit=${ANSWERED_CHECK_INS_DEFAULT_LIMIT}, or omit it.`
+      };
+    query.limit = value;
+  }
+  const after = params.get("after");
+  if (after !== null) {
+    const cursor = decodeCursor(after);
+    if (!cursor)
+      return {
+        ok: false,
+        error:
+          "after must be the next value from the previous result, copied exactly. " +
+          "Omit after to start from the oldest answered check-in."
+      };
+    query.after = cursor;
+  }
+  const untagged = flag(params, "untagged");
+  if (typeof untagged === "string") return { ok: false, error: untagged };
+  query.untagged = untagged;
+  const withWords = flag(params, "with-words");
+  if (typeof withWords === "string") return { ok: false, error: withWords };
+  query.withWords = withWords;
+  return { ok: true, query };
+}
+
+export interface AnsweredCheckIns {
+  checkIns: StoredCheckIn[];
+  /** Pass as `after` for the following page; null when this was the last. */
+  next: string | null;
+}
+
+/**
+ * Answered check-ins, oldest answer first, so a reader can find the ids to tag with `tag_check_in`. Keyset-paged
+ * on (answered_at, id): the cursor carries the answer time at microsecond precision (a JS Date would round it and
+ * skip or repeat rows). `unanswered` and `superseded` rows have no `answered_at` and never appear; a timed-out
+ * `unknown` row is not an answer and does not either.
+ */
+export async function readAnsweredCheckIns(
+  sql: Sql,
+  userId: string,
+  query: Pick<AnsweredCheckInsQuery, "limit" | "untagged" | "withWords"> & Partial<AnsweredCheckInsQuery>
+): Promise<AnsweredCheckIns> {
+  // ::text first: postgres.js would send a bare ::timestamptz parameter through a JS Date and cut it to milliseconds.
+  const after = query.after
+    ? sql`AND (answered_at, id) > (${query.after.answeredAt}::text::timestamptz, ${query.after.id}::uuid)`
+    : sql``;
+  const untagged = query.untagged ? sql`AND tags = '[]'::jsonb` : sql``;
+  const withWords = query.withWords ? sql`AND btrim(coalesce(deviation_note, '')) <> ''` : sql``;
+  const rows = await sql<(CheckInRow & { cursor_at: string })[]>`
+    SELECT id,version,slot_at,prompted_at,answered_at,directive_kind,directive_target_id,directive_phase,directive_title,status,deviation_category,deviation_note,deviation_target_id,answer_source,tags,
+      to_char(answered_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_at
+    FROM check_in
+    WHERE user_id=${userId} AND answered_at IS NOT NULL ${after} ${untagged} ${withWords}
+    ORDER BY answered_at ASC, id ASC
+    LIMIT ${query.limit + 1}
+  `;
+  const page = rows.slice(0, query.limit);
+  const last = page[page.length - 1];
+  return {
+    checkIns: page.map(mapCheckInRow),
+    next: rows.length > query.limit && last ? encodeCursor(last.cursor_at, last.id) : null
+  };
+}

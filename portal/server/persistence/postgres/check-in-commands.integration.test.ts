@@ -9,7 +9,13 @@ import type { CheckInCommand, PlanForecastRequest } from "@openrhen/contracts";
 import { CommandConflictError, InvalidCommandError } from "./command-errors";
 import { runWithActor } from "@/server/agent-actor";
 import { runCheckInCommand } from "./check-in-commands";
-import { readCheckInSummary, readCheckInTrail, readCurrentCheckIn } from "./readers/check-in-read";
+import {
+  parseAnsweredCheckInsQuery,
+  readAnsweredCheckIns,
+  readCheckInSummary,
+  readCheckInTrail,
+  readCurrentCheckIn
+} from "./readers/check-in-read";
 import { ensureUser } from "./ensure-user";
 
 type SingleAnswerCommand = Extract<CheckInCommand, { type: "answer_check_in" }>;
@@ -817,5 +823,96 @@ describe("words-first check-ins (migration 0153)", () => {
       expect((await readCurrentCheckIn(sql, userId))?.id).toBe(pending.id);
       expect((await readCurrentCheckIn(sql, userId))?.tags).toEqual([]);
     });
+  });
+});
+
+describe("answered check-ins reader", () => {
+  /** An answered row at a fixed instant (microseconds allowed), optionally with words and tags. */
+  async function answeredAt(
+    instant: string,
+    extra: { note?: string; tags?: { tag: string; mark: string }[]; status?: string } = {}
+  ) {
+    const rows = await sql<{ id: string }[]>`
+      INSERT INTO check_in (user_id, slot_at, directive_kind, directive_title, status, answered_at, deviation_note, tags)
+      VALUES (${userId}, ${instant}::text::timestamptz, 'action', 'Write the report', ${extra.status ?? "on_track"},
+        ${instant}::text::timestamptz, ${extra.note ?? null}, ${JSON.stringify(extra.tags ?? [])}::text::jsonb)
+      RETURNING id
+    `;
+    return rows[0]!.id;
+  }
+  const page = (query: Parameters<typeof readAnsweredCheckIns>[2]) => readAnsweredCheckIns(sql, userId, query);
+  const base = { limit: 50, untagged: false, withWords: false };
+
+  it("lists only answered rows, oldest answer first, in the stored shape", async () => {
+    const second = await answeredAt("2026-11-01T02:00:00Z", { note: "school run" });
+    const first = await answeredAt("2026-11-01T01:00:00Z");
+    await insertCheckIn({ status: "pending" });
+    await insertCheckIn({ status: "unknown", minutesAgo: 90 });
+    const result = await page(base);
+    expect(result.checkIns.map((row) => row.id)).toEqual([first, second]);
+    expect(result.next).toBeNull();
+    expect(result.checkIns[1]).toMatchObject({ version: 1, deviationNote: "school run", tags: [] });
+    expect(result.checkIns[1]?.answeredAt).toBe("2026-11-01T02:00:00.000Z");
+  });
+
+  it("pages by cursor without skipping or repeating rows that share or nearly share an instant", async () => {
+    const ids = [
+      await answeredAt("2026-11-01T01:00:00.000100Z"),
+      await answeredAt("2026-11-01T01:00:00.000200Z"),
+      await answeredAt("2026-11-01T01:00:00.000200Z"),
+      await answeredAt("2026-11-01T03:00:00Z"),
+      await answeredAt("2026-11-01T04:00:00Z")
+    ];
+    const expected = [ids[0]!, ...[ids[1]!, ids[2]!].sort(), ids[3]!, ids[4]!];
+    const seen: string[] = [];
+    let next: string | null = null;
+    do {
+      const parsed = parseAnsweredCheckInsQuery(
+        new URLSearchParams(next ? { limit: "2", after: next } : { limit: "2" })
+      );
+      if (!parsed.ok) throw new Error(parsed.error);
+      const result = await page(parsed.query);
+      seen.push(...result.checkIns.map((row) => row.id));
+      next = result.next;
+    } while (next);
+    expect(seen).toEqual(expected);
+  });
+
+  it("untagged keeps rows with no tags, with-words keeps rows with non-blank words, and they combine", async () => {
+    const plain = await answeredAt("2026-11-01T01:00:00Z");
+    const words = await answeredAt("2026-11-01T02:00:00Z", { note: "school run" });
+    await answeredAt("2026-11-01T03:00:00Z", { note: "   " });
+    const tagged = await answeredAt("2026-11-01T04:00:00Z", {
+      note: "gym",
+      tags: [{ tag: "health", mark: "inferred" }]
+    });
+    const ids = async (query: Partial<typeof base>) => (await page({ ...base, ...query })).checkIns.map((r) => r.id);
+    expect(await ids({ withWords: true })).toEqual([words, tagged]);
+    expect((await ids({ untagged: true })).includes(tagged)).toBe(false);
+    expect(await ids({ untagged: true, withWords: true })).toEqual([words]);
+    expect((await ids({ untagged: true }))[0]).toBe(plain);
+    expect((await page({ ...base, withWords: true })).checkIns[1]?.tags).toEqual([{ tag: "health", mark: "inferred" }]);
+  });
+
+  it("a tagged check-in leaves the untagged list once tag_check_in has run", async () => {
+    const row = await insertCheckIn({});
+    await runCheckInCommand(
+      sql,
+      answerCommand({ checkInId: row.id, expectedVersion: row.version, status: "on_track" })
+    );
+    expect((await page({ ...base, untagged: true })).checkIns.map((r) => r.id)).toEqual([row.id]);
+    await runCheckInCommand(sql, {
+      commandId: crypto.randomUUID(),
+      type: "tag_check_in",
+      checkInId: row.id,
+      expectedVersion: null,
+      add: [{ tag: "errand", mark: "inferred" }]
+    });
+    expect((await page({ ...base, untagged: true })).checkIns).toEqual([]);
+  });
+
+  it("does not show another user's rows", async () => {
+    await answeredAt("2026-11-01T01:00:00Z");
+    expect((await readAnsweredCheckIns(sql, crypto.randomUUID(), base)).checkIns).toEqual([]);
   });
 });

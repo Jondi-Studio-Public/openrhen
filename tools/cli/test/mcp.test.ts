@@ -9,7 +9,7 @@ import { fakeFetch, type RecordedCall } from "./fake-fetch.js";
 import { fixtureNow, fixtureRawState } from "./fixture-state.js";
 
 /** Pinned from the new-data-sources slice 1.1: no new MCP tool without changing this on purpose. Core's own tools. */
-const EXPECTED_CORE_TOOL_COUNT = 52;
+const EXPECTED_CORE_TOOL_COUNT = 53;
 /** Commands the registered extension modules add; each is a tool in `tools/list` (none in this repository). */
 const EXTENSION_TOOL_COUNT = commandModules().reduce((total, module) => total + module.commands.length, 0);
 
