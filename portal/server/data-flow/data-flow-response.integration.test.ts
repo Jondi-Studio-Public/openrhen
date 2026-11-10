@@ -97,6 +97,7 @@ describe("GET /api/data-flow body", () => {
         "google-activity",
         "google-chat",
         "google-photos",
+        "mail-file-export",
         "maps-places",
         "spotify",
         "timeline"
