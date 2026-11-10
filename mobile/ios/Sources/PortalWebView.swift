@@ -1,11 +1,15 @@
 import SwiftUI
 import WebKit
 
-/// The portal's own screens, locked to the portal origin (main frame and subframes). Camera uploads work through the page's
-/// file input, so the photo check-in page needs no native bridge. Anything off the portal opens in
-/// the system browser; a failed load shows a message with Retry.
+/// The portal's own screens, locked to the portal origin (main frame and subframes). The view is signed in with
+/// the phone's own credential: the owner token is exchanged for a web session (`POST /api/owner/web-session`) and
+/// its cookie is set before the first page loads. Camera uploads work through the page's file input. Anything off the
+/// portal opens in the system browser; a failed load shows a message with Retry. If the portal says the phone was
+/// removed, the app signs out of the paired state.
 struct PortalWebView: View {
     let url: URL
+    let device: DeviceSession
+    @EnvironmentObject var session: AppSession
     @StateObject private var model = WebModel()
 
     var body: some View {
@@ -22,18 +26,73 @@ struct PortalWebView: View {
                 .background(Color(.systemBackground))
             }
         }
+        .onAppear {
+            model.reopen = { model.open(session: session, device: device, portal: url) }
+            model.reopen?()
+        }
     }
 }
 
 final class WebModel: ObservableObject {
     @Published var errorMessage: String?
-    weak var webView: WKWebView?
+    weak var webView: WKWebView? { didSet { loadIfReady() } }
     var target: URL?
+    var reopen: (() -> Void)?
+    private var cookieReady = false
+    private var opening = false
+
+    /// Gets the web session cookie for this phone and loads the portal once it is in place.
+    func open(session: AppSession, device: DeviceSession, portal: URL) {
+        guard !opening else { return }
+        opening = true
+        target = portal
+        errorMessage = nil
+        Task { @MainActor in
+            defer { self.opening = false }
+            switch await session.api.webSession(origin: device.origin, token: device.token) {
+            case .success(let cookie):
+                await self.install(cookie, for: portal)
+                self.cookieReady = true
+                self.loadIfReady()
+            case .failure(let error):
+                if error == .revoked {
+                    session.tokenRejected(device.token)
+                } else {
+                    self.errorMessage = error.message
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func install(_ session: WebSessionCookie, for portal: URL) async {
+        guard let host = portal.host else { return }
+        var properties: [HTTPCookiePropertyKey: Any] = [
+            .name: session.name,
+            .value: session.value,
+            .domain: host,
+            .path: "/",
+            .secure: "TRUE",
+            .sameSitePolicy: "strict",
+            HTTPCookiePropertyKey("HttpOnly"): "TRUE",
+        ]
+        if let expires = session.expiresAt {
+            properties[.expires] = expires
+        } else if let seconds = session.maxAgeSeconds {
+            properties[.expires] = Date().addingTimeInterval(TimeInterval(seconds))
+        }
+        guard let cookie = HTTPCookie(properties: properties) else { return }
+        await WKWebsiteDataStore.default().httpCookieStore.setCookie(cookie)
+    }
+
+    private func loadIfReady() {
+        guard cookieReady, let webView, let target, webView.url == nil else { return }
+        webView.load(URLRequest(url: target))
+    }
 
     func retry() {
         errorMessage = nil
-        guard let webView else { return }
-        if webView.url != nil { webView.reload() } else if let target { webView.load(URLRequest(url: target)) }
+        if let webView, webView.url != nil { webView.reload() } else { reopen?() }
     }
 }
 
@@ -48,10 +107,8 @@ private struct WebContainer: UIViewRepresentable {
         view.allowsBackForwardNavigationGestures = true
         view.navigationDelegate = context.coordinator
         view.uiDelegate = context.coordinator
-        model.webView = view
-        model.target = url
         context.coordinator.portal = url
-        view.load(URLRequest(url: url))
+        model.webView = view
         return view
     }
 

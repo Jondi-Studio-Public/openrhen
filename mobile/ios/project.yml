@@ -23,8 +23,8 @@ targets:
         CFBundleDisplayName: OpenRhen
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
-        NSCameraUsageDescription: Take photos for check-ins.
+        NSCameraUsageDescription: Scan the code your portal shows to add this phone, and take photos for uploads through the portal.
         NSLocationWhenInUseUsageDescription: Tell OpenRhen where you are so it can plan the day.
         NSLocationAlwaysAndWhenInUseUsageDescription: Tell OpenRhen when you arrive or leave a place, even when the app is closed.
         # App Transport Security stays at its default: https only, no exceptions. The portal is reached
-        # by its https name, and the location token never travels over plain http.
+        # by its https name, and the phone's owner token never travels over plain http.

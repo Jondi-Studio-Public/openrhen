@@ -1,6 +1,9 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
-// Compiled with Sources/HostPolicy.swift and Sources/Policies.swift by CI (`swiftc`); exits non-zero on the first failure.
+// Compiled with the pure files in Sources/ (see ci-build.sh) by CI (`swiftc`); exits non-zero on the first failure.
 var failures = 0
 func check(_ ok: Bool, _ name: String) {
     if !ok { failures += 1; print("FAIL: \(name)") }
@@ -41,22 +44,6 @@ check(HostPolicy.displayName(ofOrigin: "https://p.example.com:8443") == "p.examp
 check(HostPolicy.pingURL(portal: u("https://p.example.com:3000/now?a=1#b"))?.absoluteString == "https://p.example.com:3000/api/location/ping", "ping url")
 check(HostPolicy.pingURL(portal: u("https://p.example.com/sub"))?.absoluteString == "https://p.example.com/api/location/ping", "ping url drops path")
 
-// Token origin binding
-let bound = "https://p.example.com"
-check(Policies.addressChange(boundOrigin: nil, newAddress: u("https://q.example.com/")) == .keepToken, "no token keeps")
-check(Policies.addressChange(boundOrigin: bound, newAddress: u("https://P.example.com/other/path")) == .keepToken, "same origin keeps token")
-check(Policies.addressChange(boundOrigin: bound, newAddress: u("https://p.example.com:443/")) == .keepToken, "explicit 443 keeps token")
-check(Policies.addressChange(boundOrigin: bound, newAddress: u("https://q.example.com/")) == .clearToken, "other host clears token")
-check(Policies.addressChange(boundOrigin: bound, newAddress: u("https://p.example.com:8443/")) == .clearToken, "other port clears token")
-check(Policies.sendDecision(portal: u("https://p.example.com/now"), token: "t", boundOrigin: bound)
-      == .send(u("https://p.example.com/api/location/ping")), "send to bound origin")
-check(Policies.sendDecision(portal: u("https://q.example.com/"), token: "t", boundOrigin: bound) == .originMismatch(bound: bound), "no send to other origin")
-check(Policies.sendDecision(portal: u("http://p.example.com/"), token: "t", boundOrigin: "http://p.example.com") == .notHTTPS, "http refused as not https")
-check(Policies.sendDecision(portal: nil, token: "t", boundOrigin: bound) == .notConfigured, "no portal")
-check(Policies.sendDecision(portal: u("https://p.example.com/"), token: nil, boundOrigin: bound) == .notConfigured, "no token")
-check(Policies.sendDecision(portal: u("https://p.example.com/"), token: "", boundOrigin: bound) == .notConfigured, "empty token")
-check(Policies.sendDecision(portal: u("https://p.example.com/"), token: "t", boundOrigin: nil) == .notConfigured, "no bound origin")
-
 // Redirects
 check(Policies.redirectTarget(URLRequest(url: u("https://evil.example.com/"))) == nil, "redirect refused")
 
@@ -81,5 +68,288 @@ check(Policies.reminderDelay(installDate: t0.addingTimeInterval(-6 * day), now: 
 check(Policies.reminderDelay(installDate: t0.addingTimeInterval(-6.5 * day), now: t0) == nil, "after day 6 does not reschedule")
 check(Policies.reminderDelay(installDate: t0.addingTimeInterval(-30 * day), now: t0) == nil, "long expired does not reschedule")
 
+
+// MARK: Pairing payload (the QR)
+func payload(_ json: String) -> Result<PairingPayload, PairingPayloadError> { PairingPayloadParser.parse(json) }
+func payloadError(_ json: String) -> PairingPayloadError? {
+    if case .failure(let error) = payload(json) { return error }
+    return nil
+}
+let goodQR = "{\"v\":1,\"origin\":\"https://Portal.Example.com\",\"secret\":\"pri_pair_abc123\"}"
+if case .success(let parsed) = payload(goodQR) {
+    check(parsed.origin == "https://portal.example.com", "payload origin normalised")
+    check(parsed.secret == "pri_pair_abc123", "payload secret")
+    check(parsed.host == "portal.example.com", "payload host")
+} else {
+    check(false, "good payload parses")
+}
+if case .success(let parsed) = payload("{\"v\":1,\"origin\":\"https://p.example.com:8443\",\"secret\":\"s\"}") {
+    check(parsed.origin == "https://p.example.com:8443" && parsed.host == "p.example.com:8443", "payload keeps a non-default port")
+} else {
+    check(false, "payload with a port parses")
+}
+check(payloadError("{\"v\":1,\"origin\":\"https://p.example.com\",\"secret\":\"s\",\"extra\":true}") == nil, "unknown extra field tolerated")
+check(payloadError("{\"v\":1,\"origin\":\"http://p.example.com\",\"secret\":\"s\"}") == .notHTTPS, "payload refuses http")
+check(payloadError("{\"v\":1,\"origin\":\"ftp://p.example.com\",\"secret\":\"s\"}") == .notHTTPS, "payload refuses other schemes")
+check(payloadError("{\"v\":1,\"origin\":\"https://localhost\",\"secret\":\"s\"}") == .unusableHost, "payload refuses localhost")
+check(payloadError("{\"v\":1,\"origin\":\"https://app.localhost\",\"secret\":\"s\"}") == .unusableHost, "payload refuses .localhost")
+check(payloadError("{\"v\":1,\"origin\":\"https://127.0.0.1\",\"secret\":\"s\"}") == .unusableHost, "payload refuses an IPv4 address")
+check(payloadError("{\"v\":1,\"origin\":\"https://192.168.1.20:8443\",\"secret\":\"s\"}") == .unusableHost, "payload refuses a LAN address")
+check(payloadError("{\"v\":1,\"origin\":\"https://[::1]\",\"secret\":\"s\"}") == .unusableHost, "payload refuses an IPv6 address")
+check(payloadError("{\"v\":1,\"origin\":\"https://homeserver\",\"secret\":\"s\"}") == .unusableHost, "payload refuses a one-word host")
+check(payloadError("{\"v\":2,\"origin\":\"https://p.example.com\",\"secret\":\"s\"}") == .unsupportedVersion, "payload refuses another version")
+check(payloadError("{\"v\":0,\"origin\":\"https://p.example.com\",\"secret\":\"s\"}") == .unsupportedVersion, "payload refuses version 0")
+check(payloadError("{\"origin\":\"https://p.example.com\",\"secret\":\"s\"}") == .missingField("v"), "payload needs v")
+check(payloadError("{\"v\":1,\"secret\":\"s\"}") == .missingField("origin"), "payload needs origin")
+check(payloadError("{\"v\":1,\"origin\":\"\",\"secret\":\"s\"}") == .missingField("origin"), "payload refuses an empty origin")
+check(payloadError("{\"v\":1,\"origin\":\"https://p.example.com\"}") == .missingField("secret"), "payload needs secret")
+check(payloadError("{\"v\":1,\"origin\":\"https://p.example.com\",\"secret\":\"\"}") == .missingField("secret"), "payload refuses an empty secret")
+check(payloadError("{\"v\":1,\"origin\":\"https://p.example.com\",\"secret\":\"two words\"}") == .badSecret, "payload refuses a secret with spaces")
+check(payloadError("{\"v\":1,\"origin\":\"https://p.example.com\",\"secret\":\"\(String(repeating: "x", count: 201))\"}") == .badSecret, "payload refuses a long secret")
+check(payloadError("{\"v\":1,\"origin\":\"https://p.example.com/now\",\"secret\":\"s\"}") == .notAnOrigin, "payload refuses an origin with a path")
+check(payloadError("{\"v\":1,\"origin\":\"https://u:p@p.example.com\",\"secret\":\"s\"}") == .notAnOrigin, "payload refuses credentials in the origin")
+check(payloadError("{\"v\":1,\"origin\":\"https://p.example.com?x=1\",\"secret\":\"s\"}") == .notAnOrigin, "payload refuses a query")
+check(payloadError("{\"v\":\"1\",\"origin\":\"https://p.example.com\",\"secret\":\"s\"}") == .notAPairingCode, "payload refuses a string version")
+check(payloadError("not json") == .notAPairingCode, "payload refuses text")
+check(payloadError("https://p.example.com/") == .notAPairingCode, "payload refuses a bare url")
+check(payloadError("") == .notAPairingCode, "payload refuses empty text")
+check(payloadError("[1,2]") == .notAPairingCode, "payload refuses an array")
+
+if case .success(let origin) = PairingPayloadParser.validateOrigin(" https://P.example.com/ ") {
+    check(origin == "https://p.example.com", "typed origin normalised")
+} else {
+    check(false, "typed origin parses")
+}
+check(PairingPayloadParser.validateOrigin("http://p.example.com") == .failure(.notHTTPS), "typed origin refuses http")
+check(PairingPayloadParser.validateOrigin("p.example.com") == .failure(.notAnOrigin), "typed origin needs a scheme")
+
+check(DeviceName.clean("  My phone ") == "My phone", "name trimmed")
+check(DeviceName.clean("   ") == DeviceName.fallback, "empty name falls back")
+check(DeviceName.clean(String(repeating: "a", count: 90)).utf16.count == 60, "long name cut to 60")
+check(DeviceName.clean(String(repeating: "\u{1F600}", count: 40)).utf16.count <= 60, "emoji name cut within 60 UTF-16 units")
+
+check(InstallId.make(from: [0, 15, 16, 255]) == "000f10ff", "install id hex")
+check(InstallId.isValid(InstallId.generate()), "generated install id is valid")
+check(InstallId.generate() != InstallId.generate(), "install ids differ")
+check(InstallId.generate().count == 32, "install id is 32 characters")
+for bad in ["", "short", "UPPERCASE123", "-leading-dash1", "has space 123", String(repeating: "a", count: 65)] {
+    check(!InstallId.isValid(bad), "install id refuses \(bad)")
+}
+check(InstallId.isValid("abcd1234") && InstallId.isValid("a_b-c-d-1234"), "install id accepts the portal's shape")
+
+// MARK: Requests
+let issuedOrigin = "https://p.example.com"
+func body(_ request: URLRequest?) -> [String: Any] {
+    guard let data = request?.httpBody, let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+    return object
+}
+let redeemRequest = ApiRequests.redeem(origin: issuedOrigin, secret: "sec", name: "  My phone ", installId: "abcd1234")
+check(redeemRequest?.url?.absoluteString == "https://p.example.com/api/owner/devices/redeem", "redeem url")
+check(redeemRequest?.httpMethod == "POST", "redeem is a POST")
+check(redeemRequest?.value(forHTTPHeaderField: "X-OpenRhen-Owner") == nil, "redeem sends no token")
+check(body(redeemRequest)["pairingSecret"] as? String == "sec", "redeem sends the secret")
+check(body(redeemRequest)["name"] as? String == "My phone", "redeem sends the cleaned name")
+check(body(redeemRequest)["installId"] as? String == "abcd1234", "redeem sends the install id")
+check(body(redeemRequest)["platform"] as? String == "ios", "redeem sends the platform")
+check(ApiRequests.redeem(origin: "http://p.example.com", secret: "s", name: "n", installId: "abcd1234") == nil, "no request over http")
+check(ApiRequests.redeem(origin: "https://p.example.com/path", secret: "s", name: "n", installId: "abcd1234") == nil, "origin must be an origin")
+let codeRequest = ApiRequests.codeStart(origin: issuedOrigin, name: "", installId: "abcd1234")
+check(codeRequest?.url?.path == "/api/owner/devices/code", "code url")
+check(body(codeRequest)["name"] as? String == DeviceName.fallback, "code request name defaults")
+let pollRequest = ApiRequests.codePoll(origin: issuedOrigin, deviceCode: "dc")
+check(pollRequest?.url?.path == "/api/owner/devices/code/token" && body(pollRequest)["deviceCode"] as? String == "dc", "poll request")
+let webRequest = ApiRequests.webSession(origin: "https://p.example.com:8443", token: "tok")
+check(webRequest?.url?.absoluteString == "https://p.example.com:8443/api/owner/web-session", "web-session url keeps the port")
+check(webRequest?.value(forHTTPHeaderField: "X-OpenRhen-Owner") == "tok", "web-session sends the owner header")
+check(webRequest?.value(forHTTPHeaderField: "Authorization") == nil, "no bearer header")
+let pingTime = Date(timeIntervalSince1970: 1_700_000_000)
+let pingRequest = ApiRequests.locationPing(origin: issuedOrigin, token: "tok", installId: "abcd1234",
+                                           ping: QueuedPing(latitude: 51.5, longitude: -0.12, accuracyMeters: 12, observedAt: pingTime))
+check(pingRequest?.url?.absoluteString == "https://p.example.com/api/location/ping", "ping url")
+check(pingRequest?.value(forHTTPHeaderField: "X-OpenRhen-Owner") == "tok", "ping sends the owner header")
+check(body(pingRequest)["device"] as? String == "abcd1234", "ping device is the install id string")
+check(body(pingRequest)["latitude"] as? Double == 51.5 && body(pingRequest)["accuracyMeters"] as? Double == 12, "ping reading")
+check((body(pingRequest)["observedAt"] as? String).flatMap(ApiDates.parse) == pingTime, "ping time round-trips")
+check(Set(body(pingRequest).keys) == ["latitude", "longitude", "accuracyMeters", "observedAt", "device"], "ping sends only the agreed fields")
+check(ApiDates.parse("2026-11-10T08:00:00Z") != nil && ApiDates.parse("2026-11-10T08:00:00.123+01:00") != nil, "dates with and without fractions")
+
+// MARK: Responses
+func answer(_ status: Int, _ json: String = "{}", retryAfter: Int? = nil) -> HTTPAnswer {
+    HTTPAnswer(status: status, body: Data(json.utf8), retryAfter: retryAfter)
+}
+if case .success(let issued) = ApiResponses.issued(answer(201, "{\"token\":\"pri_own_x\",\"credential\":{\"id\":\"c1\",\"label\":\"My phone\",\"kind\":\"token\"}}")) {
+    check(issued.token == "pri_own_x" && issued.credentialId == "c1" && issued.label == "My phone", "issued credential decoded")
+} else {
+    check(false, "issued credential decodes")
+}
+check(ApiResponses.issued(answer(201, "{\"credential\":{}}")) == .failure(.badResponse), "issued without a token is a bad response")
+check(ApiResponses.issued(answer(201, "oops")) == .failure(.badResponse), "issued with junk is a bad response")
+check(ApiResponses.issued(answer(400, "{\"error\":\"That pairing is not valid.\"}")) == .failure(.rejected(message: "That pairing is not valid.")), "redeem refusal shows the server's words")
+check(ApiResponses.issued(answer(400, "")) == .failure(.rejected(message: "The server refused the request (status 400).")), "refusal without a body")
+check(ApiResponses.issued(answer(429, "{\"error\":\"slow\"}", retryAfter: 30)) == .failure(.rateLimited(retryAfter: 30)), "429 keeps retry-after")
+check(ApiResponses.issued(answer(503)) == .failure(.server(status: 503)), "5xx")
+check(ApiResponses.issued(answer(302)) == .failure(.badResponse), "3xx (refused redirect)")
+check(ApiResponses.issued(answer(403, "{\"error\":\"This host is not allowed.\"}")) == .failure(.hostNotAllowed), "host not allowed")
+check(ApiResponses.issued(answer(403, "{\"error\":\"Cross-site requests are not allowed.\"}")) == .failure(.rejected(message: "Cross-site requests are not allowed.")), "other 403")
+check(ApiError.hostNotAllowed.message.contains("PORTAL_ALLOWED_HOSTS"), "host refusal names the setting")
+
+if case .success(let start) = ApiResponses.codeStart(answer(200, "{\"deviceCode\":\"pri_dcode_x\",\"userCode\":\"BCDF-GHJK\",\"expiresIn\":600,\"interval\":5}")) {
+    check(start.deviceCode == "pri_dcode_x" && start.userCode == "BCDF-GHJK" && start.expiresIn == 600 && start.interval == 5, "code start decoded")
+} else {
+    check(false, "code start decodes")
+}
+check(ApiResponses.codeStart(answer(200, "{\"userCode\":\"BCDF-GHJK\"}")) == .failure(.badResponse), "code start needs a device code")
+check(UserCode.display("bcdfghjk") == "BCDF-GHJK" && UserCode.display("BCDF-GHJK") == "BCDF-GHJK", "user code shown as two groups")
+check(UserCode.display("odd1") == "odd1", "odd code shown as received")
+
+let cookieBody = "{\"credential\":{},\"session\":{\"cookie\":\"openrhen_owner\",\"value\":\"pri_ses_x\",\"expiresAt\":\"2026-12-10T08:00:00.000Z\",\"maxAgeSeconds\":2592000}}"
+if case .success(let cookie) = ApiResponses.webSession(answer(201, cookieBody)) {
+    check(cookie.name == "openrhen_owner" && cookie.value == "pri_ses_x" && cookie.maxAgeSeconds == 2_592_000 && cookie.expiresAt != nil, "web session decoded")
+} else {
+    check(false, "web session decodes")
+}
+check(ApiResponses.webSession(answer(401, "{\"error\":\"The owner credential was revoked.\"}")) == .failure(.revoked), "web session 401 is revoked")
+check(ApiResponses.webSession(answer(201, "{\"session\":{}}")) == .failure(.badResponse), "web session without a cookie")
+
+// MARK: Revoked handling: any 401 on a signed call
+check(ApiResponses.failure(for: answer(401), signed: true) == .revoked, "signed 401 is revoked")
+check(ApiResponses.failure(for: answer(401), signed: false) == .rejected(message: "The server refused the request (status 401)."), "unsigned 401 is only a refusal")
+check(ApiResponses.failure(for: answer(200), signed: true) == nil, "200 is fine")
+check(ApiError.revoked.message == "This phone was removed from the portal", "revoked wording")
+
+// MARK: Ping dispositions
+check(PingDisposition.forStatus(200) == .sent, "200 sent")
+check(PingDisposition.forStatus(401) == .revoked, "401 revoked")
+check(PingDisposition.forStatus(nil) == .retryLater, "no answer retries")
+check(PingDisposition.forStatus(503) == .retryLater, "5xx retries")
+check(PingDisposition.forStatus(429) == .retryLater, "429 retries")
+check(PingDisposition.forStatus(408) == .retryLater, "408 retries")
+check(PingDisposition.forStatus(400) == .discard, "400 (stale or malformed) is dropped")
+check(PingDisposition.forStatus(403) == .discard, "403 is dropped")
+check(PingDisposition.forStatus(302) == .discard, "3xx is dropped")
+
+// MARK: Device code poll state machine
+let c0 = Date(timeIntervalSince1970: 2_000_000)
+var poller = DeviceCodePoller(interval: 5, expiresIn: 600, now: c0)
+check(poller.record(.pending, now: c0.addingTimeInterval(5)) == .wait(5), "pending waits the interval")
+check(poller.record(.slowDown, now: c0.addingTimeInterval(10)) == .wait(10), "slow_down widens by 5")
+check(poller.record(.slowDown, now: c0.addingTimeInterval(20)) == .wait(15), "slow_down widens again")
+check(poller.record(.pending, now: c0.addingTimeInterval(35)) == .wait(15), "the wider interval sticks")
+check(poller.record(.approved, now: c0.addingTimeInterval(50)) == .approved, "approved")
+var capped = DeviceCodePoller(interval: 58, expiresIn: 600, now: c0)
+check(capped.record(.slowDown, now: c0.addingTimeInterval(1)) == .wait(60), "interval capped at 60")
+check(capped.record(.slowDown, now: c0.addingTimeInterval(2)) == .wait(60), "stays capped")
+var expiring = DeviceCodePoller(interval: 5, expiresIn: 600, now: c0)
+check(expiring.record(.expired, now: c0.addingTimeInterval(30)) == .failed(.expired), "expired_token ends it")
+var denying = DeviceCodePoller(interval: 5, expiresIn: 600, now: c0)
+check(denying.record(.denied, now: c0.addingTimeInterval(30)) == .failed(.denied), "access_denied ends it")
+var late = DeviceCodePoller(interval: 5, expiresIn: 600, now: c0)
+check(late.record(.pending, now: c0.addingTimeInterval(600)) == .failed(.expired), "local deadline ends it")
+check(late.record(.approved, now: c0.addingTimeInterval(601)) == .approved, "an approval at the deadline still wins")
+var flaky = DeviceCodePoller(interval: 5, expiresIn: 600, now: c0)
+for n in 1...4 { check(flaky.record(.networkError, now: c0.addingTimeInterval(Double(n))) == .wait(5), "network error \(n) retries") }
+check(flaky.record(.networkError, now: c0.addingTimeInterval(5)) == .failed(.unreachable), "fifth network error gives up")
+var recovering = DeviceCodePoller(interval: 5, expiresIn: 600, now: c0)
+for n in 1...4 { _ = recovering.record(.networkError, now: c0.addingTimeInterval(Double(n))) }
+_ = recovering.record(.pending, now: c0.addingTimeInterval(6))
+check(recovering.record(.networkError, now: c0.addingTimeInterval(7)) == .wait(5), "a good poll resets the error count")
+var limited = DeviceCodePoller(interval: 5, expiresIn: 600, now: c0)
+check(limited.record(.rateLimited(retryAfter: 20), now: c0.addingTimeInterval(1)) == .wait(20), "429 honours retry-after")
+check(limited.record(.rateLimited(retryAfter: nil), now: c0.addingTimeInterval(2)) == .wait(5), "429 without retry-after waits the interval")
+var odd = DeviceCodePoller(interval: 5, expiresIn: 600, now: c0)
+check(odd.record(.unknown("invalid_request"), now: c0.addingTimeInterval(1)) == .failed(.unexpected("invalid_request")), "unknown error ends it")
+check(DeviceCodePoller(interval: 0, expiresIn: 600, now: c0).interval == 5, "zero interval uses the default")
+check(DeviceCodePoller(interval: 2, expiresIn: 600, now: c0).interval == 2, "a shorter server interval is honoured")
+
+check(ApiResponses.pollReply(answer(400, "{\"error\":\"authorization_pending\"}")) == .pending, "reply pending")
+check(ApiResponses.pollReply(answer(400, "{\"error\":\"slow_down\"}")) == .slowDown, "reply slow_down")
+check(ApiResponses.pollReply(answer(400, "{\"error\":\"expired_token\"}")) == .expired, "reply expired_token")
+check(ApiResponses.pollReply(answer(400, "{\"error\":\"access_denied\"}")) == .denied, "reply access_denied")
+check(ApiResponses.pollReply(answer(400, "{\"error\":\"invalid_request\"}")) == .unknown("invalid_request"), "reply other error")
+check(ApiResponses.pollReply(answer(400, "")) == .unknown("status 400"), "reply with no error name")
+check(ApiResponses.pollReply(answer(200, "{\"token\":\"t\"}")) == .approved, "reply approved")
+check(ApiResponses.pollReply(answer(429, "{}", retryAfter: 12)) == .rateLimited(retryAfter: 12), "reply rate limited")
+check(ApiResponses.pollReply(answer(502)) == .networkError, "reply 5xx is transient")
+
+// MARK: Outbox ordering and expiry
+let o0 = Date(timeIntervalSince1970: 3_000_000)
+func fix(_ n: Double, at time: Date) -> QueuedPing { QueuedPing(latitude: n, longitude: n, accuracyMeters: 5, observedAt: time) }
+var box = PingOutbox()
+box.enqueue(fix(1, at: o0), now: o0)
+box.enqueue(fix(2, at: o0.addingTimeInterval(30)), now: o0.addingTimeInterval(30))
+box.enqueue(fix(3, at: o0.addingTimeInterval(60)), now: o0.addingTimeInterval(60))
+check(box.items.map { $0.latitude } == [1, 2, 3], "outbox keeps the order made")
+check(box.next(now: o0.addingTimeInterval(61))?.latitude == 1, "oldest first")
+check(box.apply(.retryLater) == .retryLater && box.count == 3, "a transient failure keeps everything in place")
+check(box.apply(.sent) == .continueDraining && box.items.map { $0.latitude } == [2, 3], "a sent ping leaves the head")
+check(box.apply(.discard) == .continueDraining && box.items.map { $0.latitude } == [3], "a refused ping is dropped, not looped")
+check(box.next(now: o0.addingTimeInterval(61))?.latitude == 3, "the next one follows")
+check(box.next(now: o0.addingTimeInterval(60 + 300))?.latitude == 3, "exactly 5 minutes old is still sent")
+check(box.next(now: o0.addingTimeInterval(60 + 301)) == nil && box.isEmpty, "older than 5 minutes is dropped, not sent")
+var expiry = PingOutbox()
+expiry.enqueue(fix(1, at: o0), now: o0)
+expiry.enqueue(fix(2, at: o0.addingTimeInterval(200)), now: o0.addingTimeInterval(200))
+check(expiry.next(now: o0.addingTimeInterval(400))?.latitude == 2 && expiry.count == 1, "only the expired ping goes")
+var stale = PingOutbox()
+stale.enqueue(fix(9, at: o0), now: o0.addingTimeInterval(301))
+check(stale.isEmpty, "a fix already too old is never queued")
+var full = PingOutbox()
+for n in 0..<(PingOutbox.maxCount + 5) { full.enqueue(fix(Double(n), at: o0), now: o0) }
+check(full.count == PingOutbox.maxCount && full.items.first?.latitude == 5, "over the cap the oldest go first")
+var revoked = PingOutbox()
+revoked.enqueue(fix(1, at: o0), now: o0)
+revoked.enqueue(fix(2, at: o0), now: o0)
+check(revoked.apply(.revoked) == .signedOut && revoked.isEmpty, "a revoked answer empties the queue")
+var emptyBox = PingOutbox()
+check(emptyBox.apply(.sent) == .continueDraining && emptyBox.next(now: o0) == nil, "applying to an empty queue is harmless")
+
+// File round trip and protection
+let outboxDir = FileManager.default.temporaryDirectory.appendingPathComponent("openrhen-outbox-\(InstallId.generate())", isDirectory: true)
+let file = OutboxFile(directory: outboxDir)
+check(file.load().isEmpty, "missing file is an empty queue")
+var saved = PingOutbox()
+saved.enqueue(fix(1, at: o0), now: o0)
+saved.enqueue(fix(2, at: o0.addingTimeInterval(10)), now: o0.addingTimeInterval(10))
+check(file.save(saved), "outbox saves")
+check(file.load() == saved, "outbox round-trips in order")
+try? Data("not json".utf8).write(to: file.fileURL)
+check(file.load().isEmpty, "a corrupt file is an empty queue")
+file.delete()
+check(!FileManager.default.fileExists(atPath: file.fileURL.path), "outbox file deleted")
+try? FileManager.default.removeItem(at: outboxDir)
+
+// MARK: Credential store and signed-in state
+let store = InMemoryCredentialStore()
+let installA = store.installId()
+check(InstallId.isValid(installA) && store.installId() == installA, "install id is stable")
+let core = SessionCore(store: store)
+var changes = 0
+var signedOutCount = 0
+core.onChange = { _ in changes += 1 }
+core.onSignedOut = { signedOutCount += 1 }
+check(core.state.session == nil && core.state.notice == nil, "starts signed out")
+check(core.complete(token: "tok1", origin: "https://p.example.com"), "pairing keeps the token")
+check(core.state.session == DeviceSession(token: "tok1", origin: "https://p.example.com") && store.loadSession() == core.state.session, "paired state is stored")
+core.tokenRejected("old-token")
+check(core.state.session?.token == "tok1" && signedOutCount == 0, "a 401 for an older token changes nothing")
+core.tokenRejected("tok1")
+check(core.state.session == nil && store.loadSession() == nil, "a revoked token signs the phone out and clears the store")
+check(core.state.notice == "This phone was removed from the portal", "the revoked notice is shown")
+check(signedOutCount == 1, "sign-out cleanup ran once")
+core.tokenRejected("tok1")
+check(signedOutCount == 1, "a second 401 does nothing")
+check(store.installId() == installA, "the install id survives sign-out")
+check(core.complete(token: "tok2", origin: "https://p.example.com") && core.state.notice == nil, "pairing again clears the notice")
+core.signOut()
+check(core.state.session == nil && core.state.notice == nil && signedOutCount == 2, "choosing to sign out leaves no notice")
+core.signOut()
+check(signedOutCount == 2, "signing out twice does nothing")
+store.refuseWrites = true
+check(!core.complete(token: "tok3", origin: "https://p.example.com") && core.state.session == nil, "a refused Keychain write leaves the phone signed out")
+check(changes > 0, "changes are announced")
+check(SessionCore(store: InMemoryCredentialStore(session: DeviceSession(token: "kept", origin: "https://p.example.com"))).state.session?.token == "kept", "a stored session is found on launch")
+core.onChange = nil
+core.onSignedOut = nil
+
 if failures > 0 { print("\(failures) check(s) failed"); exit(1) }
-print("All host policy checks passed")
+print("All checks passed")

@@ -4,7 +4,10 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 xcodebuild -version
-swiftc Sources/HostPolicy.swift Sources/Policies.swift Checks/main.swift -o host-policy-checks
+# The pure files (Foundation only): URL rules, QR payload, request/response contract, device-code poll loop, outbox, sign-in state.
+swiftc Sources/HostPolicy.swift Sources/Policies.swift Sources/PairingPayload.swift Sources/CredentialStore.swift \
+  Sources/ApiContract.swift Sources/DeviceCodePoller.swift Sources/PingOutbox.swift Sources/AuthState.swift \
+  Checks/main.swift -o host-policy-checks
 ./host-policy-checks
 command -v xcodegen >/dev/null || brew install xcodegen
 xcodegen generate
