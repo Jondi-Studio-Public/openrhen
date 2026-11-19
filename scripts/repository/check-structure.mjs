@@ -1,23 +1,13 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, extname, join, relative, resolve, sep } from "node:path";
-import { execFileSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { EXTRA_EDGES, packageOf, readWorkspace } from "../ci/affected.mjs";
 import { findCollisions, listRoutes, loadAddonWriters } from "./addon-routes.mjs";
 import { findSecretReaderViolations, findStaleSecretReaderAllowances } from "./secret-reader-rule.mjs";
 import { PLAN_INPUT_TABLES, WRITERS } from "./write-path-registry.mjs";
 
-const ARCHIVE_DIR = ["docs", "archive"].join("/"); // the private repository's retired documents; absent in the export
+const ARCHIVE_DIR = "docs/archive";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-// The export tooling (scripts/extract) and its carve rules exist only in the private repository: the OpenRhen export
-// ships neither, so everything that measures the carve is skipped there.
-const carveTools = existsSync(resolve(root, "scripts/extract/manifest.json"))
-  ? {
-      ...(await import("../extract/extract.mjs")),
-      ...(await import("../extract/seams.mjs")),
-      ...(await import("../extract/carve-plugin.mjs"))
-    }
-  : null;
 const errors = [];
 const expectedPackages = new Map([
   ["portal/package.json", "@openrhen/portal"],
@@ -32,8 +22,6 @@ const expectedPackages = new Map([
   ["integrations/openclaw-plugin/package.json", "@openrhen/openclaw-plugin"],
   ["tools/cli/package.json", "@openrhen/cli"]
 ]);
-// A workspace package a carved provider adds is checked by that provider's rule in scripts/repository/seams/, and its
-// folder is maintained code like the rest: the roots below also take the first folder of every workspace package.
 const maintainedRoots = [
   ...new Set([
     "engine",
@@ -55,9 +43,7 @@ const allowedIndexes = new Set([
   // A workspace package whose entry point is `src/index.ts` (its `exports` says so) keeps that barrel.
   ...readWorkspace(root)
     .filter((workspacePackage) => workspacePackage.entry === "./src/index.ts")
-    .map((workspacePackage) => `${workspacePackage.dir}/src/index.ts`),
-  // The seams (scripts/extract/seams.mjs): each private index.ts is replaced by an empty file in the export overlay.
-  ...Object.keys(carveTools?.SEAMS ?? {}).filter((seam) => seam.endsWith("/index.ts"))
+    .map((workspacePackage) => `${workspacePackage.dir}/src/index.ts`)
 ]);
 const staleFragments = [
   "apps/",
@@ -74,8 +60,6 @@ const skipStaleCheck = new Set(["scripts/repository/check-structure.mjs"]);
 // journeys reach it through their shared harness, which is why the exemption names the harness and
 // not the four test files that import it.
 const deepImportExemptions = new Set([
-  // Reads the export manifest from the repository's scripts folder to split the route table.
-  "portal/scripts/generate-mcp-route-table.mjs",
   "portal/server/persistence/postgres/state-store-harness.ts",
   "portal/server/persistence/postgres/issue-snapshot-store.integration.test.ts"
 ]);
@@ -127,13 +111,8 @@ for (const absolute of entries) {
   }
   if (![".ts", ".tsx", ".mjs"].includes(extname(name))) continue;
   if (/\.(?:config|d)\.ts$/.test(name)) continue;
-  // In the export (no carve tooling) the seam stand-ins (`private/index.ts`, shipped empty by the overlay) are allowed;
-  // in the private repository only the listed seams are.
-  if (
-    name === "index.ts" &&
-    !allowedIndexes.has(source) &&
-    !(!carveTools && /(?:^|\/)private\/index\.ts$/.test(source))
-  )
+  // Allow private extension entry points alongside workspace package entry points.
+  if (name === "index.ts" && !allowedIndexes.has(source) && !/(?:^|\/)private\/index\.ts$/.test(source))
     errors.push(`Internal index.ts is not permitted: ${source}`);
   const stem = name
     .replace(/\.(?:integration\.)?test(?=\.)/, "")
@@ -315,65 +294,6 @@ const secretReaderFiles = maintainedFiles
   .map((source) => ({ source, text: readFileSync(resolve(root, source), "utf8") }));
 errors.push(...findSecretReaderViolations(secretReaderFiles), ...findStaleSecretReaderAllowances(secretReaderFiles));
 
-// Open-source core: a provider leaves the keep set by being excluded from the export, so
-// nothing the export keeps may name it except through the registry or drop-in directory it registers with. The keep
-// set is what scripts/extract/manifest.json selects; a drop-in folder, a file named for the provider and every other
-// excluded path are outside it. `pending` lists the kept files that still name the provider, each with the carve
-// step that removes it; the list only shrinks.
-// Each rule is `scripts/repository/registry-only-<provider>.mjs` ({ name, term, via, pending }), named for the
-// provider so the export drops it with the provider.
-const registryOnly = [];
-for (const file of readdirSync(resolve(root, "scripts/repository")).sort())
-  if (/^registry-only-.*\.mjs$/.test(file))
-    registryOnly.push((await import(pathToFileURL(resolve(root, "scripts/repository", file)).href)).default);
-let keepSet = null;
-try {
-  if (!carveTools) throw new Error("no export tooling");
-  const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8", maxBuffer: 1 << 28 })
-    .split("\0")
-    .filter(Boolean);
-  keepSet = carveTools.selectFiles(tracked, JSON.parse(read("scripts/extract/manifest.json"))).keep;
-} catch {
-  // No git checkout (a source archive): there is no tracked-file list to measure, so this block cannot run.
-}
-for (const { name, term, via, pending } of keepSet ? registryOnly : []) {
-  for (const source of keepSet) {
-    if (source.startsWith("platform/database/drizzle/") || Object.hasOwn(pending, source)) continue;
-    const text = /\.(?:png|woff2|ico|jpg|jpeg|gif|zip)$/.test(source)
-      ? ""
-      : (carveTools?.readCarved ?? ((base, file) => readFileSync(resolve(base, file), "utf8")))(root, source);
-    if (term.test(source) || term.test(text))
-      errors.push(`${source} names ${name}, but the export keeps it: reach ${name} only through ${via}`);
-  }
-  for (const source of Object.keys(pending))
-    if (!keepSet.includes(source) || !term.test(readFileSync(resolve(root, source), "utf8")))
-      errors.push(`${source} no longer names ${name}: remove it from the pending list in check-structure.mjs`);
-}
-
-// The carve: code in a carved directory reaches a private (excluded-from-the-export) file only
-// through a seam file, and every seam has an overlay stand-in, so the same source builds with and without them.
-if (carveTools) {
-  const { findExcludedImports, SEAMS } = carveTools;
-  const manifest = JSON.parse(read("scripts/extract/manifest.json"));
-  const carved = maintainedFiles.map((absolute) => posix(relative(root, absolute)));
-  for (const { file, target } of findExcludedImports(carved, manifest, read))
-    errors.push(
-      `${file} imports ${target}, which the export excludes; reach it through a seam (scripts/extract/seams.mjs)`
-    );
-  for (const [seam, overlay] of Object.entries(SEAMS)) {
-    if (!existsSync(resolve(root, seam))) errors.push(`Seam file does not exist: ${seam}`);
-    if (!existsSync(resolve(root, overlay))) errors.push(`Seam ${seam} has no overlay stand-in at ${overlay}`);
-  }
-}
-
-// The private repository's documentation layout; the export has its own (extract/overlay/docs).
-const structureDoc = "docs/architecture/repository-structure.md";
-if (carveTools) {
-  if (!existsSync(resolve(root, structureDoc))) errors.push(`Missing ${structureDoc}`);
-  else if (!read("docs/README.md").includes("architecture/repository-structure.md"))
-    errors.push("docs/README.md does not route to the repository structure standard");
-}
-
 // CI runs a package's suites when it or a package it depends on changes (scripts/ci/affected.mjs). A
 // relative import into another package is a dependency no package.json declares, so CI would miss
 // it: each one must be a declared dependency or listed in that script's EXTRA_EDGES.
@@ -393,18 +313,6 @@ for (const absolute of maintainedFiles) {
       errors.push(
         `${source} imports ${target} by relative path; declare it or add it to EXTRA_EDGES in scripts/ci/affected.mjs`
       );
-  }
-}
-
-// Carve rules live as drop-ins in scripts/repository/seams/ (one module per carved provider, each exporting a
-// default function (root) => string[]). The export excludes the provider-named ones, so this loop ships empty.
-const seamsDirectory = resolve(root, "scripts/repository/seams");
-if (existsSync(seamsDirectory)) {
-  for (const name of readdirSync(seamsDirectory)
-    .filter((file) => file.endsWith(".mjs") && !file.endsWith(".test.mjs"))
-    .sort()) {
-    const seam = await import(pathToFileURL(resolve(seamsDirectory, name)).href);
-    errors.push(...seam.default(root));
   }
 }
 

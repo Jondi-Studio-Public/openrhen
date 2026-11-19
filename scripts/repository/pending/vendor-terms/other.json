@@ -7,7 +7,7 @@
     }
   },
   "agents": {
-    "total": 83,
+    "total": 82,
     "files": {
       "integrations/openclaw-plugin/README.md": 31,
       "integrations/openclaw-plugin/agent-time.js": 1,
@@ -28,7 +28,7 @@
       "integrations/openclaw-plugin/stamp-url.mjs": 2,
       "integrations/openclaw-plugin/stamp-url.test.js": 1,
       "platform/database/src/offer-log/offer-log.integration.test.ts": 2,
-      "scripts/docs/check.mjs": 2
+      "scripts/docs/check.mjs": 1
     }
   }
 }
