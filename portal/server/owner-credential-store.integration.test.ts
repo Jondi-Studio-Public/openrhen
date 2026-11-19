@@ -89,8 +89,8 @@ describe("owner credentials", () => {
     const { secret, summary } = await createOwnerCredential(sql, "browser", "This browser", now);
     expect(secret).toMatch(/^pri_ses_/);
     expect(summary.expiresAt).toBe("2026-11-18T00:00:00.000Z");
-    for (let i = 1; i < MAX_LIVE_BROWSERS; i += 1) await createOwnerCredential(sql, "browser", `b${i}`, new Date());
-    await expect(createOwnerCredential(sql, "browser", "one too many", new Date())).rejects.toBeInstanceOf(
+    for (let i = 1; i < MAX_LIVE_BROWSERS; i += 1) await createOwnerCredential(sql, "browser", `b${i}`, now);
+    await expect(createOwnerCredential(sql, "browser", "one too many", now)).rejects.toBeInstanceOf(
       OwnerCredentialError
     );
   });
