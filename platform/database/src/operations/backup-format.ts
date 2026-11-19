@@ -138,6 +138,12 @@ const CORE_BACKUP_TABLES = [
   // (`STREAMED_BACKUP_TABLES`); its position here still fixes the restore order: users, imports, events, settings.
   "activity_imports",
   "activity_events",
+  // Supersession (format 28): which import row stands in for which thin copy. After `activity_events`, which both of its
+  // foreign keys point at. The link is what hides the thin copy from a text reader and nothing regenerates it (the
+  // import can be undone but not matched again without the thin row's source, which retention may have removed), so it
+  // is kept with the events it describes. A format 20 to 27 backup has no such table and restores with it empty
+  // (`legacy-backups.ts`): the thin and the import copy are then both visible.
+  "activity_supersessions",
   "activity_source_state",
   // Derived-reader state (format 24): which source rows each derived row was read from (after `activity_events`, which
   // both of its foreign keys point at), and per-extractor progress and promotion. Lineage is regenerable in principle
@@ -261,7 +267,7 @@ export type BackupTables = Record<CoreBackupTable, Record<string, unknown>[]> &
   Record<string, Record<string, unknown>[]>;
 
 /** The format a new backup is written in. A format bump changes this one constant and nothing else. */
-export const CURRENT_BACKUP_FORMAT_VERSION = 27 as const;
+export const CURRENT_BACKUP_FORMAT_VERSION = 28 as const;
 
 /** Only a current-format backup is held to a row-for-row content check on restore (S8-11). */
 export function isContentVerifiedFormat(formatVersion: number): boolean {

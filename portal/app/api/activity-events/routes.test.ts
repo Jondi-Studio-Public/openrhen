@@ -34,6 +34,7 @@ const result = (extra: Record<string, unknown> = {}) => ({
   rejected: [],
   held: [],
   duplicates: [],
+  replaced: [],
   importId: null,
   ingestedVia: "phone",
   ...extra
@@ -75,6 +76,37 @@ describe("POST /api/activity-events", () => {
     );
     expect(body.message).not.toContain("coverage");
     expect(body.duplicates).toHaveLength(2);
+  });
+
+  it("says how many copies were linked to a fuller one, that nothing needs resending, and which read shows them", async () => {
+    const link = (index: number, role: "replaces" | "replaced_by") => ({
+      index,
+      source: role === "replaces" ? "demo-archive" : "demo-inbox",
+      key: `k${index}`,
+      role,
+      other: { source: role === "replaces" ? "demo-inbox" : "demo-archive", key: "mid:a@h.example" },
+      by: "message_id",
+      kept: "import"
+    });
+    store.ingestActivityEvents.mockResolvedValue(
+      result({ added: 2, replaced: [link(0, "replaces"), link(1, "replaced_by")] })
+    );
+    const body = await (await post({ schema: 1, events: [{ id: "a" }] })).json();
+    expect(body.message).toBe(
+      "Saved 2 events; 2 copies were linked to a fuller copy. Nothing needs resending. Read them with GET /api/activity-events?source=demo-inbox&kind=message."
+    );
+    expect(body.replaced).toHaveLength(2);
+    const second = { ...link(1, "replaces"), other: { source: "demo-chat", key: "mid:a@h.example" } };
+    store.ingestActivityEvents.mockResolvedValue(result({ added: 2, replaced: [link(0, "replaces"), second] }));
+    const two = await (await post({ schema: 1, events: [{ id: "a" }] })).json();
+    expect(two.message).toBe(
+      "Saved 2 events; 2 copies were linked to a fuller copy. Nothing needs resending. Read each with GET /api/activity-events?source=demo-inbox&kind=message or GET /api/activity-events?source=demo-chat&kind=message."
+    );
+    store.ingestActivityEvents.mockResolvedValue(result({ added: 1, replaced: [link(0, "replaces")] }));
+    const one = await (await post({ schema: 1, events: [{ id: "a" }] })).json();
+    expect(one.message).toBe(
+      "Saved 1 event; 1 copy was linked to a fuller copy. Nothing needs resending. Read them with GET /api/activity-events?source=demo-inbox&kind=message."
+    );
   });
 
   it("stores a batch under the agent's name and says in plain words what happened", async () => {

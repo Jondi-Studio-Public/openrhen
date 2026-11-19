@@ -25,6 +25,7 @@ export const CORE_DATASET_NOTES: readonly DatasetNote[] = [
     "audit of mail-understanding model calls; its writer lands with the model tier"
   ),
   infrastructure("activity_source_state", "per-source content gate and retention settings"),
+  infrastructure("activity_supersessions", "which import row stands in for which thin copy of a message"),
   infrastructure("consequence_comparisons", "learning data for the consequence model refits"),
   infrastructure("consequence_groups_issued", "learning data for the consequence model refits"),
   infrastructure("travel_lookup_budget", "daily lookup spend counter"),

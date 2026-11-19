@@ -72,7 +72,14 @@ afterAll(async () => {
   await sql?.end();
 });
 
-const TABLES = ["activity_imports", "activity_events", "activity_source_state", "derived_lineage", "extractor_state"];
+const TABLES = [
+  "activity_imports",
+  "activity_events",
+  "activity_supersessions",
+  "activity_source_state",
+  "derived_lineage",
+  "extractor_state"
+];
 
 let dir: string;
 beforeEach(async () => {
@@ -89,13 +96,14 @@ const seedRows = async (rows: number, importId: string | null = null) =>
       FROM generate_series(1, ${rows}::int) g`;
 
 describe("the activity store in the backup", () => {
-  it("is covered by the backup lists, with imports before events and lineage after them, and at format 27", async () => {
+  it("is covered by the backup lists, with imports before events and lineage after them, and at format 28", async () => {
     for (const table of TABLES) expect(BACKUP_TABLES).toContain(table);
     expect(BACKUP_TABLES.indexOf("activity_imports")).toBeLessThan(BACKUP_TABLES.indexOf("activity_events"));
     expect(BACKUP_TABLES.indexOf("activity_events")).toBeLessThan(BACKUP_TABLES.indexOf("derived_lineage"));
     expect(BACKUP_TABLES.indexOf("users")).toBeLessThan(BACKUP_TABLES.indexOf("derived_settings"));
     expect(BACKUP_TABLES.indexOf("users")).toBeLessThan(BACKUP_TABLES.indexOf("derived_model_calls"));
-    expect(CURRENT_BACKUP_FORMAT_VERSION).toBe(27);
+    expect(BACKUP_TABLES.indexOf("activity_events")).toBeLessThan(BACKUP_TABLES.indexOf("activity_supersessions"));
+    expect(CURRENT_BACKUP_FORMAT_VERSION).toBe(28);
     await expect(assertBackupCoverage(sql)).resolves.toBeUndefined();
   });
 
@@ -116,6 +124,8 @@ describe("the activity store in the backup", () => {
     await sql`INSERT INTO derived_lineage (user_id, derived_id, source_id) VALUES (${userId}, ${k2!.id}, ${k1!.id})`;
     await sql`INSERT INTO extractor_state (user_id, extractor, version, cursor, active)
               VALUES (${userId}, 'msg_class', 't0-1', '{"at":"2026-11-01T00:00:00Z"}', true)`;
+    await sql`INSERT INTO activity_supersessions (user_id, superseded_id, by_id, created_at)
+              VALUES (${userId}, ${k2!.id}, ${k1!.id}, '2026-11-01T12:00:00.123456Z')`;
     const before = await readAllTables(sql);
     expect(before.activity_events).toHaveLength(2);
 
@@ -124,13 +134,14 @@ describe("the activity store in the backup", () => {
     expect(written.sections[0]).toMatchObject({ table: "activity_events", rows: 2 });
     expect((await readdir(dir)).sort()).toEqual([written.path.split("/").at(-1), written.sections[0]!.file].sort());
     const backup = validateBackup(JSON.parse(await readFile(written.path, "utf8")));
-    expect(backup.formatVersion).toBe(27);
+    expect(backup.formatVersion).toBe(28);
     expect(backup.tables.activity_events).toEqual([]);
     expect(backup.tables.activity_imports).toHaveLength(1);
     expect(backup.streamed!.activity_events).toMatchObject({ rows: 2, sha256: written.sections[0]!.sha256 });
     await verifySection(written.sections[0]!.path, backup.streamed!.activity_events!);
 
     expect(backup.tables.derived_lineage).toHaveLength(1);
+    expect(backup.tables.activity_supersessions).toHaveLength(1);
     await sql.unsafe(
       'TRUNCATE TABLE "activity_events", "activity_imports", "activity_source_state", "extractor_state" CASCADE'
     );
@@ -144,6 +155,49 @@ describe("the activity store in the backup", () => {
     expect(after.activity_source_state).toEqual(before.activity_source_state);
     expect(after.derived_lineage).toEqual(before.derived_lineage);
     expect(after.extractor_state).toEqual(before.extractor_state);
+    // The links come back in foreign-key order with their microsecond timestamps.
+    expect(after.activity_supersessions).toEqual(before.activity_supersessions);
+    expect(after.activity_supersessions).toHaveLength(1);
+  });
+
+  const linkedBackup = async () => {
+    const [first] = await sql<{ id: string }[]>`
+      INSERT INTO activity_events (user_id, source, kind, event_key, ts_start) VALUES (${userId}, 'src-thin', 'message', 'thin', now()) RETURNING id`;
+    const [second] = await sql<{ id: string }[]>`
+      INSERT INTO activity_events (user_id, source, kind, event_key, ts_start, content, import_id)
+      VALUES (${userId}, 'src-full', 'message', 'full', now(), 'text', NULL) RETURNING id`;
+    await sql`INSERT INTO activity_supersessions (user_id, superseded_id, by_id) VALUES (${userId}, ${first!.id}, ${second!.id})`;
+    const written = await writeBackup(sql, { databaseUrl: testUrl.toString(), directory: dir });
+    const raw = JSON.parse(await readFile(written.path, "utf8")) as {
+      formatVersion: number;
+      sha256: string;
+      tables: Record<string, Record<string, unknown>[]>;
+    };
+    return { raw, written };
+  };
+
+  it("restores a format 27 backup, which has no supersession links: the table comes back empty and the events untouched", async () => {
+    const { raw, written } = await linkedBackup();
+    delete raw.tables.activity_supersessions;
+    raw.formatVersion = 27;
+    raw.sha256 = checksum(raw.tables);
+    const older = validateBackup(raw);
+    const outcome = await restoreBackup(sql, older, written.path);
+    expect(outcome.absent).toEqual(["activity_supersessions"]);
+    expect(await sql`SELECT 1 FROM activity_supersessions`).toHaveLength(0);
+    expect(await sql`SELECT 1 FROM activity_events`).toHaveLength(2);
+  });
+
+  it("refuses a backup whose supersession link names another person, and restores nothing", async () => {
+    const [other] = await sql<{ id: string }[]>`INSERT INTO users (display_name) VALUES ('Other') RETURNING id`;
+    const { raw, written } = await linkedBackup();
+    raw.tables.users = [...(raw.tables.users ?? [])];
+    raw.tables.activity_supersessions![0]!.user_id = other!.id;
+    raw.sha256 = checksum(raw.tables);
+    const tampered = validateBackup(raw);
+    await expect(restoreBackup(sql, tampered, written.path)).rejects.toThrow(/belong to another person/);
+    // The transaction rolled back: the live rows are as they were.
+    expect(await sql`SELECT 1 FROM activity_supersessions WHERE user_id = ${userId}`).toHaveLength(1);
   });
 
   it("restores a backup written before expected_every_minutes existed: the column comes back null and nothing else changes", async () => {

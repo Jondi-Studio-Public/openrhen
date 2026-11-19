@@ -1401,8 +1401,10 @@ export type { MessageEventInput, MessageKeyInput, MessageVerdict } from "./activ
 export {
   MESSAGE_DUPLICATE_END_STATE,
   findMessageDuplicates,
+  findThinReplacements,
   isMessageCopyCandidate,
   isRfcMessageId,
+  matchedMessageId,
   probeFingerprint,
   probeSharesMessageId
 } from "./activity-message-dedupe.js";
@@ -1410,7 +1412,10 @@ export type {
   HeldMessageRef,
   MessageCopyProbe,
   MessageDuplicate,
-  MessageDuplicateBy
+  MessageDuplicateBy,
+  ThinReplacement,
+  ThinReplacementProbe,
+  ThinReplacementRole
 } from "./activity-message-dedupe.js";
 export {
   PHYSIOLOGY_COMMON_ATTRS,
@@ -1451,6 +1456,7 @@ export type {
   ActivityExtractorSummary,
   ActivityEventVerdict,
   ActivityIngestResult,
+  ActivityReplacement,
   ActivityRejection,
   ActivityShorthand,
   ActivitySourceEntry,

@@ -1,0 +1,75 @@
+{
+  "_comment": "Every file under portal/server and platform/database/src (tests excluded) that reads activity_events (FROM or JOIN, bare, schema-qualified or quoted), with how many sites and what it does about superseded copies (supersession, docs/architecture/activity-store.md). hide: a reader of message text that leaves out a copy another copy stands in for. keep: sees every row, because it measures a collector, must find every row to delete or derive, or reads one extractor input source that holds no superseded row. none: reads no message rows. A new file, or a changed site count, fails activity-events-readers.test.ts until this map says what the new site decides.",
+  "readers": {
+    "portal/server/persistence/postgres/activity-store.ts": {
+      "sites": 15,
+      "decision": "hide",
+      "why": "readActivityEvents hides a superseded row when the query names no source, and only while the row standing in for it is in the reader's view (not an excluded source, inside the requested time window), and flags it with supersededBy when it does; the rest of the file keeps: ingest lookups ignore superseded rows through the anti-join, the summary counts and the health devices measure collectors, undo and purge must see every row."
+    },
+    "portal/server/data-flow/health-reader.ts": {
+      "sites": 8,
+      "decision": "keep",
+      "why": "Health last, kinds, arrivals, gaps and the processing collected count measure what each collector delivered, and a thin copy was delivered; collected stays per source."
+    },
+    "portal/server/persistence/postgres/activity-retention-store.ts": {
+      "sites": 2,
+      "decision": "keep",
+      "why": "Retention deletes by age and must see every row; the link cascades with either side."
+    },
+    "portal/server/persistence/postgres/derived-lineage-store.ts": {
+      "sites": 3,
+      "decision": "keep",
+      "why": "Lineage and the delete of derived rows must see every row; a derived row stays on the thin row it was read from."
+    },
+    "portal/server/persistence/postgres/derived-source-gone-store.ts": {
+      "sites": 2,
+      "decision": "keep",
+      "why": "A source_gone fact needs the thin row to be found while it exists; nothing is re-pointed to the import row."
+    },
+    "portal/server/persistence/postgres/derived-scan-store.ts": {
+      "sites": 7,
+      "decision": "keep",
+      "why": "The derived pipeline reads headers and calendar attrs only the thin row carries, and its counts equal its scans."
+    },
+    "portal/server/persistence/postgres/derived-model-scan-store.ts": {
+      "sites": 10,
+      "decision": "keep",
+      "why": "Reads one extractor input source today, and the import row is another source, so skipping the thin row would only remove no_content skips; the filter lands with the model extractor that reads a source set."
+    },
+    "portal/server/persistence/postgres/derived-write-store.ts": {
+      "sites": 1,
+      "decision": "none",
+      "why": "Looks up derived rows by key before writing; it reads no message rows."
+    },
+    "portal/server/persistence/postgres/eval-report-store.ts": {
+      "sites": 9,
+      "decision": "keep",
+      "why": "The evaluation report reads extractor input rows and derived rows by key and lineage; it needs the thin row that a derived row cites."
+    },
+    "portal/server/persistence/postgres/open-facts-store.ts": {
+      "sites": 5,
+      "decision": "keep",
+      "why": "Fact evidence resolves a span to the thin row it was found in; no span can come from a thin row's absent text."
+    },
+    "portal/server/persistence/postgres/fact-act-store.ts": {
+      "sites": 1,
+      "decision": "none",
+      "why": "Resolves derived fact rows by event key; it reads no message rows."
+    },
+    "portal/server/persistence/postgres/drift-reason-store.ts": {
+      "sites": 1,
+      "decision": "none",
+      "why": "Reads the owner's drift-reason rows; no message rows."
+    },
+    "portal/server/persistence/postgres/work-label-store.ts": {
+      "sites": 3,
+      "decision": "none",
+      "why": "Reads drift work labels; no message rows."
+    },
+    "platform/database/src/operations/restore-run.ts": {
+      "sites": 2,
+      "decision": "keep",
+      "why": "The restore check reads both events of every supersession link to prove they are the link's person's."
+    }
+  }
+}

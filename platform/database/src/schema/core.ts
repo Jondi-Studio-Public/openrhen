@@ -3594,7 +3594,13 @@ export const activityEvents = pgTable(
     // Derived reads and the daily re-offer scan only derived sources; the predicate keeps raw rows out of the index.
     index("activity_events_derived_idx")
       .on(table.userId, table.source, table.kind)
-      .where(sql`${table.source} IN ('derived', 'derived-shadow')`)
+      .where(sql`${table.source} IN ('derived', 'derived-shadow')`),
+    // Supersession finds a message's other copies by its normalised id. The function (migration 0157) does what
+    // `normaliseMessageId` does, because raw mail ids are stored as the source sent them. Partial, so only rows that
+    // carry an id are indexed.
+    index("activity_events_message_id_idx")
+      .on(table.userId, sql`(normalise_message_id(${table.attrs}->>'message_id'))`)
+      .where(sql`${table.kind} = 'message' AND ${table.attrs} ? 'message_id'`)
   ]
 );
 
@@ -3626,6 +3632,37 @@ export const activitySourceState = pgTable(
       "activity_source_state_expected_check",
       sql`${table.expectedEveryMinutes} IS NULL OR ${table.expectedEveryMinutes} BETWEEN 5 AND 129600`
     )
+  ]
+);
+
+/**
+ * Which copy of one message a text reader sees (supersession). An import row that holds the text (`by_id`) stands in for
+ * a thinner copy of the same message in another source (`superseded_id`, no text); the thin row stays in the store, is
+ * still read by the derived pipeline and is never re-pointed, so nothing derived from it is lost. A side table, not a
+ * column on `activity_events`, so the append-only trigger of 0148 stays untouched. `superseded_id` is the key: a row has
+ * at most one superseder. Both foreign keys cascade, so undo-import, purge by source and the retention purge of either
+ * side remove the link and the other row is visible again. `user_id` is carried so a per-user delete and the isolation
+ * tests need no join; that both rows are this person's is enforced by the one insert that writes it (`INSERT ... SELECT`
+ * with `user_id` checked on both rows) and by a restore check, not by the database. `created_at` is the later of the two
+ * rows' `ingested_at`, so an `as_of` read never hides both copies. Append-only (a trigger rejects UPDATE). Never a plan input.
+ */
+export const activitySupersessions = pgTable(
+  "activity_supersessions",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    supersededId: uuid("superseded_id")
+      .primaryKey()
+      .references(() => activityEvents.id, { onDelete: "cascade" }),
+    byId: uuid("by_id")
+      .notNull()
+      .references(() => activityEvents.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    check("activity_supersessions_distinct_check", sql`${table.supersededId} <> ${table.byId}`),
+    index("activity_supersessions_by_idx").on(table.byId)
   ]
 );
 

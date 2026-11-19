@@ -127,6 +127,13 @@
       "when": 1794400000006,
       "tag": "0156_check_in_waiting_push",
       "breakpoints": true
+    },
+    {
+      "idx": 157,
+      "version": "7",
+      "when": 1794400000007,
+      "tag": "0157_activity_supersessions",
+      "breakpoints": true
     }
   ]
 }
