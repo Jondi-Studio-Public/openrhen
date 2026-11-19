@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { config } from "dotenv";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
@@ -418,6 +418,10 @@ describe("a read that is complete only when it can be", () => {
   });
 
   it("adopts a UID that became a series: the rule starts after its one-off events, which stay and no longer hold the read incomplete", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date(FEED_WINDOW.timeMin) });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     await commit(await diffOf(feedOf([feedEvent("a"), feedEvent("gone", { title: "Gone" })])));
     // 'a' now repeats: a rule from its first date would materialise on top of its one-off commitment, so the rule is
     // proposed to begin on the next Tuesday after that event (2026-11-10), and the one-off link stays.
@@ -446,7 +450,10 @@ describe("a read that is complete only when it can be", () => {
 describe("the series pass's own reads and writes", () => {
   it("keeps the dates a link already records when it is linked again", async () => {
     const ruleId = await approve();
-    const dates = { "2026-11-17": { status: "cancelled" } };
+    const [nextWeek] = await sql<{ tuesday: string }[]>`
+      SELECT (date_trunc('week', CURRENT_TIMESTAMP AT TIME ZONE timezone)::date + 8)::text AS tuesday
+      FROM commitment_recurrence_rules WHERE id=${ruleId}`;
+    const dates = { [nextWeek!.tuesday]: { status: "cancelled" } };
     await sql`UPDATE calendar_event_links SET last_remote_snapshot = last_remote_snapshot || ${sql.json({ occurrences: dates } as never)} WHERE recurrence_rule_id=${ruleId}`;
     await linkCalendarFeedRule(sql, userId, ruleId, {
       stem: "weekly",
